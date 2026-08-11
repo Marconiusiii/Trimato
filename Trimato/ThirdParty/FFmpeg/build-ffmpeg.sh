@@ -48,6 +48,13 @@ build_architecture() {
         --disable-ffplay \
         --disable-gpl \
         --disable-nonfree \
+        --disable-network \
+        --disable-protocols \
+        --enable-protocol=file \
+        --enable-protocol=pipe \
+        --enable-protocol=fd \
+        --disable-demuxer=hls \
+        --disable-muxer=hls \
         --enable-audiotoolbox \
         --enable-videotoolbox
     make -j"$(sysctl -n hw.logicalcpu)" ffmpeg ffprobe

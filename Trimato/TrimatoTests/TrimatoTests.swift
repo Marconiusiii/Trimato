@@ -222,6 +222,24 @@ struct TrimatoTests {
         #expect(String(decoding: ffprobe.standardOutput, as: UTF8.self).contains("ffprobe version 8.1.2"))
     }
 
+    @Test func bundledFFmpegToolsOnlyExposeLocalProtocols() async throws {
+        let result = try await FFmpegRunner.run(
+            tool: .ffmpeg,
+            arguments: ["-hide_banner", "-protocols"]
+        )
+        let protocols = Set(
+            String(decoding: result.standardOutput, as: UTF8.self)
+                .split(whereSeparator: \.isWhitespace)
+                .map(String.init)
+        )
+
+        #expect(protocols.isSuperset(of: ["file", "pipe", "fd"]))
+        #expect(protocols.isDisjoint(with: [
+            "crypto", "ftp", "gopher", "http", "httpproxy", "rtmp", "rtp",
+            "srtp", "tcp", "udp", "udplite", "unix"
+        ]))
+    }
+
     @Test func bundledToolsEncodeTrimmedMP4FromMKV() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

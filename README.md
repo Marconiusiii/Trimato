@@ -70,7 +70,7 @@ After a deletion, the playhead moves to the new edit point and the markers are c
 
 When AVFoundation can play and export a source natively, Trimato uses passthrough export to retain the source file type and codec. This commonly includes QuickTime Movie, MP4, and M4V sources whose internal codecs are supported by macOS.
 
-When native playback is unavailable, Trimato can use its bundled FFmpeg and ffprobe tools to inspect the source and create a temporary playback proxy. Converted exports are written as MP4. Explicitly registered fallback extensions include:
+When native playback is unavailable, Trimato can use its bundled FFmpeg and ffprobe tools to inspect a local source and create a temporary playback proxy. Converted exports are written as MP4. The bundled tools have networking, encrypted-stream protocols, and HLS support disabled; they can access only local files and local process pipes. Explicitly registered fallback extensions include:
 
 - MKV
 - WebM
