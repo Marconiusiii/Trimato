@@ -24,6 +24,7 @@ struct AboutView: View {
 
             Text("vidTime")
                 .font(.largeTitle.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
 
             Text(AboutInformation.versionText())
                 .foregroundStyle(.secondary)
@@ -60,12 +61,21 @@ struct FFmpegLicenseView: View {
     }()
 
     var body: some View {
-        ScrollView {
-            Text(licenseText)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 0) {
+            Text("FFmpeg License")
+                .font(.title2.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
                 .padding(20)
+
+            Divider()
+
+            ScrollView {
+                Text(licenseText)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+            }
         }
         .background(EditorTheme.workspace)
         .preferredColorScheme(.dark)

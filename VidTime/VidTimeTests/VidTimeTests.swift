@@ -258,4 +258,25 @@ struct VidTimeTests {
         #expect(FileManager.default.fileExists(atPath: licenseURL.path))
     }
 
+    @Test func importProgressAnnouncementsUseRestrainedMilestones() {
+        #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.01) == 0)
+        #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.24) == 0)
+        #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.25) == 25)
+        #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.74) == 50)
+        #expect(VideoPlayerViewModel.importProgressMilestone(for: 1) == 100)
+    }
+
+    @Test func proxyRemovalDeletesTheTemporaryFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let proxy = directory.appendingPathComponent("proxy.mp4")
+        try Data("temporary proxy".utf8).write(to: proxy)
+
+        #expect(FileManager.default.fileExists(atPath: proxy.path))
+        ProxyMediaManager.removeProxy(at: proxy)
+        #expect(!FileManager.default.fileExists(atPath: proxy.path))
+    }
+
 }

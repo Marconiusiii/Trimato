@@ -20,6 +20,7 @@ struct VidTimeApp: App {
                     viewModel?.openFile()
                 }
                 .keyboardShortcut("o", modifiers: .command)
+                .disabled(viewModel?.isLoadingMedia == true)
             }
             CommandGroup(after: .saveItem) {
                 Button("Export Trimmed Clip\u{2026}") {

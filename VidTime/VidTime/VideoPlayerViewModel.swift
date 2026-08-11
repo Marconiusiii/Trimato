@@ -44,6 +44,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var isLoadingMedia = false
     @Published private(set) var mediaStatus: String?
     @Published private(set) var mediaProgress: Double?
+    @Published private(set) var mediaFilename = ""
 
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
@@ -58,6 +59,8 @@ final class VideoPlayerViewModel: ObservableObject {
     private var frameStepPosition: CMTime?
     private var exportTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
+    private var loadID: UUID?
+    private var announcedImportProgress = 0
     private var isSteppingFrames = false
     private var stepEndTask: Task<Void, Never>?
     private var arrowHolding = false
@@ -111,6 +114,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func load(url: URL) {
+        loadID = nil
         loadTask?.cancel()
         cancelScrub()
         arrowHolding = false
@@ -124,6 +128,7 @@ final class VideoPlayerViewModel: ObservableObject {
         exportStatus = nil
         exportProgress = nil
         mediaStatus = "Inspecting \(url.lastPathComponent)"
+        mediaFilename = url.lastPathComponent
         mediaProgress = nil
         isLoadingMedia = true
         player.replaceCurrentItem(with: nil)
@@ -132,12 +137,22 @@ final class VideoPlayerViewModel: ObservableObject {
         currentTime = 0; currentFrame = 0; frameRate = 0; duration = 0
         minFrameDuration = .invalid
         accessibilityTimecodeLabel = "0 seconds, 0 milliseconds"
+        announcedImportProgress = 0
+        let operationID = UUID()
+        loadID = operationID
+        announce("Preparing \(url.lastPathComponent)")
         loadTask = Task { @MainActor in
+            var preparedProxyURL: URL?
             do {
                 let source = try await self.prepareMediaSource(url: url)
+                preparedProxyURL = source.usesProxy ? source.playbackURL : nil
                 try Task.checkCancellation()
+                guard self.loadID == operationID else {
+                    throw CancellationError()
+                }
                 self.mediaSource = source
                 self.proxyURL = source.usesProxy ? source.playbackURL : nil
+                preparedProxyURL = nil
                 self.player.replaceCurrentItem(with: AVPlayerItem(asset: source.playbackAsset))
                 if let track = try await source.playbackAsset.loadTracks(withMediaType: .video).first {
                     self.frameRate = try await track.load(.nominalFrameRate)
@@ -153,20 +168,52 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.mediaStatus = source.usesProxy
                     ? "Ready using a temporary playback proxy"
                     : "Ready"
+                self.loadID = nil
                 self.loadTask = nil
                 self.announce(source.usesProxy ? "Video ready using a playback proxy" : "Video ready")
             } catch is CancellationError {
+                ProxyMediaManager.removeProxy(at: preparedProxyURL)
+                guard self.loadID == operationID else { return }
                 self.isLoadingMedia = false
                 self.mediaProgress = nil
+                self.loadID = nil
                 self.loadTask = nil
             } catch {
+                ProxyMediaManager.removeProxy(at: preparedProxyURL)
+                guard self.loadID == operationID else { return }
                 self.isLoadingMedia = false
                 self.mediaProgress = nil
                 self.mediaStatus = "Open failed: \(error.localizedDescription)"
+                self.loadID = nil
                 self.loadTask = nil
                 self.announce("Open failed. \(error.localizedDescription)")
             }
         }
+    }
+
+    func cancelMediaLoad() {
+        guard isLoadingMedia else { return }
+        loadID = nil
+        loadTask?.cancel()
+        loadTask = nil
+        isLoadingMedia = false
+        mediaProgress = nil
+        mediaStatus = "Import canceled"
+        announce("Import canceled")
+    }
+
+    func closeMedia() {
+        loadID = nil
+        loadTask?.cancel()
+        loadTask = nil
+        isLoadingMedia = false
+        mediaProgress = nil
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        ProxyMediaManager.removeProxy(at: proxyURL)
+        proxyURL = nil
+        mediaSource = nil
+        hasVideo = false
     }
 
     func togglePlayPause() {
@@ -633,7 +680,9 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private func setupKeyEventMonitor() {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-            guard let self, self.hasVideo, NSApp.modalWindow == nil else { return event }
+            guard let self, !self.isLoadingMedia, self.hasVideo, NSApp.modalWindow == nil else {
+                return event
+            }
 
             let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
             let commandModifiers = event.modifierFlags.intersection(commandSet)
@@ -723,7 +772,7 @@ final class VideoPlayerViewModel: ObservableObject {
 
         if isPlayable, let contentType,
            ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
-            mediaStatus = "Indexing frames"
+            updateImportStatus("Indexing frames")
             let timestamps = (try? await FFmpegMediaProbe.frameTimestamps(url: url)) ?? []
             return .native(
                 url: url,
@@ -734,10 +783,10 @@ final class VideoPlayerViewModel: ObservableObject {
             )
         }
 
-        mediaStatus = "Analyzing video compatibility"
+        updateImportStatus("Analyzing video compatibility")
         let report = try await FFmpegMediaProbe.inspect(url: url)
         try FFmpegMediaProbe.validateForMP4Conversion(report)
-        mediaStatus = "Indexing frames"
+        updateImportStatus("Indexing frames")
         let timestamps = try await FFmpegMediaProbe.frameTimestamps(url: url)
 
         if isPlayable {
@@ -750,24 +799,48 @@ final class VideoPlayerViewModel: ObservableObject {
             )
         }
 
-        mediaStatus = "Creating playback proxy"
+        updateImportStatus("Creating playback proxy")
         mediaProgress = 0
         let generatedProxy = try await ProxyMediaManager.createProxy(
             sourceURL: url,
             duration: report.duration
         ) { [weak self] progress in
-            self?.mediaProgress = progress
+            self?.updateImportProgress(progress)
         }
-        let proxyAsset = AVURLAsset(url: generatedProxy)
-        return MediaSource(
-            originalURL: url,
-            playbackURL: generatedProxy,
-            originalAsset: asset,
-            playbackAsset: proxyAsset,
-            contentType: contentType,
-            mode: .proxyPlaybackMP4Export,
-            frameTimestamps: timestamps
-        )
+        do {
+            try Task.checkCancellation()
+            let proxyAsset = AVURLAsset(url: generatedProxy)
+            return MediaSource(
+                originalURL: url,
+                playbackURL: generatedProxy,
+                originalAsset: asset,
+                playbackAsset: proxyAsset,
+                contentType: contentType,
+                mode: .proxyPlaybackMP4Export,
+                frameTimestamps: timestamps
+            )
+        } catch {
+            ProxyMediaManager.removeProxy(at: generatedProxy)
+            throw error
+        }
+    }
+
+    private func updateImportStatus(_ status: String) {
+        mediaStatus = status
+        announce(status)
+    }
+
+    private func updateImportProgress(_ progress: Double) {
+        mediaProgress = progress
+        let milestone = Self.importProgressMilestone(for: progress)
+        guard milestone > announcedImportProgress else { return }
+        announcedImportProgress = milestone
+        announce("Import \(milestone) percent complete")
+    }
+
+    static func importProgressMilestone(for progress: Double) -> Int {
+        let clamped = min(max(progress, 0), 1)
+        return Int(clamped * 100) / 25 * 25
     }
 
     // MARK: - Private: accessibility & timecode formatting

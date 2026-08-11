@@ -23,6 +23,22 @@ struct ContentView: View {
             guard url.isFileURL else { return }
             viewModel.load(url: url)
         }
+        .sheet(isPresented: Binding(
+            get: { viewModel.isLoadingMedia },
+            set: { presented in
+                if !presented { viewModel.cancelMediaLoad() }
+            }
+        )) {
+            MediaImportView(
+                filename: viewModel.mediaFilename,
+                status: viewModel.mediaStatus ?? "Preparing video",
+                progress: viewModel.mediaProgress,
+                cancel: viewModel.cancelMediaLoad
+            )
+        }
+        .onDisappear {
+            viewModel.closeMedia()
+        }
     }
 
     // MARK: - Video area
@@ -31,7 +47,7 @@ struct ContentView: View {
         ZStack {
             Color.black
             VideoPlayerView(player: viewModel.player)
-            if !viewModel.hasVideo {
+            if !viewModel.hasVideo, !viewModel.isLoadingMedia {
                 VStack(spacing: 16) {
                     Image(systemName: "film")
                         .font(.system(size: 64))
