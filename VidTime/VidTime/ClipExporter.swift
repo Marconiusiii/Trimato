@@ -1,13 +1,14 @@
 import AVFoundation
+import UniformTypeIdentifiers
 
-enum ClipExportError: LocalizedError {
+enum ClipExportError: LocalizedError, Equatable {
     case unavailable
     case unsupportedFileType
 
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            return "This video cannot be exported with the selected quality preset."
+            return "This video cannot be exported without converting it."
         case .unsupportedFileType:
             return "The selected output file type is not supported for this video."
         }
@@ -18,21 +19,20 @@ struct ClipExporter {
     static func export(
         asset: AVAsset,
         timeRange: CMTimeRange,
+        sourceContentType: UTType,
         to outputURL: URL
     ) async throws {
         guard let session = AVAssetExportSession(
             asset: asset,
-            presetName: AVAssetExportPresetHighestQuality
+            presetName: AVAssetExportPresetPassthrough
         ) else {
             throw ClipExportError.unavailable
         }
 
-        let requestedType: AVFileType = outputURL.pathExtension.lowercased() == "mp4"
-            ? .mp4
-            : .mov
-        guard session.supportedFileTypes.contains(requestedType) else {
-            throw ClipExportError.unsupportedFileType
-        }
+        let requestedType = try passthroughFileType(
+            for: sourceContentType,
+            supportedFileTypes: session.supportedFileTypes
+        )
 
         let fileManager = FileManager.default
         let replacementDirectory = try fileManager.url(
@@ -54,5 +54,16 @@ struct ClipExporter {
         } else {
             try fileManager.moveItem(at: temporaryURL, to: outputURL)
         }
+    }
+
+    static func passthroughFileType(
+        for sourceContentType: UTType,
+        supportedFileTypes: [AVFileType]
+    ) throws -> AVFileType {
+        let sourceFileType = AVFileType(rawValue: sourceContentType.identifier)
+        guard supportedFileTypes.contains(sourceFileType) else {
+            throw ClipExportError.unsupportedFileType
+        }
+        return sourceFileType
     }
 }

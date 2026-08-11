@@ -46,6 +46,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var mediaDuration: CMTime = .zero
     private var sourceAsset: AVURLAsset?
     private var sourceURL: URL?
+    private var sourceContentType: UTType?
     private var timeObserver: Any?
     private var rateObserver: AnyCancellable?
     private var keyEventMonitor: Any?
@@ -110,6 +111,8 @@ final class VideoPlayerViewModel: ObservableObject {
         let asset = AVURLAsset(url: url)
         sourceAsset = asset
         sourceURL = url
+        sourceContentType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+            ?? UTType(filenameExtension: url.pathExtension)
         mediaDuration = .zero
         inMarker = nil
         outMarker = nil
@@ -243,17 +246,22 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func exportTrimmedClip() {
-        guard NSApp.modalWindow == nil, !isExporting, let sourceAsset,
-              let range = Self.validExportRange(inMarker: inMarker, outMarker: outMarker) else {
+        guard NSApp.modalWindow == nil, !isExporting else { return }
+        guard let range = Self.validExportRange(inMarker: inMarker, outMarker: outMarker) else {
             announce("Set an In marker earlier than the Out marker before exporting")
+            return
+        }
+        guard let sourceAsset, let sourceURL, let sourceContentType else {
+            announce("The source file type could not be determined for passthrough export")
             return
         }
 
         let panel = NSSavePanel()
         panel.title = "Export Trimmed Clip"
-        panel.allowedContentTypes = [.quickTimeMovie, .mpeg4Movie]
-        let baseName = sourceURL?.deletingPathExtension().lastPathComponent ?? "Clip"
-        panel.nameFieldStringValue = "\(baseName)-trimmed.mov"
+        panel.allowedContentTypes = [sourceContentType]
+        panel.allowsOtherFileTypes = false
+        panel.isExtensionHidden = false
+        panel.nameFieldStringValue = Self.trimmedFilename(for: sourceURL)
         guard panel.runModal() == .OK, let outputURL = panel.url else { return }
 
         isExporting = true
@@ -261,7 +269,12 @@ final class VideoPlayerViewModel: ObservableObject {
         announce("Export started")
         exportTask = Task { @MainActor in
             do {
-                try await ClipExporter.export(asset: sourceAsset, timeRange: range, to: outputURL)
+                try await ClipExporter.export(
+                    asset: sourceAsset,
+                    timeRange: range,
+                    sourceContentType: sourceContentType,
+                    to: outputURL
+                )
                 self.isExporting = false
                 self.exportTask = nil
                 self.exportStatus = "Export complete: \(outputURL.lastPathComponent)"
@@ -297,6 +310,14 @@ final class VideoPlayerViewModel: ObservableObject {
               inMarker.isValid, outMarker.isValid,
               CMTimeCompare(inMarker, outMarker) < 0 else { return nil }
         return CMTimeRange(start: inMarker, end: outMarker)
+    }
+
+    static func trimmedFilename(for sourceURL: URL) -> String {
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        let fileExtension = sourceURL.pathExtension
+        return fileExtension.isEmpty
+            ? "\(baseName)-trimmed"
+            : "\(baseName)-trimmed.\(fileExtension)"
     }
 
     static func orderedTimelinePoints(
@@ -537,6 +558,14 @@ final class VideoPlayerViewModel: ObservableObject {
             switch event.type {
             case .keyDown:
                 if commandModifiers == .command {
+                    if event.charactersIgnoringModifiers?.lowercased() == "e" {
+                        if !event.isARepeat {
+                            DispatchQueue.main.async { [weak self] in
+                                self?.exportTrimmedClip()
+                            }
+                        }
+                        return nil
+                    }
                     switch event.keyCode {
                     case 123: // Command+Left arrow
                         if !event.isARepeat { self.goToPreviousTimelinePoint() }

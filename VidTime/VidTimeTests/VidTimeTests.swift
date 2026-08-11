@@ -7,6 +7,7 @@
 
 import AVFoundation
 import Testing
+import UniformTypeIdentifiers
 @testable import VidTime
 
 struct VidTimeTests {
@@ -81,6 +82,35 @@ struct VidTimeTests {
 
         #expect(next?.kind == .outMarker)
         #expect(previous?.kind == .inMarker)
+    }
+
+    @Test func trimmedFilenamePreservesSourceExtension() {
+        let sourceURL = URL(fileURLWithPath: "/tmp/Example Clip.mp4")
+
+        #expect(VideoPlayerViewModel.trimmedFilename(for: sourceURL) == "Example Clip-trimmed.mp4")
+    }
+
+    @Test func passthroughUsesTheOriginalContainerType() throws {
+        let fileType = try ClipExporter.passthroughFileType(
+            for: .mpeg4Movie,
+            supportedFileTypes: [.mp4, .mov]
+        )
+
+        #expect(fileType == .mp4)
+    }
+
+    @Test func unsupportedPassthroughDoesNotFallBackToConversion() {
+        do {
+            _ = try ClipExporter.passthroughFileType(
+                for: .mpeg4Movie,
+                supportedFileTypes: [.mov]
+            )
+            Issue.record("Expected unsupported passthrough to throw")
+        } catch let error as ClipExportError {
+            #expect(error == .unsupportedFileType)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
 }
