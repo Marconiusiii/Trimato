@@ -1,8 +1,30 @@
 import AVFoundation
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 final class VideoPlayerViewModel: ObservableObject {
+    struct TimelinePoint: Equatable {
+        enum Kind: Int, Equatable {
+            case start
+            case inMarker
+            case outMarker
+            case end
+
+            var spokenName: String {
+                switch self {
+                case .start: "Start"
+                case .inMarker: "In"
+                case .outMarker: "Out"
+                case .end: "End"
+                }
+            }
+        }
+
+        let kind: Kind
+        let time: CMTime
+    }
+
     let player = AVPlayer()
 
     @Published var displayTimecode: String = "00:00:00.000"
@@ -14,15 +36,23 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published var showingFrames: Bool = false
     @Published var currentFrame: Int = 0
     @Published private(set) var accessibilityTimecodeLabel: String = "0 seconds, 0 milliseconds"
+    @Published private(set) var inMarker: CMTime?
+    @Published private(set) var outMarker: CMTime?
+    @Published private(set) var isExporting = false
+    @Published private(set) var exportStatus: String?
 
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
+    private var mediaDuration: CMTime = .zero
+    private var sourceAsset: AVURLAsset?
+    private var sourceURL: URL?
     private var timeObserver: Any?
     private var rateObserver: AnyCancellable?
     private var keyEventMonitor: Any?
     private var isScrubbing = false
     private var scrubTask: Task<Void, Never>?
     private var frameStepPosition: CMTime?
+    private var exportTask: Task<Void, Never>?
     private var isSteppingFrames = false
     private var stepEndTask: Task<Void, Never>?
     private var arrowHolding = false
@@ -42,13 +72,29 @@ final class VideoPlayerViewModel: ObservableObject {
     deinit {
         scrubTask?.cancel()
         stepEndTask?.cancel()
+        exportTask?.cancel()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let keyEventMonitor { NSEvent.removeMonitor(keyEventMonitor) }
     }
 
     // MARK: - Public
 
+    var inMarkerDisplay: String {
+        guard let inMarker else { return "Not set" }
+        return Self.formatTimecode(inMarker)
+    }
+
+    var outMarkerDisplay: String {
+        guard let outMarker else { return "Not set" }
+        return Self.formatTimecode(outMarker)
+    }
+
+    var canExport: Bool {
+        Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil && !isExporting
+    }
+
     func openFile() {
+        guard NSApp.modalWindow == nil else { return }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -62,6 +108,12 @@ final class VideoPlayerViewModel: ObservableObject {
         arrowHolding = false
         jklIndex = 0
         let asset = AVURLAsset(url: url)
+        sourceAsset = asset
+        sourceURL = url
+        mediaDuration = .zero
+        inMarker = nil
+        outMarker = nil
+        exportStatus = nil
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
         hasVideo = true
         displayTimecode = "00:00:00.000"
@@ -74,7 +126,10 @@ final class VideoPlayerViewModel: ObservableObject {
                     self.frameRate = try await track.load(.nominalFrameRate)
                     self.minFrameDuration = try await track.load(.minFrameDuration)
                 }
-                self.duration = CMTimeGetSeconds(try await asset.load(.duration))
+                let loadedDuration = try await asset.load(.duration)
+                guard self.sourceURL == url else { return }
+                self.mediaDuration = loadedDuration
+                self.duration = CMTimeGetSeconds(loadedDuration)
             } catch {}
         }
     }
@@ -120,9 +175,171 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func copyTimecode() {
-        let timecode = Self.formatTimecode(frameStepPosition ?? player.currentTime())
+        let timecode = Self.formatTimecode(effectivePlayheadTime)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(timecode, forType: .string)
+        announce("Copied timecode (timecode)")
+    }
+
+    func markIn() {
+        guard hasVideo, NSApp.modalWindow == nil else { return }
+        let time = effectivePlayheadTime
+        setInMarker(at: time)
+        announce("In marked at \(spokenTime(time))")
+    }
+
+    func markOut() {
+        guard hasVideo, NSApp.modalWindow == nil else { return }
+        let time = effectivePlayheadTime
+        setOutMarker(at: time)
+        announce("Out marked at \(spokenTime(time))")
+    }
+
+    func setInMarker(at time: CMTime) { inMarker = time }
+
+    func setOutMarker(at time: CMTime) { outMarker = time }
+
+    func clearIn() {
+        guard inMarker != nil else { return }
+        inMarker = nil
+        announce("In marker cleared")
+    }
+
+    func clearOut() {
+        guard outMarker != nil else { return }
+        outMarker = nil
+        announce("Out marker cleared")
+    }
+
+    func goToStart() {
+        jump(to: .init(kind: .start, time: .zero))
+    }
+
+    func goToEnd() {
+        guard mediaDuration.isValid, mediaDuration > .zero else { return }
+        jump(to: .init(kind: .end, time: mediaDuration))
+    }
+
+    func goToPreviousTimelinePoint() {
+        guard let point = Self.timelineDestination(
+            from: effectivePlayheadTime,
+            movingForward: false,
+            duration: mediaDuration,
+            inMarker: inMarker,
+            outMarker: outMarker
+        ) else { return }
+        jump(to: point)
+    }
+
+    func goToNextTimelinePoint() {
+        guard let point = Self.timelineDestination(
+            from: effectivePlayheadTime,
+            movingForward: true,
+            duration: mediaDuration,
+            inMarker: inMarker,
+            outMarker: outMarker
+        ) else { return }
+        jump(to: point)
+    }
+
+    func exportTrimmedClip() {
+        guard NSApp.modalWindow == nil, !isExporting, let sourceAsset,
+              let range = Self.validExportRange(inMarker: inMarker, outMarker: outMarker) else {
+            announce("Set an In marker earlier than the Out marker before exporting")
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.title = "Export Trimmed Clip"
+        panel.allowedContentTypes = [.quickTimeMovie, .mpeg4Movie]
+        let baseName = sourceURL?.deletingPathExtension().lastPathComponent ?? "Clip"
+        panel.nameFieldStringValue = "\(baseName)-trimmed.mov"
+        guard panel.runModal() == .OK, let outputURL = panel.url else { return }
+
+        isExporting = true
+        exportStatus = "Exporting trimmed clip"
+        announce("Export started")
+        exportTask = Task { @MainActor in
+            do {
+                try await ClipExporter.export(asset: sourceAsset, timeRange: range, to: outputURL)
+                self.isExporting = false
+                self.exportTask = nil
+                self.exportStatus = "Export complete: \(outputURL.lastPathComponent)"
+                self.announce("Export complete")
+            } catch is CancellationError {
+                self.isExporting = false
+                self.exportTask = nil
+                self.exportStatus = "Export canceled"
+                self.announce("Export canceled")
+            } catch {
+                self.isExporting = false
+                self.exportTask = nil
+                if Task.isCancelled {
+                    self.exportStatus = "Export canceled"
+                    self.announce("Export canceled")
+                } else {
+                    self.exportStatus = "Export failed: \(error.localizedDescription)"
+                    self.announce("Export failed. \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func cancelExport() {
+        guard isExporting else { return }
+        exportTask?.cancel()
+        exportStatus = "Canceling export"
+        announce("Canceling export")
+    }
+
+    static func validExportRange(inMarker: CMTime?, outMarker: CMTime?) -> CMTimeRange? {
+        guard let inMarker, let outMarker,
+              inMarker.isValid, outMarker.isValid,
+              CMTimeCompare(inMarker, outMarker) < 0 else { return nil }
+        return CMTimeRange(start: inMarker, end: outMarker)
+    }
+
+    static func orderedTimelinePoints(
+        duration: CMTime,
+        inMarker: CMTime?,
+        outMarker: CMTime?
+    ) -> [TimelinePoint] {
+        guard duration.isValid, CMTimeCompare(duration, .zero) > 0 else { return [] }
+        var points = [TimelinePoint(kind: .start, time: .zero)]
+        if let inMarker, inMarker.isValid {
+            points.append(.init(kind: .inMarker, time: inMarker))
+        }
+        if let outMarker, outMarker.isValid {
+            points.append(.init(kind: .outMarker, time: outMarker))
+        }
+        points.append(.init(kind: .end, time: duration))
+        points.sort {
+            let comparison = CMTimeCompare($0.time, $1.time)
+            return comparison == 0 ? $0.kind.rawValue < $1.kind.rawValue : comparison < 0
+        }
+
+        return points.reduce(into: []) { result, point in
+            guard result.last.map({ CMTimeCompare($0.time, point.time) == 0 }) != true else { return }
+            result.append(point)
+        }
+    }
+
+    static func timelineDestination(
+        from currentTime: CMTime,
+        movingForward: Bool,
+        duration: CMTime,
+        inMarker: CMTime?,
+        outMarker: CMTime?
+    ) -> TimelinePoint? {
+        let points = orderedTimelinePoints(
+            duration: duration,
+            inMarker: inMarker,
+            outMarker: outMarker
+        )
+        if movingForward {
+            return points.first { CMTimeCompare($0.time, currentTime) > 0 }
+        }
+        return points.last { CMTimeCompare($0.time, currentTime) < 0 }
     }
 
     // MARK: - JKL
@@ -177,9 +394,13 @@ final class VideoPlayerViewModel: ObservableObject {
         }
 
         let current = frameStepPosition ?? player.currentTime()
-        let target: CMTime = forward
+        let unclampedTarget: CMTime = forward
             ? CMTimeAdd(current, frameDur)
-            : CMTimeMaximum(CMTimeSubtract(current, frameDur), .zero)
+            : CMTimeSubtract(current, frameDur)
+        let nonnegativeTarget = CMTimeMaximum(unclampedTarget, .zero)
+        let target = mediaDuration.isValid && mediaDuration > .zero
+            ? CMTimeMinimum(nonnegativeTarget, mediaDuration)
+            : nonnegativeTarget
         frameStepPosition = target
 
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
@@ -237,6 +458,47 @@ final class VideoPlayerViewModel: ObservableObject {
         player.rate = jklIndex > 0 ? speed : -speed
     }
 
+    // MARK: - Private: markers and navigation
+
+    private var effectivePlayheadTime: CMTime {
+        frameStepPosition ?? player.currentTime()
+    }
+
+    private func jump(to point: TimelinePoint) {
+        guard hasVideo else { return }
+        cancelScrub()
+        player.seek(to: point.time, toleranceBefore: .zero, toleranceAfter: .zero)
+        announce("\(point.kind.spokenName), \(spokenTime(point.time))")
+    }
+
+    private func spokenTime(_ time: CMTime) -> String {
+        let parts = Self.formatTimecode(time).split(separator: ":")
+        guard parts.count == 3 else { return Self.formatTimecode(time) }
+        let h = Int(parts[0]) ?? 0
+        let m = Int(parts[1]) ?? 0
+        let secMs = parts[2].split(separator: ".")
+        let s = Int(secMs.first ?? "0") ?? 0
+        let ms = Int(secMs.last ?? "0") ?? 0
+        var components: [String] = []
+        if h > 0 { components.append("\(h) hour\(h == 1 ? "" : "s")") }
+        if m > 0 { components.append("\(m) minute\(m == 1 ? "" : "s")") }
+        components.append("\(s) second\(s == 1 ? "" : "s")")
+        components.append("\(ms) millisecond\(ms == 1 ? "" : "s")")
+        return components.joined(separator: ", ")
+    }
+
+    private func announce(_ message: String) {
+        let element: Any = NSApp.mainWindow?.contentView ?? NSApp!
+        NSAccessibility.post(
+            element: element,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+            ]
+        )
+    }
+
     // MARK: - Private: observers & key monitor
 
     private func setupTimeObserver() {
@@ -266,33 +528,56 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private func setupKeyEventMonitor() {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-            guard let self, self.hasVideo else { return event }
+            guard let self, self.hasVideo, NSApp.modalWindow == nil else { return event }
+
+            let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+            let commandModifiers = event.modifierFlags.intersection(commandSet)
+            let unmodified = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
 
             switch event.type {
             case .keyDown:
+                if commandModifiers == .command {
+                    switch event.keyCode {
+                    case 123: // Command+Left arrow
+                        if !event.isARepeat { self.goToPreviousTimelinePoint() }
+                        return nil
+                    case 124: // Command+Right arrow
+                        if !event.isARepeat { self.goToNextTimelinePoint() }
+                        return nil
+                    case 126: // Command+Up arrow
+                        if !event.isARepeat { self.goToStart() }
+                        return nil
+                    case 125: // Command+Down arrow
+                        if !event.isARepeat { self.goToEnd() }
+                        return nil
+                    default:
+                        break
+                    }
+                }
+
                 switch event.keyCode {
                 case 49: // Space — toggle, ignore repeat
+                    guard unmodified else { return event }
                     if !event.isARepeat { self.togglePlayPause() }
                     return nil
                 case 123: // Left arrow
+                    guard unmodified else { return event }
                     if event.isARepeat { self.arrowHeld(forward: false) }
                     else               { self.stepBackward() }
                     return nil
                 case 124: // Right arrow
+                    guard unmodified else { return event }
                     if event.isARepeat { self.arrowHeld(forward: true) }
                     else               { self.stepForward() }
                     return nil
                 default: break
                 }
                 // Letter shortcuts — ignore key repeat.
-                if !event.isARepeat {
-                    let commandModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
-                    if event.modifierFlags.intersection(commandModifiers).isEmpty,
-                       event.charactersIgnoringModifiers?.lowercased() == "c" {
-                        self.copyTimecode()
-                        return nil
-                    }
-                    switch event.characters?.lowercased() {
+                if !event.isARepeat, unmodified {
+                    switch event.charactersIgnoringModifiers?.lowercased() {
+                    case "c": self.copyTimecode(); return nil
+                    case "i": self.markIn(); return nil
+                    case "o": self.markOut(); return nil
                     case "j": self.pressJ(); return nil
                     case "k": self.pressK(); return nil
                     case "l": self.pressL(); return nil

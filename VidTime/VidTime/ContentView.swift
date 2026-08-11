@@ -81,6 +81,9 @@ struct ContentView: View {
             .accessibilityLabel(viewModel.accessibilityTimecodeLabel)
             .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
 
+            markerControls
+            timelineControls
+
             speedBadge
 
             // Transport controls — all fully accessible to VoiceOver.
@@ -125,10 +128,56 @@ struct ContentView: View {
                 .accessibilityLabel("Step forward one frame")
             }
             .padding(.bottom, 8)
+
+            Button("Export Trimmed Clip\u{2026}") {
+                viewModel.exportTrimmedClip()
+            }
+            .disabled(!viewModel.canExport)
+
+            if viewModel.isExporting {
+                HStack {
+                    ProgressView("Exporting trimmed clip")
+                    Button("Cancel Export") { viewModel.cancelExport() }
+                }
+            } else if let exportStatus = viewModel.exportStatus {
+                Text(exportStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .background(.regularMaterial)
+    }
+
+    private var markerControls: some View {
+        VStack(spacing: 6) {
+            HStack {
+                Button("Mark In") { viewModel.markIn() }
+                Text("In: \(viewModel.inMarkerDisplay)")
+                    .monospacedDigit()
+                Button("Clear In") { viewModel.clearIn() }
+                    .disabled(viewModel.inMarker == nil)
+            }
+            HStack {
+                Button("Mark Out") { viewModel.markOut() }
+                Text("Out: \(viewModel.outMarkerDisplay)")
+                    .monospacedDigit()
+                Button("Clear Out") { viewModel.clearOut() }
+                    .disabled(viewModel.outMarker == nil)
+            }
+        }
+        .disabled(!viewModel.hasVideo || viewModel.isExporting)
+    }
+
+    private var timelineControls: some View {
+        HStack {
+            Button("Start") { viewModel.goToStart() }
+            Button("Previous Point") { viewModel.goToPreviousTimelinePoint() }
+            Button("Next Point") { viewModel.goToNextTimelinePoint() }
+            Button("End") { viewModel.goToEnd() }
+        }
+        .disabled(!viewModel.hasVideo || viewModel.isExporting)
     }
 
     @ViewBuilder
