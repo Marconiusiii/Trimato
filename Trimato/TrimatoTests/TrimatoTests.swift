@@ -1,6 +1,6 @@
 //
-//  VidTimeTests.swift
-//  VidTimeTests
+//  TrimatoTests.swift
+//  TrimatoTests
 //
 //  Created by Marco Salsiccia on 5/5/26.
 //
@@ -8,9 +8,9 @@
 import AVFoundation
 import Testing
 import UniformTypeIdentifiers
-@testable import VidTime
+@testable import Trimato
 
-struct VidTimeTests {
+struct TrimatoTests {
 
     @Test func settingInAndOutMarkersReplacesPreviousValues() {
         let viewModel = VideoPlayerViewModel()
@@ -460,8 +460,8 @@ struct VidTimeTests {
             .flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }
 
         #expect(contentTypes.contains("public.movie"))
-        #expect(contentTypes.contains("com.marconius.vidtime.matroska-video"))
-        #expect(contentTypes.contains("com.marconius.vidtime.webm-video"))
+        #expect(contentTypes.contains("com.marconius.trimato.matroska-video"))
+        #expect(contentTypes.contains("com.marconius.trimato.webm-video"))
         #expect(documentTypes.first?["CFBundleTypeRole"] as? String == "Editor")
         #expect(documentTypes.first?["LSHandlerRank"] as? String == "Alternate")
     }

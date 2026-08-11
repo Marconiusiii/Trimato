@@ -22,7 +22,7 @@ struct AboutView: View {
                 .scaledToFit()
                 .frame(width: 96, height: 96)
 
-            Text("vidTime")
+            Text("Trimato")
                 .font(.largeTitle.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
 

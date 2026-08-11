@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct VidTimeApp: App {
+struct TrimatoApp: App {
     @FocusedObject private var viewModel: VideoPlayerViewModel?
     @Environment(\.openWindow) private var openWindow
 
@@ -11,7 +11,7 @@ struct VidTimeApp: App {
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About vidTime") {
+                Button("About Trimato") {
                     openWindow(id: "about")
                 }
             }
@@ -69,7 +69,7 @@ struct VidTimeApp: App {
             }
         }
 
-        Window("About vidTime", id: "about") {
+        Window("About Trimato", id: "about") {
             AboutView()
         }
         .windowResizability(.contentSize)

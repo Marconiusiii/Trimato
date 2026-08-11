@@ -1,6 +1,6 @@
-# vidTime
+# Trimato
 
-vidTime is an accessibility-first, keyboard-driven clip editor for macOS. It is designed for quickly reviewing video, moving frame by frame, marking selections, removing unwanted sections, and exporting an edited clip without modifying the original file.
+Trimato is an accessibility-first, keyboard-driven clip editor for macOS. It is designed for quickly reviewing video, moving frame by frame, marking selections, removing unwanted sections, and exporting an edited clip without modifying the original file.
 
 Created by Marco Salsiccia.
 
@@ -55,7 +55,7 @@ Editor shortcuts remain available while focus is on any editor control. Native i
 
 ## Editing model
 
-vidTime uses a non-destructive edit timeline. Deleting or trimming media changes the in-memory playback composition, not the original file.
+Trimato uses a non-destructive edit timeline. Deleting or trimming media changes the in-memory playback composition, not the original file.
 
 In and Out are general selection markers:
 
@@ -68,9 +68,9 @@ After a deletion, the playhead moves to the new edit point and the markers are c
 
 ## Supported media
 
-When AVFoundation can play and export a source natively, vidTime uses passthrough export to retain the source file type and codec. This commonly includes QuickTime Movie, MP4, and M4V sources whose internal codecs are supported by macOS.
+When AVFoundation can play and export a source natively, Trimato uses passthrough export to retain the source file type and codec. This commonly includes QuickTime Movie, MP4, and M4V sources whose internal codecs are supported by macOS.
 
-When native playback is unavailable, vidTime can use its bundled FFmpeg and ffprobe tools to inspect the source and create a temporary playback proxy. Converted exports are written as MP4. Explicitly registered fallback extensions include:
+When native playback is unavailable, Trimato can use its bundled FFmpeg and ffprobe tools to inspect the source and create a temporary playback proxy. Converted exports are written as MP4. Explicitly registered fallback extensions include:
 
 - MKV
 - WebM
@@ -79,11 +79,11 @@ When native playback is unavailable, vidTime can use its bundled FFmpeg and ffpr
 - WMV
 - FLV
 
-Format recognition does not guarantee that every possible codec or media feature inside a container can be edited. vidTime currently rejects HDR and alpha-channel sources when a safe MP4 conversion would not preserve those properties.
+Format recognition does not guarantee that every possible codec or media feature inside a container can be edited. Trimato currently rejects HDR and alpha-channel sources when a safe MP4 conversion would not preserve those properties.
 
 ## Accessibility
 
-Accessibility is part of vidTime's editing model rather than an additional mode.
+Accessibility is part of Trimato's editing model rather than an additional mode.
 
 - The complete editor can be operated from the keyboard.
 - Native SwiftUI controls retain their standard VoiceOver roles and interactions.
@@ -110,27 +110,27 @@ The bundled FFmpeg and ffprobe executables contain Apple silicon and Intel slice
 From the repository root, run:
 
 ```sh
-cd VidTime
+cd Trimato
 ./install-local.sh
 ```
 
-The installer creates a Release build, places `vidTime.app` in `/Applications`, and refreshes Launch Services so vidTime can appear in Finder's Open With menu. Quit an existing copy of vidTime before running the installer.
+The installer creates a Release build, places `Trimato.app` in `/Applications`, and refreshes Launch Services so Trimato can appear in Finder's Open With menu. Quit an existing copy of Trimato before running the installer.
 
-To make vidTime the default editor for a particular video type, select a file of that type in Finder, press Command-I, choose vidTime from Open with, and activate Change All.
+To make Trimato the default editor for a particular video type, select a file of that type in Finder, press Command-I, choose Trimato from Open with, and activate Change All.
 
 ## Building from source
 
 1. Clone or download this repository.
-2. Open `VidTime/VidTime.xcodeproj` in Xcode.
-3. Select the `VidTime` scheme and My Mac as the destination.
+2. Open `Trimato/Trimato.xcodeproj` in Xcode.
+3. Select the `Trimato` scheme and My Mac as the destination.
 4. Build and run with Command-R.
 
 For a command-line Release build from the repository root:
 
 ```sh
 xcodebuild \
-  -project VidTime/VidTime.xcodeproj \
-  -scheme VidTime \
+  -project Trimato/Trimato.xcodeproj \
+  -scheme Trimato \
   -configuration Release \
   -destination 'platform=macOS' \
   build
@@ -140,46 +140,46 @@ Run the test suite with:
 
 ```sh
 xcodebuild \
-  -project VidTime/VidTime.xcodeproj \
-  -scheme VidTime \
+  -project Trimato/Trimato.xcodeproj \
+  -scheme Trimato \
   -destination 'platform=macOS' \
-  -only-testing:VidTimeTests \
+  -only-testing:TrimatoTests \
   test
 ```
 
 ## Project layout
 
-- `VidTime/VidTime`: Application source, editor views, timeline model, media preparation, and export code.
-- `VidTime/VidTimeTests`: Unit and integration tests.
-- `VidTime/VidTime.xcodeproj`: Xcode project.
-- `VidTime/ThirdParty/FFmpeg`: FFmpeg build instructions, configuration, source location, and LGPL license.
-- `VidTime/install-local.sh`: Local Release installer for `/Applications`.
+- `Trimato/Trimato`: Application source, editor views, timeline model, media preparation, and export code.
+- `Trimato/TrimatoTests`: Unit and integration tests.
+- `Trimato/Trimato.xcodeproj`: Xcode project.
+- `Trimato/ThirdParty/FFmpeg`: FFmpeg build instructions, configuration, source location, and LGPL license.
+- `Trimato/install-local.sh`: Local Release installer for `/Applications`.
 
 ## Privacy and temporary files
 
-vidTime has no accounts, advertising, analytics, or tracking. Video inspection, proxy creation, editing, and export happen locally on the Mac.
+Trimato has no accounts, advertising, analytics, or tracking. Video inspection, proxy creation, editing, and export happen locally on the Mac.
 
-The original source file is not modified. A format that macOS cannot play directly may receive a temporary MP4 playback proxy under the user's Caches directory. vidTime removes that proxy when the media is replaced, the import is canceled, or the editor window closes normally. An abnormal process termination can prevent normal cleanup code from running.
+The original source file is not modified. A format that macOS cannot play directly may receive a temporary MP4 playback proxy under the user's Caches directory. Trimato removes that proxy when the media is replaced, the import is canceled, or the editor window closes normally. An abnormal process termination can prevent normal cleanup code from running.
 
 Opening the FFmpeg website from the About window leaves the app and uses the selected web browser, whose privacy policy then applies.
 
 ## Support and feedback
 
-Bug reports, accessibility findings, and focused improvements are welcome. Include the macOS version, vidTime version, source format, assistive technology, and clear reproduction steps when reporting a problem.
+Bug reports, accessibility findings, and focused improvements are welcome. Include the macOS version, Trimato version, source format, assistive technology, and clear reproduction steps when reporting a problem.
 
 - [Open a GitHub issue.](../../issues)
 - [Email Marco Salsiccia.](mailto:marco@marconius.com)
 
 ## Third-party software
 
-vidTime bundles FFmpeg 8.1.2 and ffprobe for media inspection, proxy generation, and MP4 conversion. Those tools are distributed under the GNU Lesser General Public License version 2.1 or later and are not relicensed under MIT.
+Trimato bundles FFmpeg 8.1.2 and ffprobe for media inspection, proxy generation, and MP4 conversion. Those tools are distributed under the GNU Lesser General Public License version 2.1 or later and are not relicensed under MIT.
 
-- [Read the FFmpeg distribution and build notes.](VidTime/ThirdParty/FFmpeg/README.md)
-- [Read the bundled GNU Lesser General Public License.](VidTime/ThirdParty/FFmpeg/COPYING.LGPLv2.1)
+- [Read the FFmpeg distribution and build notes.](Trimato/ThirdParty/FFmpeg/README.md)
+- [Read the bundled GNU Lesser General Public License.](Trimato/ThirdParty/FFmpeg/COPYING.LGPLv2.1)
 - [Visit the FFmpeg website.](https://ffmpeg.org/)
 
 ## License
 
-Marco Salsiccia's original vidTime source code is available under the [MIT License.](LICENSE)
+Marco Salsiccia's original Trimato source code is available under the [MIT License.](LICENSE)
 
 Bundled third-party components remain subject to their respective licenses.

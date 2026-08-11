@@ -8,7 +8,7 @@ struct ProxyMediaManager {
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
-        ).appendingPathComponent("com.marconius.VidTime/MediaProxies", isDirectory: true)
+        ).appendingPathComponent("com.marconius.trimato/MediaProxies", isDirectory: true)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
         return cache.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
     }

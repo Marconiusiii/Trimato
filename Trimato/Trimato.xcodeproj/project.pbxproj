@@ -16,51 +16,51 @@
 			containerPortal = 82306B592FAAAF1000B67C04 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 82306B602FAAAF1000B67C04;
-			remoteInfo = VidTime;
+			remoteInfo = Trimato;
 		};
 		82306B792FAAAF1100B67C04 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 82306B592FAAAF1000B67C04 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 82306B602FAAAF1000B67C04;
-			remoteInfo = VidTime;
+			remoteInfo = Trimato;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		82306B612FAAAF1000B67C04 /* VidTime.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VidTime.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		82306B6E2FAAAF1100B67C04 /* VidTimeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VidTimeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		82306B782FAAAF1100B67C04 /* VidTimeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VidTimeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		82306B612FAAAF1000B67C04 /* Trimato.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Trimato.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		82306B6E2FAAAF1100B67C04 /* TrimatoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrimatoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		82306B782FAAAF1100B67C04 /* TrimatoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrimatoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		82F6E0022FC0000000B67C04 /* ThirdParty/FFmpeg/COPYING.LGPLv2.1 */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdParty/FFmpeg/COPYING.LGPLv2.1; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		82F6E0012FC0000000B67C04 /* Exceptions for "VidTime" folder in "VidTime" target */ = {
+		82F6E0012FC0000000B67C04 /* Exceptions for "Trimato" folder in "Trimato" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 82306B602FAAAF1000B67C04 /* VidTime */;
+			target = 82306B602FAAAF1000B67C04 /* Trimato */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		82306B632FAAAF1000B67C04 /* VidTime */ = {
+		82306B632FAAAF1000B67C04 /* Trimato */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				82F6E0012FC0000000B67C04 /* Exceptions for "VidTime" folder in "VidTime" target */,
+				82F6E0012FC0000000B67C04 /* Exceptions for "Trimato" folder in "Trimato" target */,
 			);
-			path = VidTime;
+			path = Trimato;
 			sourceTree = "<group>";
 		};
-		82306B712FAAAF1100B67C04 /* VidTimeTests */ = {
+		82306B712FAAAF1100B67C04 /* TrimatoTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = VidTimeTests;
+			path = TrimatoTests;
 			sourceTree = "<group>";
 		};
-		82306B7B2FAAAF1100B67C04 /* VidTimeUITests */ = {
+		82306B7B2FAAAF1100B67C04 /* TrimatoUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = VidTimeUITests;
+			path = TrimatoUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -93,9 +93,9 @@
 		82306B582FAAAF1000B67C04 = {
 			isa = PBXGroup;
 			children = (
-				82306B632FAAAF1000B67C04 /* VidTime */,
-				82306B712FAAAF1100B67C04 /* VidTimeTests */,
-				82306B7B2FAAAF1100B67C04 /* VidTimeUITests */,
+				82306B632FAAAF1000B67C04 /* Trimato */,
+				82306B712FAAAF1100B67C04 /* TrimatoTests */,
+				82306B7B2FAAAF1100B67C04 /* TrimatoUITests */,
 				82F6E0022FC0000000B67C04 /* ThirdParty/FFmpeg/COPYING.LGPLv2.1 */,
 				82306B622FAAAF1000B67C04 /* Products */,
 			);
@@ -104,9 +104,9 @@
 		82306B622FAAAF1000B67C04 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				82306B612FAAAF1000B67C04 /* VidTime.app */,
-				82306B6E2FAAAF1100B67C04 /* VidTimeTests.xctest */,
-				82306B782FAAAF1100B67C04 /* VidTimeUITests.xctest */,
+				82306B612FAAAF1000B67C04 /* Trimato.app */,
+				82306B6E2FAAAF1100B67C04 /* TrimatoTests.xctest */,
+				82306B782FAAAF1100B67C04 /* TrimatoUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -114,9 +114,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		82306B602FAAAF1000B67C04 /* VidTime */ = {
+		82306B602FAAAF1000B67C04 /* Trimato */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 82306B822FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "VidTime" */;
+			buildConfigurationList = 82306B822FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "Trimato" */;
 			buildPhases = (
 				82306B5D2FAAAF1000B67C04 /* Sources */,
 				82306B5E2FAAAF1000B67C04 /* Frameworks */,
@@ -128,18 +128,18 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				82306B632FAAAF1000B67C04 /* VidTime */,
+				82306B632FAAAF1000B67C04 /* Trimato */,
 			);
-			name = VidTime;
+			name = Trimato;
 			packageProductDependencies = (
 			);
-			productName = VidTime;
-			productReference = 82306B612FAAAF1000B67C04 /* VidTime.app */;
+			productName = Trimato;
+			productReference = 82306B612FAAAF1000B67C04 /* Trimato.app */;
 			productType = "com.apple.product-type.application";
 		};
-		82306B6D2FAAAF1100B67C04 /* VidTimeTests */ = {
+		82306B6D2FAAAF1100B67C04 /* TrimatoTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 82306B852FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "VidTimeTests" */;
+			buildConfigurationList = 82306B852FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "TrimatoTests" */;
 			buildPhases = (
 				82306B6A2FAAAF1100B67C04 /* Sources */,
 				82306B6B2FAAAF1100B67C04 /* Frameworks */,
@@ -151,18 +151,18 @@
 				82306B702FAAAF1100B67C04 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				82306B712FAAAF1100B67C04 /* VidTimeTests */,
+				82306B712FAAAF1100B67C04 /* TrimatoTests */,
 			);
-			name = VidTimeTests;
+			name = TrimatoTests;
 			packageProductDependencies = (
 			);
-			productName = VidTimeTests;
-			productReference = 82306B6E2FAAAF1100B67C04 /* VidTimeTests.xctest */;
+			productName = TrimatoTests;
+			productReference = 82306B6E2FAAAF1100B67C04 /* TrimatoTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		82306B772FAAAF1100B67C04 /* VidTimeUITests */ = {
+		82306B772FAAAF1100B67C04 /* TrimatoUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 82306B882FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "VidTimeUITests" */;
+			buildConfigurationList = 82306B882FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "TrimatoUITests" */;
 			buildPhases = (
 				82306B742FAAAF1100B67C04 /* Sources */,
 				82306B752FAAAF1100B67C04 /* Frameworks */,
@@ -174,13 +174,13 @@
 				82306B7A2FAAAF1100B67C04 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				82306B7B2FAAAF1100B67C04 /* VidTimeUITests */,
+				82306B7B2FAAAF1100B67C04 /* TrimatoUITests */,
 			);
-			name = VidTimeUITests;
+			name = TrimatoUITests;
 			packageProductDependencies = (
 			);
-			productName = VidTimeUITests;
-			productReference = 82306B782FAAAF1100B67C04 /* VidTimeUITests.xctest */;
+			productName = TrimatoUITests;
+			productReference = 82306B782FAAAF1100B67C04 /* TrimatoUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -206,7 +206,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 82306B5C2FAAAF1000B67C04 /* Build configuration list for PBXProject "VidTime" */;
+			buildConfigurationList = 82306B5C2FAAAF1000B67C04 /* Build configuration list for PBXProject "Trimato" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -220,9 +220,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				82306B602FAAAF1000B67C04 /* VidTime */,
-				82306B6D2FAAAF1100B67C04 /* VidTimeTests */,
-				82306B772FAAAF1100B67C04 /* VidTimeUITests */,
+				82306B602FAAAF1000B67C04 /* Trimato */,
+				82306B6D2FAAAF1100B67C04 /* TrimatoTests */,
+				82306B772FAAAF1100B67C04 /* TrimatoUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -308,12 +308,12 @@
 /* Begin PBXTargetDependency section */
 		82306B702FAAAF1100B67C04 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 82306B602FAAAF1000B67C04 /* VidTime */;
+			target = 82306B602FAAAF1000B67C04 /* Trimato */;
 			targetProxy = 82306B6F2FAAAF1100B67C04 /* PBXContainerItemProxy */;
 		};
 		82306B7A2FAAAF1100B67C04 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 82306B602FAAAF1000B67C04 /* VidTime */;
+			target = 82306B602FAAAF1000B67C04 /* Trimato */;
 			targetProxy = 82306B792FAAAF1100B67C04 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -446,23 +446,24 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 4FL3XZDQ9P;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = VidTime/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = vidTime;
+				INFOPLIST_FILE = Trimato/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Trimato;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.VidTime;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.trimato;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -481,23 +482,24 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 4FL3XZDQ9P;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = VidTime/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = vidTime;
+				INFOPLIST_FILE = Trimato/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Trimato;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.VidTime;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.trimato;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -519,14 +521,14 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.4;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.VidTimeTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.TrimatoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VidTime.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VidTime";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Trimato.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Trimato";
 			};
 			name = Debug;
 		};
@@ -540,14 +542,14 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.4;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.VidTimeTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.TrimatoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VidTime.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VidTime";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Trimato.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Trimato";
 			};
 			name = Release;
 		};
@@ -559,14 +561,14 @@
 				DEVELOPMENT_TEAM = 4FL3XZDQ9P;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.VidTimeUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.TrimatoUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = VidTime;
+				TEST_TARGET_NAME = Trimato;
 			};
 			name = Debug;
 		};
@@ -578,21 +580,21 @@
 				DEVELOPMENT_TEAM = 4FL3XZDQ9P;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.VidTimeUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marconius.TrimatoUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = VidTime;
+				TEST_TARGET_NAME = Trimato;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		82306B5C2FAAAF1000B67C04 /* Build configuration list for PBXProject "VidTime" */ = {
+		82306B5C2FAAAF1000B67C04 /* Build configuration list for PBXProject "Trimato" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				82306B802FAAAF1100B67C04 /* Debug */,
@@ -601,7 +603,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		82306B822FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "VidTime" */ = {
+		82306B822FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "Trimato" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				82306B832FAAAF1100B67C04 /* Debug */,
@@ -610,7 +612,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		82306B852FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "VidTimeTests" */ = {
+		82306B852FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "TrimatoTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				82306B862FAAAF1100B67C04 /* Debug */,
@@ -619,7 +621,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		82306B882FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "VidTimeUITests" */ = {
+		82306B882FAAAF1100B67C04 /* Build configuration list for PBXNativeTarget "TrimatoUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				82306B892FAAAF1100B67C04 /* Debug */,

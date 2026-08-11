@@ -1,13 +1,13 @@
 //
-//  VidTimeUITests.swift
-//  VidTimeUITests
+//  TrimatoUITests.swift
+//  TrimatoUITests
 //
 //  Created by Marco Salsiccia on 5/5/26.
 //
 
 import XCTest
 
-final class VidTimeUITests: XCTestCase {
+final class TrimatoUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.

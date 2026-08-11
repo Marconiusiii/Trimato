@@ -1,13 +1,13 @@
 //
-//  VidTimeUITestsLaunchTests.swift
-//  VidTimeUITests
+//  TrimatoUITestsLaunchTests.swift
+//  TrimatoUITests
 //
 //  Created by Marco Salsiccia on 5/5/26.
 //
 
 import XCTest
 
-final class VidTimeUITestsLaunchTests: XCTestCase {
+final class TrimatoUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

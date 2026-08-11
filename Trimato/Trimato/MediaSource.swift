@@ -60,13 +60,13 @@ enum MediaSourceError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .bundledToolsMissing:
-            return "The bundled FFmpeg tools are missing from this copy of vidTime."
+            return "The bundled FFmpeg tools are missing from this copy of Trimato."
         case .noVideoTrack:
             return "The selected file does not contain a video track."
         case .protectedContent:
             return "Protected or DRM-encrypted video cannot be opened."
         case .unsupportedHDR:
-            return "This HDR video would require color conversion that vidTime does not yet perform safely."
+            return "This HDR video would require color conversion that Trimato does not yet perform safely."
         case .unsupportedAlpha:
             return "This video has transparency, which cannot be preserved in an H.264 MP4 export."
         case .unreadable(let detail):
