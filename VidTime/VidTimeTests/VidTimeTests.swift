@@ -230,4 +230,19 @@ struct VidTimeTests {
         #expect(report.contains("mp4"))
     }
 
+    @Test func appDeclaresVideoDocumentTypes() throws {
+        let documentTypes = try #require(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleDocumentTypes")
+                as? [[String: Any]]
+        )
+        let contentTypes = documentTypes
+            .flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }
+
+        #expect(contentTypes.contains("public.movie"))
+        #expect(contentTypes.contains("com.marconius.vidtime.matroska-video"))
+        #expect(contentTypes.contains("com.marconius.vidtime.webm-video"))
+        #expect(documentTypes.first?["CFBundleTypeRole"] as? String == "Editor")
+        #expect(documentTypes.first?["LSHandlerRank"] as? String == "Alternate")
+    }
+
 }

@@ -16,6 +16,10 @@ struct ContentView: View {
             viewModel.load(url: url)
             return true
         }
+        .onOpenURL { url in
+            guard url.isFileURL else { return }
+            viewModel.load(url: url)
+        }
     }
 
     // MARK: - Video area

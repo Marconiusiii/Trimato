@@ -29,9 +29,22 @@
 		82306B782FAAAF1100B67C04 /* VidTimeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VidTimeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		82F6E0012FC0000000B67C04 /* Exceptions for "VidTime" folder in "VidTime" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 82306B602FAAAF1000B67C04 /* VidTime */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		82306B632FAAAF1000B67C04 /* VidTime */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				82F6E0012FC0000000B67C04 /* Exceptions for "VidTime" folder in "VidTime" target */,
+			);
 			path = VidTime;
 			sourceTree = "<group>";
 		};
@@ -433,6 +446,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VidTime/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = vidTime;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -467,6 +481,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VidTime/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = vidTime;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
