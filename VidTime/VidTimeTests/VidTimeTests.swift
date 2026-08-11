@@ -178,6 +178,31 @@ struct VidTimeTests {
         #expect(fallbackArguments.contains("mp4v"))
     }
 
+    @Test func ffmpegBuildsAConcatenatedFilterForEditedRanges() {
+        let ranges = [
+            CMTimeRange(
+                start: CMTime(seconds: 1, preferredTimescale: 600),
+                duration: CMTime(seconds: 2, preferredTimescale: 600)
+            ),
+            CMTimeRange(
+                start: CMTime(seconds: 5, preferredTimescale: 600),
+                duration: CMTime(seconds: 3, preferredTimescale: 600)
+            )
+        ]
+        let arguments = FFmpegClipExporter.arguments(
+            sourceURL: URL(fileURLWithPath: "/tmp/source.mkv"),
+            sourceRanges: ranges,
+            hasAudio: false,
+            outputURL: URL(fileURLWithPath: "/tmp/output.mp4")
+        )
+        let filter = arguments[arguments.firstIndex(of: "-filter_complex")! + 1]
+
+        #expect(filter.contains("trim=start=1.000000:duration=2.000000"))
+        #expect(filter.contains("trim=start=5.000000:duration=3.000000"))
+        #expect(filter.contains("concat=n=2:v=1:a=0[v]"))
+        #expect(!arguments.contains("[a]"))
+    }
+
     @Test func ffmpegProgressParserClampsProgress() {
         var values: [Double] = []
         let progress = Data("out_time_us=2500000\nprogress=continue\nout_time_us=12000000\nprogress=end\n".utf8)
@@ -230,6 +255,202 @@ struct VidTimeTests {
         #expect(report.contains("mp4"))
     }
 
+    @Test func bundledToolsJoinTwoEditedRanges() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mkv")
+        let outputURL = directory.appendingPathComponent("joined.mp4")
+
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+            "-t", "1.2", "-c:v", "mpeg4", "-c:a", "pcm_s16le", sourceURL.path
+        ])
+        try await FFmpegClipExporter.export(
+            sourceURL: sourceURL,
+            sourceRanges: [
+                CMTimeRange(
+                    start: CMTime(seconds: 0.1, preferredTimescale: 600),
+                    duration: CMTime(seconds: 0.3, preferredTimescale: 600)
+                ),
+                CMTimeRange(
+                    start: CMTime(seconds: 0.8, preferredTimescale: 600),
+                    duration: CMTime(seconds: 0.3, preferredTimescale: 600)
+                )
+            ],
+            hasAudio: true,
+            to: outputURL,
+            progress: { _ in }
+        )
+
+        let report = try await FFmpegMediaProbe.inspect(url: outputURL)
+        let containsVideo = await report.videoStream != nil
+        let containsAudio = await report.hasAudio
+        let outputDuration = await report.duration
+        #expect(containsVideo)
+        #expect(containsAudio)
+        #expect(outputDuration > 0.5 && outputDuration < 0.8)
+    }
+
+    @Test func nativeCompositionJoinsAndPassesThroughEditedRanges() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mov")
+        let outputURL = directory.appendingPathComponent("joined.mov")
+
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24",
+            "-t", "1.2", "-c:v", "mpeg4", sourceURL.path
+        ])
+        let ranges = [
+            CMTimeRange(
+                start: CMTime(seconds: 0.1, preferredTimescale: 600),
+                duration: CMTime(seconds: 0.3, preferredTimescale: 600)
+            ),
+            CMTimeRange(
+                start: CMTime(seconds: 0.8, preferredTimescale: 600),
+                duration: CMTime(seconds: 0.3, preferredTimescale: 600)
+            )
+        ]
+        let asset = AVURLAsset(url: sourceURL)
+        let composition = try await EditedCompositionBuilder.build(
+            asset: asset,
+            sourceRanges: ranges
+        )
+        let compositionDuration = try await composition.load(.duration)
+        #expect(abs(CMTimeGetSeconds(compositionDuration) - 0.6) < 0.01)
+
+        try await ClipExporter.export(
+            asset: asset,
+            sourceRanges: ranges,
+            sourceContentType: .quickTimeMovie,
+            to: outputURL
+        )
+        let outputAsset = AVURLAsset(url: outputURL)
+        let outputDuration = try await outputAsset.load(.duration)
+        let videoTracks = try await outputAsset.loadTracks(withMediaType: .video)
+        #expect(!videoTracks.isEmpty)
+        #expect(CMTimeGetSeconds(outputDuration) > 0.5)
+    }
+
+    @Test func deletingAMiddleSelectionJoinsTheRemainingSourceRanges() throws {
+        var timeline = ClipEditTimeline(
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600)
+        )
+        try timeline.delete(editedRange: CMTimeRange(
+            start: CMTime(seconds: 10, preferredTimescale: 600),
+            end: CMTime(seconds: 15, preferredTimescale: 600)
+        ))
+
+        #expect(seconds(timeline.duration) == 25)
+        #expect(timeline.sourceRanges.count == 2)
+        #expect(seconds(timeline.sourceRanges[0].start) == 0)
+        #expect(seconds(timeline.sourceRanges[0].duration) == 10)
+        #expect(seconds(timeline.sourceRanges[1].start) == 15)
+        #expect(seconds(timeline.sourceRanges[1].duration) == 15)
+    }
+
+    @Test func repeatedDeletionCanCrossAnEarlierEditPoint() throws {
+        var timeline = ClipEditTimeline(
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600)
+        )
+        try timeline.delete(editedRange: CMTimeRange(
+            start: CMTime(seconds: 10, preferredTimescale: 600),
+            end: CMTime(seconds: 15, preferredTimescale: 600)
+        ))
+        try timeline.delete(editedRange: CMTimeRange(
+            start: CMTime(seconds: 8, preferredTimescale: 600),
+            end: CMTime(seconds: 12, preferredTimescale: 600)
+        ))
+
+        #expect(seconds(timeline.duration) == 21)
+        #expect(timeline.sourceRanges.count == 2)
+        #expect(seconds(timeline.sourceRanges[0].duration) == 8)
+        #expect(seconds(timeline.sourceRanges[1].start) == 17)
+        #expect(seconds(timeline.sourceRanges[1].duration) == 13)
+    }
+
+    @Test func editedSelectionMapsBackAcrossSourceRanges() throws {
+        var timeline = ClipEditTimeline(
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600)
+        )
+        try timeline.delete(editedRange: CMTimeRange(
+            start: CMTime(seconds: 10, preferredTimescale: 600),
+            end: CMTime(seconds: 15, preferredTimescale: 600)
+        ))
+        let ranges = timeline.sourceRanges(in: CMTimeRange(
+            start: CMTime(seconds: 8, preferredTimescale: 600),
+            end: CMTime(seconds: 14, preferredTimescale: 600)
+        ))
+
+        #expect(ranges.count == 2)
+        #expect(seconds(ranges[0].start) == 8)
+        #expect(seconds(ranges[0].duration) == 2)
+        #expect(seconds(ranges[1].start) == 15)
+        #expect(seconds(ranges[1].duration) == 4)
+    }
+
+    @Test func startAndEndTrimsRetainTheExpectedSourceRange() throws {
+        var startTrim = ClipEditTimeline(
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600)
+        )
+        try startTrim.delete(editedRange: CMTimeRange(
+            start: .zero,
+            end: CMTime(seconds: 5, preferredTimescale: 600)
+        ))
+        #expect(seconds(startTrim.sourceRanges[0].start) == 5)
+        #expect(seconds(startTrim.duration) == 25)
+
+        var endTrim = ClipEditTimeline(
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600)
+        )
+        try endTrim.delete(editedRange: CMTimeRange(
+            start: CMTime(seconds: 20, preferredTimescale: 600),
+            end: CMTime(seconds: 30, preferredTimescale: 600)
+        ))
+        #expect(seconds(endTrim.sourceRanges[0].start) == 0)
+        #expect(seconds(endTrim.duration) == 20)
+    }
+
+    @Test func deletingTheEntireClipIsRejected() {
+        var timeline = ClipEditTimeline(
+            sourceDuration: CMTime(seconds: 30, preferredTimescale: 600)
+        )
+        #expect(throws: ClipEditError.entireClip) {
+            try timeline.delete(editedRange: CMTimeRange(
+                start: .zero,
+                end: CMTime(seconds: 30, preferredTimescale: 600)
+            ))
+        }
+    }
+
+    @Test func frameTimestampsAreRebasedAroundDeletedMedia() {
+        let timestamps = (0..<10).map {
+            CMTime(seconds: Double($0), preferredTimescale: 600)
+        }
+        let edited = EditedCompositionBuilder.editedFrameTimestamps(
+            sourceTimestamps: timestamps,
+            sourceRanges: [
+                CMTimeRange(
+                    start: .zero,
+                    end: CMTime(seconds: 3, preferredTimescale: 600)
+                ),
+                CMTimeRange(
+                    start: CMTime(seconds: 6, preferredTimescale: 600),
+                    end: CMTime(seconds: 10, preferredTimescale: 600)
+                )
+            ]
+        )
+
+        #expect(edited.map(seconds) == [0, 1, 2, 3, 4, 5, 6])
+    }
+
     @Test func appDeclaresVideoDocumentTypes() throws {
         let documentTypes = try #require(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleDocumentTypes")
@@ -277,6 +498,10 @@ struct VidTimeTests {
         #expect(FileManager.default.fileExists(atPath: proxy.path))
         ProxyMediaManager.removeProxy(at: proxy)
         #expect(!FileManager.default.fileExists(atPath: proxy.path))
+    }
+
+    private func seconds(_ time: CMTime) -> Double {
+        CMTimeGetSeconds(time)
     }
 
 }

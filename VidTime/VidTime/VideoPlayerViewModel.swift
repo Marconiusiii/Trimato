@@ -45,11 +45,14 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var mediaStatus: String?
     @Published private(set) var mediaProgress: Double?
     @Published private(set) var mediaFilename = ""
+    @Published private(set) var isApplyingEdit = false
 
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
     private var mediaDuration: CMTime = .zero
     private var mediaSource: MediaSource?
+    private var editTimeline: ClipEditTimeline?
+    private var editedFrameTimestamps: [CMTime] = []
     private var proxyURL: URL?
     private var timeObserver: Any?
     private var rateObserver: AnyCancellable?
@@ -59,6 +62,8 @@ final class VideoPlayerViewModel: ObservableObject {
     private var frameStepPosition: CMTime?
     private var exportTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
+    private var editTask: Task<Void, Never>?
+    private var editID: UUID?
     private var loadID: UUID?
     private var announcedImportProgress = 0
     private var isSteppingFrames = false
@@ -82,6 +87,8 @@ final class VideoPlayerViewModel: ObservableObject {
         stepEndTask?.cancel()
         exportTask?.cancel()
         loadTask?.cancel()
+        editTask?.cancel()
+        editID = nil
         ProxyMediaManager.removeProxy(at: proxyURL)
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let keyEventMonitor { NSEvent.removeMonitor(keyEventMonitor) }
@@ -100,7 +107,24 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     var canExport: Bool {
-        Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil && !isExporting
+        guard hasVideo, !isExporting, !isApplyingEdit else { return false }
+        if inMarker == nil, outMarker == nil { return true }
+        return Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil
+    }
+
+    var canDeleteSelection: Bool {
+        Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil &&
+            hasVideo && !isExporting && !isApplyingEdit
+    }
+
+    var canTrimStart: Bool {
+        hasVideo && !isExporting && !isApplyingEdit &&
+            CMTimeCompare(effectivePlayheadTime, .zero) > 0
+    }
+
+    var canTrimEnd: Bool {
+        hasVideo && !isExporting && !isApplyingEdit &&
+            CMTimeCompare(effectivePlayheadTime, mediaDuration) < 0
     }
 
     func openFile() {
@@ -116,12 +140,18 @@ final class VideoPlayerViewModel: ObservableObject {
     func load(url: URL) {
         loadID = nil
         loadTask?.cancel()
+        editTask?.cancel()
+        editTask = nil
+        editID = nil
+        isApplyingEdit = false
         cancelScrub()
         arrowHolding = false
         jklIndex = 0
         ProxyMediaManager.removeProxy(at: proxyURL)
         proxyURL = nil
         mediaSource = nil
+        editTimeline = nil
+        editedFrameTimestamps = []
         mediaDuration = .zero
         inMarker = nil
         outMarker = nil
@@ -162,6 +192,8 @@ final class VideoPlayerViewModel: ObservableObject {
                 try Task.checkCancellation()
                 self.mediaDuration = loadedDuration
                 self.duration = CMTimeGetSeconds(loadedDuration)
+                self.editTimeline = ClipEditTimeline(sourceDuration: loadedDuration)
+                self.editedFrameTimestamps = source.frameTimestamps
                 self.hasVideo = true
                 self.isLoadingMedia = false
                 self.mediaProgress = nil
@@ -206,6 +238,11 @@ final class VideoPlayerViewModel: ObservableObject {
         loadID = nil
         loadTask?.cancel()
         loadTask = nil
+        editTask?.cancel()
+        editTask = nil
+        editID = nil
+        isApplyingEdit = false
+        exportTask?.cancel()
         isLoadingMedia = false
         mediaProgress = nil
         player.pause()
@@ -213,6 +250,8 @@ final class VideoPlayerViewModel: ObservableObject {
         ProxyMediaManager.removeProxy(at: proxyURL)
         proxyURL = nil
         mediaSource = nil
+        editTimeline = nil
+        editedFrameTimestamps = []
         hasVideo = false
     }
 
@@ -293,6 +332,44 @@ final class VideoPlayerViewModel: ObservableObject {
         announce("Out marker cleared")
     }
 
+    func deleteSelection() {
+        guard let range = Self.validExportRange(inMarker: inMarker, outMarker: outMarker) else {
+            announce("Set an In marker earlier than the Out marker before deleting")
+            return
+        }
+        applyDeletion(
+            range,
+            targetTime: range.start,
+            actionDescription: "Selection deleted"
+        )
+    }
+
+    func trimStartToPlayhead() {
+        let playhead = effectivePlayheadTime
+        guard CMTimeCompare(playhead, .zero) > 0 else {
+            announce("The playhead is already at the start")
+            return
+        }
+        applyDeletion(
+            CMTimeRange(start: .zero, end: playhead),
+            targetTime: .zero,
+            actionDescription: "Start trimmed to playhead"
+        )
+    }
+
+    func trimEndFromPlayhead() {
+        let playhead = effectivePlayheadTime
+        guard CMTimeCompare(playhead, mediaDuration) < 0 else {
+            announce("The playhead is already at the end")
+            return
+        }
+        applyDeletion(
+            CMTimeRange(start: playhead, end: mediaDuration),
+            targetTime: playhead,
+            actionDescription: "End trimmed from playhead"
+        )
+    }
+
     func goToStart() {
         jump(to: .init(kind: .start, time: .zero))
     }
@@ -325,18 +402,29 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func exportTrimmedClip() {
-        guard NSApp.modalWindow == nil, !isExporting else { return }
-        guard let range = Self.validExportRange(inMarker: inMarker, outMarker: outMarker) else {
-            announce("Set an In marker earlier than the Out marker before exporting")
-            return
-        }
-        guard let mediaSource else {
+        guard NSApp.modalWindow == nil, !isExporting, !isApplyingEdit else { return }
+        guard let mediaSource, let editTimeline else {
             announce("Open a video before exporting")
             return
         }
 
+        let editedExportRange: CMTimeRange?
+        if inMarker == nil, outMarker == nil {
+            editedExportRange = nil
+        } else if let selection = Self.validExportRange(inMarker: inMarker, outMarker: outMarker) {
+            editedExportRange = selection
+        } else {
+            announce("Set both In and Out, with In earlier than Out, or clear both markers")
+            return
+        }
+        let sourceRanges = editTimeline.sourceRanges(in: editedExportRange)
+        guard !sourceRanges.isEmpty else {
+            announce("The selected portion does not contain exportable media")
+            return
+        }
+
         let panel = NSSavePanel()
-        panel.title = "Export Trimmed Clip"
+        panel.title = "Export Clip"
         let outputType: UTType
         switch mediaSource.mode {
         case .nativePassthrough:
@@ -358,7 +446,7 @@ final class VideoPlayerViewModel: ObservableObject {
         guard panel.runModal() == .OK, let outputURL = panel.url else { return }
 
         isExporting = true
-        exportStatus = "Exporting trimmed clip"
+        exportStatus = "Exporting clip"
         exportProgress = mediaSource.mode == .nativePassthrough ? nil : 0
         announce("Export started")
         exportTask = Task { @MainActor in
@@ -370,14 +458,15 @@ final class VideoPlayerViewModel: ObservableObject {
                     }
                     try await ClipExporter.export(
                         asset: mediaSource.originalAsset,
-                        timeRange: range,
+                        sourceRanges: sourceRanges,
                         sourceContentType: sourceContentType,
                         to: outputURL
                     )
                 case .nativePlaybackMP4Export, .proxyPlaybackMP4Export:
                     try await FFmpegClipExporter.export(
                         sourceURL: mediaSource.originalURL,
-                        timeRange: range,
+                        sourceRanges: sourceRanges,
+                        hasAudio: mediaSource.hasAudio,
                         to: outputURL
                     ) { [weak self] progress in
                         self?.exportProgress = progress
@@ -520,7 +609,8 @@ final class VideoPlayerViewModel: ObservableObject {
     // (or a computed fallback) and calls the completion handler once the seek has landed.
     // This ensures player.play() starts from the correct frame, not the pre-seek position.
     private func seekOneFrame(forward: Bool, completion: @escaping (CMTime) -> Void) {
-        if let timestamps = mediaSource?.frameTimestamps, !timestamps.isEmpty {
+        if !editedFrameTimestamps.isEmpty {
+            let timestamps = editedFrameTimestamps
             let current = frameStepPosition ?? player.currentTime()
             let target: CMTime
             if forward {
@@ -610,6 +700,77 @@ final class VideoPlayerViewModel: ObservableObject {
         player.rate = jklIndex > 0 ? speed : -speed
     }
 
+    private func applyDeletion(
+        _ range: CMTimeRange,
+        targetTime: CMTime,
+        actionDescription: String
+    ) {
+        guard hasVideo, !isExporting, !isApplyingEdit,
+              let mediaSource, var updatedTimeline = editTimeline else { return }
+        do {
+            try updatedTimeline.delete(editedRange: range)
+        } catch {
+            announce(error.localizedDescription)
+            return
+        }
+
+        player.pause()
+        cancelScrub()
+        isApplyingEdit = true
+        announce("Applying edit")
+        let operationID = UUID()
+        editID = operationID
+        let removedDuration = range.duration
+
+        editTask = Task { @MainActor in
+            do {
+                let composition = try await EditedCompositionBuilder.build(
+                    asset: mediaSource.playbackAsset,
+                    sourceRanges: updatedTimeline.sourceRanges
+                )
+                try Task.checkCancellation()
+                guard self.editID == operationID else { return }
+
+                self.editTimeline = updatedTimeline
+                self.editedFrameTimestamps = EditedCompositionBuilder.editedFrameTimestamps(
+                    sourceTimestamps: mediaSource.frameTimestamps,
+                    sourceRanges: updatedTimeline.sourceRanges
+                )
+                self.mediaDuration = updatedTimeline.duration
+                self.duration = CMTimeGetSeconds(updatedTimeline.duration)
+                self.inMarker = nil
+                self.outMarker = nil
+                self.player.replaceCurrentItem(with: AVPlayerItem(asset: composition))
+                let destination = CMTimeMinimum(targetTime, updatedTimeline.duration)
+                await self.player.seek(to: destination, toleranceBefore: .zero, toleranceAfter: .zero)
+                self.currentTime = max(CMTimeGetSeconds(destination), 0)
+                if self.frameRate > 0 {
+                    self.currentFrame = Int(self.currentTime * Double(self.frameRate))
+                }
+                self.displayTimecode = Self.formatTimecode(destination)
+                self.accessibilityTimecodeLabel = self.buildAccessibilityLabel()
+                self.isApplyingEdit = false
+                self.editID = nil
+                self.editTask = nil
+                self.announce(
+                    "\(actionDescription). Removed \(self.spokenTime(removedDuration)). " +
+                    "New clip duration \(self.spokenTime(updatedTimeline.duration))"
+                )
+            } catch is CancellationError {
+                guard self.editID == operationID else { return }
+                self.isApplyingEdit = false
+                self.editID = nil
+                self.editTask = nil
+            } catch {
+                guard self.editID == operationID else { return }
+                self.isApplyingEdit = false
+                self.editID = nil
+                self.editTask = nil
+                self.announce("Edit failed. \(error.localizedDescription)")
+            }
+        }
+    }
+
     // MARK: - Private: markers and navigation
 
     private var effectivePlayheadTime: CMTime {
@@ -680,7 +841,8 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private func setupKeyEventMonitor() {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-            guard let self, !self.isLoadingMedia, self.hasVideo, NSApp.modalWindow == nil else {
+            guard let self, !self.isLoadingMedia, !self.isExporting, !self.isApplyingEdit,
+                  self.hasVideo, NSApp.modalWindow == nil else {
                 return event
             }
 
@@ -691,6 +853,14 @@ final class VideoPlayerViewModel: ObservableObject {
             switch event.type {
             case .keyDown:
                 if commandModifiers == .command {
+                    if event.charactersIgnoringModifiers == "[" {
+                        if !event.isARepeat { self.trimStartToPlayhead() }
+                        return nil
+                    }
+                    if event.charactersIgnoringModifiers == "]" {
+                        if !event.isARepeat { self.trimEndFromPlayhead() }
+                        return nil
+                    }
                     if event.charactersIgnoringModifiers?.lowercased() == "e" {
                         if !event.isARepeat {
                             DispatchQueue.main.async { [weak self] in
@@ -718,6 +888,10 @@ final class VideoPlayerViewModel: ObservableObject {
                 }
 
                 switch event.keyCode {
+                case 51, 117: // Delete and Forward Delete
+                    guard unmodified else { return event }
+                    if !event.isARepeat { self.deleteSelection() }
+                    return nil
                 case 49: // Space — toggle, ignore repeat
                     guard unmodified else { return event }
                     if !event.isARepeat { self.togglePlayPause() }
@@ -769,6 +943,7 @@ final class VideoPlayerViewModel: ObservableObject {
         let isProtected = (try? await asset.load(.hasProtectedContent)) ?? false
         if isProtected { throw MediaSourceError.protectedContent }
         let isPlayable = (try? await asset.load(.isPlayable)) ?? false
+        let hasNativeAudio = ((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty == false
 
         if isPlayable, let contentType,
            ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
@@ -779,7 +954,8 @@ final class VideoPlayerViewModel: ObservableObject {
                 asset: asset,
                 contentType: contentType,
                 mode: .nativePassthrough,
-                frameTimestamps: timestamps
+                frameTimestamps: timestamps,
+                hasAudio: hasNativeAudio
             )
         }
 
@@ -795,7 +971,8 @@ final class VideoPlayerViewModel: ObservableObject {
                 asset: asset,
                 contentType: contentType,
                 mode: .nativePlaybackMP4Export,
-                frameTimestamps: timestamps
+                frameTimestamps: timestamps,
+                hasAudio: report.hasAudio
             )
         }
 
@@ -815,9 +992,10 @@ final class VideoPlayerViewModel: ObservableObject {
                 playbackURL: generatedProxy,
                 originalAsset: asset,
                 playbackAsset: proxyAsset,
-                contentType: contentType,
-                mode: .proxyPlaybackMP4Export,
-                frameTimestamps: timestamps
+            contentType: contentType,
+            mode: .proxyPlaybackMP4Export,
+            frameTimestamps: timestamps,
+            hasAudio: report.hasAudio
             )
         } catch {
             ProxyMediaManager.removeProxy(at: generatedProxy)

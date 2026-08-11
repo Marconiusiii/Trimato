@@ -168,9 +168,10 @@ struct ContentView: View {
                 .accessibilityLabel("Step forward one frame")
             }
             .foregroundStyle(EditorTheme.accent)
+            .disabled(!viewModel.hasVideo || viewModel.isExporting || viewModel.isApplyingEdit)
             .padding(.bottom, 8)
 
-            Button("Export Trimmed Clip\u{2026}") {
+            Button("Export Clip\u{2026}") {
                 viewModel.exportTrimmedClip()
             }
             .buttonStyle(.borderedProminent)
@@ -180,10 +181,10 @@ struct ContentView: View {
                 HStack {
                     if let progress = viewModel.exportProgress {
                         ProgressView(value: progress) {
-                            Text("Exporting trimmed clip")
+                            Text("Exporting clip")
                         }
                     } else {
-                        ProgressView("Exporting trimmed clip")
+                        ProgressView("Exporting clip")
                     }
                     Button("Cancel Export") { viewModel.cancelExport() }
                 }
@@ -200,7 +201,11 @@ struct ContentView: View {
     }
 
     private var markerControls: some View {
-        VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Selection")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+
             HStack {
                 Button("Mark In") { viewModel.markIn() }
                 Text("In: \(viewModel.inMarkerDisplay)")
@@ -215,8 +220,12 @@ struct ContentView: View {
                 Button("Clear Out") { viewModel.clearOut() }
                     .disabled(viewModel.outMarker == nil)
             }
+
+            Button("Delete Selection") { viewModel.deleteSelection() }
+                .disabled(!viewModel.canDeleteSelection)
         }
-        .disabled(!viewModel.hasVideo || viewModel.isExporting)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(!viewModel.hasVideo || viewModel.isExporting || viewModel.isApplyingEdit)
     }
 
     private var timelineControls: some View {
@@ -226,7 +235,7 @@ struct ContentView: View {
             Button("Next Point") { viewModel.goToNextTimelinePoint() }
             Button("End") { viewModel.goToEnd() }
         }
-        .disabled(!viewModel.hasVideo || viewModel.isExporting)
+        .disabled(!viewModel.hasVideo || viewModel.isExporting || viewModel.isApplyingEdit)
     }
 
     @ViewBuilder

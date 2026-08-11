@@ -33,6 +33,51 @@ struct ClipExporter {
         sourceContentType: UTType,
         to outputURL: URL
     ) async throws {
+        try await export(
+            asset: asset,
+            sourceRanges: [timeRange],
+            sourceContentType: sourceContentType,
+            to: outputURL
+        )
+    }
+
+    static func export(
+        asset: AVAsset,
+        sourceRanges: [CMTimeRange],
+        sourceContentType: UTType,
+        to outputURL: URL
+    ) async throws {
+        guard !sourceRanges.isEmpty else { throw ClipExportError.unavailable }
+        let exportAsset: AVAsset
+        if sourceRanges.count == 1, let range = sourceRanges.first {
+            exportAsset = asset
+            return try await exportSingleRange(
+                asset: exportAsset,
+                timeRange: range,
+                sourceContentType: sourceContentType,
+                to: outputURL
+            )
+        } else {
+            exportAsset = try await EditedCompositionBuilder.build(
+                asset: asset,
+                sourceRanges: sourceRanges
+            )
+        }
+        let composedDuration = sourceRanges.reduce(.zero) { CMTimeAdd($0, $1.duration) }
+        try await exportSingleRange(
+            asset: exportAsset,
+            timeRange: CMTimeRange(start: .zero, duration: composedDuration),
+            sourceContentType: sourceContentType,
+            to: outputURL
+        )
+    }
+
+    private static func exportSingleRange(
+        asset: AVAsset,
+        timeRange: CMTimeRange,
+        sourceContentType: UTType,
+        to outputURL: URL
+    ) async throws {
         guard let session = AVAssetExportSession(
             asset: asset,
             presetName: AVAssetExportPresetPassthrough

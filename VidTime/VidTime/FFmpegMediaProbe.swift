@@ -31,6 +31,7 @@ struct FFmpegMediaProbe {
         let format: Format?
 
         var videoStream: Stream? { streams.first { $0.codecType == "video" } }
+        var hasAudio: Bool { streams.contains { $0.codecType == "audio" } }
         var duration: Double { Double(format?.duration ?? "") ?? 0 }
 
         var isHDR: Bool {

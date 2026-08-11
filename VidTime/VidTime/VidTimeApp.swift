@@ -23,7 +23,7 @@ struct VidTimeApp: App {
                 .disabled(viewModel?.isLoadingMedia == true)
             }
             CommandGroup(after: .saveItem) {
-                Button("Export Trimmed Clip\u{2026}") {
+                Button("Export Clip\u{2026}") {
                     viewModel?.exportTrimmedClip()
                 }
                 .keyboardShortcut("e", modifiers: .command)
@@ -31,6 +31,17 @@ struct VidTimeApp: App {
                 if viewModel?.isExporting == true {
                     Button("Cancel Export") { viewModel?.cancelExport() }
                 }
+            }
+            CommandGroup(after: .pasteboard) {
+                Divider()
+                Button("Delete Selection (Delete)") { viewModel?.deleteSelection() }
+                    .disabled(viewModel?.canDeleteSelection != true)
+                Button("Trim Start to Playhead") { viewModel?.trimStartToPlayhead() }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(viewModel?.canTrimStart != true)
+                Button("Trim End from Playhead") { viewModel?.trimEndFromPlayhead() }
+                    .keyboardShortcut("]", modifiers: .command)
+                    .disabled(viewModel?.canTrimEnd != true)
             }
             CommandMenu("Markers") {
                 Button("Mark In (I)") { viewModel?.markIn() }

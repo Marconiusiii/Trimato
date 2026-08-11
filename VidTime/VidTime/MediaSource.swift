@@ -24,6 +24,7 @@ struct MediaSource {
     let contentType: UTType?
     let mode: Mode
     let frameTimestamps: [CMTime]
+    let hasAudio: Bool
 
     var usesProxy: Bool { mode == .proxyPlaybackMP4Export }
 
@@ -32,7 +33,8 @@ struct MediaSource {
         asset: AVURLAsset,
         contentType: UTType?,
         mode: Mode,
-        frameTimestamps: [CMTime] = []
+        frameTimestamps: [CMTime] = [],
+        hasAudio: Bool = false
     ) -> MediaSource {
         MediaSource(
             originalURL: url,
@@ -41,7 +43,8 @@ struct MediaSource {
             playbackAsset: asset,
             contentType: contentType,
             mode: mode,
-            frameTimestamps: frameTimestamps
+            frameTimestamps: frameTimestamps,
+            hasAudio: hasAudio
         )
     }
 }
