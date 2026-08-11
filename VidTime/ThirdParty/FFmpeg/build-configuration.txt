@@ -1,0 +1,18 @@
+FFmpeg version: 8.1.2
+Architectures: arm64 x86_64
+Minimum macOS: 13.0
+
+Key configuration:
+--disable-shared
+--enable-static
+--disable-debug
+--disable-doc
+--disable-ffplay
+--disable-autodetect
+--disable-x86asm
+--disable-gpl
+--disable-nonfree
+--enable-audiotoolbox
+--enable-videotoolbox
+
+Run the bundled `ffmpeg -version` before release and replace this file with the complete configuration line from that command.

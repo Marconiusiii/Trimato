@@ -16,6 +16,17 @@ enum ClipExportError: LocalizedError, Equatable {
 }
 
 struct ClipExporter {
+    static func canPassthrough(asset: AVAsset, sourceContentType: UTType) -> Bool {
+        guard let session = AVAssetExportSession(
+            asset: asset,
+            presetName: AVAssetExportPresetPassthrough
+        ) else { return false }
+        return (try? passthroughFileType(
+            for: sourceContentType,
+            supportedFileTypes: session.supportedFileTypes
+        )) != nil
+    }
+
     static func export(
         asset: AVAsset,
         timeRange: CMTimeRange,

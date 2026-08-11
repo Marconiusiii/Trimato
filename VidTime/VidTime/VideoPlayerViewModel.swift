@@ -40,13 +40,16 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var outMarker: CMTime?
     @Published private(set) var isExporting = false
     @Published private(set) var exportStatus: String?
+    @Published private(set) var exportProgress: Double?
+    @Published private(set) var isLoadingMedia = false
+    @Published private(set) var mediaStatus: String?
+    @Published private(set) var mediaProgress: Double?
 
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
     private var mediaDuration: CMTime = .zero
-    private var sourceAsset: AVURLAsset?
-    private var sourceURL: URL?
-    private var sourceContentType: UTType?
+    private var mediaSource: MediaSource?
+    private var proxyURL: URL?
     private var timeObserver: Any?
     private var rateObserver: AnyCancellable?
     private var keyEventMonitor: Any?
@@ -54,6 +57,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var scrubTask: Task<Void, Never>?
     private var frameStepPosition: CMTime?
     private var exportTask: Task<Void, Never>?
+    private var loadTask: Task<Void, Never>?
     private var isSteppingFrames = false
     private var stepEndTask: Task<Void, Never>?
     private var arrowHolding = false
@@ -74,6 +78,8 @@ final class VideoPlayerViewModel: ObservableObject {
         scrubTask?.cancel()
         stepEndTask?.cancel()
         exportTask?.cancel()
+        loadTask?.cancel()
+        ProxyMediaManager.removeProxy(at: proxyURL)
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let keyEventMonitor { NSEvent.removeMonitor(keyEventMonitor) }
     }
@@ -99,41 +105,67 @@ final class VideoPlayerViewModel: ObservableObject {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.movie, .video, .audiovisualContent]
+        panel.allowedContentTypes = [.data]
         panel.title = "Open Video File"
         if panel.runModal() == .OK, let url = panel.url { load(url: url) }
     }
 
     func load(url: URL) {
+        loadTask?.cancel()
         cancelScrub()
         arrowHolding = false
         jklIndex = 0
-        let asset = AVURLAsset(url: url)
-        sourceAsset = asset
-        sourceURL = url
-        sourceContentType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
-            ?? UTType(filenameExtension: url.pathExtension)
+        ProxyMediaManager.removeProxy(at: proxyURL)
+        proxyURL = nil
+        mediaSource = nil
         mediaDuration = .zero
         inMarker = nil
         outMarker = nil
         exportStatus = nil
-        player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
-        hasVideo = true
+        exportProgress = nil
+        mediaStatus = "Inspecting \(url.lastPathComponent)"
+        mediaProgress = nil
+        isLoadingMedia = true
+        player.replaceCurrentItem(with: nil)
+        hasVideo = false
         displayTimecode = "00:00:00.000"
         currentTime = 0; currentFrame = 0; frameRate = 0; duration = 0
         minFrameDuration = .invalid
         accessibilityTimecodeLabel = "0 seconds, 0 milliseconds"
-        Task { @MainActor in
+        loadTask = Task { @MainActor in
             do {
-                if let track = try await asset.loadTracks(withMediaType: .video).first {
+                let source = try await self.prepareMediaSource(url: url)
+                try Task.checkCancellation()
+                self.mediaSource = source
+                self.proxyURL = source.usesProxy ? source.playbackURL : nil
+                self.player.replaceCurrentItem(with: AVPlayerItem(asset: source.playbackAsset))
+                if let track = try await source.playbackAsset.loadTracks(withMediaType: .video).first {
                     self.frameRate = try await track.load(.nominalFrameRate)
                     self.minFrameDuration = try await track.load(.minFrameDuration)
                 }
-                let loadedDuration = try await asset.load(.duration)
-                guard self.sourceURL == url else { return }
+                let loadedDuration = try await source.playbackAsset.load(.duration)
+                try Task.checkCancellation()
                 self.mediaDuration = loadedDuration
                 self.duration = CMTimeGetSeconds(loadedDuration)
-            } catch {}
+                self.hasVideo = true
+                self.isLoadingMedia = false
+                self.mediaProgress = nil
+                self.mediaStatus = source.usesProxy
+                    ? "Ready using a temporary playback proxy"
+                    : "Ready"
+                self.loadTask = nil
+                self.announce(source.usesProxy ? "Video ready using a playback proxy" : "Video ready")
+            } catch is CancellationError {
+                self.isLoadingMedia = false
+                self.mediaProgress = nil
+                self.loadTask = nil
+            } catch {
+                self.isLoadingMedia = false
+                self.mediaProgress = nil
+                self.mediaStatus = "Open failed: \(error.localizedDescription)"
+                self.loadTask = nil
+                self.announce("Open failed. \(error.localizedDescription)")
+            }
         }
     }
 
@@ -251,41 +283,73 @@ final class VideoPlayerViewModel: ObservableObject {
             announce("Set an In marker earlier than the Out marker before exporting")
             return
         }
-        guard let sourceAsset, let sourceURL, let sourceContentType else {
-            announce("The source file type could not be determined for passthrough export")
+        guard let mediaSource else {
+            announce("Open a video before exporting")
             return
         }
 
         let panel = NSSavePanel()
         panel.title = "Export Trimmed Clip"
-        panel.allowedContentTypes = [sourceContentType]
+        let outputType: UTType
+        switch mediaSource.mode {
+        case .nativePassthrough:
+            guard let sourceContentType = mediaSource.contentType else {
+                announce("The source file type could not be determined for passthrough export")
+                return
+            }
+            outputType = sourceContentType
+        case .nativePlaybackMP4Export, .proxyPlaybackMP4Export:
+            outputType = .mpeg4Movie
+        }
+        panel.allowedContentTypes = [outputType]
         panel.allowsOtherFileTypes = false
         panel.isExtensionHidden = false
-        panel.nameFieldStringValue = Self.trimmedFilename(for: sourceURL)
+        panel.nameFieldStringValue = Self.trimmedFilename(
+            for: mediaSource.originalURL,
+            convertingToMP4: mediaSource.mode != .nativePassthrough
+        )
         guard panel.runModal() == .OK, let outputURL = panel.url else { return }
 
         isExporting = true
         exportStatus = "Exporting trimmed clip"
+        exportProgress = mediaSource.mode == .nativePassthrough ? nil : 0
         announce("Export started")
         exportTask = Task { @MainActor in
             do {
-                try await ClipExporter.export(
-                    asset: sourceAsset,
-                    timeRange: range,
-                    sourceContentType: sourceContentType,
-                    to: outputURL
-                )
+                switch mediaSource.mode {
+                case .nativePassthrough:
+                    guard let sourceContentType = mediaSource.contentType else {
+                        throw ClipExportError.unsupportedFileType
+                    }
+                    try await ClipExporter.export(
+                        asset: mediaSource.originalAsset,
+                        timeRange: range,
+                        sourceContentType: sourceContentType,
+                        to: outputURL
+                    )
+                case .nativePlaybackMP4Export, .proxyPlaybackMP4Export:
+                    try await FFmpegClipExporter.export(
+                        sourceURL: mediaSource.originalURL,
+                        timeRange: range,
+                        to: outputURL
+                    ) { [weak self] progress in
+                        self?.exportProgress = progress
+                    }
+                }
                 self.isExporting = false
+                self.exportProgress = nil
                 self.exportTask = nil
                 self.exportStatus = "Export complete: \(outputURL.lastPathComponent)"
                 self.announce("Export complete")
             } catch is CancellationError {
                 self.isExporting = false
+                self.exportProgress = nil
                 self.exportTask = nil
                 self.exportStatus = "Export canceled"
                 self.announce("Export canceled")
             } catch {
                 self.isExporting = false
+                self.exportProgress = nil
                 self.exportTask = nil
                 if Task.isCancelled {
                     self.exportStatus = "Export canceled"
@@ -313,8 +377,12 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     static func trimmedFilename(for sourceURL: URL) -> String {
+        trimmedFilename(for: sourceURL, convertingToMP4: false)
+    }
+
+    static func trimmedFilename(for sourceURL: URL, convertingToMP4: Bool) -> String {
         let baseName = sourceURL.deletingPathExtension().lastPathComponent
-        let fileExtension = sourceURL.pathExtension
+        let fileExtension = convertingToMP4 ? "mp4" : sourceURL.pathExtension
         return fileExtension.isEmpty
             ? "\(baseName)-trimmed"
             : "\(baseName)-trimmed.\(fileExtension)"
@@ -405,6 +473,22 @@ final class VideoPlayerViewModel: ObservableObject {
     // (or a computed fallback) and calls the completion handler once the seek has landed.
     // This ensures player.play() starts from the correct frame, not the pre-seek position.
     private func seekOneFrame(forward: Bool, completion: @escaping (CMTime) -> Void) {
+        if let timestamps = mediaSource?.frameTimestamps, !timestamps.isEmpty {
+            let current = frameStepPosition ?? player.currentTime()
+            let target: CMTime
+            if forward {
+                target = timestamps.first { CMTimeCompare($0, current) > 0 } ?? mediaDuration
+            } else {
+                target = timestamps.last { CMTimeCompare($0, current) < 0 } ?? .zero
+            }
+            frameStepPosition = target
+            player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+                guard finished else { return }
+                completion(target)
+            }
+            return
+        }
+
         let frameDur: CMTime
         if minFrameDuration.isValid, minFrameDuration.value > 0 {
             frameDur = minFrameDuration
@@ -625,6 +709,65 @@ final class VideoPlayerViewModel: ObservableObject {
                 return event
             }
         }
+    }
+
+    // MARK: - Private: media preparation
+
+    private func prepareMediaSource(url: URL) async throws -> MediaSource {
+        let asset = AVURLAsset(url: url)
+        let contentType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+            ?? UTType(filenameExtension: url.pathExtension)
+        let isProtected = (try? await asset.load(.hasProtectedContent)) ?? false
+        if isProtected { throw MediaSourceError.protectedContent }
+        let isPlayable = (try? await asset.load(.isPlayable)) ?? false
+
+        if isPlayable, let contentType,
+           ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
+            mediaStatus = "Indexing frames"
+            let timestamps = (try? await FFmpegMediaProbe.frameTimestamps(url: url)) ?? []
+            return .native(
+                url: url,
+                asset: asset,
+                contentType: contentType,
+                mode: .nativePassthrough,
+                frameTimestamps: timestamps
+            )
+        }
+
+        mediaStatus = "Analyzing video compatibility"
+        let report = try await FFmpegMediaProbe.inspect(url: url)
+        try FFmpegMediaProbe.validateForMP4Conversion(report)
+        mediaStatus = "Indexing frames"
+        let timestamps = try await FFmpegMediaProbe.frameTimestamps(url: url)
+
+        if isPlayable {
+            return .native(
+                url: url,
+                asset: asset,
+                contentType: contentType,
+                mode: .nativePlaybackMP4Export,
+                frameTimestamps: timestamps
+            )
+        }
+
+        mediaStatus = "Creating playback proxy"
+        mediaProgress = 0
+        let generatedProxy = try await ProxyMediaManager.createProxy(
+            sourceURL: url,
+            duration: report.duration
+        ) { [weak self] progress in
+            self?.mediaProgress = progress
+        }
+        let proxyAsset = AVURLAsset(url: generatedProxy)
+        return MediaSource(
+            originalURL: url,
+            playbackURL: generatedProxy,
+            originalAsset: asset,
+            playbackAsset: proxyAsset,
+            contentType: contentType,
+            mode: .proxyPlaybackMP4Export,
+            frameTimestamps: timestamps
+        )
     }
 
     // MARK: - Private: accessibility & timecode formatting

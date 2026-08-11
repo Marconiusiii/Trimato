@@ -29,9 +29,19 @@ struct ContentView: View {
                     Image(systemName: "film")
                         .font(.system(size: 64))
                         .foregroundStyle(.tertiary)
-                    Text("Open a video file to begin")
+                    Text(viewModel.mediaStatus ?? "Open a video file to begin")
                         .foregroundStyle(.secondary)
-                    Button("Open File\u{2026}") { viewModel.openFile() }
+                    if viewModel.isLoadingMedia {
+                        if let progress = viewModel.mediaProgress {
+                            ProgressView(value: progress) {
+                                Text("Preparing video")
+                            }
+                        } else {
+                            ProgressView("Preparing video")
+                        }
+                    } else {
+                        Button("Open File\u{2026}") { viewModel.openFile() }
+                    }
                 }
             }
         }
@@ -136,7 +146,13 @@ struct ContentView: View {
 
             if viewModel.isExporting {
                 HStack {
-                    ProgressView("Exporting trimmed clip")
+                    if let progress = viewModel.exportProgress {
+                        ProgressView(value: progress) {
+                            Text("Exporting trimmed clip")
+                        }
+                    } else {
+                        ProgressView("Exporting trimmed clip")
+                    }
                     Button("Cancel Export") { viewModel.cancelExport() }
                 }
             } else if let exportStatus = viewModel.exportStatus {

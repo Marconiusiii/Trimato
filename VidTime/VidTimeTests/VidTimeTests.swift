@@ -90,6 +90,15 @@ struct VidTimeTests {
         #expect(VideoPlayerViewModel.trimmedFilename(for: sourceURL) == "Example Clip-trimmed.mp4")
     }
 
+    @Test func convertedFilenameAlwaysUsesMP4() {
+        let sourceURL = URL(fileURLWithPath: "/tmp/Example Clip.mkv")
+
+        #expect(VideoPlayerViewModel.trimmedFilename(
+            for: sourceURL,
+            convertingToMP4: true
+        ) == "Example Clip-trimmed.mp4")
+    }
+
     @Test func passthroughUsesTheOriginalContainerType() throws {
         let fileType = try ClipExporter.passthroughFileType(
             for: .mpeg4Movie,
@@ -111,6 +120,114 @@ struct VidTimeTests {
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
+    }
+
+    @Test func hdrAndAlphaSourcesAreRejectedForMP4Conversion() {
+        let hdr = FFmpegMediaProbe.Report(
+            streams: [.init(
+                codecType: "video",
+                codecName: "hevc",
+                pixelFormat: "yuv420p10le",
+                colorTransfer: "smpte2084"
+            )],
+            format: .init(duration: "12.5", formatName: "matroska")
+        )
+        let alpha = FFmpegMediaProbe.Report(
+            streams: [.init(
+                codecType: "video",
+                codecName: "prores",
+                pixelFormat: "yuva444p10le",
+                colorTransfer: "bt709"
+            )],
+            format: .init(duration: "12.5", formatName: "mov")
+        )
+
+        #expect(throws: MediaSourceError.unsupportedHDR) {
+            try FFmpegMediaProbe.validateForMP4Conversion(hdr)
+        }
+        #expect(throws: MediaSourceError.unsupportedAlpha) {
+            try FFmpegMediaProbe.validateForMP4Conversion(alpha)
+        }
+    }
+
+    @Test func ffmpegExportReadsOriginalAndProducesMP4Arguments() {
+        let arguments = FFmpegClipExporter.arguments(
+            sourceURL: URL(fileURLWithPath: "/tmp/source.mkv"),
+            timeRange: CMTimeRange(
+                start: CMTime(seconds: 2.5, preferredTimescale: 600),
+                duration: CMTime(seconds: 7.25, preferredTimescale: 600)
+            ),
+            outputURL: URL(fileURLWithPath: "/tmp/output.mp4")
+        )
+
+        #expect(arguments.contains("/tmp/source.mkv"))
+        #expect(arguments.contains("h264_videotoolbox"))
+        #expect(arguments.contains("aac"))
+        #expect(arguments.last == "/tmp/output.mp4")
+
+        let fallbackArguments = FFmpegClipExporter.arguments(
+            sourceURL: URL(fileURLWithPath: "/tmp/source.mkv"),
+            timeRange: CMTimeRange(
+                start: .zero,
+                duration: CMTime(seconds: 1, preferredTimescale: 600)
+            ),
+            outputURL: URL(fileURLWithPath: "/tmp/output.mp4"),
+            useVideoToolbox: false
+        )
+        #expect(fallbackArguments.contains("mpeg4"))
+        #expect(fallbackArguments.contains("mp4v"))
+    }
+
+    @Test func ffmpegProgressParserClampsProgress() {
+        var values: [Double] = []
+        let progress = Data("out_time_us=2500000\nprogress=continue\nout_time_us=12000000\nprogress=end\n".utf8)
+
+        FFmpegRunner.parseProgress(progress, duration: 10) { value in
+            values.append(value)
+        }
+
+        #expect(values == [0.25, 1, 1])
+    }
+
+    @Test func bundledFFmpegToolsExecute() async throws {
+        let ffmpeg = try await FFmpegRunner.run(tool: .ffmpeg, arguments: ["-version"])
+        let ffprobe = try await FFmpegRunner.run(tool: .ffprobe, arguments: ["-version"])
+
+        #expect(String(decoding: ffmpeg.standardOutput, as: UTF8.self).contains("ffmpeg version 8.1.2"))
+        #expect(String(decoding: ffprobe.standardOutput, as: UTF8.self).contains("ffprobe version 8.1.2"))
+    }
+
+    @Test func bundledToolsEncodeTrimmedMP4FromMKV() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mkv")
+        let outputURL = directory.appendingPathComponent("trimmed.mp4")
+
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24",
+            "-t", "1", "-c:v", "mpeg4", sourceURL.path
+        ])
+        try await FFmpegClipExporter.export(
+            sourceURL: sourceURL,
+            timeRange: CMTimeRange(
+                start: CMTime(seconds: 0.25, preferredTimescale: 600),
+                duration: CMTime(seconds: 0.5, preferredTimescale: 600)
+            ),
+            to: outputURL,
+            progress: { _ in }
+        )
+        let probe = try await FFmpegRunner.run(tool: .ffprobe, arguments: [
+            "-v", "error", "-show_entries", "stream=codec_type",
+            "-show_entries", "format=format_name,duration", "-of", "json",
+            outputURL.path
+        ])
+        let report = String(decoding: probe.standardOutput, as: UTF8.self)
+
+        #expect(report.contains("\"codec_type\": \"video\""))
+        #expect(report.contains("mp4"))
     }
 
 }

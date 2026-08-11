@@ -68,3 +68,9 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# FFmpeg source and intermediate builds
+VidTime/ThirdParty/FFmpeg/build/
+VidTime/ThirdParty/FFmpeg/build-lgpl/
+VidTime/ThirdParty/FFmpeg/ffmpeg-*/
+VidTime/ThirdParty/FFmpeg/ffmpeg-*.tar.*
