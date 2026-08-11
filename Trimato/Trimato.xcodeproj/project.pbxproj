@@ -121,7 +121,7 @@
 				82306B5D2FAAAF1000B67C04 /* Sources */,
 				82306B5E2FAAAF1000B67C04 /* Frameworks */,
 				82306B5F2FAAAF1000B67C04 /* Resources */,
-				82FF6A012FB0000100B67C04 /* Sign FFmpeg Tools */,
+				82FF6A012FB0000100B67C04 /* Prepare FFmpeg Tools and Symbols */,
 			);
 			buildRules = (
 			);
@@ -253,7 +253,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		82FF6A012FB0000100B67C04 /* Sign FFmpeg Tools */ = {
+		82FF6A012FB0000100B67C04 /* Prepare FFmpeg Tools and Symbols */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -266,7 +266,7 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffmpeg",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffprobe",
 			);
-			name = "Sign FFmpeg Tools";
+			name = "Prepare FFmpeg Tools and Symbols";
 			outputFileListPaths = (
 			);
 			outputPaths = (
@@ -274,10 +274,22 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffmpeg.cstemp",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffprobe",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffprobe.cstemp",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Info.plist",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Resources",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Resources/DWARF",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Resources/DWARF/ffmpeg",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Info.plist",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Resources",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Resources/DWARF",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Resources/DWARF/ffprobe",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "SIGNING_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\nfor TOOL_NAME in ffmpeg ffprobe; do\n    /usr/bin/codesign --force --sign \"$SIGNING_IDENTITY\" --options runtime --entitlements \"$SRCROOT/FFmpegTool.entitlements\" --timestamp=none \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$TOOL_NAME\"\ndone\n";
+			shellScript = "SIGNING_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\nfor TOOL_NAME in ffmpeg ffprobe; do\n    TOOL_PATH=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$TOOL_NAME\"\n\n    if [ \"${DEBUG_INFORMATION_FORMAT:-}\" = \"dwarf-with-dsym\" ] && [ -n \"${DWARF_DSYM_FOLDER_PATH:-}\" ]; then\n        /usr/bin/dsymutil \"$TOOL_PATH\" -o \"$DWARF_DSYM_FOLDER_PATH/$TOOL_NAME.dSYM\"\n    fi\n\n    /usr/bin/codesign --force --sign \"$SIGNING_IDENTITY\" --options runtime --entitlements \"$SRCROOT/FFmpegTool.entitlements\" --timestamp=none \"$TOOL_PATH\"\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -421,7 +433,7 @@
 				DEVELOPMENT_TEAM = 4FL3XZDQ9P;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
