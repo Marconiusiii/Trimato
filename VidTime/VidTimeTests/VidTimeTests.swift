@@ -245,4 +245,17 @@ struct VidTimeTests {
         #expect(documentTypes.first?["LSHandlerRank"] as? String == "Alternate")
     }
 
+    @Test func aboutInformationIsAccessibleAndAcknowledgesFFmpeg() throws {
+        #expect(AboutInformation.copyright == "© 2026 Marco Salsiccia")
+        #expect(!AboutInformation.copyright.contains("Copyright ©"))
+        #expect(AboutInformation.ffmpegAcknowledgment.contains("FFmpeg 8.1.2"))
+        #expect(AboutInformation.ffmpegAcknowledgment.contains("GNU Lesser General Public License"))
+        #expect(AboutInformation.versionText().hasPrefix("Version "))
+
+        let licenseURL = try #require(
+            Bundle.main.url(forResource: "COPYING.LGPLv2.1", withExtension: nil)
+        )
+        #expect(FileManager.default.fileExists(atPath: licenseURL.path))
+    }
+
 }

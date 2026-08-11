@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		82F6E0032FC0000000B67C04 /* COPYING.LGPLv2.1 in Resources */ = {isa = PBXBuildFile; fileRef = 82F6E0022FC0000000B67C04 /* COPYING.LGPLv2.1 */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		82306B6F2FAAAF1100B67C04 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,6 +28,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		82F6E0022FC0000000B67C04 /* COPYING.LGPLv2.1 */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdParty/FFmpeg/COPYING.LGPLv2.1; sourceTree = SOURCE_ROOT; };
 		82306B612FAAAF1000B67C04 /* VidTime.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VidTime.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		82306B6E2FAAAF1100B67C04 /* VidTimeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VidTimeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		82306B782FAAAF1100B67C04 /* VidTimeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VidTimeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -91,6 +96,7 @@
 				82306B632FAAAF1000B67C04 /* VidTime */,
 				82306B712FAAAF1100B67C04 /* VidTimeTests */,
 				82306B7B2FAAAF1100B67C04 /* VidTimeUITests */,
+				82F6E0022FC0000000B67C04 /* COPYING.LGPLv2.1 */,
 				82306B622FAAAF1000B67C04 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -226,6 +232,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				82F6E0032FC0000000B67C04 /* COPYING.LGPLv2.1 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

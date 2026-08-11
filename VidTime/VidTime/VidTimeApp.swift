@@ -3,12 +3,18 @@ import SwiftUI
 @main
 struct VidTimeApp: App {
     @FocusedObject private var viewModel: VideoPlayerViewModel?
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About vidTime") {
+                    openWindow(id: "about")
+                }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open\u{2026}") {
                     viewModel?.openFile()
@@ -50,5 +56,15 @@ struct VidTimeApp: App {
                     .disabled(viewModel?.hasVideo != true || viewModel?.isExporting == true)
             }
         }
+
+        Window("About vidTime", id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+
+        Window("FFmpeg License", id: "ffmpeg-license") {
+            FFmpegLicenseView()
+        }
+        .defaultSize(width: 720, height: 600)
     }
 }

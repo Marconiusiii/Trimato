@@ -10,6 +10,9 @@ struct ContentView: View {
             controlsArea
         }
         .frame(minWidth: 640, minHeight: 480)
+        .background(EditorTheme.workspace)
+        .tint(EditorTheme.accent)
+        .preferredColorScheme(.dark)
         .focusedObject(viewModel)
         .dropDestination(for: URL.self) { urls, _ in
             guard let url = urls.first else { return false }
@@ -50,6 +53,12 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 360)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(EditorTheme.separator)
+                .frame(height: 1)
+                .accessibilityHidden(true)
+        }
     }
 
     // MARK: - Controls
@@ -83,6 +92,7 @@ struct ContentView: View {
                          : viewModel.displayTimecode)
                         .font(.system(.title, design: .monospaced).weight(.semibold))
                         .monospacedDigit()
+                        .foregroundStyle(EditorTheme.accent)
                     Text(viewModel.showingFrames ? "FRAMES" : "TIMECODE")
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -141,11 +151,13 @@ struct ContentView: View {
                 .disabled(!viewModel.hasVideo)
                 .accessibilityLabel("Step forward one frame")
             }
+            .foregroundStyle(EditorTheme.accent)
             .padding(.bottom, 8)
 
             Button("Export Trimmed Clip\u{2026}") {
                 viewModel.exportTrimmedClip()
             }
+            .buttonStyle(.borderedProminent)
             .disabled(!viewModel.canExport)
 
             if viewModel.isExporting {
@@ -167,7 +179,8 @@ struct ContentView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
-        .background(.regularMaterial)
+        .padding(.bottom, 14)
+        .background(EditorTheme.controlSurface)
     }
 
     private var markerControls: some View {
@@ -210,7 +223,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(.quaternary, in: Capsule())
+                .background(EditorTheme.raisedSurface, in: Capsule())
                 .accessibilityHidden(true)
         }
     }
