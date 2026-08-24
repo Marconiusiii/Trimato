@@ -62,7 +62,11 @@ final class ProjectPlayerViewModel: ObservableObject {
         errorMessage = nil
         buildTask = Task { @MainActor in
             do {
-                let result = try await ProjectCompositionBuilder.build(project: project, mediaURLs: mediaURLs)
+                let result = try await ProjectCompositionBuilder.build(
+                    project: project,
+                    mediaURLs: mediaURLs,
+                    purpose: .preview
+                )
                 try Task.checkCancellation()
                 let item = AVPlayerItem(asset: result.composition)
                 item.videoComposition = result.videoComposition

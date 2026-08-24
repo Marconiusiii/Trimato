@@ -46,6 +46,14 @@ nonisolated enum ProjectMediaPlaybackMode: String, Codable, Hashable, Sendable {
     case cachedProxy
 }
 
+nonisolated struct SourceMediaFingerprint: Codable, Hashable, Sendable {
+    static let proxyFormatVersion = 1
+
+    var fileSize: Int64
+    var modificationTime: TimeInterval
+    var proxyFormatVersion: Int
+}
+
 nonisolated struct MediaAssetRecord: Codable, Hashable, Identifiable, Sendable {
     var id = UUID()
     var name: String
@@ -59,6 +67,7 @@ nonisolated struct MediaAssetRecord: Codable, Hashable, Identifiable, Sendable {
     var sourceEdit: [SourceSegment]
     var playbackMode: ProjectMediaPlaybackMode? = nil
     var proxyCacheKey: UUID? = nil
+    var sourceFingerprint: SourceMediaFingerprint? = nil
 
     var editedDuration: ProjectTime {
         sourceEdit.reduce(.zero) { $0 + $1.duration }

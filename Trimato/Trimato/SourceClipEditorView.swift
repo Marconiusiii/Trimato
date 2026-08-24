@@ -9,6 +9,8 @@ struct SourceClipEditorView: View {
 
     @StateObject private var viewModel = VideoPlayerViewModel()
     @State private var loadedAssetID: UUID?
+    @State private var preparationTask: Task<Void, Never>?
+    @State private var cacheOwnerID = UUID()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -37,6 +39,12 @@ struct SourceClipEditorView: View {
             }
         }
         .onAppear {
+            if let cacheKey = asset.proxyCacheKey {
+                let owner = cacheOwnerID
+                Task {
+                    await MediaCacheManager.shared.updateProtectedKeys(owner: owner, keys: [cacheKey])
+                }
+            }
             viewModel.scopeKeyboardCommands { [weak commandContext] in
                 commandContext?.isKeyWindow == true
             }
@@ -47,18 +55,45 @@ struct SourceClipEditorView: View {
             commandContext.segments = segments
             controller.updateEditSegments(for: editSelection, segments: segments)
         }
-        .onDisappear { viewModel.closeMedia() }
+        .onDisappear {
+            preparationTask?.cancel()
+            preparationTask = nil
+            viewModel.closeMedia()
+            let owner = cacheOwnerID
+            Task { await MediaCacheManager.shared.releaseProtectedKeys(owner: owner) }
+        }
     }
 
     private func loadIfNeeded() {
         guard loadedAssetID != asset.id, let url = controller.resolveURL(for: asset) else { return }
         loadedAssetID = asset.id
         commandContext.segments = initialSegments
-        viewModel.load(
-            url: url,
-            sourceSegments: initialSegments,
-            preparedSource: controller.preparedMediaSource(for: asset)
-        )
+        preparationTask = Task { @MainActor in
+            do {
+                let source = try await controller.preparedMediaSource(for: asset)
+                try Task.checkCancellation()
+                if let cacheKey = controller.project.asset(id: asset.id)?.proxyCacheKey {
+                    await MediaCacheManager.shared.updateProtectedKeys(
+                        owner: cacheOwnerID,
+                        keys: [cacheKey]
+                    )
+                }
+                viewModel.load(
+                    url: url,
+                    sourceSegments: initialSegments,
+                    preparedSource: source
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                loadedAssetID = nil
+                controller.presentedError = ProjectPresentedError(
+                    title: "Clip Preparation Failed",
+                    message: error.localizedDescription
+                )
+            }
+            preparationTask = nil
+        }
     }
 
     private func place(_ placement: PlacementAction) {

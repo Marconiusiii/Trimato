@@ -8,6 +8,16 @@ struct ProjectCompositionResult {
     let temporaryMediaURLs: [URL]
 }
 
+nonisolated enum ProjectCompositionPurpose: Equatable, Sendable {
+    case preview
+    case finalExport
+}
+
+nonisolated enum ProjectCompositionMediaSelection: Equatable, Sendable {
+    case original
+    case playbackProxy
+}
+
 enum ProjectCompositionError: LocalizedError {
     case emptyTimeline
     case missingMedia(String)
@@ -27,9 +37,19 @@ enum ProjectCompositionError: LocalizedError {
 }
 
 enum ProjectCompositionBuilder {
+    nonisolated static func mediaSelection(
+        for record: MediaAssetRecord,
+        purpose: ProjectCompositionPurpose
+    ) -> ProjectCompositionMediaSelection {
+        purpose == .preview && record.playbackMode == .cachedProxy
+            ? .playbackProxy
+            : .original
+    }
+
     static func build(
         project: TrimatoProject,
-        mediaURLs: [UUID: URL]
+        mediaURLs: [UUID: URL],
+        purpose: ProjectCompositionPurpose = .preview
     ) async throws -> ProjectCompositionResult {
         guard !project.primaryTimeline.isEmpty else { throw ProjectCompositionError.emptyTimeline }
         guard let width = project.format.width, let height = project.format.height,
@@ -57,6 +77,14 @@ enum ProjectCompositionBuilder {
         let renderSize = CGSize(width: width, height: height)
         var assets: [UUID: AVURLAsset] = [:]
         var temporaryMediaURLs: [URL] = []
+        var shouldPreserveTemporaryMedia = false
+        defer {
+            if !shouldPreserveTemporaryMedia {
+                for url in temporaryMediaURLs {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+        }
         var primaryTransforms: [(ProjectTimeRange, CGAffineTransform)] = []
         var cursor = ProjectTime.zero
 
@@ -65,6 +93,7 @@ enum ProjectCompositionBuilder {
             let asset = try await preparedAsset(
                 assetRecord,
                 urls: mediaURLs,
+                purpose: purpose,
                 cache: &assets,
                 temporaryMediaURLs: &temporaryMediaURLs
             )
@@ -97,6 +126,7 @@ enum ProjectCompositionBuilder {
             let asset = try await preparedAsset(
                 assetRecord,
                 urls: mediaURLs,
+                purpose: purpose,
                 cache: &assets,
                 temporaryMediaURLs: &temporaryMediaURLs
             )
@@ -161,12 +191,14 @@ enum ProjectCompositionBuilder {
             audioMix = mix
         }
 
-        return ProjectCompositionResult(
+        let result = ProjectCompositionResult(
             composition: composition,
             videoComposition: videoComposition,
             audioMix: audioMix,
             temporaryMediaURLs: temporaryMediaURLs
         )
+        shouldPreserveTemporaryMedia = true
+        return result
     }
 
     private static func requireAsset(_ id: UUID, in project: TrimatoProject) throws -> MediaAssetRecord {
@@ -179,29 +211,40 @@ enum ProjectCompositionBuilder {
     private static func preparedAsset(
         _ record: MediaAssetRecord,
         urls: [UUID: URL],
+        purpose: ProjectCompositionPurpose,
         cache: inout [UUID: AVURLAsset],
         temporaryMediaURLs: inout [URL]
     ) async throws -> AVURLAsset {
         if let cached = cache[record.id] { return cached }
         guard let url = urls[record.id] else { throw ProjectCompositionError.missingMedia(record.name) }
-        if record.playbackMode == .cachedProxy, let cacheKey = record.proxyCacheKey {
-            let proxyURL: URL
-            if let existing = ProxyMediaManager.existingCachedProxyURL(for: cacheKey) {
-                proxyURL = existing
-            } else {
-                proxyURL = try await ProxyMediaManager.createCachedProxy(
-                    sourceURL: url,
-                    duration: record.duration.seconds,
-                    cacheKey: cacheKey,
-                    progress: { _ in }
-                )
-            }
+        if mediaSelection(for: record, purpose: purpose) == .playbackProxy,
+           let cacheKey = record.proxyCacheKey {
+            let fingerprint = try MediaCacheManager.sourceFingerprint(for: url)
+            let proxyURL = try await MediaCacheManager.shared.ensureProxy(
+                sourceURL: url,
+                duration: record.duration.seconds,
+                cacheKey: cacheKey,
+                fingerprint: fingerprint
+            )
             let asset = AVURLAsset(url: proxyURL)
             cache[record.id] = asset
             return asset
         }
         var asset = AVURLAsset(url: url)
-        if try await asset.loadTracks(withMediaType: .video).isEmpty {
+        let isPlayable = (try? await asset.load(.isPlayable)) ?? false
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        if purpose == .finalExport,
+           record.playbackMode == .cachedProxy || !isPlayable || videoTracks.isEmpty {
+            let intermediateURL = try await ProjectRenderMediaManager.createIntermediate(
+                sourceURL: url,
+                duration: record.duration.seconds,
+                width: record.naturalWidth,
+                height: record.naturalHeight,
+                hasAudio: record.hasAudio
+            )
+            temporaryMediaURLs.append(intermediateURL)
+            asset = AVURLAsset(url: intermediateURL)
+        } else if purpose == .preview, !isPlayable || videoTracks.isEmpty {
             let report = try await FFmpegMediaProbe.inspect(url: url)
             try FFmpegMediaProbe.validateForMP4Conversion(report)
             let proxyURL = try await ProxyMediaManager.createProxy(

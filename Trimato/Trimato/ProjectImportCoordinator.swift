@@ -3,6 +3,12 @@ import Foundation
 import UniformTypeIdentifiers
 
 enum ProjectImportCoordinator {
+    struct PlaybackPreparation: Sendable {
+        var mode: ProjectMediaPlaybackMode
+        var cacheKey: UUID?
+        var fingerprint: SourceMediaFingerprint
+    }
+
     static func importAsset(at url: URL) async throws -> MediaAssetRecord {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -14,15 +20,11 @@ enum ProjectImportCoordinator {
             relativeTo: nil
         )
         let projectDuration = ProjectTime(seconds: metadata.duration)
-        let proxyCacheKey = metadata.playbackMode == .cachedProxy ? UUID() : nil
-        if let proxyCacheKey {
-            _ = try await ProxyMediaManager.createCachedProxy(
-                sourceURL: url,
-                duration: metadata.duration,
-                cacheKey: proxyCacheKey,
-                progress: { _ in }
-            )
-        }
+        let preparation = try await preparePlayback(
+            at: url,
+            metadata: metadata,
+            preferredCacheKey: nil
+        )
 
         return MediaAssetRecord(
             name: url.deletingPathExtension().lastPathComponent,
@@ -37,8 +39,52 @@ enum ProjectImportCoordinator {
                 start: .zero,
                 duration: projectDuration
             ))],
-            playbackMode: metadata.playbackMode,
-            proxyCacheKey: proxyCacheKey
+            playbackMode: preparation.mode,
+            proxyCacheKey: preparation.cacheKey,
+            sourceFingerprint: preparation.fingerprint
+        )
+    }
+
+    static func preparePlayback(
+        at url: URL,
+        preferredCacheKey: UUID?
+    ) async throws -> PlaybackPreparation {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let metadata = try await metadata(for: url)
+        return try await preparePlayback(
+            at: url,
+            metadata: metadata,
+            preferredCacheKey: preferredCacheKey
+        )
+    }
+
+    private static func preparePlayback(
+        at url: URL,
+        metadata: (
+            duration: Double,
+            width: Int?,
+            height: Int?,
+            frameRate: Double?,
+            hasAudio: Bool,
+            playbackMode: ProjectMediaPlaybackMode
+        ),
+        preferredCacheKey: UUID?
+    ) async throws -> PlaybackPreparation {
+        let fingerprint = try MediaCacheManager.sourceFingerprint(for: url)
+        let cacheKey = metadata.playbackMode == .cachedProxy ? preferredCacheKey ?? UUID() : nil
+        if let cacheKey {
+            _ = try await MediaCacheManager.shared.ensureProxy(
+                sourceURL: url,
+                duration: metadata.duration,
+                cacheKey: cacheKey,
+                fingerprint: fingerprint
+            )
+        }
+        return PlaybackPreparation(
+            mode: metadata.playbackMode,
+            cacheKey: cacheKey,
+            fingerprint: fingerprint
         )
     }
 

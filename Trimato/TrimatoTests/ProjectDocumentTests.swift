@@ -66,5 +66,6 @@ struct ProjectDocumentTests {
 
         #expect(decoded.media.first?.playbackMode == nil)
         #expect(decoded.media.first?.proxyCacheKey == nil)
+        #expect(decoded.media.first?.sourceFingerprint == nil)
     }
 }

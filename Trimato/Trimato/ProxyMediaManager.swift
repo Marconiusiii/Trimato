@@ -1,8 +1,8 @@
 import AVFoundation
 import Foundation
 
-struct ProxyMediaManager {
-    private static func cacheDirectory() throws -> URL {
+nonisolated enum ProxyMediaManager {
+    static func cacheDirectory() throws -> URL {
         let cache = try FileManager.default.url(
             for: .cachesDirectory,
             in: .userDomainMask,
@@ -14,7 +14,9 @@ struct ProxyMediaManager {
     }
 
     static func proxyURL(for sourceURL: URL) throws -> URL {
-        try cacheDirectory().appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
+        try cacheDirectory()
+            .appendingPathComponent("temporary-\(UUID().uuidString)")
+            .appendingPathExtension("mp4")
     }
 
     static func cachedProxyURL(for cacheKey: UUID) throws -> URL {
@@ -72,13 +74,27 @@ struct ProxyMediaManager {
         cacheKey: UUID,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws -> URL {
-        let outputURL = try cachedProxyURL(for: cacheKey)
-        return try await createProxy(
+        let finalURL = try cachedProxyURL(for: cacheKey)
+        let temporaryURL = try cacheDirectory()
+            .appendingPathComponent("\(cacheKey.uuidString)-\(UUID().uuidString).partial")
+            .appendingPathExtension("mp4")
+        let generatedURL = try await createProxy(
             sourceURL: sourceURL,
             duration: duration,
-            outputURL: outputURL,
+            outputURL: temporaryURL,
             progress: progress
         )
+        do {
+            if FileManager.default.fileExists(atPath: finalURL.path) {
+                _ = try FileManager.default.replaceItemAt(finalURL, withItemAt: generatedURL)
+            } else {
+                try FileManager.default.moveItem(at: generatedURL, to: finalURL)
+            }
+            return finalURL
+        } catch {
+            removeProxy(at: generatedURL)
+            throw error
+        }
     }
 
     private static func createProxy(

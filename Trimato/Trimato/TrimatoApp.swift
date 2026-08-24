@@ -193,6 +193,10 @@ struct TrimatoApp: App {
         }
         .windowResizability(.contentSize)
 
+        Settings {
+            MediaCacheSettingsView()
+        }
+
         Window("FFmpeg License", id: "ffmpeg-license") {
             FFmpegLicenseView()
         }

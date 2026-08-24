@@ -31,17 +31,21 @@ final class ProjectController: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var accessedURLs: [URL] = []
     private var exportTask: Task<Void, Never>?
+    private let cacheOwnerID = UUID()
 
     init(document: ProjectDocument) {
         self.document = document
         document.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+        updateCacheProtection(for: document.project)
     }
 
     deinit {
         exportTask?.cancel()
         for url in accessedURLs { url.stopAccessingSecurityScopedResource() }
+        let cacheOwnerID = cacheOwnerID
+        Task { await MediaCacheManager.shared.releaseProtectedKeys(owner: cacheOwnerID) }
     }
 
     func resolvedMediaURLs() -> [UUID: URL] {
@@ -75,7 +79,7 @@ final class ProjectController: ObservableObject {
                     project.media[index] = replacement
                 }
                 if previousProxyCacheKey != replacement.proxyCacheKey {
-                    ProxyMediaManager.removeCachedProxy(for: previousProxyCacheKey)
+                    try? await MediaCacheManager.shared.removeProxy(cacheKey: previousProxyCacheKey)
                 }
                 announce("Media relinked")
             } catch {
@@ -177,8 +181,25 @@ final class ProjectController: ObservableObject {
         return url
     }
 
-    func preparedMediaSource(for asset: MediaAssetRecord) -> MediaSource? {
-        guard let originalURL = resolveURL(for: asset), let playbackMode = asset.playbackMode else { return nil }
+    func preparedMediaSource(for requestedAsset: MediaAssetRecord) async throws -> MediaSource? {
+        guard var asset = project.asset(id: requestedAsset.id),
+              let originalURL = resolveURL(for: asset) else { return nil }
+        let currentFingerprint = try MediaCacheManager.sourceFingerprint(for: originalURL)
+        if asset.playbackMode == nil || asset.sourceFingerprint != currentFingerprint {
+            let previousCacheKey = asset.proxyCacheKey
+            let preparation = try await ProjectImportCoordinator.preparePlayback(
+                at: originalURL,
+                preferredCacheKey: asset.sourceFingerprint == nil ? asset.proxyCacheKey : nil
+            )
+            asset.playbackMode = preparation.mode
+            asset.proxyCacheKey = preparation.cacheKey
+            asset.sourceFingerprint = preparation.fingerprint
+            updatePlaybackPreparation(for: asset)
+            if previousCacheKey != preparation.cacheKey {
+                try? await MediaCacheManager.shared.removeProxy(cacheKey: previousCacheKey)
+            }
+        }
+        guard let playbackMode = asset.playbackMode else { return nil }
         let originalAsset = AVURLAsset(url: originalURL)
         let contentType = (try? originalURL.resourceValues(forKeys: [.contentTypeKey]))?.contentType
             ?? UTType(filenameExtension: originalURL.pathExtension)
@@ -201,7 +222,13 @@ final class ProjectController: ObservableObject {
             )
         case .cachedProxy:
             guard let cacheKey = asset.proxyCacheKey,
-                  let proxyURL = ProxyMediaManager.existingCachedProxyURL(for: cacheKey) else { return nil }
+                  let fingerprint = asset.sourceFingerprint else { return nil }
+            let proxyURL = try await MediaCacheManager.shared.ensureProxy(
+                sourceURL: originalURL,
+                duration: asset.duration.seconds,
+                cacheKey: cacheKey,
+                fingerprint: fingerprint
+            )
             return MediaSource(
                 originalURL: originalURL,
                 playbackURL: proxyURL,
@@ -482,12 +509,29 @@ final class ProjectController: ObservableObject {
 
     private func apply(_ project: TrimatoProject, undoingTo previous: TrimatoProject, actionName: String) {
         document.project = project
+        updateCacheProtection(for: project)
         if let undoManager = NSApp.keyWindow?.undoManager {
             undoManager.registerUndo(withTarget: self) { target in
                 target.apply(previous, undoingTo: project, actionName: actionName)
             }
             undoManager.setActionName(actionName)
         }
+    }
+
+    private func updatePlaybackPreparation(for asset: MediaAssetRecord) {
+        var updated = document.project
+        guard let index = updated.media.firstIndex(where: { $0.id == asset.id }) else { return }
+        updated.media[index].playbackMode = asset.playbackMode
+        updated.media[index].proxyCacheKey = asset.proxyCacheKey
+        updated.media[index].sourceFingerprint = asset.sourceFingerprint
+        document.project = updated
+        updateCacheProtection(for: updated)
+    }
+
+    private func updateCacheProtection(for project: TrimatoProject) {
+        let keys = Set(project.media.compactMap(\.proxyCacheKey))
+        let owner = cacheOwnerID
+        Task { await MediaCacheManager.shared.updateProtectedKeys(owner: owner, keys: keys) }
     }
 
     private func announce(_ message: String?) {

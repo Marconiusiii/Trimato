@@ -8,7 +8,11 @@ enum ProjectExporter {
         to outputURL: URL,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
-        let result = try await ProjectCompositionBuilder.build(project: project, mediaURLs: mediaURLs)
+        let result = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: mediaURLs,
+            purpose: .finalExport
+        )
         defer {
             for url in result.temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }
         }
