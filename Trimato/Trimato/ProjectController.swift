@@ -208,7 +208,6 @@ final class ProjectController: ObservableObject {
                         project.folders[folderIndex].assetIDs.append(contentsOf: additions.map(\.id))
                     }
                 }
-                selection = .asset(additions[0].id)
             }
             isImporting = false
             if !additions.isEmpty {
@@ -302,8 +301,12 @@ final class ProjectController: ObservableObject {
         }
     }
 
-    func placeSelectedAsset(_ placement: PlacementAction, segments: [SourceSegment]? = nil) {
-        guard let asset = selectedAsset else { return }
+    func place(
+        _ placement: PlacementAction,
+        editing editSelection: EditorSelection,
+        segments: [SourceSegment]? = nil
+    ) {
+        guard let asset = asset(for: editSelection) else { return }
         do {
             var selectedID: UUID?
             try mutateProjectThrowing(actionName: placement.undoName) { project in
@@ -326,6 +329,34 @@ final class ProjectController: ObservableObject {
             announce(placement.confirmation)
         } catch {
             announce(error.localizedDescription)
+        }
+    }
+
+    func asset(for editSelection: EditorSelection) -> MediaAssetRecord? {
+        switch editSelection {
+        case .asset(let id):
+            return project.asset(id: id)
+        case .timelineClip(let id):
+            return project.primaryTimeline.first(where: { $0.id == id })
+                .flatMap { project.asset(id: $0.assetID) }
+        case .cutaway(let id):
+            return project.cutaways.first(where: { $0.id == id })
+                .flatMap { project.asset(id: $0.assetID) }
+        case .project:
+            return nil
+        }
+    }
+
+    func segments(for editSelection: EditorSelection) -> [SourceSegment]? {
+        switch editSelection {
+        case .asset(let id):
+            return project.asset(id: id)?.sourceEdit
+        case .timelineClip(let id):
+            return project.primaryTimeline.first(where: { $0.id == id })?.segments
+        case .cutaway(let id):
+            return project.cutaways.first(where: { $0.id == id })?.segments
+        case .project:
+            return nil
         }
     }
 
@@ -437,13 +468,23 @@ enum PlacementAction: CaseIterable, Identifiable {
     var id: String { undoName }
     var isCutaway: Bool { self == .cutawaySourceAudio || self == .cutawayPrimaryAudio }
 
+    var title: String {
+        switch self {
+        case .append: "Append to Timeline"
+        case .insert: "Insert and Split"
+        case .replaceRemainder: "Insert and Overwrite"
+        case .cutawaySourceAudio: "Insert on Top with Source Audio"
+        case .cutawayPrimaryAudio: "Insert on Top over Primary Audio"
+        }
+    }
+
     var undoName: String {
         switch self {
         case .append: "Append Clip"
-        case .insert: "Insert Clip"
-        case .replaceRemainder: "Replace Clip Remainder"
-        case .cutawaySourceAudio: "Add Cutaway with Source Audio"
-        case .cutawayPrimaryAudio: "Add Cutaway over Primary Audio"
+        case .insert: "Insert and Split"
+        case .replaceRemainder: "Insert and Overwrite"
+        case .cutawaySourceAudio: "Insert on Top with Source Audio"
+        case .cutawayPrimaryAudio: "Insert on Top over Primary Audio"
         }
     }
 
@@ -451,9 +492,9 @@ enum PlacementAction: CaseIterable, Identifiable {
         switch self {
         case .append: "Clip appended"
         case .insert: "Clip inserted"
-        case .replaceRemainder: "Clip remainder replaced"
-        case .cutawaySourceAudio: "Cutaway added with source audio"
-        case .cutawayPrimaryAudio: "Cutaway added over primary audio"
+        case .replaceRemainder: "Clip inserted and overwritten"
+        case .cutawaySourceAudio: "Clip inserted on top with source audio"
+        case .cutawayPrimaryAudio: "Clip inserted on top over primary audio"
         }
     }
 }

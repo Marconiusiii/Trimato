@@ -2,14 +2,19 @@ import SwiftUI
 
 struct ProjectBrowserView: View {
     @ObservedObject var controller: ProjectController
+    let openClipEditor: (EditorSelection) -> Void
     @State private var sourceSelection: ProjectSourceItemID?
     @State private var showingNewFolder = false
     @State private var folderName = ""
     @State private var folderBeingRenamed: ProjectFolder?
     @State private var renamedFolderName = ""
 
-    init(controller: ProjectController) {
+    init(
+        controller: ProjectController,
+        openClipEditor: @escaping (EditorSelection) -> Void
+    ) {
         self.controller = controller
+        self.openClipEditor = openClipEditor
         _sourceSelection = State(initialValue: .timeline(controller.project.id))
     }
 
@@ -33,13 +38,8 @@ struct ProjectBrowserView: View {
 
             ProjectSourceOutlineView(
                 controller: controller,
-                selection: $sourceSelection
-            )
-        }
-        .onChange(of: controller.selection) { selection in
-            sourceSelection = ProjectSourceItem.sourceID(
-                for: selection,
-                projectID: controller.project.id
+                selection: $sourceSelection,
+                openClipEditor: openClipEditor
             )
         }
         .sheet(isPresented: $showingNewFolder) {

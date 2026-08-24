@@ -4,6 +4,7 @@ import SwiftUI
 struct TrimatoApp: App {
     @FocusedObject private var viewModel: VideoPlayerViewModel?
     @FocusedObject private var projectController: ProjectController?
+    @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
@@ -77,6 +78,28 @@ struct TrimatoApp: App {
                     .disabled(projectController?.selectedTimelineClip == nil)
                 Button("Move Clip to End") { projectController?.moveSelectedClipToEnd() }
                     .disabled(projectController?.selectedTimelineClip == nil)
+            }
+            CommandMenu("Clip") {
+                Button(PlacementAction.append.title) { clipPlacement?.place(.append) }
+                    .keyboardShortcut("e", modifiers: [])
+                    .disabled(clipPlacement?.canPlace != true)
+                Button(PlacementAction.insert.title) { clipPlacement?.place(.insert) }
+                    .keyboardShortcut("w", modifiers: [])
+                    .disabled(clipPlacement?.canPlace != true)
+                Button(PlacementAction.replaceRemainder.title) { clipPlacement?.place(.replaceRemainder) }
+                    .keyboardShortcut("d", modifiers: [])
+                    .disabled(clipPlacement?.canPlace != true)
+                Divider()
+                Button(PlacementAction.cutawaySourceAudio.title) {
+                    clipPlacement?.place(.cutawaySourceAudio)
+                }
+                .keyboardShortcut("q", modifiers: [])
+                .disabled(clipPlacement?.canPlace != true)
+                Button(PlacementAction.cutawayPrimaryAudio.title) {
+                    clipPlacement?.place(.cutawayPrimaryAudio)
+                }
+                .keyboardShortcut("q", modifiers: [.option])
+                .disabled(clipPlacement?.canPlace != true)
             }
             CommandMenu("Markers") {
                 Button("Mark In (I)") { viewModel?.markIn() }

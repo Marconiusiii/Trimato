@@ -5,6 +5,7 @@ struct SourceClipEditorView: View {
     let asset: MediaAssetRecord
     let editSelection: EditorSelection
     let initialSegments: [SourceSegment]
+    @ObservedObject var commandContext: ClipPlacementCommandContext
 
     @StateObject private var viewModel = VideoPlayerViewModel()
     @State private var loadedAssetID: UUID?
@@ -17,12 +18,17 @@ struct SourceClipEditorView: View {
                 ContentView(viewModel: viewModel, allowsFileOpening: false)
 
                 HStack {
-                    Button("Append to Timeline") { place(.append) }
-                    Button("Insert at Playhead") { place(.insert) }
-                    Button("Replace Clip Remainder") { place(.replaceRemainder) }
-                    Menu("Add Cutaway") {
+                    Button(PlacementAction.append.title) { place(.append) }
+                        .keyboardShortcut("e", modifiers: [])
+                    Button(PlacementAction.insert.title) { place(.insert) }
+                        .keyboardShortcut("w", modifiers: [])
+                    Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
+                        .keyboardShortcut("d", modifiers: [])
+                    Menu("Insert on Top") {
                         Button("With Source Audio") { place(.cutawaySourceAudio) }
+                            .keyboardShortcut("q", modifiers: [])
                         Button("Over Primary Audio") { place(.cutawayPrimaryAudio) }
+                            .keyboardShortcut("q", modifiers: [.option])
                     }
                 }
                 .disabled(viewModel.projectSourceSegments.isEmpty)
@@ -30,9 +36,15 @@ struct SourceClipEditorView: View {
                 .padding(.bottom, 8)
             }
         }
-        .onAppear { loadIfNeeded() }
+        .onAppear {
+            viewModel.scopeKeyboardCommands { [weak commandContext] in
+                commandContext?.isKeyWindow == true
+            }
+            loadIfNeeded()
+        }
         .onChange(of: viewModel.projectSourceSegments) { segments in
             guard loadedAssetID == asset.id, !segments.isEmpty else { return }
+            commandContext.segments = segments
             controller.updateEditSegments(for: editSelection, segments: segments)
         }
         .onDisappear { viewModel.closeMedia() }
@@ -41,10 +53,11 @@ struct SourceClipEditorView: View {
     private func loadIfNeeded() {
         guard loadedAssetID != asset.id, let url = controller.resolveURL(for: asset) else { return }
         loadedAssetID = asset.id
+        commandContext.segments = initialSegments
         viewModel.load(url: url, sourceSegments: initialSegments)
     }
 
     private func place(_ placement: PlacementAction) {
-        controller.placeSelectedAsset(placement, segments: viewModel.projectSourceSegments)
+        commandContext.place(placement)
     }
 }

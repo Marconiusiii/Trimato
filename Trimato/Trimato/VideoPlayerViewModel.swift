@@ -58,6 +58,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var timeObserver: Any?
     private var rateObserver: AnyCancellable?
     private var keyEventMonitor: Any?
+    private var keyboardCommandsAreActive: (() -> Bool)?
     private var isScrubbing = false
     private var scrubTask: Task<Void, Never>?
     private var frameStepPosition: CMTime?
@@ -96,6 +97,10 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     // MARK: - Public
+
+    func scopeKeyboardCommands(to isActive: @escaping () -> Bool) {
+        keyboardCommandsAreActive = isActive
+    }
 
     var inMarkerDisplay: String {
         guard let inMarker else { return "Not set" }
@@ -863,7 +868,8 @@ final class VideoPlayerViewModel: ObservableObject {
     private func setupKeyEventMonitor() {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             guard let self, !self.isLoadingMedia, !self.isExporting, !self.isApplyingEdit,
-                  self.hasVideo, NSApp.modalWindow == nil else {
+                  self.hasVideo, NSApp.modalWindow == nil,
+                  self.keyboardCommandsAreActive?() != false else {
                 return event
             }
 

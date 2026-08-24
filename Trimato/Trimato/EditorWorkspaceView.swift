@@ -2,10 +2,13 @@ import SwiftUI
 
 struct EditorWorkspaceView: View {
     @StateObject private var controller: ProjectController
+    @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @State private var showingProjectSetup: Bool
 
     init(document: ProjectDocument) {
-        _controller = StateObject(wrappedValue: ProjectController(document: document))
+        let controller = ProjectController(document: document)
+        _controller = StateObject(wrappedValue: controller)
+        _clipEditorWindows = StateObject(wrappedValue: ClipEditorWindowCoordinator(controller: controller))
         _showingProjectSetup = State(initialValue:
             document.project.name == "Untitled Project" &&
             document.project.media.isEmpty &&
@@ -16,19 +19,28 @@ struct EditorWorkspaceView: View {
     var body: some View {
         HSplitView {
             MacEditorPane("Project Source") {
-                ProjectBrowserView(controller: controller)
+                ProjectBrowserView(
+                    controller: controller,
+                    openClipEditor: clipEditorWindows.open
+                )
             }
                 .frame(minWidth: 210, idealWidth: 260, maxWidth: 360)
 
             VSplitView {
                 MacEditorPane("Editor") {
-                    activeEditor
+                    ProjectViewerView(
+                        controller: controller,
+                        showProjectSettings: { showingProjectSetup = true }
+                    )
                 }
                 .frame(minHeight: 360)
 
                 HSplitView {
                     MacEditorPane("Project Timeline") {
-                        ProjectTimelineView(controller: controller)
+                        ProjectTimelineView(
+                            controller: controller,
+                            openClipEditor: clipEditorWindows.open
+                        )
                     }
                         .frame(minWidth: 460)
                     MacEditorPane("Inspector") {
@@ -55,48 +67,6 @@ struct EditorWorkspaceView: View {
         }
     }
 
-    @ViewBuilder
-    private var activeEditor: some View {
-        switch controller.selection {
-        case .project:
-            ProjectViewerView(
-                controller: controller,
-                showProjectSettings: { showingProjectSetup = true }
-            )
-        case .asset(let id):
-            if let asset = controller.project.asset(id: id) {
-                SourceClipEditorView(
-                    controller: controller,
-                    asset: asset,
-                    editSelection: .asset(id),
-                    initialSegments: asset.sourceEdit
-                )
-                .id("asset-\(id)")
-            }
-        case .timelineClip(let id):
-            if let clip = controller.project.primaryTimeline.first(where: { $0.id == id }),
-               let asset = controller.project.asset(id: clip.assetID) {
-                SourceClipEditorView(
-                    controller: controller,
-                    asset: asset,
-                    editSelection: .timelineClip(id),
-                    initialSegments: clip.segments
-                )
-                .id("timeline-\(id)")
-            }
-        case .cutaway(let id):
-            if let cutaway = controller.project.cutaways.first(where: { $0.id == id }),
-               let asset = controller.project.asset(id: cutaway.assetID) {
-                SourceClipEditorView(
-                    controller: controller,
-                    asset: asset,
-                    editSelection: .cutaway(id),
-                    initialSegments: cutaway.segments
-                )
-                .id("cutaway-\(id)")
-            }
-        }
-    }
 }
 
 private struct ProjectViewerView: View {

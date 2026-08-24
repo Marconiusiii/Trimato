@@ -4,6 +4,7 @@ import SwiftUI
 struct ProjectSourceOutlineView: NSViewRepresentable {
     @ObservedObject var controller: ProjectController
     @Binding var selection: ProjectSourceItemID?
+    let openClipEditor: (EditorSelection) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -96,6 +97,25 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             item: Any
         ) -> NSView? {
             guard let item = item as? ProjectSourceItem else { return nil }
+            if case .asset(let assetID) = item.id {
+                let cell: ProjectSourceButtonCellView
+                if let reused = outlineView.makeView(
+                    withIdentifier: .projectSourceButtonCell,
+                    owner: self
+                ) as? ProjectSourceButtonCellView {
+                    cell = reused
+                } else {
+                    cell = ProjectSourceButtonCellView()
+                    cell.identifier = .projectSourceButtonCell
+                    cell.button.target = self
+                    cell.button.action = #selector(openClipFromButton(_:))
+                }
+                cell.assetID = assetID
+                cell.button.title = item.name
+                cell.button.menu = contextMenu(for: assetID)
+                return cell
+            }
+
             let cell: NSTableCellView
             if let reused = outlineView.makeView(withIdentifier: .projectSourceCell, owner: self) as? NSTableCellView {
                 cell = reused
@@ -131,6 +151,80 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             case .folder:
                 break
             }
+        }
+
+        @objc private func openClipFromButton(_ sender: ProjectSourceButton) {
+            guard let assetID = sender.assetID else { return }
+            selectSourceAsset(assetID)
+            parent.openClipEditor(.asset(assetID))
+        }
+
+        @objc private func performContextAction(_ sender: NSMenuItem) {
+            guard let payload = sender.representedObject as? ProjectSourceMenuPayload else { return }
+            selectSourceAsset(payload.assetID)
+            switch payload.command {
+            case .open:
+                parent.openClipEditor(.asset(payload.assetID))
+            case .place(let placement):
+                guard let asset = parent.controller.project.asset(id: payload.assetID) else { return }
+                parent.controller.place(
+                    placement,
+                    editing: .asset(payload.assetID),
+                    segments: asset.sourceEdit
+                )
+            case .move(let folderID):
+                parent.controller.moveAsset(payload.assetID, toFolder: folderID)
+            case .relink:
+                parent.controller.selection = .asset(payload.assetID)
+                parent.controller.relinkSelectedAsset()
+            }
+        }
+
+        private func selectSourceAsset(_ assetID: UUID) {
+            let sourceID = ProjectSourceItemID.asset(assetID)
+            parent.selection = sourceID
+            parent.controller.selection = .asset(assetID)
+            guard let outlineView,
+                  let item = root?.item(withID: sourceID) else { return }
+            let row = outlineView.row(forItem: item)
+            guard row >= 0 else { return }
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+
+        private func contextMenu(for assetID: UUID) -> NSMenu {
+            let menu = NSMenu()
+            menu.addItem(menuItem("Open Clip Editor", assetID: assetID, command: .open))
+            menu.addItem(.separator())
+            for placement in PlacementAction.allCases {
+                menu.addItem(menuItem(placement.title, assetID: assetID, command: .place(placement)))
+            }
+            menu.addItem(.separator())
+
+            let moveItem = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
+            let moveMenu = NSMenu()
+            moveMenu.addItem(menuItem("Project Root", assetID: assetID, command: .move(nil)))
+            for folder in parent.controller.project.folders {
+                moveMenu.addItem(menuItem(folder.name, assetID: assetID, command: .move(folder.id)))
+            }
+            moveItem.submenu = moveMenu
+            menu.addItem(moveItem)
+
+            if let asset = parent.controller.project.asset(id: assetID),
+               parent.controller.resolveURL(for: asset) == nil {
+                menu.addItem(menuItem("Relink Clip…", assetID: assetID, command: .relink))
+            }
+            return menu
+        }
+
+        private func menuItem(
+            _ title: String,
+            assetID: UUID,
+            command: ProjectSourceMenuCommand
+        ) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: #selector(performContextAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = ProjectSourceMenuPayload(assetID: assetID, command: command)
+            return item
         }
 
         func outlineView(
@@ -186,10 +280,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         }
 
         private func synchronizeSelection(in outlineView: NSOutlineView) {
-            let requested = parent.selection ?? ProjectSourceItem.sourceID(
-                for: parent.controller.selection,
-                projectID: parent.controller.project.id
-            )
+            let requested = parent.selection ?? .timeline(parent.controller.project.id)
             guard let root, let item = root.item(withID: requested) else { return }
             let row = outlineView.row(forItem: item)
             guard row >= 0, outlineView.selectedRow != row else { return }
@@ -205,4 +296,57 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
 private extension NSUserInterfaceItemIdentifier {
     static let projectSourceColumn = NSUserInterfaceItemIdentifier("ProjectSourceColumn")
     static let projectSourceCell = NSUserInterfaceItemIdentifier("ProjectSourceCell")
+    static let projectSourceButtonCell = NSUserInterfaceItemIdentifier("ProjectSourceButtonCell")
+}
+
+private final class ProjectSourceButton: NSButton {
+    var assetID: UUID?
+}
+
+private final class ProjectSourceButtonCellView: NSTableCellView {
+    let button = ProjectSourceButton(title: "", target: nil, action: nil)
+
+    var assetID: UUID? {
+        get { button.assetID }
+        set { button.assetID = newValue }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setButtonType(.momentaryPushIn)
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.alignment = .left
+        button.lineBreakMode = .byTruncatingTail
+        addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            button.topAnchor.constraint(equalTo: topAnchor),
+            button.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private enum ProjectSourceMenuCommand {
+    case open
+    case place(PlacementAction)
+    case move(UUID?)
+    case relink
+}
+
+private final class ProjectSourceMenuPayload: NSObject {
+    let assetID: UUID
+    let command: ProjectSourceMenuCommand
+
+    init(assetID: UUID, command: ProjectSourceMenuCommand) {
+        self.assetID = assetID
+        self.command = command
+    }
 }

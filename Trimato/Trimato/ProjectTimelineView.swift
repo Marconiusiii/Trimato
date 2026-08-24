@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProjectTimelineView: View {
     @ObservedObject var controller: ProjectController
+    let openClipEditor: (EditorSelection) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,6 +46,8 @@ struct ProjectTimelineView: View {
             Divider()
 
             HStack(spacing: 8) {
+                Button("Open Clip Editor") { openClipEditor(controller.selection) }
+                    .disabled(controller.selectedTimelineClip == nil && controller.selectedCutaway == nil)
                 Button("Move to Beginning") { controller.moveSelectedClipToBeginning() }
                     .disabled(controller.selectedTimelineClip == nil)
                 Button("Move Earlier") { controller.moveSelectedClip(by: -1) }

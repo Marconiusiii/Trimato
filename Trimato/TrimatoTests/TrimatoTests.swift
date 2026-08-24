@@ -12,6 +12,16 @@ import UniformTypeIdentifiers
 
 struct TrimatoTests {
 
+    @Test func placementCommandsUseTheApprovedEditorTerminology() {
+        #expect(PlacementAction.allCases.map(\.title) == [
+            "Append to Timeline",
+            "Insert and Split",
+            "Insert and Overwrite",
+            "Insert on Top with Source Audio",
+            "Insert on Top over Primary Audio",
+        ])
+    }
+
     @Test func settingInAndOutMarkersReplacesPreviousValues() {
         let viewModel = VideoPlayerViewModel()
         let firstIn = CMTime(seconds: 2, preferredTimescale: 600)
