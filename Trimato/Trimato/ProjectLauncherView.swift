@@ -87,25 +87,31 @@ struct ProjectLauncherView: View {
     }
 
     private var recentProjectGroup: some View {
-        GroupBox("Recent Projects") {
-            VStack(alignment: .leading, spacing: 8) {
-                if recentProjects.urls.isEmpty {
-                    Text("No recent projects")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ForEach(recentProjects.urls, id: \.self) { url in
-                        Button(ProjectLauncherRecentProjects.displayName(for: url)) {
-                            openProject(at: url)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recent Projects")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    if recentProjects.urls.isEmpty {
+                        Text("No recent projects")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(recentProjects.urls, id: \.self) { url in
+                            Button(ProjectLauncherRecentProjects.displayName(for: url)) {
+                                openProject(at: url)
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .help(url.deletingLastPathComponent().path)
                         }
-                        .buttonStyle(.bordered)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .help(url.deletingLastPathComponent().path)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
     }
