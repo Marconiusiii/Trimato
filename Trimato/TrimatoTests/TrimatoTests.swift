@@ -128,7 +128,10 @@ struct TrimatoTests {
                 codecType: "video",
                 codecName: "hevc",
                 pixelFormat: "yuv420p10le",
-                colorTransfer: "smpte2084"
+                colorTransfer: "smpte2084",
+                width: nil,
+                height: nil,
+                averageFrameRate: nil
             )],
             format: .init(duration: "12.5", formatName: "matroska")
         )
@@ -137,7 +140,10 @@ struct TrimatoTests {
                 codecType: "video",
                 codecName: "prores",
                 pixelFormat: "yuva444p10le",
-                colorTransfer: "bt709"
+                colorTransfer: "bt709",
+                width: nil,
+                height: nil,
+                averageFrameRate: nil
             )],
             format: .init(duration: "12.5", formatName: "mov")
         )
@@ -480,8 +486,12 @@ struct TrimatoTests {
         #expect(contentTypes.contains("public.movie"))
         #expect(contentTypes.contains("com.marconius.trimato.matroska-video"))
         #expect(contentTypes.contains("com.marconius.trimato.webm-video"))
-        #expect(documentTypes.first?["CFBundleTypeRole"] as? String == "Editor")
-        #expect(documentTypes.first?["LSHandlerRank"] as? String == "Alternate")
+        let videoType = try #require(documentTypes.first {
+            ($0["LSItemContentTypes"] as? [String])?.contains("public.movie") == true
+        })
+        #expect(videoType["CFBundleTypeRole"] as? String == "Editor")
+        #expect(videoType["LSHandlerRank"] as? String == "Alternate")
+        #expect(contentTypes.contains("com.marconius.trimato.project"))
     }
 
     @Test func aboutInformationIsAccessibleAndAcknowledgesFFmpeg() throws {

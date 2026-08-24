@@ -1,11 +1,19 @@
 # Trimato
 
-Trimato is an accessibility-first, keyboard-driven clip editor for macOS. It is designed for quickly reviewing video, moving frame by frame, marking selections, removing unwanted sections, and exporting an edited clip without modifying the original file.
+Trimato is an accessibility-first, keyboard-driven lightweight video editor for macOS. Its focused clip editor remains the primary place to mark, trim, and remove sections. Edited source clips can then be arranged non-destructively in a saved Trimato project and exported as one video.
 
 Created by Marco Salsiccia.
 
 ## Features
 
+- Create and save `.trimato` project packages with automatic or custom dimensions and frame rate.
+- Organize imported media in project folders without moving the original files in Finder.
+- Open a source clip, timeline clip, or cutaway in Trimato's focused clip editor.
+- Arrange clips in a magnetic primary storyline with no empty gaps.
+- Append clips, insert and split at the playhead, or replace the remainder of the clip at the playhead.
+- Add a single-layer cutaway that temporarily replaces the picture, either with its source audio or while retaining the primary storyline audio.
+- Split, delete, and reorder timeline clips while preserving non-destructive source ranges.
+- Preview and export the complete arranged project as MP4.
 - Open videos from the File menu, Finder, drag and drop, or Command-O.
 - Play, pause, seek, and move forward or backward one frame at a time.
 - Display the playhead as timecode or a frame number.
@@ -51,6 +59,16 @@ Created by Marco Salsiccia.
 - Command-O: Open a video.
 - Command-E: Export the edited clip or current selection.
 
+### Project editing
+
+- Command-Shift-I: Import media into the current project.
+- Command-E: Export the current project when the project workspace is active.
+- Command-B: Split the selected timeline clip at the project playhead.
+- Option-Command-Left Arrow: Move the selected timeline clip earlier.
+- Option-Command-Right Arrow: Move the selected timeline clip later.
+
+Media can also be dragged from Finder into the Project Browser. The Project Timeline and Project Browser provide native buttons for every operation, including moving a clip directly to the beginning or end.
+
 Editor shortcuts remain available while focus is on any editor control. Native import, open, save, and export panels retain their own keyboard behavior.
 
 ## Editing model
@@ -64,7 +82,9 @@ In and Out are general selection markers:
 - Export Clip exports the complete edited timeline when both markers are clear.
 - An incomplete or reversed selection must be corrected or cleared before export.
 
-After a deletion, the playhead moves to the new edit point and the markers are cleared. Reopening the source file resets the current in-memory edits. Undo and Redo are not currently available.
+After a clip-editor deletion, the playhead moves to the new edit point and the markers are cleared. In a Trimato project, the resulting source ranges are saved with the media or timeline clip. Project changes participate in the standard Undo and Redo commands.
+
+The project timeline is a magnetic primary storyline. Insert at Playhead splits the clip under the playhead and preserves both sides. Replace Clip Remainder preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips in place. A cutaway changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
 
 ## Supported media
 
@@ -88,6 +108,8 @@ Accessibility is part of Trimato's editing model rather than an additional mode.
 - The complete editor can be operated from the keyboard.
 - Native SwiftUI controls retain their standard VoiceOver roles and interactions.
 - Visible section headings include VoiceOver heading traits.
+- The Project Browser, Clip Editor, Project Timeline, and Clip Inspector are labeled sections in structural source order. Linked browser-editor and timeline-inspector regions support VoiceOver's linked-item navigation.
+- Timeline list items expose names and positions without continuously speaking start, end, and duration values. Exact timing remains available on demand in the inspector.
 - Timecode updates do not continuously interrupt VoiceOver speech.
 - Import preparation appears in a native modal sheet so the inactive editor does not remain in the active VoiceOver context.
 - Import and export operations provide status, progress, cancellation, and restrained spoken announcements.

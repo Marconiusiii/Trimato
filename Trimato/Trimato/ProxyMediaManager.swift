@@ -73,7 +73,7 @@ struct ProxyMediaManager {
         }
     }
 
-    static func removeProxy(at url: URL?) {
+    nonisolated static func removeProxy(at url: URL?) {
         guard let url else { return }
         try? FileManager.default.removeItem(at: url)
     }

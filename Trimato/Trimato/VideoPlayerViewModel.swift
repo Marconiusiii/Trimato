@@ -46,6 +46,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var mediaProgress: Double?
     @Published private(set) var mediaFilename = ""
     @Published private(set) var isApplyingEdit = false
+    @Published private(set) var projectSourceSegments: [SourceSegment] = []
 
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
@@ -137,7 +138,7 @@ final class VideoPlayerViewModel: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url { load(url: url) }
     }
 
-    func load(url: URL) {
+    func load(url: URL, sourceSegments: [SourceSegment]? = nil) {
         loadID = nil
         loadTask?.cancel()
         editTask?.cancel()
@@ -152,6 +153,7 @@ final class VideoPlayerViewModel: ObservableObject {
         mediaSource = nil
         editTimeline = nil
         editedFrameTimestamps = []
+        projectSourceSegments = []
         mediaDuration = .zero
         inMarker = nil
         outMarker = nil
@@ -183,17 +185,37 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.mediaSource = source
                 self.proxyURL = source.usesProxy ? source.playbackURL : nil
                 preparedProxyURL = nil
-                self.player.replaceCurrentItem(with: AVPlayerItem(asset: source.playbackAsset))
                 if let track = try await source.playbackAsset.loadTracks(withMediaType: .video).first {
                     self.frameRate = try await track.load(.nominalFrameRate)
                     self.minFrameDuration = try await track.load(.minFrameDuration)
                 }
                 let loadedDuration = try await source.playbackAsset.load(.duration)
                 try Task.checkCancellation()
-                self.mediaDuration = loadedDuration
-                self.duration = CMTimeGetSeconds(loadedDuration)
-                self.editTimeline = ClipEditTimeline(sourceDuration: loadedDuration)
-                self.editedFrameTimestamps = source.frameTimestamps
+                let requestedRanges = sourceSegments?.map(\.sourceRange.cmTimeRange)
+                    .filter { $0.isValid && $0.duration > .zero } ?? []
+                let timeline = requestedRanges.isEmpty
+                    ? ClipEditTimeline(sourceDuration: loadedDuration)
+                    : ClipEditTimeline(sourceRanges: requestedRanges)
+                let playbackAsset: AVAsset
+                if requestedRanges.isEmpty {
+                    playbackAsset = source.playbackAsset
+                } else {
+                    playbackAsset = try await EditedCompositionBuilder.build(
+                        asset: source.playbackAsset,
+                        sourceRanges: timeline.sourceRanges
+                    )
+                }
+                self.player.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
+                self.mediaDuration = timeline.duration
+                self.duration = CMTimeGetSeconds(timeline.duration)
+                self.editTimeline = timeline
+                self.projectSourceSegments = timeline.sourceRanges.map {
+                    SourceSegment(sourceRange: ProjectTimeRange($0))
+                }
+                self.editedFrameTimestamps = EditedCompositionBuilder.editedFrameTimestamps(
+                    sourceTimestamps: source.frameTimestamps,
+                    sourceRanges: timeline.sourceRanges
+                )
                 self.hasVideo = true
                 self.isLoadingMedia = false
                 self.mediaProgress = nil
@@ -252,6 +274,7 @@ final class VideoPlayerViewModel: ObservableObject {
         mediaSource = nil
         editTimeline = nil
         editedFrameTimestamps = []
+        projectSourceSegments = []
         hasVideo = false
     }
 
@@ -720,8 +743,6 @@ final class VideoPlayerViewModel: ObservableObject {
         announce("Applying edit")
         let operationID = UUID()
         editID = operationID
-        let removedDuration = range.duration
-
         editTask = Task { @MainActor in
             do {
                 let composition = try await EditedCompositionBuilder.build(
@@ -732,6 +753,9 @@ final class VideoPlayerViewModel: ObservableObject {
                 guard self.editID == operationID else { return }
 
                 self.editTimeline = updatedTimeline
+                self.projectSourceSegments = updatedTimeline.sourceRanges.map {
+                    SourceSegment(sourceRange: ProjectTimeRange($0))
+                }
                 self.editedFrameTimestamps = EditedCompositionBuilder.editedFrameTimestamps(
                     sourceTimestamps: mediaSource.frameTimestamps,
                     sourceRanges: updatedTimeline.sourceRanges
@@ -752,10 +776,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.isApplyingEdit = false
                 self.editID = nil
                 self.editTask = nil
-                self.announce(
-                    "\(actionDescription). Removed \(self.spokenTime(removedDuration)). " +
-                    "New clip duration \(self.spokenTime(updatedTimeline.duration))"
-                )
+                self.announce(actionDescription)
             } catch is CancellationError {
                 guard self.editID == operationID else { return }
                 self.isApplyingEdit = false

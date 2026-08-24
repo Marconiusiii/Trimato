@@ -8,12 +8,18 @@ struct FFmpegMediaProbe {
             let codecName: String?
             let pixelFormat: String?
             let colorTransfer: String?
+            let width: Int?
+            let height: Int?
+            let averageFrameRate: String?
 
             enum CodingKeys: String, CodingKey {
                 case codecType = "codec_type"
                 case codecName = "codec_name"
                 case pixelFormat = "pix_fmt"
                 case colorTransfer = "color_transfer"
+                case width
+                case height
+                case averageFrameRate = "avg_frame_rate"
             }
         }
 
@@ -33,6 +39,13 @@ struct FFmpegMediaProbe {
         var videoStream: Stream? { streams.first { $0.codecType == "video" } }
         var hasAudio: Bool { streams.contains { $0.codecType == "audio" } }
         var duration: Double { Double(format?.duration ?? "") ?? 0 }
+
+        var frameRate: Double? {
+            guard let raw = videoStream?.averageFrameRate else { return nil }
+            let parts = raw.split(separator: "/", maxSplits: 1).compactMap { Double($0) }
+            if parts.count == 2, parts[1] != 0 { return parts[0] / parts[1] }
+            return Double(raw)
+        }
 
         var isHDR: Bool {
             guard let transfer = videoStream?.colorTransfer?.lowercased() else { return false }

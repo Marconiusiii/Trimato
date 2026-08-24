@@ -3,11 +3,12 @@ import SwiftUI
 @main
 struct TrimatoApp: App {
     @FocusedObject private var viewModel: VideoPlayerViewModel?
+    @FocusedObject private var projectController: ProjectController?
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        DocumentGroup(newDocument: { ProjectDocument() }) { file in
+            EditorWorkspaceView(document: file.document)
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -15,33 +16,67 @@ struct TrimatoApp: App {
                     openWindow(id: "about")
                 }
             }
-            CommandGroup(replacing: .newItem) {
-                Button("Open\u{2026}") {
-                    viewModel?.openFile()
-                }
-                .keyboardShortcut("o", modifiers: .command)
-                .disabled(viewModel?.isLoadingMedia == true)
+            CommandGroup(after: .newItem) {
+                Button("Import Media\u{2026}") { projectController?.importFiles() }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+                    .disabled(projectController == nil || projectController?.isImporting == true)
             }
             CommandGroup(after: .saveItem) {
-                Button("Export Clip\u{2026}") {
-                    viewModel?.exportTrimmedClip()
+                Button(viewModel?.hasVideo == true ? "Export Clip\u{2026}" : "Export Project\u{2026}") {
+                    if viewModel?.hasVideo == true {
+                        viewModel?.exportTrimmedClip()
+                    } else {
+                        projectController?.exportProject()
+                    }
                 }
                 .keyboardShortcut("e", modifiers: .command)
-                .disabled(viewModel?.canExport != true)
+                .disabled(
+                    viewModel?.hasVideo == true
+                        ? viewModel?.canExport != true
+                        : projectController?.project.primaryTimeline.isEmpty != false || projectController?.isExporting == true
+                )
                 if viewModel?.isExporting == true {
-                    Button("Cancel Export") { viewModel?.cancelExport() }
+                    Button("Cancel Clip Export") { viewModel?.cancelExport() }
+                } else if projectController?.isExporting == true {
+                    Button("Cancel Project Export") { projectController?.cancelExport() }
                 }
             }
             CommandGroup(after: .pasteboard) {
                 Divider()
-                Button("Delete Selection (Delete)") { viewModel?.deleteSelection() }
-                    .disabled(viewModel?.canDeleteSelection != true)
+                Button("Delete Selection (Delete)") {
+                    if projectController?.selectedTimelineClip != nil || projectController?.selectedCutaway != nil {
+                        projectController?.deleteSelection()
+                    } else {
+                        viewModel?.deleteSelection()
+                    }
+                }
+                .disabled(
+                    viewModel?.canDeleteSelection != true &&
+                    projectController?.selectedTimelineClip == nil &&
+                    projectController?.selectedCutaway == nil
+                )
                 Button("Trim Start to Playhead") { viewModel?.trimStartToPlayhead() }
                     .keyboardShortcut("[", modifiers: .command)
                     .disabled(viewModel?.canTrimStart != true)
                 Button("Trim End from Playhead") { viewModel?.trimEndFromPlayhead() }
                     .keyboardShortcut("]", modifiers: .command)
                     .disabled(viewModel?.canTrimEnd != true)
+            }
+            CommandMenu("Project Timeline") {
+                Button("Split Clip at Playhead") { projectController?.splitSelectedClip() }
+                    .keyboardShortcut("b", modifiers: .command)
+                    .disabled(projectController?.selectedTimelineClip == nil)
+                Divider()
+                Button("Move Clip to Beginning") { projectController?.moveSelectedClipToBeginning() }
+                    .disabled(projectController?.selectedTimelineClip == nil)
+                Button("Move Clip Earlier") { projectController?.moveSelectedClip(by: -1) }
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                    .disabled(projectController?.selectedTimelineClip == nil)
+                Button("Move Clip Later") { projectController?.moveSelectedClip(by: 1) }
+                    .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                    .disabled(projectController?.selectedTimelineClip == nil)
+                Button("Move Clip to End") { projectController?.moveSelectedClipToEnd() }
+                    .disabled(projectController?.selectedTimelineClip == nil)
             }
             CommandMenu("Markers") {
                 Button("Mark In (I)") { viewModel?.markIn() }

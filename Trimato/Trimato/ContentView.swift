@@ -2,7 +2,13 @@ import AVFoundation
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var viewModel = VideoPlayerViewModel()
+    @ObservedObject private var viewModel: VideoPlayerViewModel
+    private let allowsFileOpening: Bool
+
+    init(viewModel: VideoPlayerViewModel, allowsFileOpening: Bool = true) {
+        self.viewModel = viewModel
+        self.allowsFileOpening = allowsFileOpening
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,11 +21,13 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .focusedObject(viewModel)
         .dropDestination(for: URL.self) { urls, _ in
+            guard allowsFileOpening else { return false }
             guard let url = urls.first else { return false }
             viewModel.load(url: url)
             return true
         }
         .onOpenURL { url in
+            guard allowsFileOpening else { return }
             guard url.isFileURL else { return }
             viewModel.load(url: url)
         }
@@ -62,7 +70,7 @@ struct ContentView: View {
                         } else {
                             ProgressView("Preparing video")
                         }
-                    } else {
+                    } else if allowsFileOpening {
                         Button("Open File\u{2026}") { viewModel.openFile() }
                     }
                 }
@@ -252,8 +260,4 @@ struct ContentView: View {
                 .accessibilityHidden(true)
         }
     }
-}
-
-#Preview {
-    ContentView()
 }
