@@ -8,6 +8,12 @@ struct TrimatoApp: App {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
+        Window("Trimato", id: "project-launcher") {
+            ProjectLauncherView()
+        }
+        .defaultSize(width: 560, height: 680)
+        .windowResizability(.contentSize)
+
         DocumentGroup(newDocument: { ProjectDocument() }) { file in
             EditorWorkspaceView(document: file.document)
         }
