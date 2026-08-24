@@ -16,11 +16,20 @@ final class ProjectDocument: ReferenceFileDocument {
     }
 
     required init(configuration: ReadConfiguration) throws {
+        project = try Self.decodeProject(from: configuration.file)
+    }
+
+    static func decodeProject(from wrapper: FileWrapper) throws -> TrimatoProject {
         let data: Data
-        if let regularData = configuration.file.regularFileContents {
+        if wrapper.isDirectory {
+            guard let manifest = wrapper.fileWrappers?["project.json"],
+                  manifest.isRegularFile,
+                  let manifestData = manifest.regularFileContents else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            data = manifestData
+        } else if wrapper.isRegularFile, let regularData = wrapper.regularFileContents {
             data = regularData
-        } else if let manifest = configuration.file.fileWrappers?["project.json"]?.regularFileContents {
-            data = manifest
         } else {
             throw CocoaError(.fileReadCorruptFile)
         }
@@ -29,7 +38,7 @@ final class ProjectDocument: ReferenceFileDocument {
         guard decoded.schemaVersion <= TrimatoProject.currentSchemaVersion else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        project = decoded
+        return decoded
     }
 
     func snapshot(contentType: UTType) throws -> TrimatoProject {

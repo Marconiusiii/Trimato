@@ -2,14 +2,9 @@ import SwiftUI
 
 struct ProjectTimelineView: View {
     @ObservedObject var controller: ProjectController
-    let linkedNamespace: Namespace.ID
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Project Timeline")
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-
+        VStack(spacing: 0) {
             if controller.project.duration.isPositive {
                 Slider(
                     value: Binding(
@@ -21,33 +16,35 @@ struct ProjectTimelineView: View {
                     Text("Timeline Playhead")
                 }
                 .accessibilityValue(ProjectTimecodeFormatter.string(controller.timelinePlayhead))
+                .padding(8)
+
+                Divider()
             }
 
-            List {
+            List(selection: timelineSelection) {
                 Section("Primary Storyline") {
                     ForEach(Array(controller.project.primaryTimeline.enumerated()), id: \.element.id) { index, clip in
-                        Button {
-                            controller.selection = .timelineClip(clip.id)
-                        } label: {
-                            Text("\(clip.name), clip \(index + 1) of \(controller.project.primaryTimeline.count)")
-                        }
+                        Text("\(clip.name), clip \(index + 1) of \(controller.project.primaryTimeline.count)")
+                            .tag(EditorSelection.timelineClip(clip.id))
                     }
                 }
 
                 if !controller.project.cutaways.isEmpty {
                     Section("Cutaways") {
                         ForEach(controller.project.cutaways) { cutaway in
-                            Button(cutaway.name) { controller.selection = .cutaway(cutaway.id) }
+                            Text(cutaway.name)
                                 .accessibilityValue(cutaway.audioMode == .sourceAudio
                                     ? "Cutaway with source audio"
                                     : "Cutaway over primary audio")
+                                .tag(EditorSelection.cutaway(cutaway.id))
                         }
                     }
                 }
             }
-            .accessibilityLinkedGroup(id: "timeline-inspector", in: linkedNamespace)
 
-            HStack {
+            Divider()
+
+            HStack(spacing: 8) {
                 Button("Move to Beginning") { controller.moveSelectedClipToBeginning() }
                     .disabled(controller.selectedTimelineClip == nil)
                 Button("Move Earlier") { controller.moveSelectedClip(by: -1) }
@@ -60,9 +57,25 @@ struct ProjectTimelineView: View {
                     .disabled(controller.selectedTimelineClip == nil)
                 Button("Delete") { controller.deleteSelection() }
                     .disabled(controller.selectedTimelineClip == nil && controller.selectedCutaway == nil)
+                Spacer()
             }
+            .padding(8)
+            .background(.bar)
         }
-        .padding(10)
+    }
+
+    private var timelineSelection: Binding<EditorSelection?> {
+        Binding(
+            get: {
+                switch controller.selection {
+                case .timelineClip, .cutaway: controller.selection
+                case .project, .asset: nil
+                }
+            },
+            set: { selection in
+                if let selection { controller.selection = selection }
+            }
+        )
     }
 }
 

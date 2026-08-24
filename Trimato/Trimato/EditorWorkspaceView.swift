@@ -3,7 +3,6 @@ import SwiftUI
 struct EditorWorkspaceView: View {
     @StateObject private var controller: ProjectController
     @State private var showingProjectSetup: Bool
-    @Namespace private var linkedNavigation
 
     init(document: ProjectDocument) {
         _controller = StateObject(wrappedValue: ProjectController(document: document))
@@ -16,19 +15,25 @@ struct EditorWorkspaceView: View {
 
     var body: some View {
         HSplitView {
-            ProjectBrowserView(controller: controller, linkedNamespace: linkedNavigation)
+            MacEditorPane("Project Source") {
+                ProjectBrowserView(controller: controller)
+            }
                 .frame(minWidth: 210, idealWidth: 260, maxWidth: 360)
 
-            VStack(spacing: 0) {
-                activeEditor
-                    .frame(minHeight: 360)
-
-                Divider()
+            VSplitView {
+                MacEditorPane("Editor") {
+                    activeEditor
+                }
+                .frame(minHeight: 360)
 
                 HSplitView {
-                    ProjectTimelineView(controller: controller, linkedNamespace: linkedNavigation)
+                    MacEditorPane("Project Timeline") {
+                        ProjectTimelineView(controller: controller)
+                    }
                         .frame(minWidth: 460)
-                    ClipInspectorView(controller: controller, linkedNamespace: linkedNavigation)
+                    MacEditorPane("Inspector") {
+                        ClipInspectorView(controller: controller)
+                    }
                         .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
                 }
                 .frame(minHeight: 240)
@@ -41,6 +46,13 @@ struct EditorWorkspaceView: View {
         .sheet(isPresented: $showingProjectSetup) {
             ProjectCreationView(controller: controller) { showingProjectSetup = false }
         }
+        .alert(item: $controller.presentedError) { error in
+            Alert(
+                title: Text(error.title),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
     @ViewBuilder
@@ -49,7 +61,6 @@ struct EditorWorkspaceView: View {
         case .project:
             ProjectViewerView(
                 controller: controller,
-                linkedNamespace: linkedNavigation,
                 showProjectSettings: { showingProjectSetup = true }
             )
         case .asset(let id):
@@ -58,8 +69,7 @@ struct EditorWorkspaceView: View {
                     controller: controller,
                     asset: asset,
                     editSelection: .asset(id),
-                    initialSegments: asset.sourceEdit,
-                    linkedNamespace: linkedNavigation
+                    initialSegments: asset.sourceEdit
                 )
                 .id("asset-\(id)")
             }
@@ -70,8 +80,7 @@ struct EditorWorkspaceView: View {
                     controller: controller,
                     asset: asset,
                     editSelection: .timelineClip(id),
-                    initialSegments: clip.segments,
-                    linkedNamespace: linkedNavigation
+                    initialSegments: clip.segments
                 )
                 .id("timeline-\(id)")
             }
@@ -82,8 +91,7 @@ struct EditorWorkspaceView: View {
                     controller: controller,
                     asset: asset,
                     editSelection: .cutaway(id),
-                    initialSegments: cutaway.segments,
-                    linkedNamespace: linkedNavigation
+                    initialSegments: cutaway.segments
                 )
                 .id("cutaway-\(id)")
             }
@@ -93,24 +101,19 @@ struct EditorWorkspaceView: View {
 
 private struct ProjectViewerView: View {
     @ObservedObject var controller: ProjectController
-    let linkedNamespace: Namespace.ID
     let showProjectSettings: () -> Void
     @StateObject private var viewModel = ProjectPlayerViewModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Viewer and Project Editor")
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-
             ZStack {
                 Color.black
                 VideoPlayerView(player: viewModel.player)
-                if let status = viewModel.status {
-                    Text(status)
+                if controller.project.primaryTimeline.isEmpty {
+                    Text("Add a clip to the project timeline")
                         .foregroundStyle(.secondary)
+                } else if viewModel.isPreparing {
+                    ProgressView("Preparing Project Preview")
                         .padding()
                 }
             }
@@ -135,7 +138,6 @@ private struct ProjectViewerView: View {
             }
             .padding(10)
         }
-        .accessibilityLinkedGroup(id: "browser-editor", in: linkedNamespace)
         .onAppear { prepare() }
         .onChange(of: controller.project) { _ in prepare() }
         .onChange(of: controller.timelinePlayhead) { time in
@@ -144,6 +146,14 @@ private struct ProjectViewerView: View {
         }
         .onChange(of: viewModel.currentTime) { time in
             if viewModel.isPlaying { controller.timelinePlayhead = time }
+        }
+        .alert("Project Preview Failed", isPresented: Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { presented in if !presented { viewModel.clearError() } }
+        )) {
+            Button("OK") { viewModel.clearError() }
+        } message: {
+            Text(viewModel.errorMessage ?? "The project preview could not be prepared.")
         }
     }
 

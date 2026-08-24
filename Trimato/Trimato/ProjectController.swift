@@ -10,14 +10,20 @@ enum EditorSelection: Hashable {
     case cutaway(UUID)
 }
 
+struct ProjectPresentedError: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
 @MainActor
 final class ProjectController: ObservableObject {
     let document: ProjectDocument
 
     @Published var selection: EditorSelection = .project
     @Published var timelinePlayhead = ProjectTime.zero
-    @Published var statusMessage: String?
     @Published var isImporting = false
+    @Published var presentedError: ProjectPresentedError?
     @Published private(set) var isExporting = false
     @Published private(set) var exportProgress: Double?
 
@@ -66,11 +72,13 @@ final class ProjectController: ObservableObject {
                     replacement.sourceEdit = project.media[index].sourceEdit
                     project.media[index] = replacement
                 }
-                statusMessage = "Media relinked"
-                announce(statusMessage)
+                announce("Media relinked")
             } catch {
-                statusMessage = "Relink failed: \(error.localizedDescription)"
-                announce(statusMessage)
+                presentedError = ProjectPresentedError(
+                    title: "Relink Failed",
+                    message: error.localizedDescription
+                )
+                announce("Relink failed")
             }
         }
     }
@@ -80,8 +88,11 @@ final class ProjectController: ObservableObject {
         let urls = resolvedMediaURLs()
         let requiredIDs = Set(project.primaryTimeline.map(\.assetID) + project.cutaways.map(\.assetID))
         guard requiredIDs.allSatisfy({ urls[$0] != nil }) else {
-            statusMessage = "Relink offline media before exporting"
-            announce(statusMessage)
+            presentedError = ProjectPresentedError(
+                title: "Media Is Offline",
+                message: "Relink offline media before exporting the project."
+            )
+            announce("Relink offline media before exporting")
             return
         }
 
@@ -93,7 +104,6 @@ final class ProjectController: ObservableObject {
 
         isExporting = true
         exportProgress = 0
-        statusMessage = "Exporting project"
         announce("Export started")
         let projectSnapshot = project
         exportTask = Task { @MainActor in
@@ -107,18 +117,19 @@ final class ProjectController: ObservableObject {
                 }
                 isExporting = false
                 exportProgress = nil
-                statusMessage = "Export complete"
-                announce(statusMessage)
+                announce("Export complete")
             } catch is CancellationError {
                 isExporting = false
                 exportProgress = nil
-                statusMessage = "Export canceled"
-                announce(statusMessage)
+                announce("Export canceled")
             } catch {
                 isExporting = false
                 exportProgress = nil
-                statusMessage = "Export failed: \(error.localizedDescription)"
-                announce(statusMessage)
+                presentedError = ProjectPresentedError(
+                    title: "Export Failed",
+                    message: error.localizedDescription
+                )
+                announce("Export failed")
             }
             exportTask = nil
         }
@@ -127,7 +138,7 @@ final class ProjectController: ObservableObject {
     func cancelExport() {
         guard isExporting else { return }
         exportTask?.cancel()
-        statusMessage = "Canceling export"
+        announce("Canceling export")
     }
 
     var project: TrimatoProject { document.project }
@@ -170,36 +181,47 @@ final class ProjectController: ObservableObject {
         panel.allowedContentTypes = [.movie, .data]
         guard panel.runModal() == .OK else { return }
 
-        importFiles(at: panel.urls)
+        importFiles(at: panel.urls, into: nil)
     }
 
-    func importFiles(at urls: [URL]) {
+    func importFiles(at urls: [URL], into folderID: UUID? = nil) {
         guard !isImporting, !urls.isEmpty else { return }
         isImporting = true
-        statusMessage = "Importing media"
         Task { @MainActor in
             var imported: [MediaAssetRecord] = []
-            var failureCount = 0
+            var failures: [(name: String, message: String)] = []
             for url in urls {
                 do {
                     imported.append(try await ProjectImportCoordinator.importAsset(at: url))
                 } catch {
-                    failureCount += 1
+                    failures.append((url.lastPathComponent, error.localizedDescription))
                 }
             }
-            if !imported.isEmpty {
+            let knownPaths = Set(project.media.map(\.originalPath))
+            var uniquePaths = knownPaths
+            let additions = imported.filter { uniquePaths.insert($0.originalPath).inserted }
+            if !additions.isEmpty {
                 mutateProject(actionName: "Import Media") { project in
-                    var knownPaths = Set(project.media.map(\.originalPath))
-                    for asset in imported where knownPaths.insert(asset.originalPath).inserted {
-                        project.media.append(asset)
+                    project.media.append(contentsOf: additions)
+                    if let folderID,
+                       let folderIndex = project.folders.firstIndex(where: { $0.id == folderID }) {
+                        project.folders[folderIndex].assetIDs.append(contentsOf: additions.map(\.id))
                     }
                 }
+                selection = .asset(additions[0].id)
             }
             isImporting = false
-            statusMessage = failureCount == 0
-                ? "Imported \(imported.count) file\(imported.count == 1 ? "" : "s")"
-                : "Imported \(imported.count) files; \(failureCount) could not be imported"
-            announce(statusMessage)
+            if !additions.isEmpty {
+                announce("Imported \(additions.count) clip\(additions.count == 1 ? "" : "s")")
+            }
+            if !failures.isEmpty {
+                let details = failures.map { "\($0.name): \($0.message)" }.joined(separator: "\n")
+                presentedError = ProjectPresentedError(
+                    title: failures.count == urls.count ? "Import Failed" : "Some Clips Could Not Be Imported",
+                    message: details
+                )
+                announce(failures.count == urls.count ? "Import failed" : "Some clips could not be imported")
+            }
         }
     }
 
@@ -303,8 +325,7 @@ final class ProjectController: ObservableObject {
             }
             announce(placement.confirmation)
         } catch {
-            statusMessage = error.localizedDescription
-            announce(statusMessage)
+            announce(error.localizedDescription)
         }
     }
 

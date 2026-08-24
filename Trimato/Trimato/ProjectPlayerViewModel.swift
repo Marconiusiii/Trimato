@@ -6,7 +6,7 @@ import Foundation
 final class ProjectPlayerViewModel: ObservableObject {
     let player = AVPlayer()
     @Published private(set) var isPreparing = false
-    @Published private(set) var status: String?
+    @Published private(set) var errorMessage: String?
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime = ProjectTime.zero
 
@@ -42,11 +42,11 @@ final class ProjectPlayerViewModel: ObservableObject {
         removeTemporaryMedia()
         guard !project.primaryTimeline.isEmpty else {
             player.replaceCurrentItem(with: nil)
-            status = "Add a clip to the project timeline"
+            errorMessage = nil
             return
         }
         isPreparing = true
-        status = "Preparing project preview"
+        errorMessage = nil
         buildTask = Task { @MainActor in
             do {
                 let result = try await ProjectCompositionBuilder.build(project: project, mediaURLs: mediaURLs)
@@ -57,13 +57,12 @@ final class ProjectPlayerViewModel: ObservableObject {
                 player.replaceCurrentItem(with: item)
                 temporaryMediaURLs = result.temporaryMediaURLs
                 isPreparing = false
-                status = nil
             } catch is CancellationError {
                 isPreparing = false
             } catch {
                 player.replaceCurrentItem(with: nil)
                 isPreparing = false
-                status = error.localizedDescription
+                errorMessage = error.localizedDescription
             }
         }
     }
@@ -74,6 +73,10 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func seek(to time: ProjectTime) {
         player.seek(to: time.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func clearError() {
+        errorMessage = nil
     }
 
     private func removeTemporaryMedia() {

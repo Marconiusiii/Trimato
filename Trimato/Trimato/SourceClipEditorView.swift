@@ -5,17 +5,12 @@ struct SourceClipEditorView: View {
     let asset: MediaAssetRecord
     let editSelection: EditorSelection
     let initialSegments: [SourceSegment]
-    let linkedNamespace: Namespace.ID
 
     @StateObject private var viewModel = VideoPlayerViewModel()
     @State private var loadedAssetID: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(editorHeading)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-
             if controller.resolveURL(for: asset) == nil {
                 Text("This media file is offline. Relink it before editing.")
             } else {
@@ -35,22 +30,12 @@ struct SourceClipEditorView: View {
                 .padding(.bottom, 8)
             }
         }
-        .accessibilityLinkedGroup(id: "browser-editor", in: linkedNamespace)
         .onAppear { loadIfNeeded() }
         .onChange(of: viewModel.projectSourceSegments) { segments in
             guard loadedAssetID == asset.id, !segments.isEmpty else { return }
             controller.updateEditSegments(for: editSelection, segments: segments)
         }
         .onDisappear { viewModel.closeMedia() }
-    }
-
-    private var editorHeading: String {
-        switch editSelection {
-        case .asset: "Source Clip Editor: \(asset.name)"
-        case .timelineClip: "Timeline Clip Editor: \(asset.name)"
-        case .cutaway: "Cutaway Editor: \(asset.name)"
-        case .project: "Clip Editor"
-        }
     }
 
     private func loadIfNeeded() {

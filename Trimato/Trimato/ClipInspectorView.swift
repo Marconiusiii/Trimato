@@ -2,14 +2,9 @@ import SwiftUI
 
 struct ClipInspectorView: View {
     @ObservedObject var controller: ProjectController
-    let linkedNamespace: Namespace.ID
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Inspector")
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-
             if let clip = controller.selectedTimelineClip {
                 inspectorRow("Name", clip.name)
                 inspectorRow("Duration", ProjectTimecodeFormatter.string(clip.duration))
@@ -47,7 +42,6 @@ struct ClipInspectorView: View {
             Spacer()
         }
         .padding(10)
-        .accessibilityLinkedGroup(id: "timeline-inspector", in: linkedNamespace)
     }
 
     private func inspectorRow(_ label: String, _ value: String) -> some View {
