@@ -294,6 +294,45 @@ final class ProjectController: ObservableObject {
         }
     }
 
+    func importExternalFile(at url: URL, completion: @escaping (UUID) -> Void) {
+        guard !isImporting else {
+            presentedError = ProjectPresentedError(
+                title: "Import Already in Progress",
+                message: "Wait for the current import to finish, then open the video again."
+            )
+            return
+        }
+        let standardizedPath = url.standardizedFileURL.path
+        if let existing = project.media.first(where: {
+            URL(fileURLWithPath: $0.originalPath).standardizedFileURL.path == standardizedPath
+        }) {
+            selection = .asset(existing.id)
+            completion(existing.id)
+            return
+        }
+
+        isImporting = true
+        Task { @MainActor in
+            do {
+                let asset = try await ProjectImportCoordinator.importAsset(at: url)
+                mutateProject(actionName: "Import Media") { project in
+                    project.media.append(asset)
+                }
+                isImporting = false
+                selection = .asset(asset.id)
+                announce("Clip imported")
+                completion(asset.id)
+            } catch {
+                isImporting = false
+                presentedError = ProjectPresentedError(
+                    title: "Import Failed",
+                    message: error.localizedDescription
+                )
+                announce("Import failed")
+            }
+        }
+    }
+
     func createFolder(named name: String) {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanName.isEmpty else { return }
@@ -337,37 +376,27 @@ final class ProjectController: ObservableObject {
     }
 
     func updateSourceEdit(assetID: UUID, segments: [SourceSegment]) {
-        guard project.asset(id: assetID)?.sourceEdit != segments else { return }
+        guard project.asset(id: assetID)?.sourceEdit.map(\.sourceRange) != segments.map(\.sourceRange) else { return }
         mutateProject(actionName: "Edit Source Clip") { project in
             guard let index = project.media.firstIndex(where: { $0.id == assetID }) else { return }
             project.media[index].sourceEdit = segments
         }
     }
 
-    func updateEditSegments(for selection: EditorSelection, segments: [SourceSegment]) {
-        guard !segments.isEmpty else { return }
+    func updateTimelineEntry(_ selection: EditorSelection, segments: [SourceSegment]) throws {
         switch selection {
-        case .asset(let id):
-            updateSourceEdit(assetID: id, segments: segments)
         case .timelineClip(let id):
-            guard project.primaryTimeline.first(where: { $0.id == id })?.segments != segments else { return }
-            mutateProject(actionName: "Edit Timeline Clip") { project in
-                guard let index = project.primaryTimeline.firstIndex(where: { $0.id == id }) else { return }
-                project.primaryTimeline[index].segments = segments
+            try mutateProjectThrowing(actionName: "Update Timeline Clip") {
+                try $0.updateTimelineClip(id: id, segments: segments)
             }
+            announce("Timeline clip updated")
         case .cutaway(let id):
-            guard project.cutaways.first(where: { $0.id == id })?.segments != segments else { return }
-            mutateProject(actionName: "Edit Cutaway") { project in
-                guard let index = project.cutaways.firstIndex(where: { $0.id == id }) else { return }
-                let updatedEnd = project.cutaways[index].start + segments.reduce(.zero) { $0 + $1.duration }
-                guard updatedEnd <= project.duration else { return }
-                guard !project.cutaways.contains(where: { other in
-                    other.id != id && project.cutaways[index].start < other.end && other.start < updatedEnd
-                }) else { return }
-                project.cutaways[index].segments = segments
+            try mutateProjectThrowing(actionName: "Update Cutaway") {
+                try $0.updateCutaway(id: id, segments: segments)
             }
-        case .project:
-            break
+            announce("Cutaway updated")
+        case .asset, .project:
+            return
         }
     }
 

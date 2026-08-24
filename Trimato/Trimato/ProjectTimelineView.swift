@@ -25,7 +25,12 @@ struct ProjectTimelineView: View {
             List(selection: timelineSelection) {
                 Section("Primary Storyline") {
                     ForEach(Array(controller.project.primaryTimeline.enumerated()), id: \.element.id) { index, clip in
-                        Text("\(clip.name), clip \(index + 1) of \(controller.project.primaryTimeline.count)")
+                        Button("\(clip.name), clip \(index + 1) of \(controller.project.primaryTimeline.count)") {
+                            select(.timelineClip(clip.id))
+                            openClipEditor(.timelineClip(clip.id))
+                        }
+                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .tag(EditorSelection.timelineClip(clip.id))
                             .contextMenu {
                                 Button("Open Clip Editor") {
@@ -69,7 +74,12 @@ struct ProjectTimelineView: View {
                 if !controller.project.cutaways.isEmpty {
                     Section("Cutaways") {
                         ForEach(controller.project.cutaways) { cutaway in
-                            Text(cutaway.name)
+                            Button(cutaway.name) {
+                                select(.cutaway(cutaway.id))
+                                openClipEditor(.cutaway(cutaway.id))
+                            }
+                                .buttonStyle(.plain)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .accessibilityValue(cutaway.audioMode == .sourceAudio
                                     ? "Cutaway with source audio"
                                     : "Cutaway over primary audio")

@@ -56,6 +56,18 @@ struct EditorWorkspaceView: View {
         .background(EditorTheme.workspace)
         .preferredColorScheme(.dark)
         .focusedObject(controller)
+        .handlesTrimatoMediaOpening()
+        .onAppear {
+            ExternalMediaOpenCoordinator.shared.register(
+                controller: controller,
+                openClipEditor: { [weak clipEditorWindows] selection in
+                    clipEditorWindows?.open(selection)
+                }
+            )
+        }
+        .onDisappear {
+            ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
+        }
         .sheet(isPresented: $showingProjectSetup) {
             ProjectCreationView(controller: controller) { showingProjectSetup = false }
         }

@@ -47,6 +47,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var mediaFilename = ""
     @Published private(set) var isApplyingEdit = false
     @Published private(set) var projectSourceSegments: [SourceSegment] = []
+    @Published private(set) var placementSourceSegments: [SourceSegment] = []
 
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
@@ -148,7 +149,9 @@ final class VideoPlayerViewModel: ObservableObject {
     func load(
         url: URL,
         sourceSegments: [SourceSegment]? = nil,
-        preparedSource: MediaSource? = nil
+        preparedSource: MediaSource? = nil,
+        initialInMarker: ProjectTime? = nil,
+        initialOutMarker: ProjectTime? = nil
     ) {
         loadID = nil
         loadTask?.cancel()
@@ -167,6 +170,7 @@ final class VideoPlayerViewModel: ObservableObject {
         editTimeline = nil
         editedFrameTimestamps = []
         projectSourceSegments = []
+        placementSourceSegments = []
         mediaDuration = .zero
         inMarker = nil
         outMarker = nil
@@ -230,6 +234,9 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.projectSourceSegments = timeline.sourceRanges.map {
                     SourceSegment(sourceRange: ProjectTimeRange($0))
                 }
+                self.inMarker = initialInMarker?.cmTime
+                self.outMarker = initialOutMarker?.cmTime
+                self.refreshPlacementSourceSegments()
                 self.editedFrameTimestamps = EditedCompositionBuilder.editedFrameTimestamps(
                     sourceTimestamps: source.frameTimestamps,
                     sourceRanges: timeline.sourceRanges
@@ -301,6 +308,7 @@ final class VideoPlayerViewModel: ObservableObject {
         editTimeline = nil
         editedFrameTimestamps = []
         projectSourceSegments = []
+        placementSourceSegments = []
         hasVideo = false
     }
 
@@ -365,19 +373,27 @@ final class VideoPlayerViewModel: ObservableObject {
         announce("Out marked at \(spokenTime(time))")
     }
 
-    func setInMarker(at time: CMTime) { inMarker = time }
+    func setInMarker(at time: CMTime) {
+        inMarker = time
+        refreshPlacementSourceSegments()
+    }
 
-    func setOutMarker(at time: CMTime) { outMarker = time }
+    func setOutMarker(at time: CMTime) {
+        outMarker = time
+        refreshPlacementSourceSegments()
+    }
 
     func clearIn() {
         guard inMarker != nil else { return }
         inMarker = nil
+        refreshPlacementSourceSegments()
         announce("In marker cleared")
     }
 
     func clearOut() {
         guard outMarker != nil else { return }
         outMarker = nil
+        refreshPlacementSourceSegments()
         announce("Out marker cleared")
     }
 
@@ -794,6 +810,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.duration = CMTimeGetSeconds(updatedTimeline.duration)
                 self.inMarker = nil
                 self.outMarker = nil
+                self.refreshPlacementSourceSegments()
                 self.player.replaceCurrentItem(with: AVPlayerItem(asset: composition))
                 let destination = CMTimeMinimum(targetTime, updatedTimeline.duration)
                 await self.player.seek(to: destination, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -997,6 +1014,24 @@ final class VideoPlayerViewModel: ObservableObject {
             default:
                 return event
             }
+        }
+    }
+
+    private func refreshPlacementSourceSegments() {
+        guard let editTimeline else {
+            placementSourceSegments = []
+            return
+        }
+        let selectedRanges: [CMTimeRange]
+        if inMarker == nil, outMarker == nil {
+            selectedRanges = editTimeline.sourceRanges
+        } else if let range = Self.validExportRange(inMarker: inMarker, outMarker: outMarker) {
+            selectedRanges = editTimeline.sourceRanges(in: range)
+        } else {
+            selectedRanges = []
+        }
+        placementSourceSegments = selectedRanges.map {
+            SourceSegment(sourceRange: ProjectTimeRange($0))
         }
     }
 

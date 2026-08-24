@@ -20,20 +20,29 @@ struct SourceClipEditorView: View {
                 ContentView(viewModel: viewModel, allowsFileOpening: false)
 
                 HStack {
+                    if commandContext.isTimelineEntry {
+                        Button("Update Clip") { commandContext.performUpdate() }
+                            .keyboardShortcut("u", modifiers: .command)
+                            .disabled(!commandContext.canUpdate)
+                        Divider()
+                    }
                     Button(PlacementAction.append.title) { place(.append) }
                         .keyboardShortcut("e", modifiers: [])
+                        .disabled(!commandContext.canPlace)
                     Button(PlacementAction.insert.title) { place(.insert) }
                         .keyboardShortcut("w", modifiers: [])
+                        .disabled(!commandContext.canPlace)
                     Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
                         .keyboardShortcut("d", modifiers: [])
+                        .disabled(!commandContext.canPlace)
                     Menu("Insert on Top") {
                         Button("With Source Audio") { place(.cutawaySourceAudio) }
                             .keyboardShortcut("q", modifiers: [])
                         Button("Over Primary Audio") { place(.cutawayPrimaryAudio) }
                             .keyboardShortcut("q", modifiers: [.option])
                     }
+                    .disabled(!commandContext.canPlace)
                 }
-                .disabled(viewModel.projectSourceSegments.isEmpty)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
             }
@@ -50,10 +59,9 @@ struct SourceClipEditorView: View {
             }
             loadIfNeeded()
         }
-        .onChange(of: viewModel.projectSourceSegments) { segments in
-            guard loadedAssetID == asset.id, !segments.isEmpty else { return }
-            commandContext.segments = segments
-            controller.updateEditSegments(for: editSelection, segments: segments)
+        .onChange(of: viewModel.placementSourceSegments) { segments in
+            guard loadedAssetID == asset.id else { return }
+            commandContext.setSegments(segments)
         }
         .onDisappear {
             preparationTask?.cancel()
@@ -67,7 +75,11 @@ struct SourceClipEditorView: View {
     private func loadIfNeeded() {
         guard loadedAssetID != asset.id, let url = controller.resolveURL(for: asset) else { return }
         loadedAssetID = asset.id
-        commandContext.segments = initialSegments
+        commandContext.setSegments(initialSegments)
+        let opening = ClipEditorOpeningConfiguration.make(
+            segments: initialSegments,
+            sourceDuration: asset.duration
+        )
         preparationTask = Task { @MainActor in
             do {
                 let source = try await controller.preparedMediaSource(for: asset)
@@ -80,8 +92,10 @@ struct SourceClipEditorView: View {
                 }
                 viewModel.load(
                     url: url,
-                    sourceSegments: initialSegments,
-                    preparedSource: source
+                    sourceSegments: opening.playbackSegments,
+                    preparedSource: source,
+                    initialInMarker: opening.inMarker,
+                    initialOutMarker: opening.outMarker
                 )
             } catch is CancellationError {
                 return

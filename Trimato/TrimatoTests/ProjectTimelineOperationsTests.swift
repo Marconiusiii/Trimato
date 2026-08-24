@@ -82,4 +82,58 @@ struct ProjectTimelineOperationsTests {
         #expect(project.primaryTimeline.map(\.name) == ["Second", "First"])
         #expect(project.primaryTimeline.last?.id == firstID)
     }
+
+    @Test func updatingOneUseOfASourceLeavesItsOtherTimelineEntryUnchanged() throws {
+        let source = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject()
+        project.media = [source]
+        let firstID = try project.append(asset: source)
+        let secondID = try project.append(asset: source)
+        let replacement = [SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 1),
+            duration: ProjectTime(seconds: 3)
+        ))]
+
+        try project.updateTimelineClip(id: firstID, segments: replacement)
+
+        #expect(project.primaryTimeline.first(where: { $0.id == firstID })?.segments == replacement)
+        #expect(project.primaryTimeline.first(where: { $0.id == secondID })?.duration == ProjectTime(seconds: 10))
+    }
+
+    @Test func updatingAClipChangesDurationAndMagneticallyMovesTheFollowingClip() throws {
+        let first = fixtureAsset(name: "Interview", duration: 10)
+        let second = fixtureAsset(name: "Closing", duration: 5)
+        var project = TrimatoProject()
+        project.media = [first, second]
+        let firstID = try project.append(asset: first)
+        let secondID = try project.append(asset: second)
+
+        try project.updateTimelineClip(id: firstID, segments: [SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 1),
+            duration: ProjectTime(seconds: 3)
+        ))])
+
+        #expect(project.startTime(of: secondID) == ProjectTime(seconds: 3))
+        #expect(project.duration == ProjectTime(seconds: 8))
+    }
+
+    @Test func shorteningTheStorylineCannotLeaveACutawayBeyondItsEnd() throws {
+        let primary = fixtureAsset(name: "Interview", duration: 10)
+        let cutaway = fixtureAsset(name: "Cutaway", duration: 3)
+        var project = TrimatoProject()
+        project.media = [primary, cutaway]
+        let primaryID = try project.append(asset: primary)
+        _ = try project.addCutaway(
+            asset: cutaway,
+            at: ProjectTime(seconds: 7),
+            audioMode: .sourceAudio
+        )
+
+        #expect(throws: ProjectTimelineError.cutawayDoesNotFit) {
+            try project.updateTimelineClip(id: primaryID, segments: [SourceSegment(sourceRange: ProjectTimeRange(
+                start: .zero,
+                duration: ProjectTime(seconds: 8)
+            ))])
+        }
+    }
 }

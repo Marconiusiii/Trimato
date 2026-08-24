@@ -109,6 +109,32 @@ extension TrimatoProject {
         return halves.1.id
     }
 
+    mutating func updateTimelineClip(id: UUID, segments: [SourceSegment]) throws {
+        let selected = segments.filter { $0.duration.isPositive }
+        guard !selected.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
+        guard let index = primaryTimeline.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        primaryTimeline[index].segments = selected
+        guard cutaways.allSatisfy({ $0.end <= duration }) else {
+            throw ProjectTimelineError.cutawayDoesNotFit
+        }
+    }
+
+    mutating func updateCutaway(id: UUID, segments: [SourceSegment]) throws {
+        let selected = segments.filter { $0.duration.isPositive }
+        guard !selected.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
+        guard let index = cutaways.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        let updatedEnd = cutaways[index].start + selected.reduce(.zero) { $0 + $1.duration }
+        guard updatedEnd <= duration else { throw ProjectTimelineError.cutawayDoesNotFit }
+        guard !cutaways.contains(where: { other in
+            other.id != id && cutaways[index].start < other.end && other.start < updatedEnd
+        }) else { throw ProjectTimelineError.cutawayOverlap }
+        cutaways[index].segments = selected
+    }
+
     mutating func removeClip(id: UUID) throws {
         guard let index = primaryTimeline.firstIndex(where: { $0.id == id }) else {
             throw ProjectTimelineError.clipNotFound
