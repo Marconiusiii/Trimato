@@ -51,8 +51,12 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         }
 
         func reload(with root: ProjectSourceItem) {
-            self.root = root
             guard let outlineView else { return }
+
+            if self.root == root {
+                synchronizeSelection(in: outlineView)
+                return
+            }
 
             if hasEstablishedExpansion {
                 captureExpansion(in: outlineView)
@@ -64,9 +68,12 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                 hasEstablishedExpansion = true
             }
 
+            isSynchronizingSelection = true
+            self.root = root
             outlineView.reloadData()
             restoreExpansion(in: outlineView, item: root)
             synchronizeSelection(in: outlineView)
+            isSynchronizingSelection = false
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -186,10 +193,11 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             guard let root, let item = root.item(withID: requested) else { return }
             let row = outlineView.row(forItem: item)
             guard row >= 0, outlineView.selectedRow != row else { return }
+            let wasSynchronizing = isSynchronizingSelection
             isSynchronizingSelection = true
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             outlineView.scrollRowToVisible(row)
-            isSynchronizingSelection = false
+            isSynchronizingSelection = wasSynchronizing
         }
     }
 }
