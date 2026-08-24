@@ -4,12 +4,16 @@ import SwiftUI
 struct EditorWorkspaceView: View {
     @StateObject private var controller: ProjectController
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
+    @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var showingProjectSetup: Bool
 
     init(document: ProjectDocument) {
         let controller = ProjectController(document: document)
         _controller = StateObject(wrappedValue: controller)
         _clipEditorWindows = StateObject(wrappedValue: ClipEditorWindowCoordinator(controller: controller))
+        _projectWindowSaveCoordinator = StateObject(
+            wrappedValue: ProjectWindowSaveCoordinator(projectDocument: document)
+        )
         _showingProjectSetup = State(initialValue:
             document.project.name == "Untitled Project" &&
             document.project.media.isEmpty &&
@@ -54,6 +58,7 @@ struct EditorWorkspaceView: View {
         }
         .frame(minWidth: 1_020, minHeight: 720)
         .background(EditorTheme.workspace)
+        .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
         .preferredColorScheme(.dark)
         .focusedObject(controller)
         .handlesTrimatoMediaOpening()

@@ -17,6 +17,18 @@ struct ProjectDocumentTests {
         #expect(decoded.schemaVersion == TrimatoProject.currentSchemaVersion)
     }
 
+    @Test func decodedProjectProvidesACleanExplicitSaveBaseline() throws {
+        let original = TrimatoProject(name: "Saved Project")
+        let manifest = try ProjectDocument.manifestData(for: original)
+        let package = FileWrapper(directoryWithFileWrappers: [
+            "project.json": FileWrapper(regularFileWithContents: manifest)
+        ])
+        let document = ProjectDocument(project: try ProjectDocument.decodeProject(from: package))
+
+        #expect(document.project == original)
+        #expect(!document.hasUnsavedChanges)
+    }
+
     @Test func legacyRegularFileProjectsRemainReadable() throws {
         let project = TrimatoProject(name: "Legacy Project")
         let manifest = try ProjectDocument.manifestData(for: project)

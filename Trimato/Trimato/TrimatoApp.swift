@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct TrimatoApp: App {
+    @NSApplicationDelegateAdaptor(ProjectSaveApplicationDelegate.self) private var applicationDelegate
     @FocusedObject private var viewModel: VideoPlayerViewModel?
     @FocusedObject private var projectPlayer: ProjectPlayerViewModel?
     @FocusedObject private var projectController: ProjectController?

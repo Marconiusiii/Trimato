@@ -9,14 +9,24 @@ final class ProjectDocument: ReferenceFileDocument {
     static var readableContentTypes: [UTType] { [.trimatoProject] }
     static var writableContentTypes: [UTType] { [.trimatoProject] }
 
-    @Published var project: TrimatoProject
+    @Published var project: TrimatoProject {
+        didSet {
+            hasUnsavedChanges = project != explicitlySavedProject
+        }
+    }
+    @Published private(set) var hasUnsavedChanges = false
+
+    private var explicitlySavedProject: TrimatoProject
 
     init(project: TrimatoProject = TrimatoProject()) {
         self.project = project
+        explicitlySavedProject = project
     }
 
     required init(configuration: ReadConfiguration) throws {
-        project = try Self.decodeProject(from: configuration.file)
+        let decoded = try Self.decodeProject(from: configuration.file)
+        project = decoded
+        explicitlySavedProject = decoded
     }
 
     static func decodeProject(from wrapper: FileWrapper) throws -> TrimatoProject {
@@ -56,5 +66,22 @@ final class ProjectDocument: ReferenceFileDocument {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(project)
+    }
+
+    func markCurrentProjectAsExplicitlySaved() {
+        explicitlySavedProject = project
+        hasUnsavedChanges = false
+    }
+
+    @discardableResult
+    func restoreExplicitlySavedProject() -> TrimatoProject {
+        let discardedProject = project
+        project = explicitlySavedProject
+        hasUnsavedChanges = false
+        return discardedProject
+    }
+
+    func reinstateDiscardedProject(_ discardedProject: TrimatoProject) {
+        project = discardedProject
     }
 }
