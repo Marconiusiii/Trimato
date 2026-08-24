@@ -5,13 +5,15 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
     @ObservedObject var controller: ProjectController
     @Binding var selection: ProjectSourceItemID?
     let openClipEditor: (EditorSelection) -> Void
+    let requestNewFolder: () -> Void
+    let requestRenameFolder: (UUID) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let outline = NSOutlineView()
+        let outline = ProjectSourceOutline()
         let column = NSTableColumn(identifier: .projectSourceColumn)
         outline.addTableColumn(column)
         outline.outlineTableColumn = column
@@ -24,6 +26,9 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         outline.delegate = context.coordinator
         outline.setAccessibilityLabel("Project Items")
         outline.registerForDraggedTypes([.fileURL])
+        outline.menuForSelectedRow = { [weak coordinator = context.coordinator] in
+            coordinator?.contextMenuForSelectedRow()
+        }
 
         let scrollView = NSScrollView()
         scrollView.documentView = outline
@@ -112,7 +117,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                 }
                 cell.assetID = assetID
                 cell.button.title = item.name
-                cell.button.menu = contextMenu(for: assetID)
+                cell.button.menu = contextMenu(for: item.id)
                 return cell
             }
 
@@ -122,7 +127,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             } else {
                 cell = NSTableCellView()
                 cell.identifier = .projectSourceCell
-                let field = NSTextField(labelWithString: "")
+                let field = ProjectSourceLabel(labelWithString: "")
                 field.translatesAutoresizingMaskIntoConstraints = false
                 field.lineBreakMode = .byTruncatingTail
                 cell.textField = field
@@ -134,6 +139,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                 ])
             }
             cell.textField?.stringValue = item.name
+            cell.textField?.menu = contextMenu(for: item.id)
             return cell
         }
 
@@ -160,23 +166,33 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         }
 
         @objc private func performContextAction(_ sender: NSMenuItem) {
-            guard let payload = sender.representedObject as? ProjectSourceMenuPayload else { return }
-            selectSourceAsset(payload.assetID)
-            switch payload.command {
-            case .open:
-                parent.openClipEditor(.asset(payload.assetID))
-            case .place(let placement):
-                guard let asset = parent.controller.project.asset(id: payload.assetID) else { return }
+            guard let command = sender.representedObject as? ProjectSourceMenuPayload else { return }
+            switch command.command {
+            case .open(let assetID):
+                selectSourceAsset(assetID)
+                parent.openClipEditor(.asset(assetID))
+            case .place(let assetID, let placement):
+                selectSourceAsset(assetID)
+                guard let asset = parent.controller.project.asset(id: assetID) else { return }
                 parent.controller.place(
                     placement,
-                    editing: .asset(payload.assetID),
+                    editing: .asset(assetID),
                     segments: asset.sourceEdit
                 )
-            case .move(let folderID):
-                parent.controller.moveAsset(payload.assetID, toFolder: folderID)
-            case .relink:
-                parent.controller.selection = .asset(payload.assetID)
+            case .move(let assetID, let folderID):
+                selectSourceAsset(assetID)
+                parent.controller.moveAsset(assetID, toFolder: folderID)
+            case .relink(let assetID):
+                selectSourceAsset(assetID)
                 parent.controller.relinkSelectedAsset()
+            case .importClips(let folderID):
+                parent.controller.importFiles(into: folderID)
+            case .newFolder:
+                parent.requestNewFolder()
+            case .renameFolder(let folderID):
+                parent.requestRenameFolder(folderID)
+            case .removeFolder(let folderID):
+                parent.controller.removeFolder(folderID)
             }
         }
 
@@ -191,39 +207,60 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
 
-        private func contextMenu(for assetID: UUID) -> NSMenu {
+        private func contextMenu(for itemID: ProjectSourceItemID) -> NSMenu? {
             let menu = NSMenu()
-            menu.addItem(menuItem("Open Clip Editor", assetID: assetID, command: .open))
-            menu.addItem(.separator())
-            for placement in PlacementAction.allCases {
-                menu.addItem(menuItem(placement.title, assetID: assetID, command: .place(placement)))
-            }
-            menu.addItem(.separator())
+            switch itemID {
+            case .project:
+                menu.addItem(menuItem("Import Clips…", command: .importClips(nil)))
+                menu.addItem(menuItem("New Folder", command: .newFolder))
+            case .timeline:
+                return nil
+            case .folder(let folderID):
+                menu.addItem(menuItem("Import Clips into Folder…", command: .importClips(folderID)))
+                menu.addItem(menuItem("Rename Folder…", command: .renameFolder(folderID)))
+                menu.addItem(.separator())
+                menu.addItem(menuItem("Remove Folder", command: .removeFolder(folderID)))
+            case .asset(let assetID):
+                menu.addItem(menuItem("Open Clip Editor", command: .open(assetID)))
+                menu.addItem(.separator())
+                for placement in PlacementAction.allCases {
+                    menu.addItem(menuItem(placement.title, command: .place(assetID, placement)))
+                }
+                menu.addItem(.separator())
 
-            let moveItem = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
-            let moveMenu = NSMenu()
-            moveMenu.addItem(menuItem("Project Root", assetID: assetID, command: .move(nil)))
-            for folder in parent.controller.project.folders {
-                moveMenu.addItem(menuItem(folder.name, assetID: assetID, command: .move(folder.id)))
-            }
-            moveItem.submenu = moveMenu
-            menu.addItem(moveItem)
+                let moveItem = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
+                let moveMenu = NSMenu()
+                moveMenu.addItem(menuItem("Project Root", command: .move(assetID, nil)))
+                for folder in parent.controller.project.folders {
+                    moveMenu.addItem(menuItem(folder.name, command: .move(assetID, folder.id)))
+                }
+                moveItem.submenu = moveMenu
+                menu.addItem(moveItem)
 
-            if let asset = parent.controller.project.asset(id: assetID),
-               parent.controller.resolveURL(for: asset) == nil {
-                menu.addItem(menuItem("Relink Clip…", assetID: assetID, command: .relink))
+                if let asset = parent.controller.project.asset(id: assetID),
+                   parent.controller.resolveURL(for: asset) == nil {
+                    menu.addItem(menuItem("Relink Clip…", command: .relink(assetID)))
+                }
             }
             return menu
         }
 
+        func contextMenuForSelectedRow() -> NSMenu? {
+            guard let outlineView,
+                  outlineView.selectedRow >= 0,
+                  let item = outlineView.item(atRow: outlineView.selectedRow) as? ProjectSourceItem else {
+                return nil
+            }
+            return contextMenu(for: item.id)
+        }
+
         private func menuItem(
             _ title: String,
-            assetID: UUID,
             command: ProjectSourceMenuCommand
         ) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: #selector(performContextAction(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = ProjectSourceMenuPayload(assetID: assetID, command: command)
+            item.representedObject = ProjectSourceMenuPayload(command: command)
             return item
         }
 
@@ -299,8 +336,42 @@ private extension NSUserInterfaceItemIdentifier {
     static let projectSourceButtonCell = NSUserInterfaceItemIdentifier("ProjectSourceButtonCell")
 }
 
+private final class ProjectSourceOutline: NSOutlineView {
+    var menuForSelectedRow: (() -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let location = convert(event.locationInWindow, from: nil)
+        let clickedRow = row(at: location)
+        if clickedRow >= 0 {
+            selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
+        }
+        return menuForSelectedRow?()
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard selectedRow >= 0, let menu = menuForSelectedRow?() else { return false }
+        let rowFrame = rect(ofRow: selectedRow)
+        menu.popUp(positioning: nil, at: NSPoint(x: rowFrame.minX, y: rowFrame.maxY), in: self)
+        return true
+    }
+}
+
 private final class ProjectSourceButton: NSButton {
     var assetID: UUID?
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let menu else { return false }
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: bounds.maxY), in: self)
+        return true
+    }
+}
+
+private final class ProjectSourceLabel: NSTextField {
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let menu else { return false }
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: bounds.maxY), in: self)
+        return true
+    }
 }
 
 private final class ProjectSourceButtonCellView: NSTableCellView {
@@ -335,18 +406,20 @@ private final class ProjectSourceButtonCellView: NSTableCellView {
 }
 
 private enum ProjectSourceMenuCommand {
-    case open
-    case place(PlacementAction)
-    case move(UUID?)
-    case relink
+    case open(UUID)
+    case place(UUID, PlacementAction)
+    case move(UUID, UUID?)
+    case relink(UUID)
+    case importClips(UUID?)
+    case newFolder
+    case renameFolder(UUID)
+    case removeFolder(UUID)
 }
 
 private final class ProjectSourceMenuPayload: NSObject {
-    let assetID: UUID
     let command: ProjectSourceMenuCommand
 
-    init(assetID: UUID, command: ProjectSourceMenuCommand) {
-        self.assetID = assetID
+    init(command: ProjectSourceMenuCommand) {
         self.command = command
     }
 }

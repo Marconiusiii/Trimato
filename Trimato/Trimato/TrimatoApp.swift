@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct TrimatoApp: App {
     @FocusedObject private var viewModel: VideoPlayerViewModel?
+    @FocusedObject private var projectPlayer: ProjectPlayerViewModel?
     @FocusedObject private var projectController: ProjectController?
     @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
     @Environment(\.openWindow) private var openWindow
@@ -84,6 +85,60 @@ struct TrimatoApp: App {
                     .disabled(projectController?.selectedTimelineClip == nil)
                 Button("Move Clip to End") { projectController?.moveSelectedClipToEnd() }
                     .disabled(projectController?.selectedTimelineClip == nil)
+            }
+            CommandMenu("Playback") {
+                Button("Play or Pause (Space)") {
+                    if let projectPlayer { projectPlayer.togglePlayback() }
+                    else { viewModel?.togglePlayPause() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                Button("Play Backward (J)") {
+                    if let projectPlayer { projectPlayer.pressJ() }
+                    else { viewModel?.pressJ() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                Button("Stop (K)") {
+                    if let projectPlayer { projectPlayer.pressK() }
+                    else { viewModel?.pressK() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                Button("Play Forward (L)") {
+                    if let projectPlayer { projectPlayer.pressL() }
+                    else { viewModel?.pressL() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                Divider()
+                Button("Step Backward (Left Arrow)") {
+                    if let projectPlayer { projectPlayer.stepBackward() }
+                    else { viewModel?.stepBackward() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                Button("Step Forward (Right Arrow)") {
+                    if let projectPlayer { projectPlayer.stepForward() }
+                    else { viewModel?.stepForward() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                Divider()
+                Button("Previous Edit Point (Command-Left Arrow)") {
+                    if let projectPlayer { projectPlayer.goToPreviousEdit() }
+                    else { viewModel?.goToPreviousTimelinePoint() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                Button("Next Edit Point (Command-Right Arrow)") {
+                    if let projectPlayer { projectPlayer.goToNextEdit() }
+                    else { viewModel?.goToNextTimelinePoint() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                Button("Go to Beginning (Command-Up Arrow)") {
+                    if let projectPlayer { projectPlayer.goToStart() }
+                    else { viewModel?.goToStart() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                Button("Go to End (Command-Down Arrow)") {
+                    if let projectPlayer { projectPlayer.goToEnd() }
+                    else { viewModel?.goToEnd() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
             }
             CommandMenu("Clip") {
                 Button(PlacementAction.append.title) { clipPlacement?.place(.append) }

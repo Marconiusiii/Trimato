@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct EditorWorkspaceView: View {
@@ -89,7 +90,11 @@ private struct ProjectViewerView: View {
             }
 
             HStack {
+                Button("Step Backward") { viewModel.stepBackward() }
+                    .disabled(controller.project.primaryTimeline.isEmpty || viewModel.isPreparing)
                 Button(viewModel.isPlaying ? "Pause" : "Play") { viewModel.togglePlayback() }
+                    .disabled(controller.project.primaryTimeline.isEmpty || viewModel.isPreparing)
+                Button("Step Forward") { viewModel.stepForward() }
                     .disabled(controller.project.primaryTimeline.isEmpty || viewModel.isPreparing)
                 Text(ProjectTimecodeFormatter.string(viewModel.currentTime))
                     .monospacedDigit()
@@ -108,6 +113,8 @@ private struct ProjectViewerView: View {
             }
             .padding(10)
         }
+        .background(ProjectPlaybackKeyMonitor(viewModel: viewModel))
+        .focusedObject(viewModel)
         .onAppear { prepare() }
         .onChange(of: controller.project) { _ in prepare() }
         .onChange(of: controller.timelinePlayhead) { time in
@@ -129,5 +136,110 @@ private struct ProjectViewerView: View {
 
     private func prepare() {
         viewModel.prepare(project: controller.project, mediaURLs: controller.resolvedMediaURLs())
+    }
+}
+
+private struct ProjectPlaybackKeyMonitor: NSViewRepresentable {
+    let viewModel: ProjectPlayerViewModel
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(viewModel: viewModel)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        context.coordinator.hostView = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.viewModel = viewModel
+    }
+
+    final class Coordinator {
+        var viewModel: ProjectPlayerViewModel
+        weak var hostView: NSView?
+        private var monitor: Any?
+
+        init(viewModel: ProjectPlayerViewModel) {
+            self.viewModel = viewModel
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+                self?.handle(event) ?? event
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            guard event.window === hostView?.window,
+                  viewModel.canControlPlayback,
+                  NSApp.modalWindow == nil,
+                  !isEditingText(in: event.window) else { return event }
+
+            let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+            let modifiers = event.modifierFlags.intersection(commandSet)
+            let unmodified = modifiers.isEmpty
+
+            switch event.type {
+            case .keyDown:
+                if modifiers == .command {
+                    switch event.keyCode {
+                    case 123:
+                        if !event.isARepeat { viewModel.goToPreviousEdit() }
+                        return nil
+                    case 124:
+                        if !event.isARepeat { viewModel.goToNextEdit() }
+                        return nil
+                    case 126:
+                        if !event.isARepeat { viewModel.goToStart() }
+                        return nil
+                    case 125:
+                        if !event.isARepeat { viewModel.goToEnd() }
+                        return nil
+                    default:
+                        return event
+                    }
+                }
+                guard unmodified else { return event }
+                switch event.keyCode {
+                case 49:
+                    if !event.isARepeat { viewModel.togglePlayback() }
+                    return nil
+                case 123:
+                    event.isARepeat ? viewModel.arrowHeld(forward: false) : viewModel.stepBackward()
+                    return nil
+                case 124:
+                    event.isARepeat ? viewModel.arrowHeld(forward: true) : viewModel.stepForward()
+                    return nil
+                default:
+                    break
+                }
+                guard !event.isARepeat else { return event }
+                switch event.charactersIgnoringModifiers?.lowercased() {
+                case "j": viewModel.pressJ(); return nil
+                case "k": viewModel.pressK(); return nil
+                case "l": viewModel.pressL(); return nil
+                default: return event
+                }
+            case .keyUp:
+                guard unmodified else { return event }
+                switch event.keyCode {
+                case 123, 124:
+                    viewModel.arrowKeyUp()
+                    return nil
+                default:
+                    return event
+                }
+            default:
+                return event
+            }
+        }
+
+        private func isEditingText(in window: NSWindow?) -> Bool {
+            guard let textView = window?.firstResponder as? NSTextView else { return false }
+            return textView.isEditable
+        }
     }
 }

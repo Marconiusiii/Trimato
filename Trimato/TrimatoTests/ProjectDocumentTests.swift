@@ -31,4 +31,40 @@ struct ProjectDocumentTests {
         #expect(UTType.trimatoProject.preferredFilenameExtension == "trimato")
         #expect(UTType.trimatoProject.conforms(to: .package))
     }
+
+    @Test func projectsWrittenBeforePlaybackPreparationRemainReadable() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "id": "00000000-0000-0000-0000-000000000001",
+          "name": "Earlier Project",
+          "format": { "mode": "automatic" },
+          "folders": [],
+          "media": [{
+            "id": "00000000-0000-0000-0000-000000000002",
+            "name": "Interview",
+            "originalPath": "/tmp/Interview.mov",
+            "duration": { "value": 6000000, "timescale": 600000 },
+            "naturalWidth": 1920,
+            "naturalHeight": 1080,
+            "frameRate": 30,
+            "hasAudio": true,
+            "sourceEdit": [{
+              "id": "00000000-0000-0000-0000-000000000003",
+              "sourceRange": {
+                "start": { "value": 0, "timescale": 600000 },
+                "duration": { "value": 6000000, "timescale": 600000 }
+              }
+            }]
+          }],
+          "primaryTimeline": [],
+          "cutaways": []
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(TrimatoProject.self, from: Data(json.utf8))
+
+        #expect(decoded.media.first?.playbackMode == nil)
+        #expect(decoded.media.first?.proxyCacheKey == nil)
+    }
 }

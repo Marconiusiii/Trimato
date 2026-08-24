@@ -39,7 +39,9 @@ struct ProjectBrowserView: View {
             ProjectSourceOutlineView(
                 controller: controller,
                 selection: $sourceSelection,
-                openClipEditor: openClipEditor
+                openClipEditor: openClipEditor,
+                requestNewFolder: { showingNewFolder = true },
+                requestRenameFolder: beginRenamingFolder
             )
         }
         .sheet(isPresented: $showingNewFolder) {
@@ -74,21 +76,39 @@ struct ProjectBrowserView: View {
         Menu("Actions") {
             switch sourceSelection {
             case .folder(let id):
-                if let folder = controller.project.folders.first(where: { $0.id == id }) {
+                if controller.project.folders.contains(where: { $0.id == id }) {
+                    Button("Import Clips into Folder\u{2026}") { controller.importFiles(into: id) }
                     Button("Rename Folder\u{2026}") {
-                        folderBeingRenamed = folder
-                        renamedFolderName = folder.name
+                        beginRenamingFolder(id)
                     }
                     Button("Remove Folder") { controller.removeFolder(id) }
                 }
             case .asset(let id):
+                Button("Open Clip Editor") { openClipEditor(.asset(id)) }
+                Divider()
+                ForEach(PlacementAction.allCases) { placement in
+                    Button(placement.title) {
+                        guard let asset = controller.project.asset(id: id) else { return }
+                        controller.place(placement, editing: .asset(id), segments: asset.sourceEdit)
+                    }
+                }
+                Divider()
                 Menu("Move Clip") {
                     Button("Project Root") { controller.moveAsset(id, toFolder: nil) }
                     ForEach(controller.project.folders) { folder in
                         Button(folder.name) { controller.moveAsset(id, toFolder: folder.id) }
                     }
                 }
-            case .project, .timeline, .none:
+                if let asset = controller.project.asset(id: id), controller.resolveURL(for: asset) == nil {
+                    Button("Relink Clip\u{2026}") {
+                        controller.selection = .asset(id)
+                        controller.relinkSelectedAsset()
+                    }
+                }
+            case .project:
+                Button("Import Clips\u{2026}") { controller.importFiles() }
+                Button("New Folder") { showingNewFolder = true }
+            case .timeline, .none:
                 Text("No Actions Available")
             }
         }
@@ -113,5 +133,11 @@ struct ProjectBrowserView: View {
         }
         .padding(20)
         .frame(width: 360)
+    }
+
+    private func beginRenamingFolder(_ id: UUID) {
+        guard let folder = controller.project.folders.first(where: { $0.id == id }) else { return }
+        folderBeingRenamed = folder
+        renamedFolderName = folder.name
     }
 }

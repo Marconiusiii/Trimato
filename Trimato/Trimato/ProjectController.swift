@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import Foundation
 import UniformTypeIdentifiers
@@ -65,12 +66,16 @@ final class ProjectController: ObservableObject {
         Task { @MainActor in
             do {
                 var replacement = try await ProjectImportCoordinator.importAsset(at: url)
+                let previousProxyCacheKey = asset.proxyCacheKey
                 replacement.id = asset.id
                 mutateProject(actionName: "Relink Media") { project in
                     guard let index = project.media.firstIndex(where: { $0.id == asset.id }) else { return }
                     replacement.name = project.media[index].name
                     replacement.sourceEdit = project.media[index].sourceEdit
                     project.media[index] = replacement
+                }
+                if previousProxyCacheKey != replacement.proxyCacheKey {
+                    ProxyMediaManager.removeCachedProxy(for: previousProxyCacheKey)
                 }
                 announce("Media relinked")
             } catch {
@@ -172,7 +177,45 @@ final class ProjectController: ObservableObject {
         return url
     }
 
-    func importFiles() {
+    func preparedMediaSource(for asset: MediaAssetRecord) -> MediaSource? {
+        guard let originalURL = resolveURL(for: asset), let playbackMode = asset.playbackMode else { return nil }
+        let originalAsset = AVURLAsset(url: originalURL)
+        let contentType = (try? originalURL.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+            ?? UTType(filenameExtension: originalURL.pathExtension)
+        switch playbackMode {
+        case .nativePassthrough:
+            return .native(
+                url: originalURL,
+                asset: originalAsset,
+                contentType: contentType,
+                mode: .nativePassthrough,
+                hasAudio: asset.hasAudio
+            )
+        case .nativeMP4Export:
+            return .native(
+                url: originalURL,
+                asset: originalAsset,
+                contentType: contentType,
+                mode: .nativePlaybackMP4Export,
+                hasAudio: asset.hasAudio
+            )
+        case .cachedProxy:
+            guard let cacheKey = asset.proxyCacheKey,
+                  let proxyURL = ProxyMediaManager.existingCachedProxyURL(for: cacheKey) else { return nil }
+            return MediaSource(
+                originalURL: originalURL,
+                playbackURL: proxyURL,
+                originalAsset: originalAsset,
+                playbackAsset: AVURLAsset(url: proxyURL),
+                contentType: contentType,
+                mode: .proxyPlaybackMP4Export,
+                frameTimestamps: [],
+                hasAudio: asset.hasAudio
+            )
+        }
+    }
+
+    func importFiles(into folderID: UUID? = nil) {
         guard !isImporting, NSApp.modalWindow == nil else { return }
         let panel = NSOpenPanel()
         panel.title = "Import Video Files"
@@ -181,7 +224,7 @@ final class ProjectController: ObservableObject {
         panel.allowedContentTypes = [.movie, .data]
         guard panel.runModal() == .OK else { return }
 
-        importFiles(at: panel.urls, into: nil)
+        importFiles(at: panel.urls, into: folderID)
     }
 
     func importFiles(at urls: [URL], into folderID: UUID? = nil) {
@@ -190,16 +233,16 @@ final class ProjectController: ObservableObject {
         Task { @MainActor in
             var imported: [MediaAssetRecord] = []
             var failures: [(name: String, message: String)] = []
-            for url in urls {
+            var importPaths = Set(project.media.map(\.originalPath))
+            let newURLs = urls.filter { importPaths.insert($0.path).inserted }
+            for url in newURLs {
                 do {
                     imported.append(try await ProjectImportCoordinator.importAsset(at: url))
                 } catch {
                     failures.append((url.lastPathComponent, error.localizedDescription))
                 }
             }
-            let knownPaths = Set(project.media.map(\.originalPath))
-            var uniquePaths = knownPaths
-            let additions = imported.filter { uniquePaths.insert($0.originalPath).inserted }
+            let additions = imported
             if !additions.isEmpty {
                 mutateProject(actionName: "Import Media") { project in
                     project.media.append(contentsOf: additions)
@@ -216,10 +259,10 @@ final class ProjectController: ObservableObject {
             if !failures.isEmpty {
                 let details = failures.map { "\($0.name): \($0.message)" }.joined(separator: "\n")
                 presentedError = ProjectPresentedError(
-                    title: failures.count == urls.count ? "Import Failed" : "Some Clips Could Not Be Imported",
+                    title: failures.count == newURLs.count ? "Import Failed" : "Some Clips Could Not Be Imported",
                     message: details
                 )
-                announce(failures.count == urls.count ? "Import failed" : "Some clips could not be imported")
+                announce(failures.count == newURLs.count ? "Import failed" : "Some clips could not be imported")
             }
         }
     }

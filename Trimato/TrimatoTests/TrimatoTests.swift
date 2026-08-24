@@ -538,6 +538,16 @@ struct TrimatoTests {
         #expect(!FileManager.default.fileExists(atPath: proxy.path))
     }
 
+    @Test func cachedProxyLocationIsStableForAnImportedAsset() throws {
+        let cacheKey = UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
+
+        let first = try ProxyMediaManager.cachedProxyURL(for: cacheKey)
+        let second = try ProxyMediaManager.cachedProxyURL(for: cacheKey)
+
+        #expect(first == second)
+        #expect(first.lastPathComponent == "00000000-0000-0000-0000-000000000123.mp4")
+    }
+
     private func seconds(_ time: CMTime) -> Double {
         CMTimeGetSeconds(time)
     }

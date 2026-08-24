@@ -184,6 +184,22 @@ enum ProjectCompositionBuilder {
     ) async throws -> AVURLAsset {
         if let cached = cache[record.id] { return cached }
         guard let url = urls[record.id] else { throw ProjectCompositionError.missingMedia(record.name) }
+        if record.playbackMode == .cachedProxy, let cacheKey = record.proxyCacheKey {
+            let proxyURL: URL
+            if let existing = ProxyMediaManager.existingCachedProxyURL(for: cacheKey) {
+                proxyURL = existing
+            } else {
+                proxyURL = try await ProxyMediaManager.createCachedProxy(
+                    sourceURL: url,
+                    duration: record.duration.seconds,
+                    cacheKey: cacheKey,
+                    progress: { _ in }
+                )
+            }
+            let asset = AVURLAsset(url: proxyURL)
+            cache[record.id] = asset
+            return asset
+        }
         var asset = AVURLAsset(url: url)
         if try await asset.loadTracks(withMediaType: .video).isEmpty {
             let report = try await FFmpegMediaProbe.inspect(url: url)

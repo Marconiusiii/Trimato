@@ -54,7 +54,11 @@ struct SourceClipEditorView: View {
         guard loadedAssetID != asset.id, let url = controller.resolveURL(for: asset) else { return }
         loadedAssetID = asset.id
         commandContext.segments = initialSegments
-        viewModel.load(url: url, sourceSegments: initialSegments)
+        viewModel.load(
+            url: url,
+            sourceSegments: initialSegments,
+            preparedSource: controller.preparedMediaSource(for: asset)
+        )
     }
 
     private func place(_ placement: PlacementAction) {

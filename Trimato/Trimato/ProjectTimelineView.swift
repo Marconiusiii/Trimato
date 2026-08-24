@@ -27,6 +27,42 @@ struct ProjectTimelineView: View {
                     ForEach(Array(controller.project.primaryTimeline.enumerated()), id: \.element.id) { index, clip in
                         Text("\(clip.name), clip \(index + 1) of \(controller.project.primaryTimeline.count)")
                             .tag(EditorSelection.timelineClip(clip.id))
+                            .contextMenu {
+                                Button("Open Clip Editor") {
+                                    select(.timelineClip(clip.id))
+                                    openClipEditor(.timelineClip(clip.id))
+                                }
+                                if index > 0 {
+                                    Button("Move to Beginning") {
+                                        select(.timelineClip(clip.id))
+                                        controller.moveSelectedClipToBeginning()
+                                    }
+                                    Button("Move Earlier") {
+                                        select(.timelineClip(clip.id))
+                                        controller.moveSelectedClip(by: -1)
+                                    }
+                                }
+                                if index < controller.project.primaryTimeline.count - 1 {
+                                    Button("Move Later") {
+                                        select(.timelineClip(clip.id))
+                                        controller.moveSelectedClip(by: 1)
+                                    }
+                                    Button("Move to End") {
+                                        select(.timelineClip(clip.id))
+                                        controller.moveSelectedClipToEnd()
+                                    }
+                                }
+                                Divider()
+                                Button("Split at Playhead") {
+                                    select(.timelineClip(clip.id))
+                                    controller.splitSelectedClip()
+                                }
+                                Divider()
+                                Button("Delete from Timeline", role: .destructive) {
+                                    select(.timelineClip(clip.id))
+                                    controller.deleteSelection()
+                                }
+                            }
                     }
                 }
 
@@ -38,6 +74,17 @@ struct ProjectTimelineView: View {
                                     ? "Cutaway with source audio"
                                     : "Cutaway over primary audio")
                                 .tag(EditorSelection.cutaway(cutaway.id))
+                                .contextMenu {
+                                    Button("Open Clip Editor") {
+                                        select(.cutaway(cutaway.id))
+                                        openClipEditor(.cutaway(cutaway.id))
+                                    }
+                                    Divider()
+                                    Button("Delete from Timeline", role: .destructive) {
+                                        select(.cutaway(cutaway.id))
+                                        controller.deleteSelection()
+                                    }
+                                }
                         }
                     }
                 }
@@ -79,6 +126,10 @@ struct ProjectTimelineView: View {
                 if let selection { controller.selection = selection }
             }
         )
+    }
+
+    private func select(_ selection: EditorSelection) {
+        controller.selection = selection
     }
 }
 

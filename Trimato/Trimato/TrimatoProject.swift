@@ -40,6 +40,12 @@ nonisolated struct ProjectFolder: Codable, Hashable, Identifiable, Sendable {
     var assetIDs: [UUID] = []
 }
 
+nonisolated enum ProjectMediaPlaybackMode: String, Codable, Hashable, Sendable {
+    case nativePassthrough
+    case nativeMP4Export
+    case cachedProxy
+}
+
 nonisolated struct MediaAssetRecord: Codable, Hashable, Identifiable, Sendable {
     var id = UUID()
     var name: String
@@ -51,6 +57,8 @@ nonisolated struct MediaAssetRecord: Codable, Hashable, Identifiable, Sendable {
     var frameRate: Double?
     var hasAudio: Bool
     var sourceEdit: [SourceSegment]
+    var playbackMode: ProjectMediaPlaybackMode? = nil
+    var proxyCacheKey: UUID? = nil
 
     var editedDuration: ProjectTime {
         sourceEdit.reduce(.zero) { $0 + $1.duration }

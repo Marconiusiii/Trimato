@@ -64,6 +64,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var frameStepPosition: CMTime?
     private var exportTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
+    private var frameIndexTask: Task<Void, Never>?
     private var editTask: Task<Void, Never>?
     private var editID: UUID?
     private var loadID: UUID?
@@ -89,6 +90,7 @@ final class VideoPlayerViewModel: ObservableObject {
         stepEndTask?.cancel()
         exportTask?.cancel()
         loadTask?.cancel()
+        frameIndexTask?.cancel()
         editTask?.cancel()
         editID = nil
         ProxyMediaManager.removeProxy(at: proxyURL)
@@ -143,9 +145,15 @@ final class VideoPlayerViewModel: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url { load(url: url) }
     }
 
-    func load(url: URL, sourceSegments: [SourceSegment]? = nil) {
+    func load(
+        url: URL,
+        sourceSegments: [SourceSegment]? = nil,
+        preparedSource: MediaSource? = nil
+    ) {
         loadID = nil
         loadTask?.cancel()
+        frameIndexTask?.cancel()
+        frameIndexTask = nil
         editTask?.cancel()
         editTask = nil
         editID = nil
@@ -181,14 +189,19 @@ final class VideoPlayerViewModel: ObservableObject {
         loadTask = Task { @MainActor in
             var preparedProxyURL: URL?
             do {
-                let source = try await self.prepareMediaSource(url: url)
-                preparedProxyURL = source.usesProxy ? source.playbackURL : nil
+                let source: MediaSource
+                if let preparedSource {
+                    source = preparedSource
+                } else {
+                    source = try await self.prepareMediaSource(url: url)
+                }
+                preparedProxyURL = preparedSource == nil && source.usesProxy ? source.playbackURL : nil
                 try Task.checkCancellation()
                 guard self.loadID == operationID else {
                     throw CancellationError()
                 }
                 self.mediaSource = source
-                self.proxyURL = source.usesProxy ? source.playbackURL : nil
+                self.proxyURL = preparedSource == nil && source.usesProxy ? source.playbackURL : nil
                 preparedProxyURL = nil
                 if let track = try await source.playbackAsset.loadTracks(withMediaType: .video).first {
                     self.frameRate = try await track.load(.nominalFrameRate)
@@ -225,10 +238,16 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.isLoadingMedia = false
                 self.mediaProgress = nil
                 self.mediaStatus = source.usesProxy
-                    ? "Ready using a temporary playback proxy"
+                    ? "Ready using a playback proxy"
                     : "Ready"
                 self.loadID = nil
                 self.loadTask = nil
+                if source.frameTimestamps.isEmpty {
+                    self.indexFramesInBackground(
+                        at: source.playbackURL,
+                        sourceRanges: timeline.sourceRanges
+                    )
+                }
                 self.announce(source.usesProxy ? "Video ready using a playback proxy" : "Video ready")
             } catch is CancellationError {
                 ProxyMediaManager.removeProxy(at: preparedProxyURL)
@@ -265,6 +284,8 @@ final class VideoPlayerViewModel: ObservableObject {
         loadID = nil
         loadTask?.cancel()
         loadTask = nil
+        frameIndexTask?.cancel()
+        frameIndexTask = nil
         editTask?.cancel()
         editTask = nil
         editID = nil
@@ -603,7 +624,11 @@ final class VideoPlayerViewModel: ObservableObject {
         applyJKLRate()
     }
 
-    func pressK() { togglePlayPause() }
+    func pressK() {
+        cancelScrub()
+        jklIndex = 0
+        player.pause()
+    }
 
     func pressL() {
         cancelScrub()
@@ -836,6 +861,20 @@ final class VideoPlayerViewModel: ObservableObject {
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue
             ]
         )
+    }
+
+    private func indexFramesInBackground(at url: URL, sourceRanges: [CMTimeRange]) {
+        frameIndexTask?.cancel()
+        frameIndexTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let timestamps = (try? await FFmpegMediaProbe.frameTimestamps(url: url)) ?? []
+            guard !Task.isCancelled, self.mediaSource?.playbackURL == url else { return }
+            self.editedFrameTimestamps = EditedCompositionBuilder.editedFrameTimestamps(
+                sourceTimestamps: timestamps,
+                sourceRanges: sourceRanges
+            )
+            self.frameIndexTask = nil
+        }
     }
 
     // MARK: - Private: observers & key monitor

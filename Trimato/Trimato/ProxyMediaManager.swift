@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 
 struct ProxyMediaManager {
-    static func proxyURL(for sourceURL: URL) throws -> URL {
+    private static func cacheDirectory() throws -> URL {
         let cache = try FileManager.default.url(
             for: .cachesDirectory,
             in: .userDomainMask,
@@ -10,7 +10,21 @@ struct ProxyMediaManager {
             create: true
         ).appendingPathComponent("com.marconius.trimato/MediaProxies", isDirectory: true)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
-        return cache.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
+        return cache
+    }
+
+    static func proxyURL(for sourceURL: URL) throws -> URL {
+        try cacheDirectory().appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
+    }
+
+    static func cachedProxyURL(for cacheKey: UUID) throws -> URL {
+        try cacheDirectory().appendingPathComponent(cacheKey.uuidString).appendingPathExtension("mp4")
+    }
+
+    static func existingCachedProxyURL(for cacheKey: UUID) -> URL? {
+        guard let url = try? cachedProxyURL(for: cacheKey),
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
     }
 
     static func arguments(
@@ -44,6 +58,35 @@ struct ProxyMediaManager {
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws -> URL {
         let outputURL = try proxyURL(for: sourceURL)
+        return try await createProxy(
+            sourceURL: sourceURL,
+            duration: duration,
+            outputURL: outputURL,
+            progress: progress
+        )
+    }
+
+    static func createCachedProxy(
+        sourceURL: URL,
+        duration: Double,
+        cacheKey: UUID,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
+    ) async throws -> URL {
+        let outputURL = try cachedProxyURL(for: cacheKey)
+        return try await createProxy(
+            sourceURL: sourceURL,
+            duration: duration,
+            outputURL: outputURL,
+            progress: progress
+        )
+    }
+
+    private static func createProxy(
+        sourceURL: URL,
+        duration: Double,
+        outputURL: URL,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
+    ) async throws -> URL {
         do {
             do {
                 _ = try await FFmpegRunner.run(
@@ -76,5 +119,10 @@ struct ProxyMediaManager {
     nonisolated static func removeProxy(at url: URL?) {
         guard let url else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    static func removeCachedProxy(for cacheKey: UUID?) {
+        guard let cacheKey else { return }
+        removeProxy(at: try? cachedProxyURL(for: cacheKey))
     }
 }

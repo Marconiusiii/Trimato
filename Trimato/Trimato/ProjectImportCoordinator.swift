@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UniformTypeIdentifiers
 
 enum ProjectImportCoordinator {
     static func importAsset(at url: URL) async throws -> MediaAssetRecord {
@@ -13,6 +14,15 @@ enum ProjectImportCoordinator {
             relativeTo: nil
         )
         let projectDuration = ProjectTime(seconds: metadata.duration)
+        let proxyCacheKey = metadata.playbackMode == .cachedProxy ? UUID() : nil
+        if let proxyCacheKey {
+            _ = try await ProxyMediaManager.createCachedProxy(
+                sourceURL: url,
+                duration: metadata.duration,
+                cacheKey: proxyCacheKey,
+                progress: { _ in }
+            )
+        }
 
         return MediaAssetRecord(
             name: url.deletingPathExtension().lastPathComponent,
@@ -26,7 +36,9 @@ enum ProjectImportCoordinator {
             sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(
                 start: .zero,
                 duration: projectDuration
-            ))]
+            ))],
+            playbackMode: metadata.playbackMode,
+            proxyCacheKey: proxyCacheKey
         )
     }
 
@@ -35,7 +47,8 @@ enum ProjectImportCoordinator {
         width: Int?,
         height: Int?,
         frameRate: Double?,
-        hasAudio: Bool
+        hasAudio: Bool,
+        playbackMode: ProjectMediaPlaybackMode
     ) {
         let asset = AVURLAsset(url: url)
         if let duration = try? await asset.load(.duration),
@@ -46,12 +59,25 @@ enum ProjectImportCoordinator {
             let displayedSize = naturalSize.applying(transform)
             let frameRate = try await videoTrack.load(.nominalFrameRate)
             let hasAudio = try await !asset.loadTracks(withMediaType: .audio).isEmpty
+            let isPlayable = (try? await asset.load(.isPlayable)) ?? false
+            let contentType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+                ?? UTType(filenameExtension: url.pathExtension)
+            let playbackMode: ProjectMediaPlaybackMode
+            if !isPlayable {
+                playbackMode = .cachedProxy
+            } else if let contentType,
+                      ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
+                playbackMode = .nativePassthrough
+            } else {
+                playbackMode = .nativeMP4Export
+            }
             return (
                 duration.seconds,
                 Int(abs(displayedSize.width.rounded())),
                 Int(abs(displayedSize.height.rounded())),
                 frameRate > 0 ? Double(frameRate) : nil,
-                hasAudio
+                hasAudio,
+                playbackMode
             )
         }
 
@@ -65,7 +91,8 @@ enum ProjectImportCoordinator {
             report.videoStream?.width,
             report.videoStream?.height,
             report.frameRate,
-            report.hasAudio
+            report.hasAudio,
+            .cachedProxy
         )
     }
 
