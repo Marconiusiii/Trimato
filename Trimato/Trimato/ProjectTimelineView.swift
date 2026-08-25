@@ -17,22 +17,6 @@ struct ProjectTimelineView: View {
 
             Divider()
 
-            if controller.project.duration.isPositive {
-                Slider(
-                    value: Binding(
-                        get: { controller.timelinePlayhead.seconds },
-                        set: { controller.timelinePlayhead = ProjectTime(seconds: $0) }
-                    ),
-                    in: 0...max(controller.project.duration.seconds, 0.001)
-                ) {
-                    Text("Timeline Playhead")
-                }
-                .accessibilityValue(ProjectTimecodeFormatter.string(controller.timelinePlayhead))
-                .padding(8)
-
-                Divider()
-            }
-
             if controller.project.primaryTimeline.isEmpty {
                 Text("No clips in the project timeline")
                     .foregroundStyle(.secondary)
@@ -60,13 +44,13 @@ struct ProjectTimelineView: View {
                     }
                     .padding(8)
                 }
-                .accessibilityLabel("Timeline clips")
+                .accessibilityLabel("Magnetic timeline clips")
             }
 
             Divider()
 
             HStack {
-                Menu("Clip Actions") { selectedClipActions }
+                Menu("Selected Clip Actions") { selectedClipActions }
                     .disabled(!hasSelectedClip)
                 Spacer()
             }
@@ -211,11 +195,6 @@ struct ProjectTimelineView: View {
                 select(.timelineClip(clip.id))
                 controller.moveSelectedClipToEnd()
             }
-        }
-        Divider()
-        Button("Split at Playhead") {
-            select(.timelineClip(clip.id))
-            controller.splitSelectedClip()
         }
         Divider()
         Button("Delete from Timeline", role: .destructive) {

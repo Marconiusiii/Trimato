@@ -215,36 +215,14 @@ final class ProjectController: ObservableObject {
         return project.cutaways.first { $0.id == id }
     }
 
-    func selectTimelineEntry(at time: ProjectTime) {
-        if let cutaway = project.cutaways.first(where: { $0.start == time }) {
-            selection = .cutaway(cutaway.id)
-            return
-        }
-
+    func primaryTimelineClip(at time: ProjectTime) -> TimelineClip? {
         var cursor = ProjectTime.zero
         for clip in project.primaryTimeline {
-            if cursor == time {
-                selection = .timelineClip(clip.id)
-                return
-            }
-            cursor = cursor + clip.duration
-        }
-
-        if time == project.duration, let last = project.primaryTimeline.last {
-            selection = .timelineClip(last.id)
-            return
-        }
-
-        guard project.cutaways.contains(where: { $0.end == time }) else { return }
-        cursor = .zero
-        for clip in project.primaryTimeline {
             let end = cursor + clip.duration
-            if time >= cursor, time < end {
-                selection = .timelineClip(clip.id)
-                return
-            }
+            if time > cursor, time < end { return clip }
             cursor = end
         }
+        return nil
     }
 
     func resolveURL(for asset: MediaAssetRecord) -> URL? {
@@ -537,14 +515,16 @@ final class ProjectController: ObservableObject {
         }
     }
 
-    func splitSelectedClip() {
-        guard let clip = selectedTimelineClip else { return }
+    func splitClipAtPlayhead() {
+        guard let clip = primaryTimelineClip(at: timelinePlayhead) else {
+            announce("Move the playhead inside a clip before splitting it")
+            return
+        }
         do {
-            var rightID: UUID?
             try mutateProjectThrowing(actionName: "Split Clip") { project in
-                rightID = try project.splitClip(id: clip.id, atTimelineTime: timelinePlayhead)
+                _ = try project.splitClip(id: clip.id, atTimelineTime: timelinePlayhead)
             }
-            if let rightID { selection = .timelineClip(rightID) }
+            if selection == .timelineClip(clip.id) { selection = .project }
             announce("Clip split")
         } catch {
             announce(error.localizedDescription)

@@ -4,6 +4,8 @@ import SwiftUI
 
 @MainActor
 final class EditorAccessibilityFocusScope: ObservableObject {
+    static let identifierPrefix = "trimato.editor."
+
     weak var boundaryView: NSView?
 
     var containsAccessibilityFocus: Bool {
@@ -12,6 +14,7 @@ final class EditorAccessibilityFocusScope: ObservableObject {
             return false
         }
 
+        if hasEditorIdentifier(focusedElement) { return true }
         if focusedElement === boundaryView { return true }
         let frameSelector = NSSelectorFromString("accessibilityFrame")
         guard focusedElement.responds(to: frameSelector),
@@ -23,6 +26,26 @@ final class EditorAccessibilityFocusScope: ObservableObject {
         let windowFrame = boundaryView.convert(boundaryView.bounds, to: nil)
         let screenFrame = window.convertToScreen(windowFrame)
         return screenFrame.contains(NSPoint(x: focusedFrame.midX, y: focusedFrame.midY))
+    }
+
+    private func hasEditorIdentifier(_ focusedElement: NSObject) -> Bool {
+        let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
+        let parentSelector = NSSelectorFromString("accessibilityParent")
+        var element: NSObject? = focusedElement
+
+        for _ in 0..<12 {
+            guard let current = element else { return false }
+            if current.responds(to: identifierSelector),
+               let identifier = current.value(forKey: "accessibilityIdentifier") as? String,
+               identifier.hasPrefix(Self.identifierPrefix) {
+                return true
+            }
+            guard current.responds(to: parentSelector),
+                  let parent = current.value(forKey: "accessibilityParent") as? NSObject,
+                  parent !== current else { return false }
+            element = parent
+        }
+        return false
     }
 }
 

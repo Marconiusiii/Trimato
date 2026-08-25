@@ -112,10 +112,10 @@ struct ProjectPlaybackTests {
         ) == "End, 10 seconds")
     }
 
-    @Test @MainActor func selectingAStorylineCutSelectsTheClipBeginningAtThatCut() {
+    @Test @MainActor func playheadResolutionFindsOnlyTheClipWhoseInteriorContainsTheTime() {
         let first = fixtureAsset(name: "Interview", duration: 5)
         let second = fixtureAsset(name: "Closing", duration: 5)
-        var project = TrimatoProject(name: "Selection")
+        var project = TrimatoProject(name: "Resolution")
         project.media = [first, second]
         project.primaryTimeline = [
             TimelineClip(assetID: first.id, name: first.name, segments: first.sourceEdit),
@@ -123,35 +123,74 @@ struct ProjectPlaybackTests {
         ]
         let controller = ProjectController(document: ProjectDocument(project: project))
 
-        controller.selectTimelineEntry(at: ProjectTime(seconds: 5))
-
-        #expect(controller.selection == .timelineClip(project.primaryTimeline[1].id))
+        #expect(controller.primaryTimelineClip(at: ProjectTime(seconds: 2))?.id == project.primaryTimeline[0].id)
+        #expect(controller.primaryTimelineClip(at: ProjectTime(seconds: 7))?.id == project.primaryTimeline[1].id)
+        #expect(controller.primaryTimelineClip(at: .zero) == nil)
+        #expect(controller.primaryTimelineClip(at: ProjectTime(seconds: 5)) == nil)
+        #expect(controller.primaryTimelineClip(at: ProjectTime(seconds: 10)) == nil)
     }
 
-    @Test @MainActor func selectingACutawayStartSelectsTheCutaway() {
-        let primary = fixtureAsset(name: "Interview", duration: 10)
-        let cutawayAsset = fixtureAsset(name: "Cutaway", duration: 3)
-        var project = TrimatoProject(name: "Selection")
-        project.media = [primary, cutawayAsset]
+    @Test @MainActor func bladeSplitsTheClipAtThePlayheadWithoutTimelineSelection() {
+        let interview = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject(name: "Blade")
+        project.media = [interview]
         project.primaryTimeline = [
-            TimelineClip(assetID: primary.id, name: primary.name, segments: primary.sourceEdit)
+            TimelineClip(assetID: interview.id, name: interview.name, segments: interview.sourceEdit)
         ]
-        let cutaway = TimelineCutaway(
-            assetID: cutawayAsset.id,
-            name: cutawayAsset.name,
-            start: ProjectTime(seconds: 2),
-            segments: cutawayAsset.sourceEdit,
-            audioMode: .sourceAudio
-        )
-        project.cutaways = [cutaway]
         let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.timelinePlayhead = ProjectTime(seconds: 4)
 
-        controller.selectTimelineEntry(at: ProjectTime(seconds: 2))
+        controller.splitClipAtPlayhead()
 
-        #expect(controller.selection == .cutaway(cutaway.id))
+        #expect(controller.project.primaryTimeline.map(\.duration) == [
+            ProjectTime(seconds: 4),
+            ProjectTime(seconds: 6),
+        ])
+        #expect(controller.selection == .project)
     }
 
-    @Test @MainActor func nonemptyProjectPreviewPreparesAtTimelineStart() async throws {
+    @Test @MainActor func bladeIgnoresAnUnrelatedTimelineSelection() {
+        let first = fixtureAsset(name: "Interview", duration: 5)
+        let second = fixtureAsset(name: "Closing", duration: 5)
+        var project = TrimatoProject(name: "Independent Selection")
+        project.media = [first, second]
+        project.primaryTimeline = [
+            TimelineClip(assetID: first.id, name: first.name, segments: first.sourceEdit),
+            TimelineClip(assetID: second.id, name: second.name, segments: second.sourceEdit),
+        ]
+        let selectedID = project.primaryTimeline[1].id
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.selection = .timelineClip(selectedID)
+        controller.timelinePlayhead = ProjectTime(seconds: 2)
+
+        controller.splitClipAtPlayhead()
+
+        #expect(controller.project.primaryTimeline.map(\.duration) == [
+            ProjectTime(seconds: 2),
+            ProjectTime(seconds: 3),
+            ProjectTime(seconds: 5),
+        ])
+        #expect(controller.selection == .timelineClip(selectedID))
+    }
+
+    @Test @MainActor func bladeAtAnExistingEditPointLeavesTheTimelineUnchanged() {
+        let first = fixtureAsset(name: "Interview", duration: 5)
+        let second = fixtureAsset(name: "Closing", duration: 5)
+        var project = TrimatoProject(name: "Boundary")
+        project.media = [first, second]
+        project.primaryTimeline = [
+            TimelineClip(assetID: first.id, name: first.name, segments: first.sourceEdit),
+            TimelineClip(assetID: second.id, name: second.name, segments: second.sourceEdit),
+        ]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.timelinePlayhead = ProjectTime(seconds: 5)
+
+        controller.splitClipAtPlayhead()
+
+        #expect(controller.project.primaryTimeline == project.primaryTimeline)
+    }
+
+    @Test @MainActor func nonemptyProjectPreviewPreservesTheRequestedTimelineTime() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -173,13 +212,18 @@ struct ProjectPlaybackTests {
         _ = try project.append(asset: asset)
         let viewModel = ProjectPlayerViewModel()
 
-        viewModel.prepare(project: project, mediaURLs: [asset.id: mediaURL])
+        let requestedTime = ProjectTime(seconds: 0.25)
+        viewModel.prepare(
+            project: project,
+            mediaURLs: [asset.id: mediaURL],
+            initialTime: requestedTime
+        )
         await waitForPreviewPreparation(viewModel)
 
         #expect(!viewModel.isPreparing)
         #expect(viewModel.errorMessage == nil)
         #expect(viewModel.player.currentItem != nil)
-        #expect(abs(viewModel.player.currentTime().seconds) < 0.01)
+        #expect(abs(viewModel.player.currentTime().seconds - requestedTime.seconds) < 0.01)
     }
 
     @Test @MainActor func emptyProjectSupersedesEarlierPreviewPreparation() async throws {

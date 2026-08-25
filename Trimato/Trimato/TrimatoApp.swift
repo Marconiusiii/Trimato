@@ -95,9 +95,8 @@ struct TrimatoApp: App {
                     .disabled(viewModel?.canTrimEnd != true)
             }
             CommandMenu("Project Timeline") {
-                Button("Split Clip at Playhead") { projectController?.splitSelectedClip() }
-                    .keyboardShortcut("b", modifiers: .command)
-                    .disabled(projectController?.selectedTimelineClip == nil)
+                Button("Blade at Playhead (Command-B)") { projectController?.splitClipAtPlayhead() }
+                    .disabled(projectController?.project.primaryTimeline.isEmpty != false)
                 Divider()
                 Button("Move Clip to Beginning") { projectController?.moveSelectedClipToBeginning() }
                     .disabled(projectController?.selectedTimelineClip == nil)

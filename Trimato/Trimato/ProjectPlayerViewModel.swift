@@ -47,7 +47,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var arrowHolding = false
     private var keyEventMonitor: Any?
     private var keyboardCommandsAreActive: (() -> Bool)?
-    private var didNavigateToPoint: ((ProjectTime) -> Void)?
+    private var bladeAtPlayhead: (() -> Void)?
 
     init() {
         player.automaticallyWaitsToMinimizeStalling = false
@@ -81,11 +81,15 @@ final class ProjectPlayerViewModel: ObservableObject {
         keyboardCommandsAreActive = isActive
     }
 
-    func onPointNavigation(_ handler: @escaping (ProjectTime) -> Void) {
-        didNavigateToPoint = handler
+    func onBladeAtPlayhead(_ handler: @escaping () -> Void) {
+        bladeAtPlayhead = handler
     }
 
-    func prepare(project: TrimatoProject, mediaURLs: [UUID: URL]) {
+    func prepare(
+        project: TrimatoProject,
+        mediaURLs: [UUID: URL],
+        initialTime: ProjectTime = .zero
+    ) {
         buildTask?.cancel()
         let preparationID = UUID()
         self.preparationID = preparationID
@@ -94,7 +98,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         arrowHolding = false
         projectDuration = project.duration
         projectFrameRate = max(project.format.frameRate ?? 30, 1)
-        updateDisplayedTime(.zero)
+        let boundedInitialTime = min(max(initialTime, .zero), projectDuration)
+        updateDisplayedTime(boundedInitialTime)
         if let inMarker, inMarker > projectDuration { self.inMarker = nil }
         if let outMarker, outMarker > projectDuration { self.outMarker = nil }
         editPoints = Self.editPoints(in: project)
@@ -125,7 +130,11 @@ final class ProjectPlayerViewModel: ObservableObject {
                 item.videoComposition = result.videoComposition
                 item.audioMix = result.audioMix
                 player.replaceCurrentItem(with: item)
-                await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+                await player.seek(
+                    to: boundedInitialTime.cmTime,
+                    toleranceBefore: .zero,
+                    toleranceAfter: .zero
+                )
                 try Task.checkCancellation()
                 guard self.preparationID == preparationID else {
                     Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
@@ -314,7 +323,6 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func navigate(to destination: ProjectTime) {
         seekPrecisely(to: destination)
-        didNavigateToPoint?(destination)
         announce(Self.navigationAnnouncement(
             destination: destination,
             duration: projectDuration,
@@ -455,6 +463,10 @@ final class ProjectPlayerViewModel: ObservableObject {
                         return nil
                     default:
                         break
+                    }
+                    if event.charactersIgnoringModifiers?.lowercased() == "b" {
+                        if !event.isARepeat { self.bladeAtPlayhead?() }
+                        return nil
                     }
                 }
                 switch event.keyCode {

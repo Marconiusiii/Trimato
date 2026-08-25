@@ -83,6 +83,19 @@ struct ProjectTimelineOperationsTests {
         #expect(project.primaryTimeline.last?.id == firstID)
     }
 
+    @Test @MainActor func playheadResolutionFollowsMagneticClipReordering() throws {
+        let first = fixtureAsset(name: "First", duration: 2)
+        let second = fixtureAsset(name: "Second", duration: 3)
+        var project = TrimatoProject()
+        let firstID = try project.append(asset: first)
+        let secondID = try project.append(asset: second)
+        try project.moveClip(id: secondID, to: 0)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+
+        #expect(controller.primaryTimelineClip(at: ProjectTime(seconds: 1))?.id == secondID)
+        #expect(controller.primaryTimelineClip(at: ProjectTime(seconds: 4))?.id == firstID)
+    }
+
     @Test func updatingOneUseOfASourceLeavesItsOtherTimelineEntryUnchanged() throws {
         let source = fixtureAsset(name: "Interview", duration: 10)
         var project = TrimatoProject()
