@@ -183,6 +183,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         window.isExcludedFromWindowsMenu = false
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 700, height: 600)
+        window.center()
         super.init(window: window)
         window.delegate = self
     }

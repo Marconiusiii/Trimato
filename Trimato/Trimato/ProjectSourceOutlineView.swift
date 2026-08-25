@@ -19,6 +19,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         outline.outlineTableColumn = column
         outline.headerView = nil
         outline.rowSizeStyle = .medium
+        outline.usesAutomaticRowHeights = true
         outline.allowsEmptySelection = false
         outline.allowsMultipleSelection = false
         outline.autosaveExpandedItems = false
@@ -68,8 +69,10 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                 captureExpansion(in: outlineView)
             } else {
                 expandedIDs = Set([root.id] + root.children.compactMap { item in
-                    if case .folder = item.id { return item.id }
-                    return nil
+                    switch item.id {
+                    case .clips, .folder: item.id
+                    case .project, .timeline, .asset: nil
+                    }
                 })
                 hasEstablishedExpansion = true
             }
@@ -103,22 +106,25 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         ) -> NSView? {
             guard let item = item as? ProjectSourceItem else { return nil }
             if case .asset(let assetID) = item.id {
-                let cell: ProjectSourceButtonCellView
+                let button: ProjectSourceButton
                 if let reused = outlineView.makeView(
                     withIdentifier: .projectSourceButtonCell,
                     owner: self
-                ) as? ProjectSourceButtonCellView {
-                    cell = reused
+                ) as? ProjectSourceButton {
+                    button = reused
                 } else {
-                    cell = ProjectSourceButtonCellView()
-                    cell.identifier = .projectSourceButtonCell
-                    cell.button.target = self
-                    cell.button.action = #selector(openClipFromButton(_:))
+                    button = ProjectSourceButton(title: "", target: self, action: #selector(openClipFromButton(_:)))
+                    button.identifier = .projectSourceButtonCell
+                    button.setButtonType(.momentaryPushIn)
+                    button.bezelStyle = .inline
+                    button.isBordered = false
+                    button.alignment = .left
+                    button.lineBreakMode = .byTruncatingTail
                 }
-                cell.assetID = assetID
-                cell.button.title = item.name
-                cell.button.menu = contextMenu(for: item.id)
-                return cell
+                button.assetID = assetID
+                button.title = item.name
+                button.menu = contextMenu(for: item.id)
+                return button
             }
 
             let cell: NSTableCellView
@@ -150,7 +156,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                   let item = outlineView.item(atRow: outlineView.selectedRow) as? ProjectSourceItem else { return }
             parent.selection = item.id
             switch item.id {
-            case .project, .timeline:
+            case .project, .timeline, .clips:
                 parent.controller.selection = .project
             case .asset(let id):
                 parent.controller.selection = .asset(id)
@@ -213,7 +219,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             case .project:
                 menu.addItem(menuItem("Import Clips…", command: .importClips(nil)))
                 menu.addItem(menuItem("New Folder", command: .newFolder))
-            case .timeline:
+            case .timeline, .clips:
                 return nil
             case .folder(let folderID):
                 menu.addItem(menuItem("Import Clips into Folder…", command: .importClips(folderID)))
@@ -282,8 +288,11 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             let urls = fileURLs(from: info)
             guard !urls.isEmpty else { return false }
             let folderID: UUID?
-            if let sourceItem = item as? ProjectSourceItem, case .folder(let id) = sourceItem.id {
-                folderID = id
+            if let sourceItem = item as? ProjectSourceItem {
+                switch sourceItem.id {
+                case .folder(let id): folderID = id
+                case .project, .timeline, .clips, .asset: folderID = nil
+                }
             } else {
                 folderID = nil
             }
@@ -371,40 +380,6 @@ private final class ProjectSourceLabel: NSTextField {
         guard let menu else { return false }
         menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: bounds.maxY), in: self)
         return true
-    }
-}
-
-private final class ProjectSourceButtonCellView: NSTableCellView {
-    let button = ProjectSourceButton(title: "", target: nil, action: nil)
-
-    var assetID: UUID? {
-        get { button.assetID }
-        set { button.assetID = newValue }
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setAccessibilityElement(false)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.setButtonType(.momentaryPushIn)
-        button.bezelStyle = .inline
-        button.isBordered = false
-        button.alignment = .left
-        button.lineBreakMode = .byTruncatingTail
-        addSubview(button)
-        button.setAccessibilityElement(true)
-        setAccessibilityChildren([button])
-        NSLayoutConstraint.activate([
-            button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            button.topAnchor.constraint(equalTo: topAnchor),
-            button.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 }
 

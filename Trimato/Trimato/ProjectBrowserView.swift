@@ -20,15 +20,15 @@ struct ProjectBrowserView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button("Import Clips\u{2026}") { controller.importFiles() }
-                Button("New Folder") { showingNewFolder = true }
-                sourceActions
-                Spacer()
-                if controller.isImporting {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("Importing Clips")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    sourceImportControls
+                    Spacer()
+                    importProgress
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    sourceImportControls
+                    importProgress
                 }
             }
             .padding(8)
@@ -43,6 +43,16 @@ struct ProjectBrowserView: View {
                 requestNewFolder: { showingNewFolder = true },
                 requestRenameFolder: beginRenamingFolder
             )
+
+            Divider()
+
+            HStack {
+                sourceActions
+                    .disabled(!hasSourceActions)
+                Spacer()
+            }
+            .padding(8)
+            .background(.bar)
         }
         .sheet(isPresented: $showingNewFolder) {
             folderEditor(
@@ -68,6 +78,29 @@ struct ProjectBrowserView: View {
             } cancel: {
                 folderBeingRenamed = nil
             }
+        }
+    }
+
+    @ViewBuilder
+    private var sourceImportControls: some View {
+        Button("Import Clips\u{2026}") { controller.importFiles() }
+        Button("New Folder") { showingNewFolder = true }
+    }
+
+    @ViewBuilder
+    private var importProgress: some View {
+        if controller.isImporting {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Importing Clips")
+        }
+    }
+
+    private var hasSourceActions: Bool {
+        switch sourceSelection {
+        case .asset: true
+        case .folder(let id): controller.project.folders.contains { $0.id == id }
+        case .project, .timeline, .clips, .none: false
         }
     }
 
@@ -105,10 +138,7 @@ struct ProjectBrowserView: View {
                         controller.relinkSelectedAsset()
                     }
                 }
-            case .project:
-                Button("Import Clips\u{2026}") { controller.importFiles() }
-                Button("New Folder") { showingNewFolder = true }
-            case .timeline, .none:
+            case .project, .timeline, .clips, .none:
                 Text("No Actions Available")
             }
         }

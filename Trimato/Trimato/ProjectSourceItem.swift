@@ -3,6 +3,7 @@ import Foundation
 nonisolated enum ProjectSourceItemID: Hashable, Sendable {
     case project(UUID)
     case timeline(UUID)
+    case clips(UUID)
     case folder(UUID)
     case asset(UUID)
 }
@@ -14,7 +15,7 @@ nonisolated struct ProjectSourceItem: Identifiable, Equatable, Sendable {
 
     var isExpandable: Bool {
         switch id {
-        case .project, .folder: true
+        case .project, .clips, .folder: true
         case .timeline, .asset: false
         }
     }
@@ -39,8 +40,9 @@ nonisolated struct ProjectSourceItem: Identifiable, Equatable, Sendable {
             id: .project(project.id),
             name: project.name,
             children: [
-                ProjectSourceItem(id: .timeline(project.id), name: "Project Timeline", children: [])
-            ] + unfiled + folders
+                ProjectSourceItem(id: .timeline(project.id), name: "Project Timeline", children: []),
+                ProjectSourceItem(id: .clips(project.id), name: "Clips", children: unfiled),
+            ] + folders
         )
     }
 

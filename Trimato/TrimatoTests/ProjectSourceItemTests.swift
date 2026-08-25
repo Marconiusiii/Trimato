@@ -3,7 +3,7 @@ import Testing
 
 @Suite("Project source hierarchy")
 struct ProjectSourceItemTests {
-    @Test func timelineAndImportedClipsAppearUnderTheProjectRoot() {
+    @Test func timelineAndClipsFolderAppearUnderTheProjectRoot() {
         let first = makeAsset(name: "Interview")
         let second = makeAsset(name: "Cutaway")
         var project = TrimatoProject(name: "Documentary")
@@ -14,9 +14,9 @@ struct ProjectSourceItemTests {
         #expect(root.id == .project(project.id))
         #expect(root.children.map(\.id) == [
             .timeline(project.id),
-            .asset(first.id),
-            .asset(second.id),
+            .clips(project.id),
         ])
+        #expect(root.children[1].children.map(\.id) == [.asset(first.id), .asset(second.id)])
     }
 
     @Test func folderedClipsAppearOnceInsideTheirFolder() {
@@ -31,9 +31,10 @@ struct ProjectSourceItemTests {
 
         #expect(root.children.map(\.id) == [
             .timeline(project.id),
-            .asset(unfiled.id),
+            .clips(project.id),
             .folder(folder.id),
         ])
+        #expect(root.children[1].children.map(\.id) == [.asset(unfiled.id)])
         #expect(root.children.last?.children.map(\.id) == [.asset(filed.id)])
     }
 
