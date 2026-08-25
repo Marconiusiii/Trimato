@@ -44,7 +44,9 @@ struct ProjectTimelineView: View {
                     }
                     .padding(8)
                 }
-                .accessibilityLabel("Timeline clips")
+                .accessibilityRepresentation {
+                    timelineAccessibilityContent
+                }
             }
 
             Divider()
@@ -61,6 +63,19 @@ struct ProjectTimelineView: View {
 
     private var hasSelectedClip: Bool {
         controller.selectedTimelineClip != nil || controller.selectedCutaway != nil
+    }
+
+    private var timelineAccessibilityContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(controller.project.primaryTimeline.enumerated()), id: \.element.id) { index, clip in
+                timelineClipButton(clip, index: index)
+            }
+            ForEach(controller.project.cutaways) { cutaway in
+                cutawayButton(cutaway)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Timeline clips")
     }
 
     private var minimumClipWidth: CGFloat {

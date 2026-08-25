@@ -4,31 +4,28 @@ struct ClipInspectorView: View {
     @ObservedObject var controller: ProjectController
 
     var body: some View {
-        ScrollView {
-            GroupBox(inspectorTitle) {
-                VStack(alignment: .leading, spacing: 10) {
-                    inspectorDetails
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 4)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(inspectorContext)
+                .font(.subheadline.weight(.semibold))
+
+            inspectorDetails
+
+            Spacer(minLength: 0)
         }
-        .accessibilityLabel("\(inspectorTitle), Inspector")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(10)
     }
 
-    private var inspectorTitle: String {
-        if controller.selectedTimelineClip != nil { return "Timeline Clip Details" }
-        if controller.selectedCutaway != nil { return "Cutaway Details" }
-        if controller.selectedAsset != nil { return "Source Clip Details" }
+    private var inspectorContext: String {
+        if let clip = controller.selectedTimelineClip { return clip.displayName }
+        if let cutaway = controller.selectedCutaway { return cutaway.name }
+        if let asset = controller.selectedAsset { return asset.name }
         return "Project Details"
     }
 
     @ViewBuilder
     private var inspectorDetails: some View {
         if let clip = controller.selectedTimelineClip {
-            inspectorRow("Name", clip.displayName)
             inspectorRow("Length", ProjectTimecodeFormatter.string(clip.duration))
             if let start = controller.project.startTime(of: clip.id) {
                 inspectorRow("Timeline Start", ProjectTimecodeFormatter.string(start))
@@ -38,7 +35,6 @@ struct ClipInspectorView: View {
                 resolutionRows(for: asset)
             }
         } else if let cutaway = controller.selectedCutaway {
-            inspectorRow("Name", cutaway.name)
             inspectorRow("Timeline Start", ProjectTimecodeFormatter.string(cutaway.start))
             inspectorRow("Length", ProjectTimecodeFormatter.string(cutaway.duration))
             inspectorRow("Audio", cutaway.audioMode == .sourceAudio ? "Source Audio" : "Primary Audio")
@@ -46,7 +42,6 @@ struct ClipInspectorView: View {
                 resolutionRows(for: asset)
             }
         } else if let asset = controller.selectedAsset {
-            inspectorRow("Name", asset.name)
             inspectorRow("Length", ProjectTimecodeFormatter.string(asset.editedDuration))
             resolutionRows(for: asset)
             inspectorRow("Status", controller.resolveURL(for: asset) == nil ? "Offline" : "Ready")
@@ -83,22 +78,7 @@ struct ClipInspectorView: View {
     }
 
     private func inspectorRow(_ label: String, _ value: String) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(label)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Text(value)
-                    .multilineTextAlignment(.trailing)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .foregroundStyle(.secondary)
-                Text(value)
-            }
-        }
+        LabeledContent(label, value: value)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label), \(value)")
     }
 }

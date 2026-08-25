@@ -21,7 +21,7 @@ struct EditorWorkspaceView: View {
 
     var body: some View {
         HSplitView {
-            MacEditorPane("Project Source") {
+            MacEditorPane("Project") {
                 ProjectBrowserView(
                     controller: controller,
                     openClipEditor: clipEditorWindows.open
@@ -39,7 +39,7 @@ struct EditorWorkspaceView: View {
                 .frame(minHeight: 360)
 
                 HSplitView {
-                    MacEditorPane("Project Timeline") {
+                    MacEditorPane("Timeline") {
                         ProjectTimelineView(
                             controller: controller,
                             openClipEditor: clipEditorWindows.open
