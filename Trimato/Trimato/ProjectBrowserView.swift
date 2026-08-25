@@ -20,6 +20,16 @@ struct ProjectBrowserView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Text("Project")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(EditorTheme.controlSurface)
+
+            Divider()
+
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
                     sourceImportControls

@@ -20,6 +20,33 @@ struct ContentView: View {
         .tint(EditorTheme.accent)
         .preferredColorScheme(.dark)
         .focusedObject(viewModel)
+        .toolbar {
+            ToolbarItemGroup {
+                Button { viewModel.goToStart() } label: {
+                    Label("Go to start", systemImage: "backward.end.fill")
+                }
+                .help("Go to start")
+                .disabled(!canNavigateTimeline)
+
+                Button { viewModel.goToPreviousTimelinePoint() } label: {
+                    Label("Previous timeline point", systemImage: "chevron.left.2")
+                }
+                .help("Previous timeline point")
+                .disabled(!canNavigateTimeline)
+
+                Button { viewModel.goToNextTimelinePoint() } label: {
+                    Label("Next timeline point", systemImage: "chevron.right.2")
+                }
+                .help("Next timeline point")
+                .disabled(!canNavigateTimeline)
+
+                Button { viewModel.goToEnd() } label: {
+                    Label("Go to end", systemImage: "forward.end.fill")
+                }
+                .help("Go to end")
+                .disabled(!canNavigateTimeline)
+            }
+        }
         .dropDestination(for: URL.self) { urls, _ in
             guard allowsFileOpening else { return false }
             guard let url = urls.first else { return false }
@@ -50,6 +77,10 @@ struct ContentView: View {
     }
 
     // MARK: - Video area
+
+    private var canNavigateTimeline: Bool {
+        viewModel.hasVideo && !viewModel.isExporting && !viewModel.isApplyingEdit
+    }
 
     private var videoArea: some View {
         ZStack {
@@ -130,7 +161,6 @@ struct ContentView: View {
             .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
 
             markerControls
-            timelineControls
 
             speedBadge
 
@@ -209,40 +239,30 @@ struct ContentView: View {
     }
 
     private var markerControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Selection")
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
+        GroupBox("In and Out Points") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Button("Mark In") { viewModel.markIn() }
+                    Text("In: \(viewModel.inMarkerDisplay)")
+                        .monospacedDigit()
+                    Button("Clear In") { viewModel.clearIn() }
+                        .disabled(viewModel.inMarker == nil)
+                }
+                HStack {
+                    Button("Mark Out") { viewModel.markOut() }
+                    Text("Out: \(viewModel.outMarkerDisplay)")
+                        .monospacedDigit()
+                    Button("Clear Out") { viewModel.clearOut() }
+                        .disabled(viewModel.outMarker == nil)
+                }
 
-            HStack {
-                Button("Mark In") { viewModel.markIn() }
-                Text("In: \(viewModel.inMarkerDisplay)")
-                    .monospacedDigit()
-                Button("Clear In") { viewModel.clearIn() }
-                    .disabled(viewModel.inMarker == nil)
+                Button("Delete Selection") { viewModel.deleteSelection() }
+                    .disabled(!viewModel.canDeleteSelection)
             }
-            HStack {
-                Button("Mark Out") { viewModel.markOut() }
-                Text("Out: \(viewModel.outMarkerDisplay)")
-                    .monospacedDigit()
-                Button("Clear Out") { viewModel.clearOut() }
-                    .disabled(viewModel.outMarker == nil)
-            }
-
-            Button("Delete Selection") { viewModel.deleteSelection() }
-                .disabled(!viewModel.canDeleteSelection)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .disabled(!viewModel.hasVideo || viewModel.isExporting || viewModel.isApplyingEdit)
-    }
-
-    private var timelineControls: some View {
-        HStack {
-            Button("Start") { viewModel.goToStart() }
-            Button("Previous Point") { viewModel.goToPreviousTimelinePoint() }
-            Button("Next Point") { viewModel.goToNextTimelinePoint() }
-            Button("End") { viewModel.goToEnd() }
-        }
         .disabled(!viewModel.hasVideo || viewModel.isExporting || viewModel.isApplyingEdit)
     }
 

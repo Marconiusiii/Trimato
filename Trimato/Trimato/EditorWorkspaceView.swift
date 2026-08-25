@@ -47,7 +47,19 @@ struct EditorWorkspaceView: View {
                     }
                         .frame(minWidth: 460)
                     MacEditorPane("Inspector") {
-                        ClipInspectorView(controller: controller)
+                        VStack(spacing: 0) {
+                            Text("Inspector")
+                                .font(.headline)
+                                .accessibilityAddTraits(.isHeader)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(EditorTheme.controlSurface)
+
+                            Divider()
+
+                            ClipInspectorView(controller: controller)
+                        }
                     }
                         .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
                 }
@@ -122,10 +134,20 @@ private struct ProjectViewerView: View {
     @StateObject private var viewModel = ProjectPlayerViewModel()
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
     @State private var handledAccessibilityFocusRequest = 0
-    @AccessibilityFocusState private var timecodeFocused: Bool
+    @AccessibilityFocusState private var playButtonFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
+            Text("Editor")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(EditorTheme.controlSurface)
+
+            Divider()
+
             videoArea
                 .frame(minHeight: 180)
                 .layoutPriority(1)
@@ -133,6 +155,33 @@ private struct ProjectViewerView: View {
         }
         .background(EditorAccessibilityFocusBridge(scope: focusScope))
         .focusedObject(viewModel)
+        .toolbar {
+            ToolbarItemGroup {
+                Button { viewModel.goToStart() } label: {
+                    Label("Go to start", systemImage: "backward.end.fill")
+                }
+                .help("Go to start")
+                .disabled(!viewModel.canControlPlayback)
+
+                Button { viewModel.goToPreviousEdit() } label: {
+                    Label("Previous timeline point", systemImage: "chevron.left.2")
+                }
+                .help("Previous timeline point")
+                .disabled(!viewModel.canControlPlayback)
+
+                Button { viewModel.goToNextEdit() } label: {
+                    Label("Next timeline point", systemImage: "chevron.right.2")
+                }
+                .help("Next timeline point")
+                .disabled(!viewModel.canControlPlayback)
+
+                Button { viewModel.goToEnd() } label: {
+                    Label("Go to end", systemImage: "forward.end.fill")
+                }
+                .help("Go to end")
+                .disabled(!viewModel.canControlPlayback)
+            }
+        }
         .onAppear {
             controller.installProjectPlayer(viewModel)
             viewModel.scopeKeyboardCommands { [weak focusScope] in
@@ -164,12 +213,12 @@ private struct ProjectViewerView: View {
     private func handleAccessibilityFocusRequest(_ request: Int) {
         guard request > handledAccessibilityFocusRequest else { return }
         handledAccessibilityFocusRequest = request
-        timecodeFocused = false
+        playButtonFocused = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            timecodeFocused = true
+            playButtonFocused = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            timecodeFocused = true
+            playButtonFocused = true
         }
     }
 
@@ -177,6 +226,7 @@ private struct ProjectViewerView: View {
         ZStack {
             Color.black
             VideoPlayerView(player: viewModel.player)
+                .accessibilityHidden(true)
             if controller.project.primaryTimeline.isEmpty {
                 Text("Add a clip to the project timeline")
                     .foregroundStyle(.secondary)
@@ -235,37 +285,28 @@ private struct ProjectViewerView: View {
             .disabled(!viewModel.canControlPlayback)
             .accessibilityLabel(viewModel.accessibilityTimecodeLabel)
             .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
-            .accessibilityFocused($timecodeFocused)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Selection")
-                    .font(.headline)
-                    .accessibilityAddTraits(.isHeader)
-
-                HStack {
-                    Button("Mark In") { viewModel.markIn() }
-                    Text("In: \(viewModel.inMarkerDisplay)")
-                        .monospacedDigit()
-                    Button("Clear In") { viewModel.clearIn() }
-                        .disabled(viewModel.inMarker == nil)
+            GroupBox("In and Out Points") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Button("Mark In") { viewModel.markIn() }
+                        Text("In: \(viewModel.inMarkerDisplay)")
+                            .monospacedDigit()
+                        Button("Clear In") { viewModel.clearIn() }
+                            .disabled(viewModel.inMarker == nil)
+                    }
+                    HStack {
+                        Button("Mark Out") { viewModel.markOut() }
+                        Text("Out: \(viewModel.outMarkerDisplay)")
+                            .monospacedDigit()
+                        Button("Clear Out") { viewModel.clearOut() }
+                            .disabled(viewModel.outMarker == nil)
+                    }
                 }
-                HStack {
-                    Button("Mark Out") { viewModel.markOut() }
-                    Text("Out: \(viewModel.outMarkerDisplay)")
-                        .monospacedDigit()
-                    Button("Clear Out") { viewModel.clearOut() }
-                        .disabled(viewModel.outMarker == nil)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .disabled(!viewModel.canControlPlayback)
-
-            HStack {
-                Button("Start") { viewModel.goToStart() }
-                Button("Previous Point") { viewModel.goToPreviousEdit() }
-                Button("Next Point") { viewModel.goToNextEdit() }
-                Button("End") { viewModel.goToEnd() }
-            }
             .disabled(!viewModel.canControlPlayback)
 
             if viewModel.isPlaying, viewModel.playbackRate != 1 {
@@ -300,6 +341,7 @@ private struct ProjectViewerView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
+                .accessibilityFocused($playButtonFocused)
 
                 Button { viewModel.seekForward() } label: {
                     Image(systemName: "goforward.10").font(.title2)

@@ -7,6 +7,16 @@ struct ProjectTimelineView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Text("Timeline")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(EditorTheme.controlSurface)
+
+            Divider()
+
             if controller.project.duration.isPositive {
                 Slider(
                     value: Binding(
@@ -50,6 +60,7 @@ struct ProjectTimelineView: View {
                     }
                     .padding(8)
                 }
+                .accessibilityLabel("Timeline clips")
             }
 
             Divider()
