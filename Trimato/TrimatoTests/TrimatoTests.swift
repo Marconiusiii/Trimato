@@ -607,6 +607,35 @@ struct TrimatoTests {
         #expect(VideoPlayerViewModel.importProgressMilestone(for: 1) == 100)
     }
 
+    @Test @MainActor func frameIndexingReportsIncreasingProgress() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("iphone-camera.mov")
+
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30",
+            "-t", "1", "-c:v", "mpeg4", sourceURL.path
+        ])
+
+        var progressValues: [Double] = []
+        let timestamps = try await FFmpegMediaProbe.frameTimestamps(
+            url: sourceURL,
+            duration: 1,
+            progress: { progressValues.append($0) }
+        )
+
+        #expect(timestamps.count == 30)
+        #expect(progressValues.first == 0)
+        #expect(progressValues.last == 1)
+        #expect(zip(progressValues, progressValues.dropFirst()).allSatisfy { pair in
+            pair.0 <= pair.1
+        })
+        #expect(progressValues.contains { $0 >= 0.5 && $0 < 1 })
+    }
+
     @Test func proxyRemovalDeletesTheTemporaryFile() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

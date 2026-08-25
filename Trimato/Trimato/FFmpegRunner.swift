@@ -50,10 +50,16 @@ private nonisolated final class FFmpegOutputCollector: @unchecked Sendable {
     private var unfinishedLine = ""
     private let duration: Double?
     private let progress: (@MainActor @Sendable (Double) -> Void)?
+    private let outputLine: (@Sendable (String) -> Void)?
 
-    init(duration: Double?, progress: (@MainActor @Sendable (Double) -> Void)?) {
+    init(
+        duration: Double?,
+        progress: (@MainActor @Sendable (Double) -> Void)?,
+        outputLine: (@Sendable (String) -> Void)?
+    ) {
         self.duration = duration
         self.progress = progress
+        self.outputLine = outputLine
     }
 
     func append(_ newData: Data) {
@@ -65,10 +71,12 @@ private nonisolated final class FFmpegOutputCollector: @unchecked Sendable {
         unfinishedLine = lines.popLast() ?? ""
         lock.unlock()
 
-        guard let duration, duration > 0, let progress else { return }
         for line in lines {
-            FFmpegRunner.parseProgressLine(line, duration: duration) { value in
-                Task { @MainActor in progress(value) }
+            outputLine?(line)
+            if let duration, duration > 0, let progress {
+                FFmpegRunner.parseProgressLine(line, duration: duration) { value in
+                    Task { @MainActor in progress(value) }
+                }
             }
         }
     }
@@ -100,7 +108,8 @@ struct FFmpegRunner {
         tool: FFmpegTool,
         arguments: [String],
         progress: (@MainActor @Sendable (Double) -> Void)? = nil,
-        expectedDuration: Double? = nil
+        expectedDuration: Double? = nil,
+        outputLine: (@Sendable (String) -> Void)? = nil
     ) async throws -> Result {
         guard let executableURL = bundledURL(for: tool) else {
             throw MediaSourceError.bundledToolsMissing
@@ -119,7 +128,8 @@ struct FFmpegRunner {
                 box.store(process)
                 let collector = FFmpegOutputCollector(
                     duration: expectedDuration,
-                    progress: progress
+                    progress: progress,
+                    outputLine: outputLine
                 )
                 stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
                     collector.append(handle.availableData)

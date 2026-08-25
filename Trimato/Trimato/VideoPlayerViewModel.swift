@@ -1131,11 +1131,18 @@ final class VideoPlayerViewModel: ObservableObject {
         if isProtected { throw MediaSourceError.protectedContent }
         let isPlayable = (try? await asset.load(.isPlayable)) ?? false
         let hasNativeAudio = ((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty == false
+        let nativeDuration = (try? await asset.load(.duration)).map(CMTimeGetSeconds)
 
         if isPlayable, let contentType,
            ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
-            updateImportStatus("Indexing frames")
-            let timestamps = (try? await FFmpegMediaProbe.frameTimestamps(url: url)) ?? []
+            beginFrameIndexing()
+            let timestamps = (try? await FFmpegMediaProbe.frameTimestamps(
+                url: url,
+                duration: nativeDuration,
+                progress: { [weak self] progress in
+                    self?.updateFrameIndexProgress(progress)
+                }
+            )) ?? []
             return .native(
                 url: url,
                 asset: asset,
@@ -1149,8 +1156,14 @@ final class VideoPlayerViewModel: ObservableObject {
         updateImportStatus("Analyzing video compatibility")
         let report = try await FFmpegMediaProbe.inspect(url: url)
         try FFmpegMediaProbe.validateForMP4Conversion(report)
-        updateImportStatus("Indexing frames")
-        let timestamps = try await FFmpegMediaProbe.frameTimestamps(url: url)
+        beginFrameIndexing()
+        let timestamps = try await FFmpegMediaProbe.frameTimestamps(
+            url: url,
+            duration: report.duration,
+            progress: { [weak self] progress in
+                self?.updateFrameIndexProgress(progress)
+            }
+        )
 
         if isPlayable {
             return .native(
@@ -1164,6 +1177,7 @@ final class VideoPlayerViewModel: ObservableObject {
         }
 
         updateImportStatus("Creating playback proxy")
+        announcedImportProgress = 0
         mediaProgress = 0
         let generatedProxy = try await ProxyMediaManager.createProxy(
             sourceURL: url,
@@ -1193,6 +1207,20 @@ final class VideoPlayerViewModel: ObservableObject {
     private func updateImportStatus(_ status: String) {
         mediaStatus = status
         announce(status)
+    }
+
+    private func beginFrameIndexing() {
+        announcedImportProgress = 0
+        mediaProgress = 0
+        updateImportStatus("Indexing frames")
+    }
+
+    private func updateFrameIndexProgress(_ progress: Double) {
+        mediaProgress = progress
+        let milestone = Self.importProgressMilestone(for: progress)
+        guard milestone > announcedImportProgress else { return }
+        announcedImportProgress = milestone
+        announce("Frame indexing \(milestone) percent complete")
     }
 
     private func updateImportProgress(_ progress: Double) {

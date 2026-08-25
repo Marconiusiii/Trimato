@@ -2,6 +2,51 @@ import AVFoundation
 import Foundation
 
 struct FFmpegMediaProbe {
+    private nonisolated final class FrameProgressReporter: @unchecked Sendable {
+        private let lock = NSLock()
+        private let duration: Double
+        private let progress: @MainActor @Sendable (Double) -> Void
+        private var lastReportedPercent = -1
+        private var lastDeliveredPercent = -1
+        private var isFinished = false
+
+        init(duration: Double, progress: @escaping @MainActor @Sendable (Double) -> Void) {
+            self.duration = duration
+            self.progress = progress
+        }
+
+        func receive(_ line: String) {
+            guard let timestamp = Double(line.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  timestamp.isFinite else { return }
+            let percent = min(max(Int((timestamp / duration * 100).rounded(.down)), 0), 99)
+            lock.lock()
+            guard percent > lastReportedPercent else {
+                lock.unlock()
+                return
+            }
+            lastReportedPercent = percent
+            lock.unlock()
+            Task { @MainActor [weak self] in
+                guard let self, self.shouldDeliver(percent) else { return }
+                self.progress(Double(percent) / 100)
+            }
+        }
+
+        func finish() {
+            lock.lock()
+            isFinished = true
+            lock.unlock()
+        }
+
+        private func shouldDeliver(_ percent: Int) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !isFinished, percent > lastDeliveredPercent else { return false }
+            lastDeliveredPercent = percent
+            return true
+        }
+    }
+
     struct Report: Decodable, Equatable {
         struct Stream: Decodable, Equatable {
             let codecType: String?
@@ -60,18 +105,6 @@ struct FFmpegMediaProbe {
         }
     }
 
-    private struct FrameReport: Decodable {
-        struct Frame: Decodable {
-            let bestEffortTimestampTime: String?
-
-            enum CodingKeys: String, CodingKey {
-                case bestEffortTimestampTime = "best_effort_timestamp_time"
-            }
-        }
-
-        let frames: [Frame]
-    }
-
     static func inspect(url: URL) async throws -> Report {
         let result = try await FFmpegRunner.run(tool: .ffprobe, arguments: [
             "-v", "error",
@@ -91,20 +124,37 @@ struct FFmpegMediaProbe {
         }
     }
 
-    static func frameTimestamps(url: URL) async throws -> [CMTime] {
+    static func frameTimestamps(
+        url: URL,
+        duration: Double? = nil,
+        progress: (@MainActor @Sendable (Double) -> Void)? = nil
+    ) async throws -> [CMTime] {
+        let progressReporter: FrameProgressReporter?
+        if let duration, duration.isFinite, duration > 0, let progress {
+            progressReporter = FrameProgressReporter(duration: duration, progress: progress)
+        } else {
+            progressReporter = nil
+        }
         let result = try await FFmpegRunner.run(tool: .ffprobe, arguments: [
             "-v", "error",
             "-select_streams", "v:0",
             "-show_frames",
             "-show_entries", "frame=best_effort_timestamp_time",
-            "-of", "json",
+            "-of", "default=noprint_wrappers=1:nokey=1",
             url.path
-        ])
-        let report = try JSONDecoder().decode(FrameReport.self, from: result.standardOutput)
-        let seconds: [Double] = report.frames.compactMap { frame -> Double? in
-            guard let raw = frame.bestEffortTimestampTime,
-                  let seconds = Double(raw), seconds.isFinite else { return nil }
-            return seconds
+        ], outputLine: { line in
+            progressReporter?.receive(line)
+        })
+        let seconds: [Double] = String(decoding: result.standardOutput, as: UTF8.self)
+            .split(whereSeparator: \Character.isNewline)
+            .compactMap { raw -> Double? in
+                guard let seconds = Double(raw.trimmingCharacters(in: .whitespaces)),
+                      seconds.isFinite else { return nil }
+                return seconds
+            }
+        progressReporter?.finish()
+        if let progress {
+            progress(1)
         }
         guard let first = seconds.first else { return [] }
         return seconds.map { timestamp in
