@@ -6,7 +6,12 @@ struct TrimatoApp: App {
     @FocusedObject private var projectPlayer: ProjectPlayerViewModel?
     @FocusedObject private var projectController: ProjectController?
     @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
+    @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
     @Environment(\.openWindow) private var openWindow
+
+    private var commandProjectController: ProjectController? {
+        projectController ?? clipPlacement?.controller ?? activeProjects.activeProjectController
+    }
 
     var body: some Scene {
         Window("Trimato", id: "project-launcher") {
@@ -22,21 +27,21 @@ struct TrimatoApp: App {
         .commands {
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
-                    (projectController ?? clipPlacement?.controller)?.saveProjectDocument()
+                    commandProjectController?.saveProjectDocument()
                 }
                 .keyboardShortcut("s", modifiers: .command)
-                .disabled(projectController == nil && clipPlacement == nil)
+                .disabled(commandProjectController == nil)
                 Button("Save As\u{2026}") {
-                    (projectController ?? clipPlacement?.controller)?.saveProjectDocumentAs()
+                    commandProjectController?.saveProjectDocumentAs()
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
-                .disabled(projectController == nil && clipPlacement == nil)
+                .disabled(commandProjectController == nil)
                 Divider()
                 Button("Close Project") {
-                    (projectController ?? clipPlacement?.controller)?.closeProject()
+                    commandProjectController?.closeProject()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
-                .disabled(projectController == nil && clipPlacement == nil)
+                .disabled(commandProjectController == nil)
             }
             CommandGroup(replacing: .appInfo) {
                 Button("About Trimato") {
@@ -44,24 +49,24 @@ struct TrimatoApp: App {
                 }
             }
             CommandGroup(after: .newItem) {
-                Button("Import Media\u{2026}") { projectController?.importFiles() }
+                Button("Import Media\u{2026}") { commandProjectController?.importFiles() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
-                    .disabled(projectController == nil || projectController?.isImporting == true)
+                    .disabled(commandProjectController == nil || commandProjectController?.isImporting == true)
             }
             CommandGroup(after: .saveItem) {
                 Button("Project Settings\u{2026}") {
-                    (projectController ?? clipPlacement?.controller)?.showProjectSettings()
+                    commandProjectController?.showProjectSettings()
                 }
-                .disabled(projectController == nil && clipPlacement == nil)
+                .disabled(commandProjectController == nil)
                 Divider()
                 Button("Export Project\u{2026}") {
-                    (projectController ?? clipPlacement?.controller)?.exportProject()
+                    commandProjectController?.exportProject()
                 }
                 .keyboardShortcut("e", modifiers: .command)
-                .disabled((projectController ?? clipPlacement?.controller)?.canExportProject != true)
-                if (projectController ?? clipPlacement?.controller)?.isExporting == true {
+                .disabled(commandProjectController?.canExportProject != true)
+                if commandProjectController?.isExporting == true {
                     Button("Cancel Project Export") {
-                        (projectController ?? clipPlacement?.controller)?.cancelExport()
+                        commandProjectController?.cancelExport()
                     }
                 }
             }

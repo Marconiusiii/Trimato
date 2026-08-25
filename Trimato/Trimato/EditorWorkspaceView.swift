@@ -6,7 +6,6 @@ struct EditorWorkspaceView: View {
     @StateObject private var controller: ProjectController
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
-    @State private var returnsToLauncherOnClose = false
     @State private var hasRequestedInitialEditorFocus = false
     @State private var editorFocusRequest = 0
 
@@ -92,7 +91,7 @@ struct EditorWorkspaceView: View {
                 clipEditorWindows?.requestCloseAll { didClose in
                     guard didClose else { return }
                     projectWindowSaveCoordinator?.requestClose { shouldClose in
-                        if shouldClose { returnsToLauncherOnClose = true }
+                        if shouldClose { openWindow(id: "project-launcher") }
                     }
                 }
             }
@@ -103,9 +102,6 @@ struct EditorWorkspaceView: View {
         }
         .onDisappear {
             ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
-            if returnsToLauncherOnClose {
-                openWindow(id: "project-launcher")
-            }
         }
         .sheet(isPresented: $controller.isShowingProjectSettings) {
             ProjectCreationView(controller: controller) {

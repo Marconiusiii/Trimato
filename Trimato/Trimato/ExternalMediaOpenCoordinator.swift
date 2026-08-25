@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -9,8 +10,10 @@ nonisolated enum ExternalMediaOpenRoute: Equatable, Sendable {
 }
 
 @MainActor
-final class ExternalMediaOpenCoordinator {
+final class ExternalMediaOpenCoordinator: ObservableObject {
     static let shared = ExternalMediaOpenCoordinator()
+
+    @Published private(set) var activeProjectController: ProjectController?
 
     private struct ProjectRegistration {
         weak var controller: ProjectController?
@@ -43,6 +46,7 @@ final class ExternalMediaOpenCoordinator {
         let identifier = ObjectIdentifier(controller)
         registrations[identifier] = nil
         activationOrder.removeAll { $0 == identifier }
+        updateActiveProjectController()
     }
 
     func activate(controller: ProjectController) {
@@ -50,6 +54,7 @@ final class ExternalMediaOpenCoordinator {
         guard registrations[identifier]?.controller != nil else { return }
         activationOrder.removeAll { $0 == identifier }
         activationOrder.append(identifier)
+        updateActiveProjectController()
     }
 
     func handle(
@@ -57,8 +62,7 @@ final class ExternalMediaOpenCoordinator {
         openStandalone: @escaping (URL) -> Void
     ) {
         removeExpiredRegistrations()
-        let activeRegistration = activationOrder.last.flatMap { registrations[$0] }
-        let activeProject = activeRegistration?.controller
+        let activeProject = activeProjectController
         switch Self.route(for: url, hasActiveProject: activeProject != nil) {
         case .ignore:
             return
@@ -87,6 +91,14 @@ final class ExternalMediaOpenCoordinator {
     private func removeExpiredRegistrations() {
         registrations = registrations.filter { $0.value.controller != nil }
         activationOrder.removeAll { registrations[$0] == nil }
+        updateActiveProjectController()
+    }
+
+    private func updateActiveProjectController() {
+        let controller = activationOrder.last.flatMap { registrations[$0]?.controller }
+        if activeProjectController !== controller {
+            activeProjectController = controller
+        }
     }
 }
 
