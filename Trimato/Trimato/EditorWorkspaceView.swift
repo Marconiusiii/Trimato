@@ -2,9 +2,11 @@ import AppKit
 import SwiftUI
 
 struct EditorWorkspaceView: View {
+    @Environment(\.openWindow) private var openWindow
     @StateObject private var controller: ProjectController
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
+    @State private var returnsToLauncherOnClose = false
 
     init(document: ProjectDocument) {
         let controller = ProjectController(document: document)
@@ -61,9 +63,26 @@ struct EditorWorkspaceView: View {
                     clipEditorWindows?.open(selection)
                 }
             )
+            ExternalMediaOpenCoordinator.shared.activate(controller: controller)
+            projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
+                guard let controller else { return }
+                ExternalMediaOpenCoordinator.shared.activate(controller: controller)
+            }
+            controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] in
+                clipEditorWindows?.requestCloseAll { didClose in
+                    guard didClose else { return }
+                    projectWindowSaveCoordinator?.requestClose { shouldClose in
+                        if shouldClose { returnsToLauncherOnClose = true }
+                    }
+                }
+            }
+            NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
         }
         .onDisappear {
             ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
+            if returnsToLauncherOnClose {
+                openWindow(id: "project-launcher")
+            }
         }
         .sheet(isPresented: $controller.isShowingProjectSettings) {
             ProjectCreationView(controller: controller) {

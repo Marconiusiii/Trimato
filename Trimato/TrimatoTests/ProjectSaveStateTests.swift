@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import Trimato
@@ -25,6 +26,33 @@ struct ProjectSaveStateTests {
 
         #expect(!document.hasUnsavedChanges)
         #expect(document.project.name == "Saved")
+    }
+
+    @Test func establishingTheSavedBaselineDoesNotPublishAnotherDocumentChange() {
+        let document = ProjectDocument(project: TrimatoProject(name: "Initial"))
+        var publishedChanges = 0
+        let subscription = document.objectWillChange.sink { publishedChanges += 1 }
+        var changed = document.project
+        changed.name = "Saved"
+        document.project = changed
+        let changesBeforeBaseline = publishedChanges
+
+        document.markCurrentProjectAsExplicitlySaved()
+
+        #expect(changesBeforeBaseline > 0)
+        #expect(publishedChanges == changesBeforeBaseline)
+        #expect(!document.hasUnsavedChanges)
+        _ = subscription
+    }
+
+    @Test func projectCreatedFromAStandaloneClipStartsUnsaved() {
+        let document = ProjectDocument(
+            project: TrimatoProject(name: "Interview Project"),
+            isExplicitlySaved: false
+        )
+
+        #expect(document.hasUnsavedChanges)
+        #expect(document.unsavedChangesDidChange.value)
     }
 
     @Test func updatingATimelineClipMarksTheProjectDirty() throws {
@@ -92,6 +120,30 @@ struct ProjectSaveStateTests {
 
         #expect(!document.hasUnsavedChanges)
         #expect(document.project.media[0].sourceFingerprint == fingerprint)
+    }
+
+    @Test func playbackHousekeepingDoesNotPublishANativeDocumentChange() {
+        let asset = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject(name: "Saved")
+        project.media = [asset]
+        let document = ProjectDocument(project: project)
+        var publishedChanges = 0
+        let subscription = document.objectWillChange.sink { publishedChanges += 1 }
+
+        document.updatePlaybackPreparation(
+            assetID: asset.id,
+            playbackMode: .nativePassthrough,
+            proxyCacheKey: nil,
+            sourceFingerprint: SourceMediaFingerprint(
+                fileSize: 4_096,
+                modificationTime: 789,
+                proxyFormatVersion: SourceMediaFingerprint.proxyFormatVersion
+            )
+        )
+
+        #expect(publishedChanges == 0)
+        #expect(!document.hasUnsavedChanges)
+        _ = subscription
     }
 
     @Test func playbackHousekeepingPreservesRealUnsavedChanges() {

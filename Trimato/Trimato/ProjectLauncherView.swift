@@ -4,12 +4,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ProjectLauncherView: View {
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.newDocument) private var newDocument
     @Environment(\.openDocument) private var openDocument
 
     @StateObject private var recentProjects = RecentProjectStore()
     @State private var presentedError: ProjectLauncherError?
+    @State private var launcherWindow: NSWindow?
     @AccessibilityFocusState private var newProjectFocused: Bool
 
     var body: some View {
@@ -23,6 +23,7 @@ struct ProjectLauncherView: View {
         .background(EditorTheme.workspace)
         .tint(EditorTheme.accent)
         .preferredColorScheme(.dark)
+        .background(ProjectLauncherWindowBridge { launcherWindow = $0 })
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Project Launcher")
         .onAppear {
@@ -34,6 +35,9 @@ struct ProjectLauncherView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             recentProjects.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trimatoProjectDidOpen)) { _ in
+            closeLauncher()
         }
         .alert(item: $presentedError) { error in
             Alert(
@@ -72,7 +76,7 @@ struct ProjectLauncherView: View {
         HStack(spacing: 12) {
             Button("New Project") {
                 newDocument { ProjectDocument() }
-                dismiss()
+                closeLauncher()
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
@@ -133,7 +137,7 @@ struct ProjectLauncherView: View {
             do {
                 try await openDocument(at: url)
                 recentProjects.refresh()
-                dismiss()
+                closeLauncher()
             } catch {
                 recentProjects.refresh()
                 presentedError = ProjectLauncherError(
@@ -142,6 +146,38 @@ struct ProjectLauncherView: View {
                 )
             }
         }
+    }
+
+    private func closeLauncher() {
+        launcherWindow?.performClose(nil)
+    }
+}
+
+extension Notification.Name {
+    static let trimatoProjectDidOpen = Notification.Name("TrimatoProjectDidOpen")
+}
+
+private struct ProjectLauncherWindowBridge: NSViewRepresentable {
+    let windowChanged: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> ProjectLauncherWindowView {
+        let view = ProjectLauncherWindowView(frame: .zero)
+        view.windowChanged = windowChanged
+        return view
+    }
+
+    func updateNSView(_ nsView: ProjectLauncherWindowView, context: Context) {
+        nsView.windowChanged = windowChanged
+        windowChanged(nsView.window)
+    }
+}
+
+private final class ProjectLauncherWindowView: NSView {
+    var windowChanged: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowChanged?(window)
     }
 }
 

@@ -2,7 +2,6 @@ import SwiftUI
 
 @main
 struct TrimatoApp: App {
-    @NSApplicationDelegateAdaptor(ProjectSaveApplicationDelegate.self) private var applicationDelegate
     @FocusedObject private var viewModel: VideoPlayerViewModel?
     @FocusedObject private var projectPlayer: ProjectPlayerViewModel?
     @FocusedObject private var projectController: ProjectController?
@@ -31,6 +30,12 @@ struct TrimatoApp: App {
                     (projectController ?? clipPlacement?.controller)?.saveProjectDocumentAs()
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(projectController == nil && clipPlacement == nil)
+                Divider()
+                Button("Close Project") {
+                    (projectController ?? clipPlacement?.controller)?.closeProject()
+                }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
                 .disabled(projectController == nil && clipPlacement == nil)
             }
             CommandGroup(replacing: .appInfo) {
@@ -260,11 +265,16 @@ struct TrimatoApp: App {
 
 private struct StandaloneClipCommands: Commands {
     @FocusedObject private var viewModel: VideoPlayerViewModel?
+    @FocusedObject private var projectCreation: StandaloneClipCommandContext?
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Trimato") { openWindow(id: "about") }
+        }
+        CommandGroup(after: .newItem) {
+            Button("Create Project from Clip") { projectCreation?.createProject() }
+                .disabled(projectCreation?.canCreateProject != true)
         }
         CommandGroup(after: .saveItem) {
             Button("Export Clip…") { viewModel?.exportTrimmedClip() }

@@ -152,6 +152,45 @@ actor MediaCacheManager {
         return url
     }
 
+    func adoptProxy(
+        at sourceURL: URL,
+        cacheKey: UUID,
+        fingerprint: SourceMediaFingerprint
+    ) async throws -> URL {
+        try loadIndexIfNeeded()
+        if let existing = validProxyURL(for: cacheKey) {
+            return existing
+        }
+
+        let destination = try ProxyMediaManager.cachedProxyURL(for: cacheKey)
+        let temporary = try ProxyMediaManager.cacheDirectory()
+            .appendingPathComponent("\(cacheKey.uuidString).partial.\(UUID().uuidString)")
+            .appendingPathExtension("mp4")
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: temporary)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.moveItem(at: temporary, to: destination)
+            index.entries[cacheKey] = Entry(
+                cacheKey: cacheKey,
+                fingerprint: fingerprint,
+                byteCount: fileByteCount(at: destination),
+                lastUsed: Date()
+            )
+            try saveIndex()
+            _ = try await enforceLimits(additionalProtectedKeys: [cacheKey])
+            return destination
+        } catch {
+            ProxyMediaManager.removeProxy(at: temporary)
+            if index.entries[cacheKey] != nil && validProxyURL(for: cacheKey) == nil {
+                index.entries[cacheKey] = nil
+                try? saveIndex()
+            }
+            throw error
+        }
+    }
+
     func updateProtectedKeys(owner: UUID, keys: Set<UUID>) async {
         protectedKeysByOwner[owner] = keys
         try? removePendingProxies()

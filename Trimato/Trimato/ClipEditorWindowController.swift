@@ -129,6 +129,32 @@ final class ClipEditorWindowCoordinator: ObservableObject {
         windows[editSelection] = windowController
         windowController.showAndFocus()
     }
+
+    func requestCloseAll(completion: @escaping (Bool) -> Void) {
+        close(Array(windows.values), at: 0, completion: completion)
+    }
+
+    private func close(
+        _ windowControllers: [ClipEditorWindowController],
+        at index: Int,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard index < windowControllers.count else {
+            completion(true)
+            return
+        }
+        windowControllers[index].requestClose { [weak self] didClose in
+            guard let self else {
+                completion(false)
+                return
+            }
+            guard didClose else {
+                completion(false)
+                return
+            }
+            self.close(windowControllers, at: index + 1, completion: completion)
+        }
+    }
 }
 
 @MainActor
@@ -136,6 +162,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
     let commandContext: ClipPlacementCommandContext
     var onClose: (() -> Void)?
     private var closeWasConfirmed = false
+    private var pendingCloseCompletion: ((Bool) -> Void)?
 
     init<Content: View>(
         title: String,
@@ -170,9 +197,19 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         window?.makeKeyAndOrderFront(nil)
     }
 
+    func requestClose(completion: @escaping (Bool) -> Void) {
+        guard pendingCloseCompletion == nil, let window else {
+            completion(false)
+            return
+        }
+        pendingCloseCompletion = completion
+        window.performClose(nil)
+    }
+
     func windowDidBecomeKey(_ notification: Notification) {
         commandContext.setKeyWindow(true)
         commandContext.requestAccessibilityFocus()
+        ExternalMediaOpenCoordinator.shared.activate(controller: commandContext.controller)
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -191,13 +228,21 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
             guard let self, let sender else { return }
             switch response {
             case .alertFirstButtonReturn:
-                guard self.commandContext.performUpdate() else { return }
+                guard self.commandContext.performUpdate() else {
+                    let completion = self.pendingCloseCompletion
+                    self.pendingCloseCompletion = nil
+                    completion?(false)
+                    return
+                }
                 self.closeWasConfirmed = true
                 sender.performClose(nil)
             case .alertSecondButtonReturn:
                 self.closeWasConfirmed = true
                 sender.performClose(nil)
             default:
+                let completion = self.pendingCloseCompletion
+                self.pendingCloseCompletion = nil
+                completion?(false)
                 break
             }
         }
@@ -206,8 +251,11 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
 
     func windowWillClose(_ notification: Notification) {
         commandContext.setKeyWindow(false)
+        let completion = pendingCloseCompletion
+        pendingCloseCompletion = nil
         onClose?()
         onClose = nil
+        completion?(true)
     }
 }
 

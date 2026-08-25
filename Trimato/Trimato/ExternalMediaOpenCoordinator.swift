@@ -18,6 +18,7 @@ final class ExternalMediaOpenCoordinator {
     }
 
     private var registrations: [ObjectIdentifier: ProjectRegistration] = [:]
+    private var activationOrder: [ObjectIdentifier] = []
 
     nonisolated static func route(for url: URL, hasActiveProject: Bool) -> ExternalMediaOpenRoute {
         guard url.isFileURL,
@@ -34,27 +35,37 @@ final class ExternalMediaOpenCoordinator {
             controller: controller,
             openClipEditor: openClipEditor
         )
+        if activationOrder.isEmpty { activate(controller: controller) }
         removeExpiredRegistrations()
     }
 
     func unregister(controller: ProjectController) {
-        registrations[ObjectIdentifier(controller)] = nil
+        let identifier = ObjectIdentifier(controller)
+        registrations[identifier] = nil
+        activationOrder.removeAll { $0 == identifier }
+    }
+
+    func activate(controller: ProjectController) {
+        let identifier = ObjectIdentifier(controller)
+        guard registrations[identifier]?.controller != nil else { return }
+        activationOrder.removeAll { $0 == identifier }
+        activationOrder.append(identifier)
     }
 
     func handle(
         _ url: URL,
-        activeProject: ProjectController?,
         openStandalone: @escaping (URL) -> Void
     ) {
+        removeExpiredRegistrations()
+        let activeRegistration = activationOrder.last.flatMap { registrations[$0] }
+        let activeProject = activeRegistration?.controller
         switch Self.route(for: url, hasActiveProject: activeProject != nil) {
         case .ignore:
             return
         case .standaloneEditor:
             openStandalone(url)
         case .activeProject:
-            guard let activeProject,
-                  let registration = registrations[ObjectIdentifier(activeProject)],
-                  registration.controller != nil else {
+            guard let activeProject else {
                 openStandalone(url)
                 return
             }
@@ -75,18 +86,17 @@ final class ExternalMediaOpenCoordinator {
 
     private func removeExpiredRegistrations() {
         registrations = registrations.filter { $0.value.controller != nil }
+        activationOrder.removeAll { registrations[$0] == nil }
     }
 }
 
 struct ExternalMediaOpenHandler: ViewModifier {
-    @FocusedObject private var activeProject: ProjectController?
     @Environment(\.openWindow) private var openWindow
 
     func body(content: Content) -> some View {
         content.onOpenURL { url in
             ExternalMediaOpenCoordinator.shared.handle(
                 url,
-                activeProject: activeProject,
                 openStandalone: { openWindow(value: $0) }
             )
         }

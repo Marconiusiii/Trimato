@@ -9,24 +9,33 @@ final class ProjectDocument: ReferenceFileDocument {
     static var readableContentTypes: [UTType] { [.trimatoProject] }
     static var writableContentTypes: [UTType] { [.trimatoProject] }
 
-    @Published var project: TrimatoProject {
-        didSet {
-            hasUnsavedChanges = project != explicitlySavedProject
+    let objectWillChange = ObservableObjectPublisher()
+    private var storedProject: TrimatoProject
+    var project: TrimatoProject {
+        get { storedProject }
+        set {
+            objectWillChange.send()
+            storedProject = newValue
+            setHasUnsavedChanges(newValue != explicitlySavedProject)
         }
     }
-    @Published private(set) var hasUnsavedChanges = false
+    private(set) var hasUnsavedChanges = false
+    let unsavedChangesDidChange: CurrentValueSubject<Bool, Never>
 
     private var explicitlySavedProject: TrimatoProject
 
-    init(project: TrimatoProject = TrimatoProject()) {
-        self.project = project
-        explicitlySavedProject = project
+    init(project: TrimatoProject = TrimatoProject(), isExplicitlySaved: Bool = true) {
+        storedProject = project
+        explicitlySavedProject = isExplicitlySaved ? project : TrimatoProject()
+        hasUnsavedChanges = !isExplicitlySaved
+        unsavedChangesDidChange = CurrentValueSubject(!isExplicitlySaved)
     }
 
     required init(configuration: ReadConfiguration) throws {
         let decoded = try Self.decodeProject(from: configuration.file)
-        project = decoded
+        storedProject = decoded
         explicitlySavedProject = decoded
+        unsavedChangesDidChange = CurrentValueSubject(false)
     }
 
     static func decodeProject(from wrapper: FileWrapper) throws -> TrimatoProject {
@@ -70,14 +79,14 @@ final class ProjectDocument: ReferenceFileDocument {
 
     func markCurrentProjectAsExplicitlySaved() {
         explicitlySavedProject = project
-        hasUnsavedChanges = false
+        setHasUnsavedChanges(false)
     }
 
     @discardableResult
     func restoreExplicitlySavedProject() -> TrimatoProject {
         let discardedProject = project
         project = explicitlySavedProject
-        hasUnsavedChanges = false
+        setHasUnsavedChanges(false)
         return discardedProject
     }
 
@@ -98,12 +107,18 @@ final class ProjectDocument: ReferenceFileDocument {
             project.media[index].sourceFingerprint = sourceFingerprint
         }
 
-        var liveProject = project
+        var liveProject = storedProject
         var savedProject = explicitlySavedProject
         update(&liveProject)
         update(&savedProject)
         explicitlySavedProject = savedProject
-        project = liveProject
-        hasUnsavedChanges = liveProject != savedProject
+        storedProject = liveProject
+        setHasUnsavedChanges(liveProject != savedProject)
+    }
+
+    private func setHasUnsavedChanges(_ newValue: Bool) {
+        guard hasUnsavedChanges != newValue else { return }
+        hasUnsavedChanges = newValue
+        unsavedChangesDidChange.send(newValue)
     }
 }

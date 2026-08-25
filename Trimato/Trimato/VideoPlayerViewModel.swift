@@ -3,6 +3,27 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 
+enum StandaloneProjectCreationError: LocalizedError {
+    case clipNotReady
+
+    var errorDescription: String? {
+        "Wait for the clip to finish preparing and set a valid selection before creating a project."
+    }
+}
+
+@MainActor
+enum StandaloneClipProjectBuilder {
+    static func build(
+        asset: MediaAssetRecord,
+        timelineSegments: [SourceSegment]
+    ) throws -> TrimatoProject {
+        var project = TrimatoProject(name: "\(asset.name) Project")
+        project.media.append(asset)
+        _ = try project.append(asset: asset, segments: timelineSegments)
+        return project
+    }
+}
+
 final class VideoPlayerViewModel: ObservableObject {
     struct TimelinePoint: Equatable {
         enum Kind: Int, Equatable {
@@ -124,6 +145,73 @@ final class VideoPlayerViewModel: ObservableObject {
     var canDeleteSelection: Bool {
         Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil &&
             hasVideo && !isExporting && !isApplyingEdit
+    }
+
+    var canCreateProjectFromClip: Bool {
+        hasVideo && !isLoadingMedia && !isExporting && !isApplyingEdit && !placementSourceSegments.isEmpty
+    }
+
+    func makeProjectFromCurrentClip() async throws -> TrimatoProject {
+        guard canCreateProjectFromClip, let mediaSource else {
+            throw StandaloneProjectCreationError.clipNotReady
+        }
+
+        let originalURL = mediaSource.originalURL
+        let originalAsset = mediaSource.originalAsset
+        let duration = try await originalAsset.load(.duration)
+        guard duration.isValid, duration.isNumeric, duration > .zero,
+              let videoTrack = try await originalAsset.loadTracks(withMediaType: .video).first else {
+            throw MediaSourceError.noVideoTrack
+        }
+        let naturalSize = try await videoTrack.load(.naturalSize)
+        let transform = try await videoTrack.load(.preferredTransform)
+        let displayedSize = naturalSize.applying(transform)
+        let sourceFrameRate = try await videoTrack.load(.nominalFrameRate)
+        let fingerprint = try MediaCacheManager.sourceFingerprint(for: originalURL)
+        let bookmark = try? originalURL.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: [.fileResourceIdentifierKey],
+            relativeTo: nil
+        )
+
+        let playbackMode: ProjectMediaPlaybackMode
+        let proxyCacheKey: UUID?
+        switch mediaSource.mode {
+        case .nativePassthrough:
+            playbackMode = .nativePassthrough
+            proxyCacheKey = nil
+        case .nativePlaybackMP4Export:
+            playbackMode = .nativeMP4Export
+            proxyCacheKey = nil
+        case .proxyPlaybackMP4Export:
+            let cacheKey = UUID()
+            _ = try await MediaCacheManager.shared.adoptProxy(
+                at: mediaSource.playbackURL,
+                cacheKey: cacheKey,
+                fingerprint: fingerprint
+            )
+            playbackMode = .cachedProxy
+            proxyCacheKey = cacheKey
+        }
+
+        let asset = MediaAssetRecord(
+            name: originalURL.deletingPathExtension().lastPathComponent,
+            originalPath: originalURL.path,
+            bookmarkData: bookmark,
+            duration: ProjectTime(duration),
+            naturalWidth: Int(abs(displayedSize.width.rounded())),
+            naturalHeight: Int(abs(displayedSize.height.rounded())),
+            frameRate: sourceFrameRate > 0 ? Double(sourceFrameRate) : nil,
+            hasAudio: mediaSource.hasAudio,
+            sourceEdit: projectSourceSegments,
+            playbackMode: playbackMode,
+            proxyCacheKey: proxyCacheKey,
+            sourceFingerprint: fingerprint
+        )
+        return try StandaloneClipProjectBuilder.build(
+            asset: asset,
+            timelineSegments: placementSourceSegments
+        )
     }
 
     var canTrimStart: Bool {

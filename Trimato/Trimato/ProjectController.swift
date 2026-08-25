@@ -34,6 +34,7 @@ final class ProjectController: ObservableObject {
     private var exportTask: Task<Void, Never>?
     private weak var projectSaveCoordinator: ProjectWindowSaveCoordinator?
     private weak var projectPlayer: ProjectPlayerViewModel?
+    private var closeProjectAction: (() -> Void)?
     private let cacheOwnerID = UUID()
 
     init(document: ProjectDocument) {
@@ -71,6 +72,14 @@ final class ProjectController: ObservableObject {
 
     func installProjectPlayer(_ player: ProjectPlayerViewModel) {
         projectPlayer = player
+    }
+
+    func installCloseProjectAction(_ action: @escaping () -> Void) {
+        closeProjectAction = action
+    }
+
+    func closeProject() {
+        closeProjectAction?()
     }
 
     var canExportProject: Bool {
