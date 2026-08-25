@@ -3,13 +3,10 @@ import SwiftUI
 
 struct EditorWorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var controller: ProjectController
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var returnsToLauncherOnClose = false
-    @State private var hasRequestedInitialEditorFocus = false
-    @State private var editorFocusRequest = 0
 
     init(document: ProjectDocument) {
         let controller = ProjectController(document: document)
@@ -21,41 +18,36 @@ struct EditorWorkspaceView: View {
     }
 
     var body: some View {
-        VStack(spacing: 1) {
-            HStack(spacing: 1) {
-                MacEditorPane("Project Source") {
-                    ProjectBrowserView(
-                        controller: controller,
-                        openClipEditor: clipEditorWindows.open
-                    )
-                }
-                .frame(width: sourceWidth)
+        HSplitView {
+            MacEditorPane("Project Source") {
+                ProjectBrowserView(
+                    controller: controller,
+                    openClipEditor: clipEditorWindows.open
+                )
+            }
+                .frame(minWidth: 210, idealWidth: 260, maxWidth: 360)
 
-                MacEditorPane("Editor", accessibilityFocusRequest: editorFocusRequest) {
+            VSplitView {
+                MacEditorPane("Editor") {
                     ProjectViewerView(controller: controller)
-                        .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
-                .layoutPriority(1)
-            }
-            .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
-            .layoutPriority(1)
+                .frame(minHeight: 360)
 
-            HStack(spacing: 1) {
-                MacEditorPane("Project Timeline") {
-                    ProjectTimelineView(
-                        controller: controller,
-                        openClipEditor: clipEditorWindows.open
-                    )
+                HSplitView {
+                    MacEditorPane("Project Timeline") {
+                        ProjectTimelineView(
+                            controller: controller,
+                            openClipEditor: clipEditorWindows.open
+                        )
+                    }
+                        .frame(minWidth: 460)
+                    MacEditorPane("Inspector") {
+                        ClipInspectorView(controller: controller)
+                    }
+                        .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                MacEditorPane("Inspector") {
-                    ClipInspectorView(controller: controller)
-                }
-                .frame(width: inspectorWidth)
+                .frame(minHeight: 240)
             }
-            .frame(height: lowerBandHeight)
         }
         .frame(minWidth: 1_020, minHeight: 720)
         .background(EditorTheme.workspace)
@@ -75,9 +67,6 @@ struct EditorWorkspaceView: View {
             projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
                 guard let controller else { return }
                 ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-                if !controller.isShowingProjectSettings, !hasRequestedInitialEditorFocus {
-                    requestEditorFocus()
-                }
             }
             controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] in
                 clipEditorWindows?.requestCloseAll { didClose in
@@ -88,9 +77,6 @@ struct EditorWorkspaceView: View {
                 }
             }
             NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
-        }
-        .onChange(of: controller.isShowingProjectSettings) { isShowing in
-            if !isShowing { requestEditorFocus() }
         }
         .onDisappear {
             ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
@@ -112,28 +98,10 @@ struct EditorWorkspaceView: View {
         }
     }
 
-    private var sourceWidth: CGFloat {
-        dynamicTypeSize.isAccessibilitySize ? 340 : 280
-    }
-
-    private var inspectorWidth: CGFloat {
-        dynamicTypeSize.isAccessibilitySize ? 340 : 280
-    }
-
-    private var lowerBandHeight: CGFloat {
-        dynamicTypeSize.isAccessibilitySize ? 320 : 280
-    }
-
-    private func requestEditorFocus() {
-        hasRequestedInitialEditorFocus = true
-        editorFocusRequest += 1
-    }
-
 }
 
 private struct ProjectViewerView: View {
     @ObservedObject var controller: ProjectController
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var viewModel = ProjectPlayerViewModel()
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
 
@@ -201,8 +169,7 @@ private struct ProjectViewerView: View {
     }
 
     private var controlsArea: some View {
-        ScrollView {
-            VStack(spacing: 10) {
+        VStack(spacing: 10) {
             if viewModel.duration > .zero {
                 Slider(
                     value: Binding(
@@ -239,55 +206,29 @@ private struct ProjectViewerView: View {
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
 
-                ViewThatFits(in: .horizontal) {
-                    HStack {
-                        Button("Mark In") { viewModel.markIn() }
-                        Text("In: \(viewModel.inMarkerDisplay)")
-                            .monospacedDigit()
-                        Button("Clear In") { viewModel.clearIn() }
-                            .disabled(viewModel.inMarker == nil)
-                    }
-                    VStack(alignment: .leading) {
-                        Button("Mark In") { viewModel.markIn() }
-                        Text("In: \(viewModel.inMarkerDisplay)")
-                            .monospacedDigit()
-                        Button("Clear In") { viewModel.clearIn() }
-                            .disabled(viewModel.inMarker == nil)
-                    }
+                HStack {
+                    Button("Mark In") { viewModel.markIn() }
+                    Text("In: \(viewModel.inMarkerDisplay)")
+                        .monospacedDigit()
+                    Button("Clear In") { viewModel.clearIn() }
+                        .disabled(viewModel.inMarker == nil)
                 }
-                ViewThatFits(in: .horizontal) {
-                    HStack {
-                        Button("Mark Out") { viewModel.markOut() }
-                        Text("Out: \(viewModel.outMarkerDisplay)")
-                            .monospacedDigit()
-                        Button("Clear Out") { viewModel.clearOut() }
-                            .disabled(viewModel.outMarker == nil)
-                    }
-                    VStack(alignment: .leading) {
-                        Button("Mark Out") { viewModel.markOut() }
-                        Text("Out: \(viewModel.outMarkerDisplay)")
-                            .monospacedDigit()
-                        Button("Clear Out") { viewModel.clearOut() }
-                            .disabled(viewModel.outMarker == nil)
-                    }
+                HStack {
+                    Button("Mark Out") { viewModel.markOut() }
+                    Text("Out: \(viewModel.outMarkerDisplay)")
+                        .monospacedDigit()
+                    Button("Clear Out") { viewModel.clearOut() }
+                        .disabled(viewModel.outMarker == nil)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(!viewModel.canControlPlayback)
 
-            ViewThatFits(in: .horizontal) {
-                HStack {
-                    Button("Start") { viewModel.goToStart() }
-                    Button("Previous Point") { viewModel.goToPreviousEdit() }
-                    Button("Next Point") { viewModel.goToNextEdit() }
-                    Button("End") { viewModel.goToEnd() }
-                }
-                VStack(alignment: .leading) {
-                    Button("Start") { viewModel.goToStart() }
-                    Button("Previous Point") { viewModel.goToPreviousEdit() }
-                    Button("Next Point") { viewModel.goToNextEdit() }
-                    Button("End") { viewModel.goToEnd() }
-                }
+            HStack {
+                Button("Start") { viewModel.goToStart() }
+                Button("Previous Point") { viewModel.goToPreviousEdit() }
+                Button("Next Point") { viewModel.goToNextEdit() }
+                Button("End") { viewModel.goToEnd() }
             }
             .disabled(!viewModel.canControlPlayback)
 
@@ -348,12 +289,10 @@ private struct ProjectViewerView: View {
                         .accessibilityHidden(true)
                 }
             }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 14)
         }
-        .frame(maxHeight: dynamicTypeSize.isAccessibilitySize ? 300 : 240)
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
         .background(EditorTheme.controlSurface)
     }
 }
