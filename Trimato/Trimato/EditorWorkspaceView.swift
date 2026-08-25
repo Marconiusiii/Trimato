@@ -392,12 +392,20 @@ private struct ProjectViewerView: View {
             .disabled(!viewModel.canControlPlayback)
 
             if controller.isExporting {
-                if let progress = controller.exportProgress {
-                    ProgressView(value: progress) { Text("Exporting Project") }
-                        .accessibilityHidden(true)
-                } else {
-                    ProgressView("Exporting Project")
-                        .accessibilityHidden(true)
+                HStack {
+                    if let progress = controller.exportProgress {
+                        ProgressView(value: progress) {
+                            Text("Exporting project")
+                        }
+                        .accessibilityLabel("Export progress")
+                        .accessibilityValue(exportAccessibilityValue(progress))
+                    } else {
+                        ProgressView("Exporting project")
+                            .accessibilityLabel("Export progress")
+                            .accessibilityValue("In progress")
+                    }
+                    Button("Cancel Export") { controller.cancelExport() }
+                        .accessibilityIdentifier("trimato.editor.cancel-export")
                 }
             }
         }
@@ -405,5 +413,11 @@ private struct ProjectViewerView: View {
         .padding(.top, 12)
         .padding(.bottom, 14)
         .background(EditorTheme.controlSurface)
+    }
+
+    private func exportAccessibilityValue(_ progress: Double) -> String {
+        let bounded = min(max(progress, 0), 1)
+        let percentage = min(Int(bounded * 20) * 5, 100)
+        return "\(percentage) percent"
     }
 }

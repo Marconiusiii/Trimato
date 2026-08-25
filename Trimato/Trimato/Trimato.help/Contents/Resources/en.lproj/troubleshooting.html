@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="description" content="Relink offline media, correct marker ranges, clear cached media, and report Trimato problems.">
+    <title>Resolve common problems</title>
+    <link rel="stylesheet" href="trimato-help.css">
+</head>
+<body>
+<header><p><a href="index.html">Trimato Help</a></p></header>
+<main>
+    <h1>Resolve common problems</h1>
+
+    <h2>A clip is offline</h2>
+    <ol>
+        <li>Select the source clip in Project.</li>
+        <li>Choose Relink Clip from Actions or activate Relink Media in Inspector.</li>
+        <li>Select the source file and activate Open.</li>
+    </ol>
+
+    <h2>Export Project is unavailable</h2>
+    <ul>
+        <li>Add at least one clip to the timeline.</li>
+        <li>Set both In and Out points with In earlier than Out, or clear both points.</li>
+        <li>Wait for the current export to finish or cancel it.</li>
+    </ul>
+
+    <h2>A project cannot export offline media</h2>
+    <p>Relink every offline source used by the timeline, then choose Export Project again.</p>
+
+    <h2>Blade at playhead is unavailable</h2>
+    <p>Move the project playhead inside a timeline clip, away from its beginning or end, then activate Blade at playhead again.</p>
+
+    <h2>A cutaway cannot be added</h2>
+    <ul>
+        <li>Move the project playhead so the complete cutaway fits before the project end.</li>
+        <li>Choose a position that does not overlap another cutaway.</li>
+    </ul>
+
+    <h2>Clear the media cache</h2>
+    <ol>
+        <li>Open Trimato Settings.</li>
+        <li>Choose Clear Unused Media Cache or Clear All Media Cache.</li>
+        <li>Confirm the action.</li>
+    </ol>
+    <p>These commands leave original media and Trimato projects unchanged.</p>
+
+    <h2>Report a problem</h2>
+    <p>Include the Trimato version, macOS version, media file type, assistive technology, selected item, focused control, command used, expected result, and actual result.</p>
+</main>
+<footer><p><a href="index.html">Return to Trimato Help</a></p></footer>
+</body>
+</html>

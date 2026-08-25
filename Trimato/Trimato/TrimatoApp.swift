@@ -54,23 +54,15 @@ struct TrimatoApp: App {
                 }
                 .disabled(projectController == nil && clipPlacement == nil)
                 Divider()
-                Button(viewModel?.hasVideo == true ? "Export Clip\u{2026}" : "Export Project\u{2026}") {
-                    if viewModel?.hasVideo == true {
-                        viewModel?.exportTrimmedClip()
-                    } else {
-                        projectController?.exportProject()
-                    }
+                Button("Export Project\u{2026}") {
+                    (projectController ?? clipPlacement?.controller)?.exportProject()
                 }
                 .keyboardShortcut("e", modifiers: .command)
-                .disabled(
-                    viewModel?.hasVideo == true
-                        ? viewModel?.canExport != true
-                        : projectController?.canExportProject != true
-                )
-                if viewModel?.isExporting == true {
-                    Button("Cancel Clip Export") { viewModel?.cancelExport() }
-                } else if projectController?.isExporting == true {
-                    Button("Cancel Project Export") { projectController?.cancelExport() }
+                .disabled((projectController ?? clipPlacement?.controller)?.canExportProject != true)
+                if (projectController ?? clipPlacement?.controller)?.isExporting == true {
+                    Button("Cancel Project Export") {
+                        (projectController ?? clipPlacement?.controller)?.cancelExport()
+                    }
                 }
             }
             CommandGroup(after: .pasteboard) {

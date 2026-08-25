@@ -1,0 +1,75 @@
+:root {
+    color-scheme: light dark;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    line-height: 1.55;
+}
+
+body {
+    margin: 0 auto;
+    max-width: 48rem;
+    padding: 1.5rem;
+}
+
+header,
+footer {
+    border-color: CanvasText;
+    border-style: solid;
+    border-width: 0;
+}
+
+header {
+    border-bottom-width: 1px;
+    margin-bottom: 1.5rem;
+}
+
+footer {
+    border-top-width: 1px;
+    margin-top: 2rem;
+    padding-top: 1rem;
+}
+
+h1,
+h2,
+h3 {
+    line-height: 1.25;
+}
+
+h2 {
+    margin-top: 1.75rem;
+}
+
+li + li {
+    margin-top: 0.45rem;
+}
+
+a {
+    color: LinkText;
+}
+
+kbd {
+    border: 1px solid GrayText;
+    border-radius: 0.25rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 0.05rem 0.3rem;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+th,
+td {
+    border-bottom: 1px solid GrayText;
+    padding: 0.55rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.summary {
+    font-size: 1.1rem;
+}
+
+.topic-list {
+    padding-left: 1.4rem;
+}
