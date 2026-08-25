@@ -9,7 +9,7 @@ struct EditorWorkspaceView: View {
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var returnsToLauncherOnClose = false
     @State private var hasRequestedInitialEditorFocus = false
-    @AccessibilityFocusState private var editorPaneFocused: Bool
+    @State private var editorFocusRequest = 0
 
     init(document: ProjectDocument) {
         let controller = ProjectController(document: document)
@@ -21,41 +21,41 @@ struct EditorWorkspaceView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 1) {
-                HStack(spacing: 1) {
-                    MacEditorPane("Project Source") {
-                        ProjectBrowserView(
-                            controller: controller,
-                            openClipEditor: clipEditorWindows.open
-                        )
-                    }
-                    .frame(width: sourceWidth(for: geometry.size.width))
-
-                    MacEditorPane("Editor") {
-                        ProjectViewerView(controller: controller)
-                    }
-                    .accessibilityFocused($editorPaneFocused)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 1) {
+            HStack(spacing: 1) {
+                MacEditorPane("Project Source") {
+                    ProjectBrowserView(
+                        controller: controller,
+                        openClipEditor: clipEditorWindows.open
+                    )
                 }
-                .frame(height: upperBandHeight(for: geometry.size.height))
+                .frame(width: sourceWidth)
 
-                HStack(spacing: 1) {
-                    MacEditorPane("Project Timeline") {
-                        ProjectTimelineView(
-                            controller: controller,
-                            openClipEditor: clipEditorWindows.open
-                        )
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    MacEditorPane("Inspector") {
-                        ClipInspectorView(controller: controller)
-                    }
-                    .frame(width: inspectorWidth(for: geometry.size.width))
+                MacEditorPane("Editor", accessibilityFocusRequest: editorFocusRequest) {
+                    ProjectViewerView(controller: controller)
+                        .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
                 }
-                .frame(maxHeight: .infinity)
+                .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
+                .layoutPriority(1)
             }
+            .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
+            .layoutPriority(1)
+
+            HStack(spacing: 1) {
+                MacEditorPane("Project Timeline") {
+                    ProjectTimelineView(
+                        controller: controller,
+                        openClipEditor: clipEditorWindows.open
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                MacEditorPane("Inspector") {
+                    ClipInspectorView(controller: controller)
+                }
+                .frame(width: inspectorWidth)
+            }
+            .frame(height: lowerBandHeight)
         }
         .frame(minWidth: 1_020, minHeight: 720)
         .background(EditorTheme.workspace)
@@ -112,27 +112,21 @@ struct EditorWorkspaceView: View {
         }
     }
 
-    private func sourceWidth(for totalWidth: CGFloat) -> CGFloat {
-        min(max(totalWidth * (dynamicTypeSize.isAccessibilitySize ? 0.28 : 0.23), 240), 380)
+    private var sourceWidth: CGFloat {
+        dynamicTypeSize.isAccessibilitySize ? 340 : 280
     }
 
-    private func inspectorWidth(for totalWidth: CGFloat) -> CGFloat {
-        min(max(totalWidth * (dynamicTypeSize.isAccessibilitySize ? 0.27 : 0.21), 240), 360)
+    private var inspectorWidth: CGFloat {
+        dynamicTypeSize.isAccessibilitySize ? 340 : 280
     }
 
-    private func upperBandHeight(for totalHeight: CGFloat) -> CGFloat {
-        totalHeight * (dynamicTypeSize.isAccessibilitySize ? 0.60 : 0.68)
+    private var lowerBandHeight: CGFloat {
+        dynamicTypeSize.isAccessibilitySize ? 320 : 280
     }
 
     private func requestEditorFocus() {
         hasRequestedInitialEditorFocus = true
-        editorPaneFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            editorPaneFocused = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            editorPaneFocused = true
-        }
+        editorFocusRequest += 1
     }
 
 }
