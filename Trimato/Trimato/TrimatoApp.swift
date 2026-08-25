@@ -32,6 +32,11 @@ struct TrimatoApp: App {
                     .disabled(projectController == nil || projectController?.isImporting == true)
             }
             CommandGroup(after: .saveItem) {
+                Button("Project Settings\u{2026}") {
+                    (projectController ?? clipPlacement?.controller)?.showProjectSettings()
+                }
+                .disabled(projectController == nil && clipPlacement == nil)
+                Divider()
                 Button(viewModel?.hasVideo == true ? "Export Clip\u{2026}" : "Export Project\u{2026}") {
                     if viewModel?.hasVideo == true {
                         viewModel?.exportTrimmedClip()

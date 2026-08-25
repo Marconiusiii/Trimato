@@ -32,4 +32,24 @@ struct ProjectPlaybackTests {
     @Test func emptyProjectHasOnePlaybackBoundary() {
         #expect(ProjectPlayerViewModel.editPoints(in: TrimatoProject()) == [.zero])
     }
+
+    @Test func accessibilityTimecodeUsesSpokenTimeComponents() {
+        let label = ProjectPlayerViewModel.accessibilityTimeLabel(
+            time: ProjectTime(seconds: 3_661.042),
+            showingFrames: false,
+            frameRate: 30
+        )
+
+        #expect(label == "1 hour, 1 minute, 1 second, 42 milliseconds")
+    }
+
+    @Test func frameDisplayUsesTheProjectFrameRate() {
+        let label = ProjectPlayerViewModel.accessibilityTimeLabel(
+            time: ProjectTime(seconds: 1.5),
+            showingFrames: true,
+            frameRate: 30
+        )
+
+        #expect(label == "Frame 45")
+    }
 }

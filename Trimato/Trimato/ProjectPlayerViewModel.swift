@@ -9,8 +9,18 @@ final class ProjectPlayerViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime = ProjectTime.zero
+    @Published private(set) var currentFrame = 0
+    @Published private(set) var displayTimecode = "00:00:00.000"
+    @Published private(set) var accessibilityTimecodeLabel = "0 seconds, 0 milliseconds"
+    @Published private(set) var showingFrames = false
+    @Published private(set) var playbackRate: Float = 0
 
     var canControlPlayback: Bool { player.currentItem != nil && !isPreparing }
+    var duration: ProjectTime { projectDuration }
+    var playbackFraction: Double {
+        guard projectDuration > .zero else { return 0 }
+        return min(max(currentTime.seconds / projectDuration.seconds, 0), 1)
+    }
 
     private var buildTask: Task<Void, Never>?
     private var rateObserver: AnyCancellable?
@@ -27,13 +37,18 @@ final class ProjectPlayerViewModel: ObservableObject {
         player.automaticallyWaitsToMinimizeStalling = false
         rateObserver = player.publisher(for: \.rate)
             .receive(on: RunLoop.main)
-            .sink { [weak self] rate in self?.isPlaying = rate != 0 }
+            .sink { [weak self] rate in
+                guard let self else { return }
+                self.isPlaying = rate != 0
+                self.playbackRate = rate
+                if rate == 0 { self.refreshAccessibilityTimecode() }
+            }
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
             MainActor.assumeIsolated {
-                self?.currentTime = ProjectTime(time)
+                self?.updateDisplayedTime(ProjectTime(time))
             }
         }
     }
@@ -51,6 +66,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         arrowHolding = false
         projectDuration = project.duration
         projectFrameRate = max(project.format.frameRate ?? 30, 1)
+        updateDisplayedTime(.zero)
         editPoints = Self.editPoints(in: project)
         removeTemporaryMedia()
         guard !project.primaryTimeline.isEmpty else {
@@ -96,6 +112,16 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func seek(to time: ProjectTime) {
         seekPrecisely(to: time)
+    }
+
+    func seek(toFraction fraction: Double) {
+        guard projectDuration > .zero else { return }
+        seekPrecisely(to: ProjectTime(seconds: min(max(fraction, 0), 1) * projectDuration.seconds))
+    }
+
+    func toggleTimecodeDisplay() {
+        showingFrames.toggle()
+        refreshAccessibilityTimecode()
     }
 
     func pressJ() {
@@ -198,7 +224,45 @@ final class ProjectPlayerViewModel: ObservableObject {
     private func seekPrecisely(to time: ProjectTime) {
         let bounded = min(max(time, .zero), projectDuration)
         player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        currentTime = bounded
+        updateDisplayedTime(bounded)
+    }
+
+    private func updateDisplayedTime(_ time: ProjectTime) {
+        currentTime = time
+        currentFrame = max(Int((time.seconds * projectFrameRate).rounded(.towardZero)), 0)
+        displayTimecode = ProjectTimecodeFormatter.string(time)
+        if !isPlaying { refreshAccessibilityTimecode() }
+    }
+
+    private func refreshAccessibilityTimecode() {
+        accessibilityTimecodeLabel = Self.accessibilityTimeLabel(
+            time: currentTime,
+            showingFrames: showingFrames,
+            frameRate: projectFrameRate
+        )
+    }
+
+    nonisolated static func accessibilityTimeLabel(
+        time: ProjectTime,
+        showingFrames: Bool,
+        frameRate: Double
+    ) -> String {
+        if showingFrames {
+            let frame = max(Int((time.seconds * max(frameRate, 1)).rounded(.towardZero)), 0)
+            return "Frame \(frame)"
+        }
+
+        let milliseconds = max(Int((time.seconds * 1_000).rounded()), 0)
+        let hours = milliseconds / 3_600_000
+        let minutes = (milliseconds / 60_000) % 60
+        let seconds = (milliseconds / 1_000) % 60
+        let remainder = milliseconds % 1_000
+        var components: [String] = []
+        if hours > 0 { components.append("\(hours) hour\(hours == 1 ? "" : "s")") }
+        if minutes > 0 { components.append("\(minutes) minute\(minutes == 1 ? "" : "s")") }
+        components.append("\(seconds) second\(seconds == 1 ? "" : "s")")
+        components.append("\(remainder) millisecond\(remainder == 1 ? "" : "s")")
+        return components.joined(separator: ", ")
     }
 
     nonisolated static func editPoints(in project: TrimatoProject) -> [ProjectTime] {
