@@ -71,6 +71,18 @@ struct ContentView: View {
                 cancel: viewModel.cancelMediaLoad
             )
         }
+        .sheet(isPresented: Binding(
+            get: { viewModel.isExporting },
+            set: { presented in
+                if !presented, viewModel.isExporting { viewModel.cancelExport() }
+            }
+        )) {
+            ExportProgressSheet(
+                title: "Exporting Clip",
+                progress: viewModel.exportProgress,
+                cancel: viewModel.cancelExport
+            )
+        }
         .onDisappear {
             viewModel.closeMedia()
         }
@@ -215,18 +227,7 @@ struct ContentView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!viewModel.canExport)
 
-            if viewModel.isExporting {
-                HStack {
-                    if let progress = viewModel.exportProgress {
-                        ProgressView(value: progress) {
-                            Text("Exporting clip")
-                        }
-                    } else {
-                        ProgressView("Exporting clip")
-                    }
-                    Button("Cancel Export") { viewModel.cancelExport() }
-                }
-            } else if let exportStatus = viewModel.exportStatus {
+            if !viewModel.isExporting, let exportStatus = viewModel.exportStatus {
                 Text(exportStatus)
                     .font(.caption)
                     .foregroundStyle(.secondary)

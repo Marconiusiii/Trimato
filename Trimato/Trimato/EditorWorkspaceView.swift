@@ -109,6 +109,18 @@ struct EditorWorkspaceView: View {
                 controller.isShowingProjectSettings = false
             }
         }
+        .sheet(isPresented: Binding(
+            get: { controller.isExporting },
+            set: { presented in
+                if !presented, controller.isExporting { controller.cancelExport() }
+            }
+        )) {
+            ExportProgressSheet(
+                title: "Exporting Project",
+                progress: controller.exportProgress,
+                cancel: controller.cancelExport
+            )
+        }
         .alert(item: $controller.presentedError) { error in
             Alert(
                 title: Text(error.title),
@@ -368,33 +380,10 @@ private struct ProjectViewerView: View {
             .foregroundStyle(EditorTheme.accent)
             .disabled(!viewModel.canControlPlayback)
 
-            if controller.isExporting {
-                HStack {
-                    if let progress = controller.exportProgress {
-                        ProgressView(value: progress) {
-                            Text("Exporting project")
-                        }
-                        .accessibilityLabel("Export progress")
-                        .accessibilityValue(exportAccessibilityValue(progress))
-                    } else {
-                        ProgressView("Exporting project")
-                            .accessibilityLabel("Export progress")
-                            .accessibilityValue("In progress")
-                    }
-                    Button("Cancel Export") { controller.cancelExport() }
-                        .accessibilityIdentifier("trimato.editor.cancel-export")
-                }
-            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 14)
         .background(EditorTheme.controlSurface)
-    }
-
-    private func exportAccessibilityValue(_ progress: Double) -> String {
-        let bounded = min(max(progress, 0), 1)
-        let percentage = min(Int(bounded * 20) * 5, 100)
-        return "\(percentage) percent"
     }
 }

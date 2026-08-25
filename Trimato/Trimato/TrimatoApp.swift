@@ -8,6 +8,10 @@ struct TrimatoApp: App {
     @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
     @Environment(\.openWindow) private var openWindow
 
+    init() {
+        ExportNotificationCenter.requestAuthorizationIfNeeded()
+    }
+
     var body: some Scene {
         Window("Trimato", id: "project-launcher") {
             ProjectLauncherView()

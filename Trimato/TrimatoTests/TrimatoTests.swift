@@ -6,11 +6,49 @@
 //
 
 import AVFoundation
+import AppKit
 import Testing
 import UniformTypeIdentifiers
+import UserNotifications
 @testable import Trimato
 
 struct TrimatoTests {
+
+    @Test @MainActor func exportSavePanelUsesOneNativeAccessibleDialog() {
+        let exportPanel = ExportSavePanel(
+            title: "Export Project",
+            baseName: "My Movie",
+            formats: [.h264MP4, .hevcMovie]
+        )
+
+        #expect(exportPanel.panel.title == "Export Project")
+        #expect(exportPanel.panel.prompt == "Export")
+        #expect(exportPanel.panel.nameFieldStringValue == "My Movie.mp4")
+        #expect(exportPanel.formatPicker.accessibilityLabel() == "Format")
+        #expect(exportPanel.formatCaption.isAccessibilityElement() == false)
+
+        exportPanel.formatPicker.selectItem(at: 1)
+        exportPanel.applySelectedFormat()
+
+        #expect(exportPanel.selectedFormat == .hevcMovie)
+        #expect(exportPanel.panel.nameFieldStringValue == "My Movie.mov")
+        #expect(exportPanel.panel.allowedContentTypes == [.quickTimeMovie])
+    }
+
+    @Test func exportProgressUsesRestrainedAccessiblePercentages() {
+        #expect(ExportProgressSheet.accessibilityValue(0.01) == "0 percent")
+        #expect(ExportProgressSheet.accessibilityValue(0.24) == "20 percent")
+        #expect(ExportProgressSheet.accessibilityValue(0.26) == "25 percent")
+        #expect(ExportProgressSheet.accessibilityValue(1) == "100 percent")
+    }
+
+    @Test @MainActor func exportNotificationIdentifiesTheCompletedFile() {
+        let content = ExportNotificationCenter.content(filename: "My Movie.mp4")
+
+        #expect(content.title == "Export complete")
+        #expect(content.body == "Trimato has completed exporting My Movie.mp4.")
+        #expect(content.sound == .default)
+    }
 
     @Test func placementCommandsUseTheApprovedEditorTerminology() {
         #expect(PlacementAction.allCases.map(\.title) == [

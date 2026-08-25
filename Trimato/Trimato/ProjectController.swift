@@ -28,6 +28,7 @@ final class ProjectController: ObservableObject {
     @Published var presentedError: ProjectPresentedError?
     @Published private(set) var isExporting = false
     @Published private(set) var exportProgress: Double?
+    @Published private(set) var isPresentingExportPanel = false
 
     private var cancellables: Set<AnyCancellable> = []
     private var accessedURLs: [URL] = []
@@ -84,6 +85,7 @@ final class ProjectController: ObservableObject {
 
     var canExportProject: Bool {
         !isExporting &&
+            !isPresentingExportPanel &&
             !project.primaryTimeline.isEmpty &&
             (projectPlayer?.hasValidExportSelection ?? true)
     }
@@ -154,16 +156,33 @@ final class ProjectController: ObservableObject {
             cutaway.audioMode == .sourceAudio && project.asset(id: cutaway.assetID)?.hasAudio == true
         }
         let formats = ExportFormat.projectFormats.filter { !$0.isAudioOnly || hasExportableAudio }
-        guard let format = ExportFormatChooser.choose(title: "Export Project", formats: formats) else { return }
+        guard let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        let savePanel = ExportSavePanel(
+            title: "Export Project",
+            baseName: project.name,
+            formats: formats
+        )
+        isPresentingExportPanel = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let selection = await savePanel.selection(parentWindow: parentWindow)
+            self.isPresentingExportPanel = false
+            guard let selection else { return }
+            self.startProjectExport(
+                format: selection.format,
+                outputURL: selection.url,
+                exportRange: exportRange,
+                mediaURLs: urls
+            )
+        }
+    }
 
-        let panel = NSSavePanel()
-        panel.title = "Export Project"
-        panel.allowedContentTypes = [format.contentType]
-        panel.allowsOtherFileTypes = false
-        panel.isExtensionHidden = false
-        panel.nameFieldStringValue = format.filename(for: project.name)
-        guard panel.runModal() == .OK, let outputURL = panel.url else { return }
-
+    private func startProjectExport(
+        format: ExportFormat,
+        outputURL: URL,
+        exportRange: ProjectTimeRange?,
+        mediaURLs: [UUID: URL]
+    ) {
         isExporting = true
         exportProgress = 0
         announce("Export started")
@@ -172,7 +191,7 @@ final class ProjectController: ObservableObject {
             do {
                 try await ProjectExporter.export(
                     project: projectSnapshot,
-                    mediaURLs: urls,
+                    mediaURLs: mediaURLs,
                     timeRange: exportRange,
                     format: format,
                     to: outputURL
@@ -181,6 +200,7 @@ final class ProjectController: ObservableObject {
                 }
                 isExporting = false
                 exportProgress = nil
+                ExportNotificationCenter.postExportCompleted(filename: outputURL.lastPathComponent)
                 announce("Export complete")
             } catch is CancellationError {
                 isExporting = false

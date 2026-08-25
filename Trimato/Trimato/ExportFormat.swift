@@ -77,33 +77,100 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
     }
 }
 
+struct ExportSaveSelection {
+    let format: ExportFormat
+    let url: URL
+}
+
 @MainActor
-enum ExportFormatChooser {
-    static func choose(title: String, formats: [ExportFormat]) -> ExportFormat? {
-        guard !formats.isEmpty else { return nil }
+final class ExportSavePanel: NSObject {
+    let panel = NSSavePanel()
+    let formatPicker = NSPopUpButton(
+        frame: NSRect(x: 0, y: 0, width: 250, height: 28),
+        pullsDown: false
+    )
+    let formatCaption = NSTextField(labelWithString: "Format")
 
-        let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 250, height: 28), pullsDown: false)
-        picker.addItems(withTitles: formats.map(\.title))
-        picker.setAccessibilityLabel("Format")
+    private let formats: [ExportFormat]
+    private let originalExtension: String?
+    private let originalContentType: UTType?
 
-        let label = NSTextField(labelWithString: "Format")
-        label.alignment = .right
-        label.setContentHuggingPriority(.required, for: .horizontal)
+    init(
+        title: String,
+        baseName: String,
+        formats: [ExportFormat],
+        originalExtension: String? = nil,
+        originalContentType: UTType? = nil
+    ) {
+        precondition(!formats.isEmpty)
+        self.formats = formats
+        self.originalExtension = originalExtension
+        self.originalContentType = originalContentType
+        super.init()
 
-        let row = NSStackView(views: [label, picker])
+        panel.title = title
+        panel.prompt = "Export"
+        panel.nameFieldLabel = "Export As:"
+        panel.allowsOtherFileTypes = false
+        panel.isExtensionHidden = false
+
+        formatPicker.addItems(withTitles: formats.map(\.title))
+        formatPicker.setAccessibilityLabel("Format")
+        formatPicker.target = self
+        formatPicker.action = #selector(formatChanged)
+
+        formatCaption.alignment = .right
+        formatCaption.setContentHuggingPriority(.required, for: .horizontal)
+        formatCaption.setAccessibilityElement(false)
+
+        let row = NSStackView(views: [formatCaption, formatPicker])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
         row.frame = NSRect(x: 0, y: 0, width: 330, height: 32)
+        panel.accessoryView = row
 
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = "Choose a format."
-        alert.accessoryView = row
-        alert.addButton(withTitle: "Export")
-        alert.addButton(withTitle: "Cancel")
+        panel.nameFieldStringValue = formats[0].filename(
+            for: baseName,
+            originalExtension: originalExtension
+        )
+        apply(format: formats[0], replacingFilenameExtension: false)
+    }
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-        return formats[picker.indexOfSelectedItem]
+    func selection(parentWindow: NSWindow) async -> ExportSaveSelection? {
+        let response = await panel.beginSheetModal(for: parentWindow)
+        panel.orderOut(nil)
+        guard response == .OK, let url = panel.url else { return nil }
+        return ExportSaveSelection(format: selectedFormat, url: url)
+    }
+
+    var selectedFormat: ExportFormat {
+        formats[formatPicker.indexOfSelectedItem]
+    }
+
+    @objc private func formatChanged() {
+        applySelectedFormat()
+    }
+
+    func applySelectedFormat() {
+        apply(format: selectedFormat, replacingFilenameExtension: true)
+    }
+
+    private func apply(format: ExportFormat, replacingFilenameExtension: Bool) {
+        panel.allowedContentTypes = [contentType(for: format)]
+        guard replacingFilenameExtension else { return }
+        let currentName = panel.nameFieldStringValue
+        let baseName = URL(fileURLWithPath: currentName)
+            .deletingPathExtension()
+            .lastPathComponent
+        panel.nameFieldStringValue = format.filename(
+            for: baseName,
+            originalExtension: originalExtension
+        )
+    }
+
+    private func contentType(for format: ExportFormat) -> UTType {
+        if format == .original { return originalContentType ?? .data }
+        return format.contentType
     }
 }

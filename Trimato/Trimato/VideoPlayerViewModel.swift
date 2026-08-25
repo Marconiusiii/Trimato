@@ -62,6 +62,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var isExporting = false
     @Published private(set) var exportStatus: String?
     @Published private(set) var exportProgress: Double?
+    @Published private(set) var isPresentingExportPanel = false
     @Published private(set) var isLoadingMedia = false
     @Published private(set) var mediaStatus: String?
     @Published private(set) var mediaProgress: Double?
@@ -137,7 +138,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     var canExport: Bool {
-        guard hasVideo, !isExporting, !isApplyingEdit else { return false }
+        guard hasVideo, !isExporting, !isPresentingExportPanel, !isApplyingEdit else { return false }
         if inMarker == nil, outMarker == nil { return true }
         return Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil
     }
@@ -555,7 +556,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func exportTrimmedClip() {
-        guard NSApp.modalWindow == nil, !isExporting, !isApplyingEdit else { return }
+        guard NSApp.modalWindow == nil, !isExporting, !isPresentingExportPanel, !isApplyingEdit else { return }
         guard let mediaSource, let editTimeline else {
             announce("Open a video before exporting")
             return
@@ -582,21 +583,36 @@ final class VideoPlayerViewModel: ObservableObject {
            ClipExporter.canPassthrough(asset: mediaSource.originalAsset, sourceContentType: sourceContentType) {
             formats.insert(.original, at: 0)
         }
-        guard let format = ExportFormatChooser.choose(title: "Export Clip", formats: formats) else { return }
-
-        let panel = NSSavePanel()
-        panel.title = "Export Clip"
-        let outputType = format == .original ? (mediaSource.contentType ?? .data) : format.contentType
-        panel.allowedContentTypes = [outputType]
-        panel.allowsOtherFileTypes = false
-        panel.isExtensionHidden = false
         let baseName = mediaSource.originalURL.deletingPathExtension().lastPathComponent + "-trimmed"
-        panel.nameFieldStringValue = format.filename(
-            for: baseName,
-            originalExtension: mediaSource.originalURL.pathExtension
+        guard let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        let savePanel = ExportSavePanel(
+            title: "Export Clip",
+            baseName: baseName,
+            formats: formats,
+            originalExtension: mediaSource.originalURL.pathExtension,
+            originalContentType: mediaSource.contentType
         )
-        guard panel.runModal() == .OK, let outputURL = panel.url else { return }
+        isPresentingExportPanel = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let selection = await savePanel.selection(parentWindow: parentWindow)
+            self.isPresentingExportPanel = false
+            guard let selection else { return }
+            self.startClipExport(
+                mediaSource: mediaSource,
+                sourceRanges: sourceRanges,
+                format: selection.format,
+                outputURL: selection.url
+            )
+        }
+    }
 
+    private func startClipExport(
+        mediaSource: MediaSource,
+        sourceRanges: [CMTimeRange],
+        format: ExportFormat,
+        outputURL: URL
+    ) {
         isExporting = true
         exportStatus = "Exporting clip"
         exportProgress = format == .original ? nil : 0
@@ -629,6 +645,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.exportProgress = nil
                 self.exportTask = nil
                 self.exportStatus = "Export complete: \(outputURL.lastPathComponent)"
+                ExportNotificationCenter.postExportCompleted(filename: outputURL.lastPathComponent)
                 self.announce("Export complete")
             } catch is CancellationError {
                 self.isExporting = false
