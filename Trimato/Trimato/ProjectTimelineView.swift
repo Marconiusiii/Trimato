@@ -99,6 +99,7 @@ struct ProjectTimelineView: View {
                     }
                 }
             }
+            .accessibilityLabel("Project Timeline")
 
             Divider()
 

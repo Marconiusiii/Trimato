@@ -24,7 +24,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         outline.autosaveExpandedItems = false
         outline.dataSource = context.coordinator
         outline.delegate = context.coordinator
-        outline.setAccessibilityLabel("Project Items")
+        outline.setAccessibilityLabel("Project Source")
         outline.registerForDraggedTypes([.fileURL])
         outline.menuForSelectedRow = { [weak coordinator = context.coordinator] in
             coordinator?.contextMenuForSelectedRow()
@@ -384,6 +384,7 @@ private final class ProjectSourceButtonCellView: NSTableCellView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        setAccessibilityElement(false)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setButtonType(.momentaryPushIn)
         button.bezelStyle = .inline
@@ -391,6 +392,8 @@ private final class ProjectSourceButtonCellView: NSTableCellView {
         button.alignment = .left
         button.lineBreakMode = .byTruncatingTail
         addSubview(button)
+        button.setAccessibilityElement(true)
+        setAccessibilityChildren([button])
         NSLayoutConstraint.activate([
             button.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
