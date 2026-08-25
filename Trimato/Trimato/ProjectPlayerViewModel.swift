@@ -251,33 +251,19 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func goToPreviousEdit() {
-        guard let destination = timelinePoints.last(where: { $0 < currentTime }) else {
-            seekPrecisely(to: .zero)
-            didNavigateToPoint?(.zero)
-            return
-        }
-        seekPrecisely(to: destination)
-        didNavigateToPoint?(destination)
+        navigate(to: timelinePoints.last(where: { $0 < currentTime }) ?? .zero)
     }
 
     func goToNextEdit() {
-        guard let destination = timelinePoints.first(where: { $0 > currentTime }) else {
-            seekPrecisely(to: projectDuration)
-            didNavigateToPoint?(projectDuration)
-            return
-        }
-        seekPrecisely(to: destination)
-        didNavigateToPoint?(destination)
+        navigate(to: timelinePoints.first(where: { $0 > currentTime }) ?? projectDuration)
     }
 
     func goToStart() {
-        seekPrecisely(to: .zero)
-        didNavigateToPoint?(.zero)
+        navigate(to: .zero)
     }
 
     func goToEnd() {
-        seekPrecisely(to: projectDuration)
-        didNavigateToPoint?(projectDuration)
+        navigate(to: projectDuration)
     }
 
     private func removeTemporaryMedia() {
@@ -324,6 +310,18 @@ final class ProjectPlayerViewModel: ObservableObject {
         let bounded = min(max(time, .zero), projectDuration)
         player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
         updateDisplayedTime(bounded)
+    }
+
+    private func navigate(to destination: ProjectTime) {
+        seekPrecisely(to: destination)
+        didNavigateToPoint?(destination)
+        announce(Self.navigationAnnouncement(
+            destination: destination,
+            duration: projectDuration,
+            inMarker: inMarker,
+            outMarker: outMarker,
+            frameRate: projectFrameRate
+        ))
     }
 
     private func updateDisplayedTime(_ time: ProjectTime) {
@@ -382,6 +380,37 @@ final class ProjectPlayerViewModel: ObservableObject {
     ) -> ProjectTimeRange? {
         guard let inMarker, let outMarker, inMarker < outMarker else { return nil }
         return ProjectTimeRange(start: inMarker, duration: outMarker - inMarker)
+    }
+
+    nonisolated static func navigationAnnouncement(
+        destination: ProjectTime,
+        duration: ProjectTime,
+        inMarker: ProjectTime?,
+        outMarker: ProjectTime?,
+        frameRate: Double
+    ) -> String {
+        let pointName: String
+        if destination == .zero {
+            pointName = "Start"
+        } else if destination == duration {
+            pointName = "End"
+        } else if destination == inMarker {
+            pointName = "In"
+        } else if destination == outMarker {
+            pointName = "Out"
+        } else {
+            pointName = "Edit point"
+        }
+        var timeLabel = accessibilityTimeLabel(
+            time: destination,
+            showingFrames: false,
+            frameRate: frameRate
+        )
+        let zeroMilliseconds = ", 0 milliseconds"
+        if timeLabel.hasSuffix(zeroMilliseconds) {
+            timeLabel.removeLast(zeroMilliseconds.count)
+        }
+        return "\(pointName), \(timeLabel)"
     }
 
     nonisolated static func editPoints(in project: TrimatoProject) -> [ProjectTime] {

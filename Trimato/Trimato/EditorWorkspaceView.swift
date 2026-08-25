@@ -7,6 +7,8 @@ struct EditorWorkspaceView: View {
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var returnsToLauncherOnClose = false
+    @State private var hasRequestedInitialEditorFocus = false
+    @State private var editorFocusRequest = 0
 
     init(document: ProjectDocument) {
         let controller = ProjectController(document: document)
@@ -29,7 +31,10 @@ struct EditorWorkspaceView: View {
 
             VSplitView {
                 MacEditorPane("Editor") {
-                    ProjectViewerView(controller: controller)
+                    ProjectViewerView(
+                        controller: controller,
+                        accessibilityFocusRequest: editorFocusRequest
+                    )
                 }
                 .frame(minHeight: 360)
 
@@ -67,6 +72,9 @@ struct EditorWorkspaceView: View {
             projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
                 guard let controller else { return }
                 ExternalMediaOpenCoordinator.shared.activate(controller: controller)
+                if !controller.isShowingProjectSettings, !hasRequestedInitialEditorFocus {
+                    requestEditorFocus()
+                }
             }
             controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] in
                 clipEditorWindows?.requestCloseAll { didClose in
@@ -77,6 +85,9 @@ struct EditorWorkspaceView: View {
                 }
             }
             NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
+        }
+        .onChange(of: controller.isShowingProjectSettings) { isShowing in
+            if !isShowing { requestEditorFocus() }
         }
         .onDisappear {
             ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
@@ -98,12 +109,20 @@ struct EditorWorkspaceView: View {
         }
     }
 
+    private func requestEditorFocus() {
+        hasRequestedInitialEditorFocus = true
+        editorFocusRequest += 1
+    }
+
 }
 
 private struct ProjectViewerView: View {
     @ObservedObject var controller: ProjectController
+    let accessibilityFocusRequest: Int
     @StateObject private var viewModel = ProjectPlayerViewModel()
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
+    @State private var handledAccessibilityFocusRequest = 0
+    @AccessibilityFocusState private var timecodeFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -123,6 +142,10 @@ private struct ProjectViewerView: View {
                 controller?.selectTimelineEntry(at: time)
             }
             prepare()
+            handleAccessibilityFocusRequest(accessibilityFocusRequest)
+        }
+        .onChange(of: accessibilityFocusRequest) { request in
+            handleAccessibilityFocusRequest(request)
         }
         .onChange(of: controller.project) { _ in prepare() }
         .onChange(of: controller.timelinePlayhead) { time in
@@ -136,6 +159,18 @@ private struct ProjectViewerView: View {
 
     private func prepare() {
         viewModel.prepare(project: controller.project, mediaURLs: controller.resolvedMediaURLs())
+    }
+
+    private func handleAccessibilityFocusRequest(_ request: Int) {
+        guard request > handledAccessibilityFocusRequest else { return }
+        handledAccessibilityFocusRequest = request
+        timecodeFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            timecodeFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            timecodeFocused = true
+        }
     }
 
     private var videoArea: some View {
@@ -200,6 +235,7 @@ private struct ProjectViewerView: View {
             .disabled(!viewModel.canControlPlayback)
             .accessibilityLabel(viewModel.accessibilityTimecodeLabel)
             .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
+            .accessibilityFocused($timecodeFocused)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Selection")

@@ -70,6 +70,48 @@ struct ProjectPlaybackTests {
         ) == nil)
     }
 
+    @Test func projectNavigationAnnouncementsIdentifyTheDestinationConcisely() {
+        let duration = ProjectTime(seconds: 10)
+        let inMarker = ProjectTime(seconds: 2)
+        let outMarker = ProjectTime(seconds: 8)
+
+        #expect(ProjectPlayerViewModel.navigationAnnouncement(
+            destination: .zero,
+            duration: duration,
+            inMarker: inMarker,
+            outMarker: outMarker,
+            frameRate: 30
+        ) == "Start, 0 seconds")
+        #expect(ProjectPlayerViewModel.navigationAnnouncement(
+            destination: inMarker,
+            duration: duration,
+            inMarker: inMarker,
+            outMarker: outMarker,
+            frameRate: 30
+        ) == "In, 2 seconds")
+        #expect(ProjectPlayerViewModel.navigationAnnouncement(
+            destination: ProjectTime(seconds: 5),
+            duration: duration,
+            inMarker: inMarker,
+            outMarker: outMarker,
+            frameRate: 30
+        ) == "Edit point, 5 seconds")
+        #expect(ProjectPlayerViewModel.navigationAnnouncement(
+            destination: outMarker,
+            duration: duration,
+            inMarker: inMarker,
+            outMarker: outMarker,
+            frameRate: 30
+        ) == "Out, 8 seconds")
+        #expect(ProjectPlayerViewModel.navigationAnnouncement(
+            destination: duration,
+            duration: duration,
+            inMarker: inMarker,
+            outMarker: outMarker,
+            frameRate: 30
+        ) == "End, 10 seconds")
+    }
+
     @Test @MainActor func selectingAStorylineCutSelectsTheClipBeginningAtThatCut() {
         let first = fixtureAsset(name: "Interview", duration: 5)
         let second = fixtureAsset(name: "Closing", duration: 5)
