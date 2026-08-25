@@ -70,6 +70,27 @@ struct ProjectPlaybackTests {
         ) == nil)
     }
 
+    @Test @MainActor func nonemptyProjectCanExportBeforePreviewIsPrepared() {
+        let asset = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject(name: "Immediate Export")
+        project.media = [asset]
+        project.primaryTimeline = [
+            TimelineClip(assetID: asset.id, name: asset.name, segments: asset.sourceEdit)
+        ]
+
+        let controller = ProjectController(document: ProjectDocument(project: project))
+
+        #expect(controller.canExportProject)
+    }
+
+    @Test @MainActor func emptyProjectCannotExportBeforePreviewIsPrepared() {
+        let controller = ProjectController(
+            document: ProjectDocument(project: TrimatoProject(name: "Empty"))
+        )
+
+        #expect(!controller.canExportProject)
+    }
+
     @Test func projectNavigationAnnouncementsIdentifyTheDestinationConcisely() {
         let duration = ProjectTime(seconds: 10)
         let inMarker = ProjectTime(seconds: 2)

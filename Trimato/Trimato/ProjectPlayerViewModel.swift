@@ -30,6 +30,10 @@ final class ProjectPlayerViewModel: ObservableObject {
         if inMarker == nil, outMarker == nil { return projectDuration > .zero }
         return exportRange != nil
     }
+    var hasValidExportSelection: Bool {
+        if inMarker == nil, outMarker == nil { return true }
+        return exportRange != nil
+    }
     var exportRange: ProjectTimeRange? {
         Self.validExportRange(inMarker: inMarker, outMarker: outMarker)
     }

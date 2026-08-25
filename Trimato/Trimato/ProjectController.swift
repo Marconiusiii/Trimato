@@ -83,7 +83,9 @@ final class ProjectController: ObservableObject {
     }
 
     var canExportProject: Bool {
-        !isExporting && !project.primaryTimeline.isEmpty && projectPlayer?.canExport == true
+        !isExporting &&
+            !project.primaryTimeline.isEmpty &&
+            (projectPlayer?.hasValidExportSelection ?? true)
     }
 
     func saveProjectDocument() {
