@@ -4,6 +4,21 @@ import Testing
 @testable import Trimato
 
 struct ProjectSaveStateTests {
+    @Test func launcherReturnsOnlyAfterTheLastProjectClosesOutsideTermination() {
+        #expect(ProjectWindowSaveCoordinator.shouldRestoreLauncher(
+            isApplicationTerminating: false,
+            otherProjectDocumentCount: 0
+        ))
+        #expect(!ProjectWindowSaveCoordinator.shouldRestoreLauncher(
+            isApplicationTerminating: false,
+            otherProjectDocumentCount: 1
+        ))
+        #expect(!ProjectWindowSaveCoordinator.shouldRestoreLauncher(
+            isApplicationTerminating: true,
+            otherProjectDocumentCount: 0
+        ))
+    }
+
     @Test func newDocumentStartsCleanAndBecomesDirtyAfterAProjectChange() {
         let document = ProjectDocument(project: TrimatoProject(name: "Initial"))
 

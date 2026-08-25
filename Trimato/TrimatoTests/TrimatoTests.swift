@@ -517,6 +517,15 @@ struct TrimatoTests {
         #expect(FileManager.default.fileExists(atPath: licenseURL.path))
     }
 
+    @Test func feedbackEmailUsesTheSupportAddressAndSubject() throws {
+        let url = try #require(TrimatoFeedback.emailURL)
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        #expect(components.scheme == "mailto")
+        #expect(components.path == "marco@marconius.com")
+        #expect(components.queryItems?.first(where: { $0.name == "subject" })?.value == "Trimato Feedback")
+    }
+
     @Test func importProgressAnnouncementsUseRestrainedMilestones() {
         #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.01) == 0)
         #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.24) == 0)

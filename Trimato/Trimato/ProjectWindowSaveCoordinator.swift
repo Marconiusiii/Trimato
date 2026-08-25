@@ -10,28 +10,53 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private var pendingSaveCompletion: ((Bool) -> Void)?
     private var pendingCloseCompletion: ((Bool) -> Void)?
     private var windowBecameKeyObserver: NSObjectProtocol?
+    private var windowWillCloseObserver: NSObjectProtocol?
+    private var applicationWillTerminateObserver: NSObjectProtocol?
     private var windowBecameKeyHandler: (() -> Void)?
+    private var lastProjectWindowWillCloseHandler: (() -> Void)?
+    private var isApplicationTerminating = false
 
     init(projectDocument: ProjectDocument) {
         self.projectDocument = projectDocument
         super.init()
+        applicationWillTerminateObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.isApplicationTerminating = true }
+        }
     }
 
     deinit {
         if let windowBecameKeyObserver {
             NotificationCenter.default.removeObserver(windowBecameKeyObserver)
         }
+        if let windowWillCloseObserver {
+            NotificationCenter.default.removeObserver(windowWillCloseObserver)
+        }
+        if let applicationWillTerminateObserver {
+            NotificationCenter.default.removeObserver(applicationWillTerminateObserver)
+        }
     }
 
     var hasUnsavedChanges: Bool { projectDocument.hasUnsavedChanges }
 
     func attach(to window: NSWindow) {
-        guard self.window !== window else { return }
+        if self.window === window {
+            if nativeDocument == nil {
+                nativeDocument = NSDocumentController.shared.document(for: window)
+            }
+            return
+        }
         if let windowBecameKeyObserver {
             NotificationCenter.default.removeObserver(windowBecameKeyObserver)
         }
+        if let windowWillCloseObserver {
+            NotificationCenter.default.removeObserver(windowWillCloseObserver)
+        }
         self.window = window
-        nativeDocument = window.windowController?.value(forKey: "document") as? NSDocument
+        nativeDocument = NSDocumentController.shared.document(for: window)
         if projectDocument.hasUnsavedChanges {
             nativeDocument?.updateChangeCount(.changeDone)
         }
@@ -42,12 +67,23 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.windowBecameKeyHandler?() }
         }
+        windowWillCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.projectWindowWillClose() }
+        }
         if window.isKeyWindow { windowBecameKeyHandler?() }
     }
 
     func onWindowBecameKey(_ handler: @escaping () -> Void) {
         windowBecameKeyHandler = handler
         if window?.isKeyWindow == true { handler() }
+    }
+
+    func onLastProjectWindowWillClose(_ handler: @escaping () -> Void) {
+        lastProjectWindowWillCloseHandler = handler
     }
 
     func requestClose(completion: @escaping (Bool) -> Void) {
@@ -125,6 +161,26 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         alert.informativeText = "Trimato could not access the native project document. The project will remain open so your changes are not lost."
         alert.addButton(withTitle: "OK")
         alert.beginSheetModal(for: window)
+    }
+
+    private func projectWindowWillClose() {
+        guard let nativeDocument else { return }
+        let otherProjectDocumentCount = NSDocumentController.shared.documents.reduce(into: 0) { count, document in
+            if document !== nativeDocument { count += 1 }
+        }
+        if Self.shouldRestoreLauncher(
+            isApplicationTerminating: isApplicationTerminating,
+            otherProjectDocumentCount: otherProjectDocumentCount
+        ) {
+            lastProjectWindowWillCloseHandler?()
+        }
+    }
+
+    nonisolated static func shouldRestoreLauncher(
+        isApplicationTerminating: Bool,
+        otherProjectDocumentCount: Int
+    ) -> Bool {
+        !isApplicationTerminating && otherProjectDocumentCount == 0
     }
 }
 

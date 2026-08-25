@@ -6,17 +6,15 @@ struct TrimatoApp: App {
     @FocusedObject private var projectPlayer: ProjectPlayerViewModel?
     @FocusedObject private var projectController: ProjectController?
     @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
-    @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
     @Environment(\.openWindow) private var openWindow
-
-    private var commandProjectController: ProjectController? {
-        projectController ?? clipPlacement?.controller ?? activeProjects.activeProjectController
-    }
 
     var body: some Scene {
         Window("Trimato", id: "project-launcher") {
             ProjectLauncherView()
                 .handlesTrimatoMediaOpening()
+        }
+        .commands {
+            FeedbackCommands()
         }
         .defaultSize(width: 560, height: 680)
         .windowResizability(.contentSize)
@@ -25,49 +23,11 @@ struct TrimatoApp: App {
             EditorWorkspaceView(document: file.document)
         }
         .commands {
-            CommandGroup(replacing: .saveItem) {
-                Button("Save") {
-                    commandProjectController?.saveProjectDocument()
-                }
-                .keyboardShortcut("s", modifiers: .command)
-                .disabled(commandProjectController == nil)
-                Button("Save As\u{2026}") {
-                    commandProjectController?.saveProjectDocumentAs()
-                }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-                .disabled(commandProjectController == nil)
-                Divider()
-                Button("Close Project") {
-                    commandProjectController?.closeProject()
-                }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
-                .disabled(commandProjectController == nil)
-            }
+            ProjectFileCommands()
+            FeedbackCommands()
             CommandGroup(replacing: .appInfo) {
                 Button("About Trimato") {
                     openWindow(id: "about")
-                }
-            }
-            CommandGroup(after: .newItem) {
-                Button("Import Media\u{2026}") { commandProjectController?.importFiles() }
-                    .keyboardShortcut("i", modifiers: [.command, .shift])
-                    .disabled(commandProjectController == nil || commandProjectController?.isImporting == true)
-            }
-            CommandGroup(after: .saveItem) {
-                Button("Project Settings\u{2026}") {
-                    commandProjectController?.showProjectSettings()
-                }
-                .disabled(commandProjectController == nil)
-                Divider()
-                Button("Export Project\u{2026}") {
-                    commandProjectController?.exportProject()
-                }
-                .keyboardShortcut("e", modifiers: .command)
-                .disabled(commandProjectController?.canExportProject != true)
-                if commandProjectController?.isExporting == true {
-                    Button("Cancel Project Export") {
-                        commandProjectController?.cancelExport()
-                    }
                 }
             }
             CommandGroup(after: .pasteboard) {
@@ -241,6 +201,7 @@ struct TrimatoApp: App {
         .defaultSize(width: 940, height: 760)
         .commands {
             StandaloneClipCommands()
+            FeedbackCommands()
         }
 
         Window("About Trimato", id: "about") {
@@ -256,6 +217,74 @@ struct TrimatoApp: App {
             FFmpegLicenseView()
         }
         .defaultSize(width: 720, height: 600)
+    }
+}
+
+private struct ProjectFileCommands: Commands {
+    @FocusedObject private var projectController: ProjectController?
+    @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
+    @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
+
+    private var controller: ProjectController? {
+        projectController ?? clipPlacement?.controller ?? activeProjects.activeProjectController
+    }
+
+    var body: some Commands {
+        CommandGroup(replacing: .saveItem) {
+            Button("Save") { controller?.saveProjectDocument() }
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(controller == nil)
+            Button("Save As\u{2026}") { controller?.saveProjectDocumentAs() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(controller == nil)
+            Divider()
+            Button("Close Project") { controller?.closeProject() }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
+                .disabled(controller == nil)
+        }
+        CommandGroup(after: .newItem) {
+            Button("Import Media\u{2026}") { controller?.importFiles() }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(controller == nil || controller?.isImporting == true)
+        }
+        CommandGroup(after: .saveItem) {
+            Button("Project Settings\u{2026}") { controller?.showProjectSettings() }
+                .disabled(controller == nil)
+            Divider()
+            Button("Export Project\u{2026}") { controller?.exportProject() }
+                .keyboardShortcut("e", modifiers: .command)
+                .disabled(controller?.canExportProject != true)
+            if controller?.isExporting == true {
+                Button("Cancel Project Export") { controller?.cancelExport() }
+            }
+        }
+    }
+}
+
+nonisolated enum TrimatoFeedback {
+    static let recipient = "marco@marconius.com"
+    static let subject = "Trimato Feedback"
+
+    static var emailURL: URL? {
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = recipient
+        components.queryItems = [URLQueryItem(name: "subject", value: subject)]
+        return components.url
+    }
+}
+
+private struct FeedbackCommands: Commands {
+    @Environment(\.openURL) private var openURL
+
+    var body: some Commands {
+        CommandGroup(after: .help) {
+            Divider()
+            Button("Send Trimato Feedback\u{2026}") {
+                guard let url = TrimatoFeedback.emailURL else { return }
+                openURL(url)
+            }
+        }
     }
 }
 

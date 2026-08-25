@@ -69,7 +69,7 @@ struct EditorWorkspaceView: View {
         .background(EditorTheme.workspace)
         .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
         .preferredColorScheme(.dark)
-        .focusedObject(controller)
+        .focusedSceneObject(controller)
         .handlesTrimatoMediaOpening()
         .onAppear {
             controller.installSaveCoordinator(projectWindowSaveCoordinator)
@@ -87,12 +87,13 @@ struct EditorWorkspaceView: View {
                     requestEditorFocus()
                 }
             }
+            projectWindowSaveCoordinator.onLastProjectWindowWillClose {
+                openWindow(id: "project-launcher")
+            }
             controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] in
                 clipEditorWindows?.requestCloseAll { didClose in
                     guard didClose else { return }
-                    projectWindowSaveCoordinator?.requestClose { shouldClose in
-                        if shouldClose { openWindow(id: "project-launcher") }
-                    }
+                    projectWindowSaveCoordinator?.requestClose { _ in }
                 }
             }
             NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
@@ -208,6 +209,7 @@ private struct ProjectViewerView: View {
             } else if viewModel.isPreparing {
                 ProgressView("Preparing Project Preview")
                     .padding()
+                    .accessibilityHidden(true)
             } else if let errorMessage = viewModel.errorMessage {
                 VStack(spacing: 12) {
                     Text("Project Preview Failed")
@@ -230,18 +232,17 @@ private struct ProjectViewerView: View {
 
     private var controlsArea: some View {
         VStack(spacing: 10) {
-            if viewModel.duration > .zero {
-                Slider(
-                    value: Binding(
-                        get: { viewModel.playbackFraction },
-                        set: { viewModel.seek(toFraction: $0) }
-                    ),
-                    in: 0...1
-                )
-                .accessibilityLabel("Project playhead")
-                .accessibilityValue(viewModel.accessibilityTimecodeLabel)
-                .accessibilityIdentifier("trimato.editor.playhead")
-            }
+            Slider(
+                value: Binding(
+                    get: { viewModel.playbackFraction },
+                    set: { viewModel.seek(toFraction: $0) }
+                ),
+                in: 0...1
+            )
+            .disabled(!viewModel.canControlPlayback)
+            .accessibilityLabel("Project playhead")
+            .accessibilityValue(viewModel.accessibilityTimecodeLabel)
+            .accessibilityIdentifier("trimato.editor.playhead")
 
             Button { viewModel.toggleTimecodeDisplay() } label: {
                 VStack(spacing: 2) {
