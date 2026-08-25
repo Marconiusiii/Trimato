@@ -52,4 +52,59 @@ struct ProjectPlaybackTests {
 
         #expect(label == "Frame 45")
     }
+
+    @Test func validProjectMarkersCreateAnExportRange() {
+        let range = ProjectPlayerViewModel.validExportRange(
+            inMarker: ProjectTime(seconds: 2),
+            outMarker: ProjectTime(seconds: 7)
+        )
+
+        #expect(range == ProjectTimeRange(
+            start: ProjectTime(seconds: 2),
+            duration: ProjectTime(seconds: 5)
+        ))
+        #expect(ProjectPlayerViewModel.validExportRange(
+            inMarker: ProjectTime(seconds: 7),
+            outMarker: ProjectTime(seconds: 2)
+        ) == nil)
+    }
+
+    @Test @MainActor func selectingAStorylineCutSelectsTheClipBeginningAtThatCut() {
+        let first = fixtureAsset(name: "Interview", duration: 5)
+        let second = fixtureAsset(name: "Closing", duration: 5)
+        var project = TrimatoProject(name: "Selection")
+        project.media = [first, second]
+        project.primaryTimeline = [
+            TimelineClip(assetID: first.id, name: first.name, segments: first.sourceEdit),
+            TimelineClip(assetID: second.id, name: second.name, segments: second.sourceEdit),
+        ]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+
+        controller.selectTimelineEntry(at: ProjectTime(seconds: 5))
+
+        #expect(controller.selection == .timelineClip(project.primaryTimeline[1].id))
+    }
+
+    @Test @MainActor func selectingACutawayStartSelectsTheCutaway() {
+        let primary = fixtureAsset(name: "Interview", duration: 10)
+        let cutawayAsset = fixtureAsset(name: "Cutaway", duration: 3)
+        var project = TrimatoProject(name: "Selection")
+        project.media = [primary, cutawayAsset]
+        project.primaryTimeline = [
+            TimelineClip(assetID: primary.id, name: primary.name, segments: primary.sourceEdit)
+        ]
+        let cutaway = TimelineCutaway(
+            assetID: cutawayAsset.id,
+            name: cutawayAsset.name,
+            start: ProjectTime(seconds: 2),
+            segments: cutawayAsset.sourceEdit,
+            audioMode: .sourceAudio
+        )
+        project.cutaways = [cutaway]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+
+        controller.selectTimelineEntry(at: ProjectTime(seconds: 2))
+
+        #expect(controller.selection == .cutaway(cutaway.id))
+    }
 }

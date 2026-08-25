@@ -641,9 +641,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func pressK() {
-        cancelScrub()
-        jklIndex = 0
-        player.pause()
+        togglePlayPause()
     }
 
     func pressL() {

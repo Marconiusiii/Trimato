@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import Combine
 import Foundation
 
@@ -14,12 +15,23 @@ final class ProjectPlayerViewModel: ObservableObject {
     @Published private(set) var accessibilityTimecodeLabel = "0 seconds, 0 milliseconds"
     @Published private(set) var showingFrames = false
     @Published private(set) var playbackRate: Float = 0
+    @Published private(set) var inMarker: ProjectTime?
+    @Published private(set) var outMarker: ProjectTime?
 
     var canControlPlayback: Bool { player.currentItem != nil && !isPreparing }
     var duration: ProjectTime { projectDuration }
     var playbackFraction: Double {
         guard projectDuration > .zero else { return 0 }
         return min(max(currentTime.seconds / projectDuration.seconds, 0), 1)
+    }
+    var inMarkerDisplay: String { inMarker.map(ProjectTimecodeFormatter.string) ?? "Not set" }
+    var outMarkerDisplay: String { outMarker.map(ProjectTimecodeFormatter.string) ?? "Not set" }
+    var canExport: Bool {
+        if inMarker == nil, outMarker == nil { return projectDuration > .zero }
+        return exportRange != nil
+    }
+    var exportRange: ProjectTimeRange? {
+        Self.validExportRange(inMarker: inMarker, outMarker: outMarker)
     }
 
     private var buildTask: Task<Void, Never>?
@@ -32,6 +44,9 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8]
     private var arrowHolding = false
+    private var keyEventMonitor: Any?
+    private var keyboardCommandsAreActive: (() -> Bool)?
+    private var didNavigateToPoint: ((ProjectTime) -> Void)?
 
     init() {
         player.automaticallyWaitsToMinimizeStalling = false
@@ -51,12 +66,22 @@ final class ProjectPlayerViewModel: ObservableObject {
                 self?.updateDisplayedTime(ProjectTime(time))
             }
         }
+        setupKeyEventMonitor()
     }
 
     deinit {
         buildTask?.cancel()
         for url in temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }
         if let timeObserver { player.removeTimeObserver(timeObserver) }
+        if let keyEventMonitor { NSEvent.removeMonitor(keyEventMonitor) }
+    }
+
+    func scopeKeyboardCommands(to isActive: @escaping () -> Bool) {
+        keyboardCommandsAreActive = isActive
+    }
+
+    func onPointNavigation(_ handler: @escaping (ProjectTime) -> Void) {
+        didNavigateToPoint = handler
     }
 
     func prepare(project: TrimatoProject, mediaURLs: [UUID: URL]) {
@@ -67,6 +92,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         projectDuration = project.duration
         projectFrameRate = max(project.format.frameRate ?? 30, 1)
         updateDisplayedTime(.zero)
+        if let inMarker, inMarker > projectDuration { self.inMarker = nil }
+        if let outMarker, outMarker > projectDuration { self.outMarker = nil }
         editPoints = Self.editPoints(in: project)
         removeTemporaryMedia()
         guard !project.primaryTimeline.isEmpty else {
@@ -124,6 +151,43 @@ final class ProjectPlayerViewModel: ObservableObject {
         refreshAccessibilityTimecode()
     }
 
+    func copyTimecode() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(displayTimecode, forType: .string)
+    }
+
+    func markIn() {
+        guard canControlPlayback else { return }
+        inMarker = currentTime
+        announce("In marked at \(Self.accessibilityTimeLabel(time: currentTime, showingFrames: false, frameRate: projectFrameRate))")
+    }
+
+    func markOut() {
+        guard canControlPlayback else { return }
+        outMarker = currentTime
+        announce("Out marked at \(Self.accessibilityTimeLabel(time: currentTime, showingFrames: false, frameRate: projectFrameRate))")
+    }
+
+    func clearIn() {
+        guard inMarker != nil else { return }
+        inMarker = nil
+        announce("In marker cleared")
+    }
+
+    func clearOut() {
+        guard outMarker != nil else { return }
+        outMarker = nil
+        announce("Out marker cleared")
+    }
+
+    func seekBackward() {
+        seekPrecisely(to: max(currentTime - ProjectTime(seconds: 10), .zero))
+    }
+
+    func seekForward() {
+        seekPrecisely(to: min(currentTime + ProjectTime(seconds: 10), projectDuration))
+    }
+
     func pressJ() {
         guard canControlPlayback else { return }
         jklIndex = jklIndex > 0 ? -1 : max(jklIndex - 1, -jklSpeeds.count)
@@ -131,8 +195,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func pressK() {
-        guard canControlPlayback else { return }
-        stop()
+        togglePlayback()
     }
 
     func pressL() {
@@ -165,27 +228,33 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func goToPreviousEdit() {
-        guard let destination = editPoints.last(where: { $0 < currentTime }) else {
+        guard let destination = timelinePoints.last(where: { $0 < currentTime }) else {
             seekPrecisely(to: .zero)
+            didNavigateToPoint?(.zero)
             return
         }
         seekPrecisely(to: destination)
+        didNavigateToPoint?(destination)
     }
 
     func goToNextEdit() {
-        guard let destination = editPoints.first(where: { $0 > currentTime }) else {
+        guard let destination = timelinePoints.first(where: { $0 > currentTime }) else {
             seekPrecisely(to: projectDuration)
+            didNavigateToPoint?(projectDuration)
             return
         }
         seekPrecisely(to: destination)
+        didNavigateToPoint?(destination)
     }
 
     func goToStart() {
         seekPrecisely(to: .zero)
+        didNavigateToPoint?(.zero)
     }
 
     func goToEnd() {
         seekPrecisely(to: projectDuration)
+        didNavigateToPoint?(projectDuration)
     }
 
     func clearError() {
@@ -209,6 +278,13 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
         let speed = jklSpeeds[min(abs(jklIndex) - 1, jklSpeeds.count - 1)]
         player.rate = jklIndex > 0 ? speed : -speed
+    }
+
+    private var timelinePoints: [ProjectTime] {
+        var points = Set(editPoints)
+        if let inMarker { points.insert(inMarker) }
+        if let outMarker { points.insert(outMarker) }
+        return points.sorted()
     }
 
     private func stepFrame(forward: Bool) {
@@ -242,6 +318,18 @@ final class ProjectPlayerViewModel: ObservableObject {
         )
     }
 
+    private func announce(_ message: String) {
+        let element: Any = NSApp.mainWindow?.contentView ?? NSApp!
+        NSAccessibility.post(
+            element: element,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+            ]
+        )
+    }
+
     nonisolated static func accessibilityTimeLabel(
         time: ProjectTime,
         showingFrames: Bool,
@@ -265,6 +353,14 @@ final class ProjectPlayerViewModel: ObservableObject {
         return components.joined(separator: ", ")
     }
 
+    nonisolated static func validExportRange(
+        inMarker: ProjectTime?,
+        outMarker: ProjectTime?
+    ) -> ProjectTimeRange? {
+        guard let inMarker, let outMarker, inMarker < outMarker else { return nil }
+        return ProjectTimeRange(start: inMarker, duration: outMarker - inMarker)
+    }
+
     nonisolated static func editPoints(in project: TrimatoProject) -> [ProjectTime] {
         var points: Set<ProjectTime> = [.zero, project.duration]
         var cursor = ProjectTime.zero
@@ -277,5 +373,81 @@ final class ProjectPlayerViewModel: ObservableObject {
             points.insert(cutaway.end)
         }
         return points.sorted()
+    }
+
+    private func setupKeyEventMonitor() {
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+            guard let self, self.canControlPlayback, NSApp.modalWindow == nil,
+                  self.keyboardCommandsAreActive?() == true,
+                  !self.isEditingText(in: event.window) else { return event }
+
+            let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+            let modifiers = event.modifierFlags.intersection(commandSet)
+            let unmodified = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+
+            switch event.type {
+            case .keyDown:
+                if modifiers == .command {
+                    switch event.keyCode {
+                    case 123:
+                        if !event.isARepeat { self.goToPreviousEdit() }
+                        return nil
+                    case 124:
+                        if !event.isARepeat { self.goToNextEdit() }
+                        return nil
+                    case 126:
+                        if !event.isARepeat { self.goToStart() }
+                        return nil
+                    case 125:
+                        if !event.isARepeat { self.goToEnd() }
+                        return nil
+                    default:
+                        break
+                    }
+                }
+                switch event.keyCode {
+                case 49:
+                    guard unmodified else { return event }
+                    if !event.isARepeat { self.togglePlayback() }
+                    return nil
+                case 123:
+                    guard unmodified else { return event }
+                    event.isARepeat ? self.arrowHeld(forward: false) : self.stepBackward()
+                    return nil
+                case 124:
+                    guard unmodified else { return event }
+                    event.isARepeat ? self.arrowHeld(forward: true) : self.stepForward()
+                    return nil
+                default:
+                    break
+                }
+                guard !event.isARepeat, unmodified else { return event }
+                switch event.charactersIgnoringModifiers?.lowercased() {
+                case "c": self.copyTimecode(); return nil
+                case "i": self.markIn(); return nil
+                case "o": self.markOut(); return nil
+                case "j": self.pressJ(); return nil
+                case "k": self.pressK(); return nil
+                case "l": self.pressL(); return nil
+                default: return event
+                }
+            case .keyUp:
+                guard unmodified else { return event }
+                switch event.keyCode {
+                case 123, 124:
+                    self.arrowKeyUp()
+                    return nil
+                default:
+                    return event
+                }
+            default:
+                return event
+            }
+        }
+    }
+
+    private func isEditingText(in window: NSWindow?) -> Bool {
+        guard let textView = window?.firstResponder as? NSTextView else { return false }
+        return textView.isEditable
     }
 }

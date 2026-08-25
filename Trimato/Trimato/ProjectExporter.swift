@@ -2,9 +2,18 @@ import AVFoundation
 import Foundation
 
 enum ProjectExporter {
+    enum ExportRangeError: LocalizedError, Equatable {
+        case invalidRange
+
+        var errorDescription: String? {
+            "Set both In and Out, with In earlier than Out and within the project duration, or clear both markers."
+        }
+    }
+
     static func export(
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
+        timeRange: ProjectTimeRange? = nil,
         to outputURL: URL,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
@@ -25,6 +34,9 @@ enum ProjectExporter {
         session.videoComposition = result.videoComposition
         session.audioMix = result.audioMix
         session.shouldOptimizeForNetworkUse = true
+        if let validatedRange = try validatedTimeRange(timeRange, projectDuration: project.duration) {
+            session.timeRange = validatedRange.cmTimeRange
+        }
 
         let temporaryDirectory = try FileManager.default.url(
             for: .itemReplacementDirectory,
@@ -53,5 +65,16 @@ enum ProjectExporter {
         } else {
             try FileManager.default.moveItem(at: temporaryURL, to: outputURL)
         }
+    }
+
+    nonisolated static func validatedTimeRange(
+        _ timeRange: ProjectTimeRange?,
+        projectDuration: ProjectTime
+    ) throws -> ProjectTimeRange? {
+        guard let timeRange else { return nil }
+        guard timeRange.isValid, timeRange.end <= projectDuration else {
+            throw ExportRangeError.invalidRange
+        }
+        return timeRange
     }
 }

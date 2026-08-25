@@ -84,4 +84,26 @@ final class ProjectDocument: ReferenceFileDocument {
     func reinstateDiscardedProject(_ discardedProject: TrimatoProject) {
         project = discardedProject
     }
+
+    func updatePlaybackPreparation(
+        assetID: UUID,
+        playbackMode: ProjectMediaPlaybackMode?,
+        proxyCacheKey: UUID?,
+        sourceFingerprint: SourceMediaFingerprint?
+    ) {
+        func update(_ project: inout TrimatoProject) {
+            guard let index = project.media.firstIndex(where: { $0.id == assetID }) else { return }
+            project.media[index].playbackMode = playbackMode
+            project.media[index].proxyCacheKey = proxyCacheKey
+            project.media[index].sourceFingerprint = sourceFingerprint
+        }
+
+        var liveProject = project
+        var savedProject = explicitlySavedProject
+        update(&liveProject)
+        update(&savedProject)
+        explicitlySavedProject = savedProject
+        project = liveProject
+        hasUnsavedChanges = liveProject != savedProject
+    }
 }

@@ -54,6 +54,7 @@ struct EditorWorkspaceView: View {
         .focusedObject(controller)
         .handlesTrimatoMediaOpening()
         .onAppear {
+            controller.installSaveCoordinator(projectWindowSaveCoordinator)
             ExternalMediaOpenCoordinator.shared.register(
                 controller: controller,
                 openClipEditor: { [weak clipEditorWindows] selection in
@@ -83,22 +84,32 @@ struct EditorWorkspaceView: View {
 private struct ProjectViewerView: View {
     @ObservedObject var controller: ProjectController
     @StateObject private var viewModel = ProjectPlayerViewModel()
+    @StateObject private var focusScope = EditorAccessibilityFocusScope()
 
     var body: some View {
         VStack(spacing: 0) {
             videoArea
             controlsArea
         }
-        .background(ProjectPlaybackKeyMonitor(viewModel: viewModel))
+        .background(EditorAccessibilityFocusBridge(scope: focusScope))
         .focusedObject(viewModel)
-        .onAppear { prepare() }
+        .onAppear {
+            controller.installProjectPlayer(viewModel)
+            viewModel.scopeKeyboardCommands { [weak focusScope] in
+                focusScope?.containsAccessibilityFocus == true
+            }
+            viewModel.onPointNavigation { [weak controller] time in
+                controller?.selectTimelineEntry(at: time)
+            }
+            prepare()
+        }
         .onChange(of: controller.project) { _ in prepare() }
         .onChange(of: controller.timelinePlayhead) { time in
             guard abs(viewModel.currentTime.seconds - time.seconds) > 0.02 else { return }
             viewModel.seek(to: time)
         }
         .onChange(of: viewModel.currentTime) { time in
-            if viewModel.isPlaying { controller.timelinePlayhead = time }
+            controller.timelinePlayhead = time
         }
         .alert("Project Preview Failed", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
@@ -167,6 +178,37 @@ private struct ProjectViewerView: View {
             .accessibilityLabel(viewModel.accessibilityTimecodeLabel)
             .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Selection")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+
+                HStack {
+                    Button("Mark In") { viewModel.markIn() }
+                    Text("In: \(viewModel.inMarkerDisplay)")
+                        .monospacedDigit()
+                    Button("Clear In") { viewModel.clearIn() }
+                        .disabled(viewModel.inMarker == nil)
+                }
+                HStack {
+                    Button("Mark Out") { viewModel.markOut() }
+                    Text("Out: \(viewModel.outMarkerDisplay)")
+                        .monospacedDigit()
+                    Button("Clear Out") { viewModel.clearOut() }
+                        .disabled(viewModel.outMarker == nil)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(!viewModel.canControlPlayback)
+
+            HStack {
+                Button("Start") { viewModel.goToStart() }
+                Button("Previous Point") { viewModel.goToPreviousEdit() }
+                Button("Next Point") { viewModel.goToNextEdit() }
+                Button("End") { viewModel.goToEnd() }
+            }
+            .disabled(!viewModel.canControlPlayback)
+
             if viewModel.isPlaying, viewModel.playbackRate != 1 {
                 Text(viewModel.playbackRate < 0
                      ? "\(Int(abs(viewModel.playbackRate))) times backward"
@@ -186,6 +228,12 @@ private struct ProjectViewerView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Step backward one frame")
 
+                Button { viewModel.seekBackward() } label: {
+                    Image(systemName: "gobackward.10").font(.title2)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Skip back 10 seconds")
+
                 Button { viewModel.togglePlayback() } label: {
                     Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 30))
@@ -193,6 +241,12 @@ private struct ProjectViewerView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
+
+                Button { viewModel.seekForward() } label: {
+                    Image(systemName: "goforward.10").font(.title2)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Skip forward 10 seconds")
 
                 Button { viewModel.stepForward() } label: {
                     Image(systemName: "forward.frame.fill").font(.title2)
@@ -217,110 +271,5 @@ private struct ProjectViewerView: View {
         .padding(.top, 12)
         .padding(.bottom, 14)
         .background(EditorTheme.controlSurface)
-    }
-}
-
-private struct ProjectPlaybackKeyMonitor: NSViewRepresentable {
-    let viewModel: ProjectPlayerViewModel
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(viewModel: viewModel)
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        context.coordinator.hostView = view
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.viewModel = viewModel
-    }
-
-    final class Coordinator {
-        var viewModel: ProjectPlayerViewModel
-        weak var hostView: NSView?
-        private var monitor: Any?
-
-        init(viewModel: ProjectPlayerViewModel) {
-            self.viewModel = viewModel
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-                self?.handle(event) ?? event
-            }
-        }
-
-        deinit {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-        }
-
-        private func handle(_ event: NSEvent) -> NSEvent? {
-            guard event.window === hostView?.window,
-                  viewModel.canControlPlayback,
-                  NSApp.modalWindow == nil,
-                  !isEditingText(in: event.window) else { return event }
-
-            let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
-            let modifiers = event.modifierFlags.intersection(commandSet)
-            let unmodified = modifiers.isEmpty
-
-            switch event.type {
-            case .keyDown:
-                if modifiers == .command {
-                    switch event.keyCode {
-                    case 123:
-                        if !event.isARepeat { viewModel.goToPreviousEdit() }
-                        return nil
-                    case 124:
-                        if !event.isARepeat { viewModel.goToNextEdit() }
-                        return nil
-                    case 126:
-                        if !event.isARepeat { viewModel.goToStart() }
-                        return nil
-                    case 125:
-                        if !event.isARepeat { viewModel.goToEnd() }
-                        return nil
-                    default:
-                        return event
-                    }
-                }
-                guard unmodified else { return event }
-                switch event.keyCode {
-                case 49:
-                    if !event.isARepeat { viewModel.togglePlayback() }
-                    return nil
-                case 123:
-                    event.isARepeat ? viewModel.arrowHeld(forward: false) : viewModel.stepBackward()
-                    return nil
-                case 124:
-                    event.isARepeat ? viewModel.arrowHeld(forward: true) : viewModel.stepForward()
-                    return nil
-                default:
-                    break
-                }
-                guard !event.isARepeat else { return event }
-                switch event.charactersIgnoringModifiers?.lowercased() {
-                case "j": viewModel.pressJ(); return nil
-                case "k": viewModel.pressK(); return nil
-                case "l": viewModel.pressL(); return nil
-                default: return event
-                }
-            case .keyUp:
-                guard unmodified else { return event }
-                switch event.keyCode {
-                case 123, 124:
-                    viewModel.arrowKeyUp()
-                    return nil
-                default:
-                    return event
-                }
-            default:
-                return event
-            }
-        }
-
-        private func isEditingText(in window: NSWindow?) -> Bool {
-            guard let textView = window?.firstResponder as? NSTextView else { return false }
-            return textView.isEditable
-        }
     }
 }

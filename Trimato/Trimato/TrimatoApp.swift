@@ -21,6 +21,18 @@ struct TrimatoApp: App {
             EditorWorkspaceView(document: file.document)
         }
         .commands {
+            CommandGroup(replacing: .saveItem) {
+                Button("Save") {
+                    (projectController ?? clipPlacement?.controller)?.saveProjectDocument()
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(projectController == nil && clipPlacement == nil)
+                Button("Save As\u{2026}") {
+                    (projectController ?? clipPlacement?.controller)?.saveProjectDocumentAs()
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(projectController == nil && clipPlacement == nil)
+            }
             CommandGroup(replacing: .appInfo) {
                 Button("About Trimato") {
                     openWindow(id: "about")
@@ -48,7 +60,7 @@ struct TrimatoApp: App {
                 .disabled(
                     viewModel?.hasVideo == true
                         ? viewModel?.canExport != true
-                        : projectController?.project.primaryTimeline.isEmpty != false || projectController?.isExporting == true
+                        : projectController?.canExportProject != true
                 )
                 if viewModel?.isExporting == true {
                     Button("Cancel Clip Export") { viewModel?.cancelExport() }
@@ -104,7 +116,7 @@ struct TrimatoApp: App {
                     else { viewModel?.pressJ() }
                 }
                 .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
-                Button("Stop (K)") {
+                Button("Play or Pause (K)") {
                     if let projectPlayer { projectPlayer.pressK() }
                     else { viewModel?.pressK() }
                 }
@@ -174,28 +186,48 @@ struct TrimatoApp: App {
                 .disabled(clipPlacement?.canPlace != true)
             }
             CommandMenu("Markers") {
-                Button("Mark In (I)") { viewModel?.markIn() }
-                    .disabled(viewModel?.hasVideo != true || viewModel?.isExporting == true)
-                Button("Mark Out (O)") { viewModel?.markOut() }
-                    .disabled(viewModel?.hasVideo != true || viewModel?.isExporting == true)
+                Button("Mark In (I)") {
+                    if let projectPlayer { projectPlayer.markIn() }
+                    else { viewModel?.markIn() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasVideo != true || viewModel?.isExporting == true))
+                Button("Mark Out (O)") {
+                    if let projectPlayer { projectPlayer.markOut() }
+                    else { viewModel?.markOut() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasVideo != true || viewModel?.isExporting == true))
                 Divider()
-                Button("Clear In") { viewModel?.clearIn() }
-                    .disabled(viewModel?.inMarker == nil)
-                Button("Clear Out") { viewModel?.clearOut() }
-                    .disabled(viewModel?.outMarker == nil)
+                Button("Clear In") {
+                    if let projectPlayer { projectPlayer.clearIn() }
+                    else { viewModel?.clearIn() }
+                }
+                .disabled(projectPlayer?.inMarker == nil && viewModel?.inMarker == nil)
+                Button("Clear Out") {
+                    if let projectPlayer { projectPlayer.clearOut() }
+                    else { viewModel?.clearOut() }
+                }
+                .disabled(projectPlayer?.outMarker == nil && viewModel?.outMarker == nil)
                 Divider()
                 Button("Previous Timeline Point (Command-Left Arrow)") {
-                    viewModel?.goToPreviousTimelinePoint()
+                    if let projectPlayer { projectPlayer.goToPreviousEdit() }
+                    else { viewModel?.goToPreviousTimelinePoint() }
                 }
-                .disabled(viewModel?.hasVideo != true || viewModel?.isExporting == true)
+                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasVideo != true || viewModel?.isExporting == true))
                 Button("Next Timeline Point (Command-Right Arrow)") {
-                    viewModel?.goToNextTimelinePoint()
+                    if let projectPlayer { projectPlayer.goToNextEdit() }
+                    else { viewModel?.goToNextTimelinePoint() }
                 }
-                .disabled(viewModel?.hasVideo != true || viewModel?.isExporting == true)
-                Button("Go to Start (Command-Up Arrow)") { viewModel?.goToStart() }
-                    .disabled(viewModel?.hasVideo != true || viewModel?.isExporting == true)
-                Button("Go to End (Command-Down Arrow)") { viewModel?.goToEnd() }
-                    .disabled(viewModel?.hasVideo != true || viewModel?.isExporting == true)
+                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasVideo != true || viewModel?.isExporting == true))
+                Button("Go to Start (Command-Up Arrow)") {
+                    if let projectPlayer { projectPlayer.goToStart() }
+                    else { viewModel?.goToStart() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasVideo != true || viewModel?.isExporting == true))
+                Button("Go to End (Command-Down Arrow)") {
+                    if let projectPlayer { projectPlayer.goToEnd() }
+                    else { viewModel?.goToEnd() }
+                }
+                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasVideo != true || viewModel?.isExporting == true))
             }
         }
 
@@ -258,7 +290,7 @@ private struct StandaloneClipCommands: Commands {
                 .disabled(viewModel?.hasVideo != true)
             Button("Play Backward (J)") { viewModel?.pressJ() }
                 .disabled(viewModel?.hasVideo != true)
-            Button("Stop (K)") { viewModel?.pressK() }
+            Button("Play or Pause (K)") { viewModel?.pressK() }
                 .disabled(viewModel?.hasVideo != true)
             Button("Play Forward (L)") { viewModel?.pressL() }
                 .disabled(viewModel?.hasVideo != true)

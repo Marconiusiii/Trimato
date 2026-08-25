@@ -32,6 +32,8 @@ final class ProjectController: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var accessedURLs: [URL] = []
     private var exportTask: Task<Void, Never>?
+    private weak var projectSaveCoordinator: ProjectWindowSaveCoordinator?
+    private weak var projectPlayer: ProjectPlayerViewModel?
     private let cacheOwnerID = UUID()
 
     init(document: ProjectDocument) {
@@ -61,6 +63,30 @@ final class ProjectController: ObservableObject {
             result[id] = url
         }
         return result
+    }
+
+    func installSaveCoordinator(_ coordinator: ProjectWindowSaveCoordinator) {
+        projectSaveCoordinator = coordinator
+    }
+
+    func installProjectPlayer(_ player: ProjectPlayerViewModel) {
+        projectPlayer = player
+    }
+
+    var canExportProject: Bool {
+        !isExporting && !project.primaryTimeline.isEmpty && projectPlayer?.canExport == true
+    }
+
+    func saveProjectDocument() {
+        projectSaveCoordinator?.save { [weak self] succeeded in
+            if succeeded { self?.announce("Project saved") }
+        }
+    }
+
+    func saveProjectDocumentAs() {
+        projectSaveCoordinator?.saveAs { [weak self] succeeded in
+            if succeeded { self?.announce("Project saved") }
+        }
     }
 
     func relinkSelectedAsset() {
@@ -98,7 +124,8 @@ final class ProjectController: ObservableObject {
     }
 
     func exportProject() {
-        guard !isExporting, !project.primaryTimeline.isEmpty, NSApp.modalWindow == nil else { return }
+        guard canExportProject, NSApp.modalWindow == nil else { return }
+        let exportRange = projectPlayer?.exportRange
         let urls = resolvedMediaURLs()
         let requiredIDs = Set(project.primaryTimeline.map(\.assetID) + project.cutaways.map(\.assetID))
         guard requiredIDs.allSatisfy({ urls[$0] != nil }) else {
@@ -125,6 +152,7 @@ final class ProjectController: ObservableObject {
                 try await ProjectExporter.export(
                     project: projectSnapshot,
                     mediaURLs: urls,
+                    timeRange: exportRange,
                     to: outputURL
                 ) { [weak self] progress in
                     self?.exportProgress = progress
@@ -176,6 +204,38 @@ final class ProjectController: ObservableObject {
     var selectedCutaway: TimelineCutaway? {
         guard case .cutaway(let id) = selection else { return nil }
         return project.cutaways.first { $0.id == id }
+    }
+
+    func selectTimelineEntry(at time: ProjectTime) {
+        if let cutaway = project.cutaways.first(where: { $0.start == time }) {
+            selection = .cutaway(cutaway.id)
+            return
+        }
+
+        var cursor = ProjectTime.zero
+        for clip in project.primaryTimeline {
+            if cursor == time {
+                selection = .timelineClip(clip.id)
+                return
+            }
+            cursor = cursor + clip.duration
+        }
+
+        if time == project.duration, let last = project.primaryTimeline.last {
+            selection = .timelineClip(last.id)
+            return
+        }
+
+        guard project.cutaways.contains(where: { $0.end == time }) else { return }
+        cursor = .zero
+        for clip in project.primaryTimeline {
+            let end = cursor + clip.duration
+            if time >= cursor, time < end {
+                selection = .timelineClip(clip.id)
+                return
+            }
+            cursor = end
+        }
     }
 
     func resolveURL(for asset: MediaAssetRecord) -> URL? {
@@ -557,13 +617,13 @@ final class ProjectController: ObservableObject {
     }
 
     private func updatePlaybackPreparation(for asset: MediaAssetRecord) {
-        var updated = document.project
-        guard let index = updated.media.firstIndex(where: { $0.id == asset.id }) else { return }
-        updated.media[index].playbackMode = asset.playbackMode
-        updated.media[index].proxyCacheKey = asset.proxyCacheKey
-        updated.media[index].sourceFingerprint = asset.sourceFingerprint
-        document.project = updated
-        updateCacheProtection(for: updated)
+        document.updatePlaybackPreparation(
+            assetID: asset.id,
+            playbackMode: asset.playbackMode,
+            proxyCacheKey: asset.proxyCacheKey,
+            sourceFingerprint: asset.sourceFingerprint
+        )
+        updateCacheProtection(for: document.project)
     }
 
     private func updateCacheProtection(for project: TrimatoProject) {

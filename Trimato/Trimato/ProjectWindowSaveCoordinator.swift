@@ -5,7 +5,8 @@ import SwiftUI
 @MainActor
 final class ProjectWindowSaveCoordinator: NSObject, ObservableObject, NSWindowDelegate {
     private enum PendingCloseAction {
-        case save
+        case explicitSave((Bool) -> Void)
+        case saveAndClose
         case discard(TrimatoProject)
     }
 
@@ -46,13 +47,6 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject, NSWindowDe
         window.isDocumentEdited = projectDocument.hasUnsavedChanges
         ProjectWindowSaveRegistry.shared.register(self)
 
-        nativeDocument?.publisher(for: \NSDocument.isDocumentEdited)
-            .removeDuplicates()
-            .sink { [weak self] isDocumentEdited in
-                guard let self, !isDocumentEdited, self.pendingCloseAction == nil else { return }
-                self.projectDocument.markCurrentProjectAsExplicitlySaved()
-            }
-            .store(in: &subscriptions)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -116,12 +110,41 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject, NSWindowDe
         window.performClose(nil)
     }
 
+    func save(completion: @escaping (Bool) -> Void) {
+        guard pendingCloseAction == nil, let nativeDocument else {
+            completion(false)
+            if nativeDocument == nil { presentSaveUnavailableError() }
+            return
+        }
+        pendingCloseAction = .explicitSave(completion)
+        nativeDocument.save(
+            withDelegate: self,
+            didSave: #selector(document(_:didSave:contextInfo:)),
+            contextInfo: nil
+        )
+    }
+
+    func saveAs(completion: @escaping (Bool) -> Void) {
+        guard pendingCloseAction == nil, let nativeDocument else {
+            completion(false)
+            if nativeDocument == nil { presentSaveUnavailableError() }
+            return
+        }
+        pendingCloseAction = .explicitSave(completion)
+        nativeDocument.runModalSavePanel(
+            for: .saveAsOperation,
+            delegate: self,
+            didSave: #selector(document(_:didSave:contextInfo:)),
+            contextInfo: nil
+        )
+    }
+
     private func saveThenClose() {
         guard let nativeDocument else {
             presentSaveUnavailableError()
             return
         }
-        pendingCloseAction = .save
+        pendingCloseAction = .saveAndClose
         nativeDocument.save(
             withDelegate: self,
             didSave: #selector(document(_:didSave:contextInfo:)),
@@ -165,12 +188,20 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject, NSWindowDe
             if case .discard(let discardedProject) = action {
                 projectDocument.reinstateDiscardedProject(discardedProject)
             }
+            if case .explicitSave(let completion) = action { completion(false) }
             finishTerminationResolution(shouldTerminate: false)
             return
         }
 
         projectDocument.markCurrentProjectAsExplicitlySaved()
-        closeAfterSuccessfulResolution()
+        switch action {
+        case .explicitSave(let completion):
+            completion(true)
+        case .saveAndClose, .discard:
+            closeAfterSuccessfulResolution()
+        case nil:
+            break
+        }
     }
 
     private func closeAfterSuccessfulResolution() {

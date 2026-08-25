@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Trimato
 
@@ -69,5 +70,54 @@ struct ProjectSaveStateTests {
 
         #expect(document.project.name == "Unsaved")
         #expect(document.hasUnsavedChanges)
+    }
+
+    @Test func playbackHousekeepingDoesNotDirtyASavedProject() {
+        let asset = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject(name: "Saved")
+        project.media = [asset]
+        let document = ProjectDocument(project: project)
+        let fingerprint = SourceMediaFingerprint(
+            fileSize: 1_024,
+            modificationTime: 123,
+            proxyFormatVersion: SourceMediaFingerprint.proxyFormatVersion
+        )
+
+        document.updatePlaybackPreparation(
+            assetID: asset.id,
+            playbackMode: .cachedProxy,
+            proxyCacheKey: UUID(),
+            sourceFingerprint: fingerprint
+        )
+
+        #expect(!document.hasUnsavedChanges)
+        #expect(document.project.media[0].sourceFingerprint == fingerprint)
+    }
+
+    @Test func playbackHousekeepingPreservesRealUnsavedChanges() {
+        let asset = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject(name: "Saved")
+        project.media = [asset]
+        let document = ProjectDocument(project: project)
+        var changed = document.project
+        changed.name = "Unsaved Name"
+        document.project = changed
+
+        document.updatePlaybackPreparation(
+            assetID: asset.id,
+            playbackMode: .nativePassthrough,
+            proxyCacheKey: nil,
+            sourceFingerprint: SourceMediaFingerprint(
+                fileSize: 2_048,
+                modificationTime: 456,
+                proxyFormatVersion: SourceMediaFingerprint.proxyFormatVersion
+            )
+        )
+
+        #expect(document.hasUnsavedChanges)
+        let discarded = document.restoreExplicitlySavedProject()
+        #expect(discarded.name == "Unsaved Name")
+        #expect(document.project.name == "Saved")
+        #expect(document.project.media[0].playbackMode == .nativePassthrough)
     }
 }
