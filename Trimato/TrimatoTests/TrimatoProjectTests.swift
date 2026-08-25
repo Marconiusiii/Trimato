@@ -16,13 +16,15 @@ struct TrimatoProjectTests {
         let asset = fixtureAsset(name: "Interview", duration: 30)
         var project = TrimatoProject(name: "Documentary")
         project.media = [asset]
-        _ = try project.append(asset: asset)
+        let clipID = try project.append(asset: asset)
+        _ = try project.splitClip(id: clipID, atTimelineTime: ProjectTime(seconds: 12))
 
         let data = try JSONEncoder().encode(project)
         let decoded = try JSONDecoder().decode(TrimatoProject.self, from: data)
 
         #expect(decoded == project)
         #expect(decoded.primaryTimeline.first?.assetID == asset.id)
+        #expect(decoded.primaryTimeline.map(\.displayName) == ["Interview A", "Interview B"])
         #expect(decoded.duration == ProjectTime(seconds: 30))
     }
 }

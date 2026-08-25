@@ -69,7 +69,18 @@ struct ProjectDocumentTests {
               }
             }]
           }],
-          "primaryTimeline": [],
+          "primaryTimeline": [{
+            "id": "00000000-0000-0000-0000-000000000004",
+            "assetID": "00000000-0000-0000-0000-000000000002",
+            "name": "Interview",
+            "segments": [{
+              "id": "00000000-0000-0000-0000-000000000005",
+              "sourceRange": {
+                "start": { "value": 0, "timescale": 600000 },
+                "duration": { "value": 6000000, "timescale": 600000 }
+              }
+            }]
+          }],
           "cutaways": []
         }
         """
@@ -79,5 +90,7 @@ struct ProjectDocumentTests {
         #expect(decoded.media.first?.playbackMode == nil)
         #expect(decoded.media.first?.proxyCacheKey == nil)
         #expect(decoded.media.first?.sourceFingerprint == nil)
+        #expect(decoded.primaryTimeline.first?.labelOrdinal == nil)
+        #expect(decoded.primaryTimeline.first?.displayName == "Interview")
     }
 }

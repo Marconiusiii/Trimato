@@ -44,7 +44,7 @@ struct ProjectTimelineView: View {
                     }
                     .padding(8)
                 }
-                .accessibilityLabel("Magnetic timeline clips")
+                .accessibilityLabel("Timeline clips")
             }
 
             Divider()
@@ -111,7 +111,7 @@ struct ProjectTimelineView: View {
             openClipEditor(selection)
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(clip.name)
+                Text(clip.displayName)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 Text(ProjectTimecodeFormatter.string(clip.duration))
@@ -126,7 +126,7 @@ struct ProjectTimelineView: View {
         .frame(minHeight: 56, alignment: .topLeading)
         .background(clipBackground(for: selection), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.separator))
-        .accessibilityLabel("\(clip.name), clip \(index + 1) of \(controller.project.primaryTimeline.count)")
+        .accessibilityLabel("\(clip.displayName), clip \(index + 1) of \(controller.project.primaryTimeline.count)")
         .contextMenu { primaryClipActions(clip, index: index) }
     }
 

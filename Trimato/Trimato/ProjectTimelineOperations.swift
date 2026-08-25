@@ -22,24 +22,28 @@ enum ProjectTimelineError: LocalizedError, Equatable {
 
 extension TrimatoProject {
     mutating func append(asset: MediaAssetRecord, segments: [SourceSegment]? = nil) throws -> UUID {
-        let clip = try makeTimelineClip(asset: asset, segments: segments)
+        let clip = labelForInsertion(try makeTimelineClip(asset: asset, segments: segments))
         primaryTimeline.append(clip)
         resolveAutomaticFormat(from: asset)
         return clip.id
     }
 
     mutating func insert(asset: MediaAssetRecord, segments: [SourceSegment]? = nil, at playhead: ProjectTime) throws -> UUID {
-        let incoming = try makeTimelineClip(asset: asset, segments: segments)
+        var incoming = try makeTimelineClip(asset: asset, segments: segments)
         let destination = try timelineDestination(at: playhead, allowsEnd: true)
         if let destination, destination.offset > .zero, destination.offset < destination.clip.duration {
-            let halves = try split(destination.clip, at: destination.offset)
-            primaryTimeline.replaceSubrange(destination.index...destination.index, with: [halves.0, incoming, halves.1])
+            let halves = try labeledSplit(at: destination.index, offset: destination.offset)
+            primaryTimeline.replaceSubrange(destination.index...destination.index, with: [halves.0, halves.1])
+            incoming = labelForInsertion(incoming)
+            primaryTimeline.insert(incoming, at: destination.index + 1)
         } else if let destination {
+            incoming = labelForInsertion(incoming)
             let insertionIndex = destination.offset == destination.clip.duration
                 ? destination.index + 1
                 : destination.index
             primaryTimeline.insert(incoming, at: insertionIndex)
         } else {
+            incoming = labelForInsertion(incoming)
             primaryTimeline.append(incoming)
         }
         resolveAutomaticFormat(from: asset)
@@ -51,20 +55,37 @@ extension TrimatoProject {
         segments: [SourceSegment]? = nil,
         at playhead: ProjectTime
     ) throws -> UUID {
-        let incoming = try makeTimelineClip(asset: asset, segments: segments)
+        var incoming = try makeTimelineClip(asset: asset, segments: segments)
         guard let destination = try timelineDestination(at: playhead, allowsEnd: true) else {
+            incoming = labelForInsertion(incoming)
             primaryTimeline.append(incoming)
             resolveAutomaticFormat(from: asset)
             return incoming.id
         }
 
         if destination.offset <= .zero {
+            if incoming.assetID == destination.clip.assetID {
+                ensureInstanceLabels(for: destination.clip.assetID)
+                incoming.labelOrdinal = primaryTimeline[destination.index].labelOrdinal
+            } else {
+                primaryTimeline.remove(at: destination.index)
+                incoming = labelForInsertion(incoming)
+                primaryTimeline.insert(incoming, at: destination.index)
+                resolveAutomaticFormat(from: asset)
+                return incoming.id
+            }
             primaryTimeline[destination.index] = incoming
         } else if destination.offset >= destination.clip.duration {
+            incoming = labelForInsertion(incoming)
             primaryTimeline.insert(incoming, at: destination.index + 1)
         } else {
-            let left = try split(destination.clip, at: destination.offset).0
-            primaryTimeline.replaceSubrange(destination.index...destination.index, with: [left, incoming])
+            ensureInstanceLabels(for: destination.clip.assetID)
+            let labeledDestination = primaryTimeline[destination.index]
+            var left = try split(labeledDestination, at: destination.offset).0
+            left.labelOrdinal = labeledDestination.labelOrdinal
+            primaryTimeline[destination.index] = left
+            incoming = labelForInsertion(incoming)
+            primaryTimeline.insert(incoming, at: destination.index + 1)
         }
         resolveAutomaticFormat(from: asset)
         return incoming.id
@@ -104,7 +125,7 @@ extension TrimatoProject {
             throw ProjectTimelineError.clipNotFound
         }
         let offset = playhead - start
-        let halves = try split(primaryTimeline[index], at: offset)
+        let halves = try labeledSplit(at: index, offset: offset)
         primaryTimeline.replaceSubrange(index...index, with: [halves.0, halves.1])
         return halves.1.id
     }
@@ -149,6 +170,44 @@ extension TrimatoProject {
         let clip = primaryTimeline.remove(at: source)
         let bounded = min(max(destination, 0), primaryTimeline.count)
         primaryTimeline.insert(clip, at: bounded)
+    }
+
+    private mutating func labelForInsertion(_ clip: TimelineClip) -> TimelineClip {
+        guard primaryTimeline.contains(where: { $0.assetID == clip.assetID }) else { return clip }
+        ensureInstanceLabels(for: clip.assetID)
+        var labeled = clip
+        labeled.labelOrdinal = nextLabelOrdinal(for: clip.assetID)
+        return labeled
+    }
+
+    private mutating func ensureInstanceLabels(for assetID: UUID) {
+        var nextOrdinal = nextLabelOrdinal(for: assetID)
+        for index in primaryTimeline.indices where
+            primaryTimeline[index].assetID == assetID && primaryTimeline[index].labelOrdinal == nil {
+            primaryTimeline[index].labelOrdinal = nextOrdinal
+            nextOrdinal += 1
+        }
+    }
+
+    private func nextLabelOrdinal(for assetID: UUID) -> Int {
+        primaryTimeline
+            .filter { $0.assetID == assetID }
+            .compactMap(\.labelOrdinal)
+            .max()
+            .map { $0 + 1 } ?? 0
+    }
+
+    private mutating func labeledSplit(
+        at index: Int,
+        offset: ProjectTime
+    ) throws -> (TimelineClip, TimelineClip) {
+        let assetID = primaryTimeline[index].assetID
+        ensureInstanceLabels(for: assetID)
+        let clip = primaryTimeline[index]
+        var halves = try split(clip, at: offset)
+        halves.0.labelOrdinal = clip.labelOrdinal
+        halves.1.labelOrdinal = nextLabelOrdinal(for: assetID)
+        return halves
     }
 
     private mutating func resolveAutomaticFormat(from asset: MediaAssetRecord) {

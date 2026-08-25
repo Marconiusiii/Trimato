@@ -28,7 +28,7 @@ struct ClipInspectorView: View {
     @ViewBuilder
     private var inspectorDetails: some View {
         if let clip = controller.selectedTimelineClip {
-            inspectorRow("Name", clip.name)
+            inspectorRow("Name", clip.displayName)
             inspectorRow("Length", ProjectTimecodeFormatter.string(clip.duration))
             if let start = controller.project.startTime(of: clip.id) {
                 inspectorRow("Timeline Start", ProjectTimecodeFormatter.string(start))

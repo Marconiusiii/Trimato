@@ -79,9 +79,40 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
     var assetID: UUID
     var name: String
     var segments: [SourceSegment]
+    var labelOrdinal: Int?
 
     var duration: ProjectTime {
         segments.reduce(.zero) { $0 + $1.duration }
+    }
+
+    var displayName: String {
+        guard let labelOrdinal else { return name }
+        return "\(name) \(Self.letterLabel(for: labelOrdinal))"
+    }
+
+    init(
+        id: UUID = UUID(),
+        assetID: UUID,
+        name: String,
+        segments: [SourceSegment],
+        labelOrdinal: Int? = nil
+    ) {
+        self.id = id
+        self.assetID = assetID
+        self.name = name
+        self.segments = segments
+        self.labelOrdinal = labelOrdinal
+    }
+
+    private static func letterLabel(for ordinal: Int) -> String {
+        var value = max(ordinal, 0) + 1
+        var characters: [Character] = []
+        while value > 0 {
+            value -= 1
+            characters.append(Character(UnicodeScalar(65 + value % 26)!))
+            value /= 26
+        }
+        return String(characters.reversed())
     }
 }
 

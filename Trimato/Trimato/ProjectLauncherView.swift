@@ -24,8 +24,6 @@ struct ProjectLauncherView: View {
         .tint(EditorTheme.accent)
         .preferredColorScheme(.dark)
         .background(ProjectLauncherWindowBridge { launcherWindow = $0 })
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Project Launcher")
         .onAppear {
             recentProjects.refresh()
             newProjectFocused = true

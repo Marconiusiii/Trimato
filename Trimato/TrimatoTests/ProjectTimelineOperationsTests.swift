@@ -12,10 +12,83 @@ struct ProjectTimelineOperationsTests {
         _ = try project.insert(asset: cutaway, at: ProjectTime(seconds: 10))
 
         #expect(project.primaryTimeline.map(\.name) == ["Interview", "Cutaway", "Interview"])
+        #expect(project.primaryTimeline.map(\.displayName) == ["Interview A", "Cutaway", "Interview B"])
         #expect(project.primaryTimeline.map(\.duration) == [
             ProjectTime(seconds: 10), ProjectTime(seconds: 5), ProjectTime(seconds: 20)
         ])
         #expect(project.duration == ProjectTime(seconds: 35))
+    }
+
+    @Test func bladeThenInsertFromTheSameSourceProducesAThenCThenB() throws {
+        let source = fixtureAsset(name: "Clip01", duration: 30)
+        let insertedRange = [SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 20),
+            duration: ProjectTime(seconds: 3)
+        ))]
+        var project = TrimatoProject()
+        project.media = [source]
+        let originalID = try project.append(asset: source)
+
+        _ = try project.splitClip(id: originalID, atTimelineTime: ProjectTime(seconds: 10))
+        _ = try project.insert(
+            asset: source,
+            segments: insertedRange,
+            at: ProjectTime(seconds: 10)
+        )
+
+        #expect(project.primaryTimeline.map(\.displayName) == ["Clip01 A", "Clip01 C", "Clip01 B"])
+        #expect(project.primaryTimeline.map(\.duration) == [
+            ProjectTime(seconds: 10),
+            ProjectTime(seconds: 3),
+            ProjectTime(seconds: 20),
+        ])
+    }
+
+    @Test func insertingInsideAnUnsplitUseOfTheSameSourceProducesAThenCThenB() throws {
+        let source = fixtureAsset(name: "Clip01", duration: 30)
+        let insertedRange = [SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 24),
+            duration: ProjectTime(seconds: 2)
+        ))]
+        var project = TrimatoProject()
+        _ = try project.append(asset: source)
+
+        _ = try project.insert(
+            asset: source,
+            segments: insertedRange,
+            at: ProjectTime(seconds: 10)
+        )
+
+        #expect(project.primaryTimeline.map(\.displayName) == ["Clip01 A", "Clip01 C", "Clip01 B"])
+    }
+
+    @Test func movingLetteredClipsDoesNotRenameThem() throws {
+        let source = fixtureAsset(name: "Clip-1", duration: 10)
+        var project = TrimatoProject()
+        let originalID = try project.append(asset: source)
+        let rightID = try project.splitClip(
+            id: originalID,
+            atTimelineTime: ProjectTime(seconds: 4)
+        )
+        let namesBeforeMove = Dictionary(uniqueKeysWithValues: project.primaryTimeline.map { ($0.id, $0.displayName) })
+
+        try project.moveClip(id: rightID, to: 0)
+
+        #expect(project.primaryTimeline.map(\.displayName) == ["Clip-1 B", "Clip-1 A"])
+        #expect(project.primaryTimeline.allSatisfy { namesBeforeMove[$0.id] == $0.displayName })
+    }
+
+    @Test func timelineLettersContinueAfterZ() throws {
+        let source = fixtureAsset(name: "Clip01", duration: 1)
+        var project = TrimatoProject()
+
+        for _ in 0..<27 {
+            _ = try project.append(asset: source)
+        }
+
+        #expect(project.primaryTimeline.first?.displayName == "Clip01 A")
+        #expect(project.primaryTimeline[25].displayName == "Clip01 Z")
+        #expect(project.primaryTimeline[26].displayName == "Clip01 AA")
     }
 
     @Test func replacingRemainderKeepsLeftAndLaterClips() throws {
