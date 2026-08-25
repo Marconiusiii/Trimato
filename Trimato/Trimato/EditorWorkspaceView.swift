@@ -8,6 +8,7 @@ struct EditorWorkspaceView: View {
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var returnsToLauncherOnClose = false
+    @State private var hasRequestedInitialEditorFocus = false
     @AccessibilityFocusState private var editorPaneFocused: Bool
 
     init(document: ProjectDocument) {
@@ -74,6 +75,9 @@ struct EditorWorkspaceView: View {
             projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
                 guard let controller else { return }
                 ExternalMediaOpenCoordinator.shared.activate(controller: controller)
+                if !controller.isShowingProjectSettings, !hasRequestedInitialEditorFocus {
+                    requestEditorFocus()
+                }
             }
             controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] in
                 clipEditorWindows?.requestCloseAll { didClose in
@@ -84,7 +88,6 @@ struct EditorWorkspaceView: View {
                 }
             }
             NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
-            if !controller.isShowingProjectSettings { requestEditorFocus() }
         }
         .onChange(of: controller.isShowingProjectSettings) { isShowing in
             if !isShowing { requestEditorFocus() }
@@ -122,8 +125,12 @@ struct EditorWorkspaceView: View {
     }
 
     private func requestEditorFocus() {
+        hasRequestedInitialEditorFocus = true
         editorPaneFocused = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            editorPaneFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             editorPaneFocused = true
         }
     }
@@ -163,14 +170,6 @@ private struct ProjectViewerView: View {
         .onChange(of: viewModel.currentTime) { time in
             controller.timelinePlayhead = time
         }
-        .alert("Project Preview Failed", isPresented: Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { presented in if !presented { viewModel.clearError() } }
-        )) {
-            Button("OK") { viewModel.clearError() }
-        } message: {
-            Text(viewModel.errorMessage ?? "The project preview could not be prepared.")
-        }
     }
 
     private func prepare() {
@@ -187,6 +186,16 @@ private struct ProjectViewerView: View {
             } else if viewModel.isPreparing {
                 ProgressView("Preparing Project Preview")
                     .padding()
+            } else if let errorMessage = viewModel.errorMessage {
+                VStack(spacing: 12) {
+                    Text("Project Preview Failed")
+                        .font(.headline)
+                    Text(errorMessage)
+                        .multilineTextAlignment(.center)
+                    Button("Retry Project Preview") { prepare() }
+                }
+                .padding()
+                .frame(maxWidth: 480)
             }
         }
         .overlay(alignment: .bottom) {

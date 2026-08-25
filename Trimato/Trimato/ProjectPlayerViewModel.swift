@@ -35,6 +35,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private var buildTask: Task<Void, Never>?
+    private var preparationID: UUID?
     private var rateObserver: AnyCancellable?
     private var timeObserver: Any?
     private var temporaryMediaURLs: [URL] = []
@@ -86,6 +87,8 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func prepare(project: TrimatoProject, mediaURLs: [UUID: URL]) {
         buildTask?.cancel()
+        let preparationID = UUID()
+        self.preparationID = preparationID
         player.pause()
         jklIndex = 0
         arrowHolding = false
@@ -98,31 +101,51 @@ final class ProjectPlayerViewModel: ObservableObject {
         removeTemporaryMedia()
         guard !project.primaryTimeline.isEmpty else {
             player.replaceCurrentItem(with: nil)
+            isPreparing = false
             errorMessage = nil
             return
         }
         isPreparing = true
         errorMessage = nil
         buildTask = Task { @MainActor in
+            var pendingTemporaryMediaURLs: [URL] = []
             do {
                 let result = try await ProjectCompositionBuilder.build(
                     project: project,
                     mediaURLs: mediaURLs,
                     purpose: .preview
                 )
+                pendingTemporaryMediaURLs = result.temporaryMediaURLs
                 try Task.checkCancellation()
+                guard self.preparationID == preparationID else {
+                    Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
+                    return
+                }
                 let item = AVPlayerItem(asset: result.composition)
                 item.videoComposition = result.videoComposition
                 item.audioMix = result.audioMix
                 player.replaceCurrentItem(with: item)
-                temporaryMediaURLs = result.temporaryMediaURLs
+                await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+                try Task.checkCancellation()
+                guard self.preparationID == preparationID else {
+                    Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
+                    return
+                }
+                temporaryMediaURLs = pendingTemporaryMediaURLs
+                pendingTemporaryMediaURLs.removeAll()
                 isPreparing = false
             } catch is CancellationError {
-                isPreparing = false
+                Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
+                if self.preparationID == preparationID {
+                    isPreparing = false
+                }
             } catch {
-                player.replaceCurrentItem(with: nil)
-                isPreparing = false
-                errorMessage = error.localizedDescription
+                Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
+                if self.preparationID == preparationID {
+                    player.replaceCurrentItem(with: nil)
+                    isPreparing = false
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -257,13 +280,13 @@ final class ProjectPlayerViewModel: ObservableObject {
         didNavigateToPoint?(projectDuration)
     }
 
-    func clearError() {
-        errorMessage = nil
+    private func removeTemporaryMedia() {
+        Self.removeTemporaryMedia(at: temporaryMediaURLs)
+        temporaryMediaURLs.removeAll()
     }
 
-    private func removeTemporaryMedia() {
-        for url in temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }
-        temporaryMediaURLs.removeAll()
+    private nonisolated static func removeTemporaryMedia(at urls: [URL]) {
+        for url in urls { ProxyMediaManager.removeProxy(at: url) }
     }
 
     private func stop() {

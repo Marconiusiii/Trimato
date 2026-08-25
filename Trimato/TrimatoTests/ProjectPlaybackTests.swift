@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Testing
 @testable import Trimato
@@ -106,5 +107,61 @@ struct ProjectPlaybackTests {
         controller.selectTimelineEntry(at: ProjectTime(seconds: 2))
 
         #expect(controller.selection == .cutaway(cutaway.id))
+    }
+
+    @Test @MainActor func nonemptyProjectPreviewPreparesAtTimelineStart() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let mediaURL = directory.appendingPathComponent("preview.mov")
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "color=c=red:size=320x180:rate=24",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+            "-t", "0.5", "-c:v", "mpeg4", "-c:a", "aac", mediaURL.path,
+        ])
+
+        var asset = fixtureAsset(name: "Preview", duration: 0.5)
+        asset.originalPath = mediaURL.path
+        var project = TrimatoProject(name: "Preview")
+        project.format = ProjectFormat(mode: .custom, width: 320, height: 180, frameRate: 24)
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        let viewModel = ProjectPlayerViewModel()
+
+        viewModel.prepare(project: project, mediaURLs: [asset.id: mediaURL])
+        await waitForPreviewPreparation(viewModel)
+
+        #expect(!viewModel.isPreparing)
+        #expect(viewModel.errorMessage == nil)
+        #expect(viewModel.player.currentItem != nil)
+        #expect(abs(viewModel.player.currentTime().seconds) < 0.01)
+    }
+
+    @Test @MainActor func emptyProjectSupersedesEarlierPreviewPreparation() async throws {
+        let asset = fixtureAsset(name: "Unavailable", duration: 1)
+        var project = TrimatoProject(name: "Superseded")
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        let viewModel = ProjectPlayerViewModel()
+
+        viewModel.prepare(project: project, mediaURLs: [:])
+        viewModel.prepare(project: TrimatoProject(), mediaURLs: [:])
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(!viewModel.isPreparing)
+        #expect(viewModel.errorMessage == nil)
+        #expect(viewModel.player.currentItem == nil)
+    }
+
+    @MainActor
+    private func waitForPreviewPreparation(_ viewModel: ProjectPlayerViewModel) async {
+        for _ in 0..<400 {
+            if !viewModel.isPreparing { return }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        Issue.record("Project preview did not finish preparing")
     }
 }
