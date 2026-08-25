@@ -3,18 +3,23 @@ import SwiftUI
 struct ProjectBrowserView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
+    let accessibilityFocusRequest: Int
     @State private var sourceSelection: ProjectSourceItemID?
     @State private var showingNewFolder = false
     @State private var folderName = ""
     @State private var folderBeingRenamed: ProjectFolder?
     @State private var renamedFolderName = ""
+    @State private var handledAccessibilityFocusRequest = 0
+    @AccessibilityFocusState private var projectHeadingFocused: Bool
 
     init(
         controller: ProjectController,
-        openClipEditor: @escaping (EditorSelection) -> Void
+        openClipEditor: @escaping (EditorSelection) -> Void,
+        accessibilityFocusRequest: Int = 0
     ) {
         self.controller = controller
         self.openClipEditor = openClipEditor
+        self.accessibilityFocusRequest = accessibilityFocusRequest
         _sourceSelection = State(initialValue: .timeline(controller.project.id))
     }
 
@@ -23,6 +28,7 @@ struct ProjectBrowserView: View {
             Text("Project")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($projectHeadingFocused)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -64,6 +70,12 @@ struct ProjectBrowserView: View {
             .padding(8)
             .background(.bar)
         }
+        .onAppear {
+            handleAccessibilityFocusRequest(accessibilityFocusRequest)
+        }
+        .onChange(of: accessibilityFocusRequest) { request in
+            handleAccessibilityFocusRequest(request)
+        }
         .sheet(isPresented: $showingNewFolder) {
             folderEditor(
                 title: "New Project Folder",
@@ -88,6 +100,15 @@ struct ProjectBrowserView: View {
             } cancel: {
                 folderBeingRenamed = nil
             }
+        }
+    }
+
+    private func handleAccessibilityFocusRequest(_ request: Int) {
+        guard request > handledAccessibilityFocusRequest else { return }
+        handledAccessibilityFocusRequest = request
+        projectHeadingFocused = false
+        DispatchQueue.main.async {
+            projectHeadingFocused = true
         }
     }
 

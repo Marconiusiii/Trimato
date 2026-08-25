@@ -576,50 +576,50 @@ final class VideoPlayerViewModel: ObservableObject {
             return
         }
 
+        var formats = ExportFormat.projectFormats.filter { !$0.isAudioOnly || mediaSource.hasAudio }
+        if mediaSource.mode == .nativePassthrough,
+           let sourceContentType = mediaSource.contentType,
+           ClipExporter.canPassthrough(asset: mediaSource.originalAsset, sourceContentType: sourceContentType) {
+            formats.insert(.original, at: 0)
+        }
+        guard let format = ExportFormatChooser.choose(title: "Export Clip", formats: formats) else { return }
+
         let panel = NSSavePanel()
         panel.title = "Export Clip"
-        let outputType: UTType
-        switch mediaSource.mode {
-        case .nativePassthrough:
-            guard let sourceContentType = mediaSource.contentType else {
-                announce("The source file type could not be determined for passthrough export")
-                return
-            }
-            outputType = sourceContentType
-        case .nativePlaybackMP4Export, .proxyPlaybackMP4Export:
-            outputType = .mpeg4Movie
-        }
+        let outputType = format == .original ? (mediaSource.contentType ?? .data) : format.contentType
         panel.allowedContentTypes = [outputType]
         panel.allowsOtherFileTypes = false
         panel.isExtensionHidden = false
-        panel.nameFieldStringValue = Self.trimmedFilename(
-            for: mediaSource.originalURL,
-            convertingToMP4: mediaSource.mode != .nativePassthrough
+        let baseName = mediaSource.originalURL.deletingPathExtension().lastPathComponent + "-trimmed"
+        panel.nameFieldStringValue = format.filename(
+            for: baseName,
+            originalExtension: mediaSource.originalURL.pathExtension
         )
         guard panel.runModal() == .OK, let outputURL = panel.url else { return }
 
         isExporting = true
         exportStatus = "Exporting clip"
-        exportProgress = mediaSource.mode == .nativePassthrough ? nil : 0
+        exportProgress = format == .original ? nil : 0
         announce("Export started")
         exportTask = Task { @MainActor in
             do {
                 switch mediaSource.mode {
                 case .nativePassthrough:
-                    guard let sourceContentType = mediaSource.contentType else {
-                        throw ClipExportError.unsupportedFileType
-                    }
                     try await ClipExporter.export(
                         asset: mediaSource.originalAsset,
                         sourceRanges: sourceRanges,
-                        sourceContentType: sourceContentType,
+                        sourceContentType: mediaSource.contentType,
+                        format: format,
                         to: outputURL
-                    )
+                    ) { [weak self] progress in
+                        self?.exportProgress = progress
+                    }
                 case .nativePlaybackMP4Export, .proxyPlaybackMP4Export:
                     try await FFmpegClipExporter.export(
                         sourceURL: mediaSource.originalURL,
                         sourceRanges: sourceRanges,
                         hasAudio: mediaSource.hasAudio,
+                        format: format,
                         to: outputURL
                     ) { [weak self] progress in
                         self?.exportProgress = progress

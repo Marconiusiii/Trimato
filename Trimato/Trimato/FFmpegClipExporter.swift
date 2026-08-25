@@ -22,6 +22,7 @@ struct FFmpegClipExporter {
         sourceRanges: [CMTimeRange],
         hasAudio: Bool,
         outputURL: URL,
+        format: ExportFormat = .h264MP4,
         useVideoToolbox: Bool = true
     ) -> [String] {
         guard sourceRanges.count != 1 else {
@@ -32,17 +33,14 @@ struct FFmpegClipExporter {
                 "-hide_banner", "-nostdin", "-y",
                 "-i", sourceURL.path,
                 "-ss", String(format: "%.6f", start),
-                "-t", String(format: "%.6f", duration),
-                "-map", "0:v:0"
+                "-t", String(format: "%.6f", duration)
             ]
+            if !format.isAudioOnly { result += ["-map", "0:v:0"] }
             if hasAudio { result += ["-map", "0:a:0?"] }
             result += ["-sn", "-dn"]
-            result += encodingArguments(useVideoToolbox: useVideoToolbox, hasAudio: hasAudio)
-            result += [
-                "-movflags", "+faststart",
-                "-progress", "pipe:1", "-nostats",
-                outputURL.path
-            ]
+            result += encodingArguments(format: format, useVideoToolbox: useVideoToolbox, hasAudio: hasAudio)
+            if format != .wav { result += ["-movflags", "+faststart"] }
+            result += ["-progress", "pipe:1", "-nostats", outputURL.path]
             return result
         }
 
@@ -51,50 +49,66 @@ struct FFmpegClipExporter {
         for (index, range) in sourceRanges.enumerated() {
             let start = max(CMTimeGetSeconds(range.start), 0)
             let duration = max(CMTimeGetSeconds(range.duration), 0)
-            filters.append(
-                "[0:v:0]trim=start=\(format(start)):duration=\(format(duration))," +
-                "setpts=PTS-STARTPTS[v\(index)]"
-            )
-            concatInputs += "[v\(index)]"
+            if !format.isAudioOnly {
+                filters.append(
+                    "[0:v:0]trim=start=\(self.format(start)):duration=\(self.format(duration))," +
+                    "setpts=PTS-STARTPTS[v\(index)]"
+                )
+                concatInputs += "[v\(index)]"
+            }
             if hasAudio {
                 filters.append(
-                    "[0:a:0]atrim=start=\(format(start)):duration=\(format(duration))," +
+                    "[0:a:0]atrim=start=\(self.format(start)):duration=\(self.format(duration))," +
                     "asetpts=PTS-STARTPTS[a\(index)]"
                 )
                 concatInputs += "[a\(index)]"
             }
         }
-        filters.append(
-            "\(concatInputs)concat=n=\(sourceRanges.count):v=1:a=\(hasAudio ? 1 : 0)" +
-            (hasAudio ? "[v][a]" : "[v]")
-        )
+        let hasVideo = !format.isAudioOnly
+        filters.append("\(concatInputs)concat=n=\(sourceRanges.count):v=\(hasVideo ? 1 : 0):a=\(hasAudio ? 1 : 0)" +
+            (hasVideo ? "[v]" : "") + (hasAudio ? "[a]" : ""))
 
         var result = [
             "-hide_banner", "-nostdin", "-y",
             "-i", sourceURL.path,
-            "-filter_complex", filters.joined(separator: ";"),
-            "-map", "[v]"
+            "-filter_complex", filters.joined(separator: ";")
         ]
+        if hasVideo { result += ["-map", "[v]"] }
         if hasAudio { result += ["-map", "[a]"] }
         result += ["-sn", "-dn"]
-        result += encodingArguments(useVideoToolbox: useVideoToolbox, hasAudio: hasAudio)
-        result += [
-            "-movflags", "+faststart",
-            "-progress", "pipe:1", "-nostats",
-            outputURL.path
-        ]
+        result += encodingArguments(format: format, useVideoToolbox: useVideoToolbox, hasAudio: hasAudio)
+        if format != .wav { result += ["-movflags", "+faststart"] }
+        result += ["-progress", "pipe:1", "-nostats", outputURL.path]
         return result
     }
 
-    private static func encodingArguments(useVideoToolbox: Bool, hasAudio: Bool) -> [String] {
-        var result: [String]
-        if useVideoToolbox {
-            result = ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-tag:v", "avc1"]
-        } else {
-            result = ["-c:v", "mpeg4", "-q:v", "3", "-tag:v", "mp4v"]
+    private static func encodingArguments(
+        format: ExportFormat,
+        useVideoToolbox: Bool,
+        hasAudio: Bool
+    ) -> [String] {
+        switch format {
+        case .h264MP4, .h264QuickTime:
+            var result = useVideoToolbox
+                ? ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-tag:v", "avc1"]
+                : ["-c:v", "mpeg4", "-q:v", "3", "-tag:v", "mp4v"]
+            if hasAudio { result += ["-c:a", "aac"] }
+            return result
+        case .hevcMovie:
+            var result = ["-c:v", "hevc_videotoolbox", "-allow_sw", "1", "-tag:v", "hvc1"]
+            if hasAudio { result += ["-c:a", "aac"] }
+            return result
+        case .proRes422:
+            var result = ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"]
+            if hasAudio { result += ["-c:a", "pcm_s16le"] }
+            return result
+        case .m4a:
+            return ["-vn", "-c:a", "aac"]
+        case .wav:
+            return ["-vn", "-c:a", "pcm_s16le"]
+        case .original:
+            return []
         }
-        if hasAudio { result += ["-c:a", "aac"] }
-        return result
     }
 
     private static func format(_ seconds: Double) -> String {
@@ -120,9 +134,13 @@ struct FFmpegClipExporter {
         sourceURL: URL,
         sourceRanges: [CMTimeRange],
         hasAudio: Bool,
+        format: ExportFormat = .h264MP4,
         to outputURL: URL,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
+        if format.isAudioOnly && !hasAudio {
+            throw ProjectExporter.ExportError.noAudio
+        }
         let fileManager = FileManager.default
         let replacementDirectory = try fileManager.url(
             for: .itemReplacementDirectory,
@@ -133,7 +151,7 @@ struct FFmpegClipExporter {
         defer { try? fileManager.removeItem(at: replacementDirectory) }
         let temporaryURL = replacementDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("mp4")
+            .appendingPathExtension(format.fileExtension)
         let duration = sourceRanges.reduce(0) { $0 + max(CMTimeGetSeconds($1.duration), 0) }
 
         do {
@@ -143,12 +161,14 @@ struct FFmpegClipExporter {
                     sourceURL: sourceURL,
                     sourceRanges: sourceRanges,
                     hasAudio: hasAudio,
-                    outputURL: temporaryURL
+                    outputURL: temporaryURL,
+                    format: format
                 ),
                 progress: progress,
                 expectedDuration: duration
             )
-        } catch let error as FFmpegCommandError where error.isVideoToolboxUnavailable {
+        } catch let error as FFmpegCommandError
+            where error.isVideoToolboxUnavailable && (format == .h264MP4 || format == .h264QuickTime) {
             try Task.checkCancellation()
             _ = try await FFmpegRunner.run(
                 tool: .ffmpeg,
@@ -157,6 +177,7 @@ struct FFmpegClipExporter {
                     sourceRanges: sourceRanges,
                     hasAudio: hasAudio,
                     outputURL: temporaryURL,
+                    format: format,
                     useVideoToolbox: false
                 ),
                 progress: progress,

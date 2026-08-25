@@ -72,6 +72,85 @@ struct ClipExporter {
         )
     }
 
+    static func export(
+        asset: AVAsset,
+        sourceRanges: [CMTimeRange],
+        sourceContentType: UTType?,
+        format: ExportFormat,
+        to outputURL: URL,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
+    ) async throws {
+        guard !sourceRanges.isEmpty else { throw ClipExportError.unavailable }
+        if format == .original {
+            guard let sourceContentType else { throw ClipExportError.unsupportedFileType }
+            try await export(
+                asset: asset,
+                sourceRanges: sourceRanges,
+                sourceContentType: sourceContentType,
+                to: outputURL
+            )
+            progress(1)
+            return
+        }
+
+        let composition = try await EditedCompositionBuilder.build(
+            asset: asset,
+            sourceRanges: sourceRanges
+        )
+        if format == .wav {
+            try await AudioOnlyExporter.exportWAV(
+                asset: composition,
+                audioMix: nil,
+                timeRange: nil,
+                to: outputURL,
+                progress: progress
+            )
+            return
+        }
+
+        guard let preset = format.exportPreset, let fileType = format.fileType,
+              let session = AVAssetExportSession(asset: composition, presetName: preset),
+              session.supportedFileTypes.contains(fileType) else {
+            throw ProjectExporter.ExportError.incompatibleFormat(format.title)
+        }
+        session.shouldOptimizeForNetworkUse = format == .h264MP4
+
+        let fileManager = FileManager.default
+        let replacementDirectory = try fileManager.url(
+            for: .itemReplacementDirectory,
+            in: .userDomainMask,
+            appropriateFor: outputURL,
+            create: true
+        )
+        defer { try? fileManager.removeItem(at: replacementDirectory) }
+        let temporaryURL = replacementDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(format.fileExtension)
+
+        let progressTask = Task { @MainActor in
+            while !Task.isCancelled {
+                progress(Double(session.progress))
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+        defer { progressTask.cancel() }
+        do {
+            try await session.export(to: temporaryURL, as: fileType)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw ProjectExporter.ExportError.encodingFailed(ProjectExporter.failureDetail(for: error))
+        }
+        try Task.checkCancellation()
+        progress(1)
+
+        if fileManager.fileExists(atPath: outputURL.path) {
+            _ = try fileManager.replaceItemAt(outputURL, withItemAt: temporaryURL)
+        } else {
+            try fileManager.moveItem(at: temporaryURL, to: outputURL)
+        }
+    }
+
     private static func exportSingleRange(
         asset: AVAsset,
         timeRange: CMTimeRange,

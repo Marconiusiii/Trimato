@@ -6,8 +6,8 @@ struct EditorWorkspaceView: View {
     @StateObject private var controller: ProjectController
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
-    @State private var hasRequestedInitialEditorFocus = false
-    @State private var editorFocusRequest = 0
+    @State private var hasRequestedInitialProjectFocus = false
+    @State private var projectFocusRequest = 0
 
     init(document: ProjectDocument) {
         let controller = ProjectController(document: document)
@@ -23,7 +23,8 @@ struct EditorWorkspaceView: View {
             MacEditorPane("Project") {
                 ProjectBrowserView(
                     controller: controller,
-                    openClipEditor: clipEditorWindows.open
+                    openClipEditor: clipEditorWindows.open,
+                    accessibilityFocusRequest: projectFocusRequest
                 )
             }
                 .frame(minWidth: 210, idealWidth: 260, maxWidth: 360)
@@ -31,8 +32,7 @@ struct EditorWorkspaceView: View {
             VSplitView {
                 MacEditorPane("Editor") {
                     ProjectViewerView(
-                        controller: controller,
-                        accessibilityFocusRequest: editorFocusRequest
+                        controller: controller
                     )
                 }
                 .frame(minHeight: 360)
@@ -83,8 +83,8 @@ struct EditorWorkspaceView: View {
             projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
                 guard let controller else { return }
                 ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-                if !controller.isShowingProjectSettings, !hasRequestedInitialEditorFocus {
-                    requestEditorFocus()
+                if !controller.isShowingProjectSettings, !hasRequestedInitialProjectFocus {
+                    requestProjectFocus()
                 }
             }
             projectWindowSaveCoordinator.onLastProjectWindowWillClose {
@@ -99,7 +99,7 @@ struct EditorWorkspaceView: View {
             NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
         }
         .onChange(of: controller.isShowingProjectSettings) { isShowing in
-            if !isShowing { requestEditorFocus() }
+            if !isShowing { requestProjectFocus() }
         }
         .onDisappear {
             ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
@@ -118,20 +118,17 @@ struct EditorWorkspaceView: View {
         }
     }
 
-    private func requestEditorFocus() {
-        hasRequestedInitialEditorFocus = true
-        editorFocusRequest += 1
+    private func requestProjectFocus() {
+        hasRequestedInitialProjectFocus = true
+        projectFocusRequest += 1
     }
 
 }
 
 private struct ProjectViewerView: View {
     @ObservedObject var controller: ProjectController
-    let accessibilityFocusRequest: Int
     @StateObject private var viewModel = ProjectPlayerViewModel()
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
-    @State private var handledAccessibilityFocusRequest = 0
-    @AccessibilityFocusState private var playButtonFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -163,10 +160,6 @@ private struct ProjectViewerView: View {
                 controller?.splitClipAtPlayhead()
             }
             prepare()
-            handleAccessibilityFocusRequest(accessibilityFocusRequest)
-        }
-        .onChange(of: accessibilityFocusRequest) { request in
-            handleAccessibilityFocusRequest(request)
         }
         .onChange(of: controller.project) { _ in prepare() }
         .onChange(of: controller.timelinePlayhead) { time in
@@ -184,18 +177,6 @@ private struct ProjectViewerView: View {
             mediaURLs: controller.resolvedMediaURLs(),
             initialTime: controller.timelinePlayhead
         )
-    }
-
-    private func handleAccessibilityFocusRequest(_ request: Int) {
-        guard request > handledAccessibilityFocusRequest else { return }
-        handledAccessibilityFocusRequest = request
-        playButtonFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            playButtonFocused = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            playButtonFocused = true
-        }
     }
 
     private var videoArea: some View {
@@ -368,7 +349,6 @@ private struct ProjectViewerView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
-                .accessibilityFocused($playButtonFocused)
                 .accessibilityIdentifier("trimato.editor.play-pause")
 
                 Button { viewModel.seekForward() } label: {

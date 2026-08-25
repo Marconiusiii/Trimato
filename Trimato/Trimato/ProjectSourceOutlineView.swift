@@ -32,12 +32,12 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         }
 
         let scrollView = NSScrollView()
-        scrollView.documentView = outline
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         context.coordinator.outlineView = outline
         context.coordinator.reload(with: ProjectSourceItem.hierarchy(for: controller.project))
+        scrollView.documentView = outline
         return scrollView
     }
 

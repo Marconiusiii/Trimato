@@ -61,18 +61,12 @@ enum ProjectCompositionBuilder {
         guard let primaryVideo = composition.addMutableTrack(
             withMediaType: .video,
             preferredTrackID: kCMPersistentTrackID_Invalid
-        ), let primaryAudio = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ), let cutawayVideo = composition.addMutableTrack(
-            withMediaType: .video,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ), let cutawayAudio = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
         ) else {
             throw ProjectCompositionError.cannotCreateTrack
         }
+        var primaryAudio: AVMutableCompositionTrack?
+        var cutawayVideo: AVMutableCompositionTrack?
+        var cutawayAudio: AVMutableCompositionTrack?
 
         let renderSize = CGSize(width: width, height: height)
         var assets: [UUID: AVURLAsset] = [:]
@@ -109,7 +103,19 @@ enum ProjectCompositionBuilder {
                     let available = try await audio.load(.timeRange)
                     let portion = CMTimeRangeGetIntersection(range, otherRange: available)
                     if portion.isValid, !portion.isEmpty {
-                        try primaryAudio.insertTimeRange(portion, of: audio, at: cursor.cmTime)
+                        if primaryAudio == nil {
+                            primaryAudio = composition.addMutableTrack(
+                                withMediaType: .audio,
+                                preferredTrackID: kCMPersistentTrackID_Invalid
+                            )
+                        }
+                        guard let primaryAudio else { throw ProjectCompositionError.cannotCreateTrack }
+                        let sourceOffset = CMTimeSubtract(portion.start, range.start)
+                        try primaryAudio.insertTimeRange(
+                            portion,
+                            of: audio,
+                            at: CMTimeAdd(cursor.cmTime, sourceOffset)
+                        )
                     }
                 }
                 primaryTransforms.append((
@@ -133,6 +139,13 @@ enum ProjectCompositionBuilder {
             guard let video = try await asset.loadTracks(withMediaType: .video).first else {
                 throw ProjectCompositionError.missingVideo(assetRecord.name)
             }
+            if cutawayVideo == nil {
+                cutawayVideo = composition.addMutableTrack(
+                    withMediaType: .video,
+                    preferredTrackID: kCMPersistentTrackID_Invalid
+                )
+            }
+            guard let cutawayVideo else { throw ProjectCompositionError.cannotCreateTrack }
             let audio = cutaway.audioMode == .sourceAudio
                 ? try await asset.loadTracks(withMediaType: .audio).first
                 : nil
@@ -145,7 +158,19 @@ enum ProjectCompositionBuilder {
                     let available = try await audio.load(.timeRange)
                     let portion = CMTimeRangeGetIntersection(range, otherRange: available)
                     if portion.isValid, !portion.isEmpty {
-                        try cutawayAudio.insertTimeRange(portion, of: audio, at: cutawayCursor.cmTime)
+                        if cutawayAudio == nil {
+                            cutawayAudio = composition.addMutableTrack(
+                                withMediaType: .audio,
+                                preferredTrackID: kCMPersistentTrackID_Invalid
+                            )
+                        }
+                        guard let cutawayAudio else { throw ProjectCompositionError.cannotCreateTrack }
+                        let sourceOffset = CMTimeSubtract(portion.start, range.start)
+                        try cutawayAudio.insertTimeRange(
+                            portion,
+                            of: audio,
+                            at: CMTimeAdd(cutawayCursor.cmTime, sourceOffset)
+                        )
                     }
                 }
                 cutawayTransforms.append((
@@ -173,21 +198,30 @@ enum ProjectCompositionBuilder {
 
         let sourceAudioCutaways = project.cutaways.filter { $0.audioMode == .sourceAudio }
         let audioMix: AVMutableAudioMix?
-        if sourceAudioCutaways.isEmpty {
+        if sourceAudioCutaways.isEmpty || (primaryAudio == nil && cutawayAudio == nil) {
             audioMix = nil
         } else {
-            let primaryParameters = AVMutableAudioMixInputParameters(track: primaryAudio)
-            let cutawayParameters = AVMutableAudioMixInputParameters(track: cutawayAudio)
-            primaryParameters.setVolume(1, at: .zero)
-            cutawayParameters.setVolume(0, at: .zero)
-            for cutaway in sourceAudioCutaways {
-                primaryParameters.setVolume(0, at: cutaway.start.cmTime)
-                primaryParameters.setVolume(1, at: cutaway.end.cmTime)
-                cutawayParameters.setVolume(1, at: cutaway.start.cmTime)
-                cutawayParameters.setVolume(0, at: cutaway.end.cmTime)
+            var parameters: [AVMutableAudioMixInputParameters] = []
+            if let primaryAudio {
+                let primaryParameters = AVMutableAudioMixInputParameters(track: primaryAudio)
+                primaryParameters.setVolume(1, at: .zero)
+                for cutaway in sourceAudioCutaways {
+                    primaryParameters.setVolume(0, at: cutaway.start.cmTime)
+                    primaryParameters.setVolume(1, at: cutaway.end.cmTime)
+                }
+                parameters.append(primaryParameters)
+            }
+            if let cutawayAudio {
+                let cutawayParameters = AVMutableAudioMixInputParameters(track: cutawayAudio)
+                cutawayParameters.setVolume(0, at: .zero)
+                for cutaway in sourceAudioCutaways {
+                    cutawayParameters.setVolume(1, at: cutaway.start.cmTime)
+                    cutawayParameters.setVolume(0, at: cutaway.end.cmTime)
+                }
+                parameters.append(cutawayParameters)
             }
             let mix = AVMutableAudioMix()
-            mix.inputParameters = [primaryParameters, cutawayParameters]
+            mix.inputParameters = parameters
             audioMix = mix
         }
 
@@ -284,7 +318,7 @@ enum ProjectCompositionBuilder {
         duration: ProjectTime,
         primaryTrack: AVCompositionTrack,
         primaryTransforms: [(ProjectTimeRange, CGAffineTransform)],
-        cutawayTrack: AVCompositionTrack,
+        cutawayTrack: AVCompositionTrack?,
         cutawayTransforms: [(ProjectTimeRange, CGAffineTransform)],
         cutaways: [TimelineCutaway]
     ) -> [AVVideoCompositionInstructionProtocol] {
@@ -302,7 +336,8 @@ enum ProjectCompositionBuilder {
             if let transform = primaryTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
                 primaryLayer.setTransform(transform, at: start.cmTime)
             }
-            if let cutawayTransform = cutawayTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
+            if let cutawayTrack,
+               let cutawayTransform = cutawayTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
                 let cutawayLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: cutawayTrack)
                 cutawayLayer.setTransform(cutawayTransform, at: start.cmTime)
                 instruction.layerInstructions = [cutawayLayer, primaryLayer]

@@ -148,10 +148,20 @@ final class ProjectController: ObservableObject {
             return
         }
 
+        let hasExportableAudio = project.primaryTimeline.contains { clip in
+            project.asset(id: clip.assetID)?.hasAudio == true
+        } || project.cutaways.contains { cutaway in
+            cutaway.audioMode == .sourceAudio && project.asset(id: cutaway.assetID)?.hasAudio == true
+        }
+        let formats = ExportFormat.projectFormats.filter { !$0.isAudioOnly || hasExportableAudio }
+        guard let format = ExportFormatChooser.choose(title: "Export Project", formats: formats) else { return }
+
         let panel = NSSavePanel()
         panel.title = "Export Project"
-        panel.allowedContentTypes = [.mpeg4Movie]
-        panel.nameFieldStringValue = project.name + ".mp4"
+        panel.allowedContentTypes = [format.contentType]
+        panel.allowsOtherFileTypes = false
+        panel.isExtensionHidden = false
+        panel.nameFieldStringValue = format.filename(for: project.name)
         guard panel.runModal() == .OK, let outputURL = panel.url else { return }
 
         isExporting = true
@@ -164,6 +174,7 @@ final class ProjectController: ObservableObject {
                     project: projectSnapshot,
                     mediaURLs: urls,
                     timeRange: exportRange,
+                    format: format,
                     to: outputURL
                 ) { [weak self] progress in
                     self?.exportProgress = progress

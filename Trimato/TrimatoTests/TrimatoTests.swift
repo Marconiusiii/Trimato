@@ -329,6 +329,43 @@ struct TrimatoTests {
         #expect(outputDuration > 0.5 && outputDuration < 0.8)
     }
 
+    @Test(arguments: ExportFormat.projectFormats)
+    func bundledToolsExportEachClipFormat(format: ExportFormat) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mkv")
+        let outputURL = directory
+            .appendingPathComponent("clip")
+            .appendingPathExtension(format.fileExtension)
+
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+            "-t", "0.6", "-c:v", "mpeg4", "-c:a", "pcm_s16le", sourceURL.path
+        ])
+        try await FFmpegClipExporter.export(
+            sourceURL: sourceURL,
+            sourceRanges: [CMTimeRange(
+                start: CMTime(seconds: 0.1, preferredTimescale: 600),
+                duration: CMTime(seconds: 0.4, preferredTimescale: 600)
+            )],
+            hasAudio: true,
+            format: format,
+            to: outputURL,
+            progress: { _ in }
+        )
+
+        let report = try await FFmpegMediaProbe.inspect(url: outputURL)
+        let containsVideo = await report.videoStream != nil
+        let containsAudio = await report.hasAudio
+        #expect(FileManager.default.fileExists(atPath: outputURL.path))
+        #expect(containsAudio)
+        #expect(format.isAudioOnly ? !containsVideo : containsVideo)
+    }
+
     @Test func nativeCompositionJoinsAndPassesThroughEditedRanges() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
