@@ -526,6 +526,42 @@ struct TrimatoTests {
         #expect(components.queryItems?.first(where: { $0.name == "subject" })?.value == "Trimato Feedback")
     }
 
+    @Test func exportCommandPrefersTheFocusedEditingContext() {
+        #expect(ExportCommandDestination.resolve(
+            hasFocusedProject: true,
+            hasProjectClipContext: false,
+            hasStandaloneClip: true,
+            hasActiveProject: true
+        ) == .project)
+        #expect(ExportCommandDestination.resolve(
+            hasFocusedProject: false,
+            hasProjectClipContext: true,
+            hasStandaloneClip: true,
+            hasActiveProject: true
+        ) == .project)
+        #expect(ExportCommandDestination.resolve(
+            hasFocusedProject: false,
+            hasProjectClipContext: false,
+            hasStandaloneClip: true,
+            hasActiveProject: true
+        ) == .standaloneClip)
+    }
+
+    @Test func exportCommandFallsBackToTheActiveProject() {
+        #expect(ExportCommandDestination.resolve(
+            hasFocusedProject: false,
+            hasProjectClipContext: false,
+            hasStandaloneClip: false,
+            hasActiveProject: true
+        ) == .project)
+        #expect(ExportCommandDestination.resolve(
+            hasFocusedProject: false,
+            hasProjectClipContext: false,
+            hasStandaloneClip: false,
+            hasActiveProject: false
+        ) == .unavailable)
+    }
+
     @Test func importProgressAnnouncementsUseRestrainedMilestones() {
         #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.01) == 0)
         #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.24) == 0)

@@ -78,7 +78,7 @@ struct ClipInspectorView: View {
     }
 
     private func inspectorRow(_ label: String, _ value: String) -> some View {
-        LabeledContent(label, value: value)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        Text("\(label): \(value)")
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

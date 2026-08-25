@@ -24,6 +24,7 @@ struct TrimatoApp: App {
         }
         .commands {
             ProjectFileCommands()
+            ContextualExportCommands()
             FeedbackCommands()
             CommandGroup(replacing: .appInfo) {
                 Button("About Trimato") {
@@ -201,6 +202,7 @@ struct TrimatoApp: App {
         .defaultSize(width: 940, height: 760)
         .commands {
             StandaloneClipCommands()
+            ContextualExportCommands()
             FeedbackCommands()
         }
 
@@ -247,15 +249,77 @@ private struct ProjectFileCommands: Commands {
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(controller == nil || controller?.isImporting == true)
         }
+    }
+}
+
+nonisolated enum ExportCommandDestination: Equatable {
+    case project
+    case standaloneClip
+    case unavailable
+
+    static func resolve(
+        hasFocusedProject: Bool,
+        hasProjectClipContext: Bool,
+        hasStandaloneClip: Bool,
+        hasActiveProject: Bool
+    ) -> Self {
+        if hasFocusedProject || hasProjectClipContext { return .project }
+        if hasStandaloneClip { return .standaloneClip }
+        if hasActiveProject { return .project }
+        return .unavailable
+    }
+}
+
+private struct ContextualExportCommands: Commands {
+    @FocusedObject private var projectController: ProjectController?
+    @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
+    @FocusedObject private var viewModel: VideoPlayerViewModel?
+    @FocusedObject private var projectCreation: StandaloneClipCommandContext?
+    @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
+
+    private var destination: ExportCommandDestination {
+        ExportCommandDestination.resolve(
+            hasFocusedProject: projectController != nil,
+            hasProjectClipContext: clipPlacement != nil,
+            hasStandaloneClip: viewModel != nil,
+            hasActiveProject: activeProjects.activeProjectController != nil
+        )
+    }
+
+    private var project: ProjectController? {
+        projectController ?? clipPlacement?.controller ?? activeProjects.activeProjectController
+    }
+
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            if destination == .standaloneClip {
+                Button("Create Project from Clip") { projectCreation?.createProject() }
+                    .disabled(projectCreation?.canCreateProject != true)
+            }
+        }
         CommandGroup(after: .saveItem) {
-            Button("Project Settings\u{2026}") { controller?.showProjectSettings() }
-                .disabled(controller == nil)
-            Divider()
-            Button("Export Project\u{2026}") { controller?.exportProject() }
-                .keyboardShortcut("e", modifiers: .command)
-                .disabled(controller?.canExportProject != true)
-            if controller?.isExporting == true {
-                Button("Cancel Project Export") { controller?.cancelExport() }
+            switch destination {
+            case .project:
+                Button("Project Settings\u{2026}") { project?.showProjectSettings() }
+                    .disabled(project == nil)
+                Divider()
+                Button("Export Project\u{2026}") { project?.exportProject() }
+                    .keyboardShortcut("e", modifiers: .command)
+                    .disabled(project?.canExportProject != true)
+                if project?.isExporting == true {
+                    Button("Cancel Project Export") { project?.cancelExport() }
+                }
+            case .standaloneClip:
+                Button("Export Clip\u{2026}") { viewModel?.exportTrimmedClip() }
+                    .keyboardShortcut("e", modifiers: .command)
+                    .disabled(viewModel?.canExport != true)
+                if viewModel?.isExporting == true {
+                    Button("Cancel Clip Export") { viewModel?.cancelExport() }
+                }
+            case .unavailable:
+                Button("Export\u{2026}") {}
+                    .keyboardShortcut("e", modifiers: .command)
+                    .disabled(true)
             }
         }
     }
@@ -290,24 +354,11 @@ private struct FeedbackCommands: Commands {
 
 private struct StandaloneClipCommands: Commands {
     @FocusedObject private var viewModel: VideoPlayerViewModel?
-    @FocusedObject private var projectCreation: StandaloneClipCommandContext?
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Trimato") { openWindow(id: "about") }
-        }
-        CommandGroup(after: .newItem) {
-            Button("Create Project from Clip") { projectCreation?.createProject() }
-                .disabled(projectCreation?.canCreateProject != true)
-        }
-        CommandGroup(after: .saveItem) {
-            Button("Export Clip…") { viewModel?.exportTrimmedClip() }
-                .keyboardShortcut("e", modifiers: .command)
-                .disabled(viewModel?.canExport != true)
-            if viewModel?.isExporting == true {
-                Button("Cancel Clip Export") { viewModel?.cancelExport() }
-            }
         }
         CommandGroup(after: .pasteboard) {
             Divider()
