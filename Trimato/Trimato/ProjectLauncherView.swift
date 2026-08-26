@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct ProjectLauncherView: View {
     @Environment(\.newDocument) private var newDocument
     @Environment(\.openDocument) private var openDocument
+    @Environment(\.openWindow) private var openWindow
 
     @ObservedObject private var navigation = ProjectLauncherNavigation.shared
     @StateObject private var recentProjects = RecentProjectStore()
@@ -15,6 +16,7 @@ struct ProjectLauncherView: View {
 
     private enum LauncherFocus: Hashable {
         case newProject
+        case trimClip
     }
 
     var body: some View {
@@ -116,6 +118,12 @@ struct ProjectLauncherView: View {
             .keyboardShortcut(.defaultAction)
             .focused($launcherFocus, equals: .newProject)
 
+            Button("Trim a Clip") {
+                chooseClip()
+            }
+            .buttonStyle(.bordered)
+            .focused($launcherFocus, equals: .trimClip)
+
             Button("Open Project…") {
                 chooseProject()
             }
@@ -181,6 +189,19 @@ struct ProjectLauncherView: View {
         panel.canChooseFiles = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         openProject(at: url)
+    }
+
+    private func chooseClip() {
+        launcherFocus = .trimClip
+        let panel = NSOpenPanel()
+        panel.title = "Trim a Clip"
+        panel.prompt = "Open"
+        panel.allowedContentTypes = [.movie, .data]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openWindow(value: url)
     }
 
     private func openProject(at url: URL) {

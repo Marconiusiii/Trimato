@@ -12,6 +12,7 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 
 - Create and save `.trimato` project packages with automatic or custom dimensions and frame rate.
 - Organize imported media in project folders without moving the original files in Finder.
+- Activate Trim a Clip on the welcome screen to choose a video and open the standalone Clip Editor without creating a project first.
 - Open a source clip, timeline clip, or cutaway in Trimato's focused clip editor.
 - Arrange clips in a magnetic primary storyline with no empty gaps.
 - Append clips, insert and split at the playhead, or replace the remainder of the clip at the playhead.
