@@ -457,6 +457,60 @@ struct TrimatoTests {
         #expect(CMTimeGetSeconds(outputDuration) > 0.5)
     }
 
+    @Test(arguments: [
+        ("mp4", UTType.mpeg4Movie),
+        ("mov", UTType.quickTimeMovie),
+    ])
+    func nativeM4AExportEncodesMovieAudio(
+        sourceExtension: String,
+        sourceContentType: UTType
+    ) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory
+            .appendingPathComponent("source")
+            .appendingPathExtension(sourceExtension)
+        let outputURL = directory.appendingPathComponent("audio.m4a")
+
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+            "-t", "0.8", "-c:v", "mpeg4", "-c:a", "aac", sourceURL.path,
+        ])
+        try await ClipExporter.export(
+            asset: AVURLAsset(url: sourceURL),
+            sourceRanges: [CMTimeRange(
+                start: CMTime(seconds: 0.1, preferredTimescale: 600),
+                duration: CMTime(seconds: 0.5, preferredTimescale: 600)
+            )],
+            sourceContentType: sourceContentType,
+            format: .m4a,
+            to: outputURL,
+            progress: { _ in }
+        )
+
+        let outputAsset = AVURLAsset(url: outputURL)
+        let audioTracks = try await outputAsset.loadTracks(withMediaType: .audio)
+        let videoTracks = try await outputAsset.loadTracks(withMediaType: .video)
+        #expect(FileManager.default.fileExists(atPath: outputURL.path))
+        #expect(!audioTracks.isEmpty)
+        #expect(videoTracks.isEmpty)
+    }
+
+    @Test func mediaFrameworkCodesUseAPlainLanguageFallback() {
+        let error = NSError(domain: NSOSStatusErrorDomain, code: -12780)
+        let detail = ProjectExporter.failureDetail(for: error)
+        let message = ProjectExporter.userFacingMessage(for: error)
+
+        #expect(detail == "The media encoder stopped before it could finish the file.")
+        #expect(!detail.contains("-12780"))
+        #expect(message == "Trimato could not create the selected file. The media encoder stopped before it could finish the file.")
+        #expect(!message.contains("-12780"))
+    }
+
     @Test func deletingAMiddleSelectionJoinsTheRemainingSourceRanges() throws {
         var timeline = ClipEditTimeline(
             sourceDuration: CMTime(seconds: 30, preferredTimescale: 600)

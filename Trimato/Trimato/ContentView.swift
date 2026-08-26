@@ -83,6 +83,16 @@ struct ContentView: View {
                 cancel: viewModel.cancelExport
             )
         }
+        .alert("Clip Could Not Be Exported", isPresented: Binding(
+            get: { viewModel.exportErrorMessage != nil },
+            set: { presented in
+                if !presented { viewModel.dismissExportError() }
+            }
+        )) {
+            Button("OK") { viewModel.dismissExportError() }
+        } message: {
+            Text(viewModel.exportErrorMessage ?? "Trimato could not create the selected file.")
+        }
         .onDisappear {
             viewModel.closeMedia()
         }

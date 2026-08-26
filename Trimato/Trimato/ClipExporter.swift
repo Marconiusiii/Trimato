@@ -97,11 +97,12 @@ struct ClipExporter {
             asset: asset,
             sourceRanges: sourceRanges
         )
-        if format == .wav {
-            try await AudioOnlyExporter.exportWAV(
+        if format.isAudioOnly {
+            try await AudioOnlyExporter.export(
                 asset: composition,
                 audioMix: nil,
                 timeRange: nil,
+                format: format,
                 to: outputURL,
                 progress: progress
             )

@@ -10,11 +10,11 @@ enum ProjectExporter {
         var errorDescription: String? {
             switch self {
             case .incompatibleFormat(let format):
-                "This project cannot be exported as \(format)."
+                "Trimato cannot create this export as \(format)."
             case .noAudio:
                 "The selected export does not contain audio."
             case .encodingFailed(let detail):
-                "Trimato could not encode the project. \(detail)"
+                "Trimato could not create the selected file. \(detail)"
             }
         }
     }
@@ -45,11 +45,12 @@ enum ProjectExporter {
         }
         let validatedRange = try validatedTimeRange(timeRange, projectDuration: project.duration)
 
-        if format == .wav {
-            try await AudioOnlyExporter.exportWAV(
+        if format.isAudioOnly {
+            try await AudioOnlyExporter.export(
                 asset: result.composition,
                 audioMix: result.audioMix,
                 timeRange: validatedRange?.cmTimeRange,
+                format: format,
                 to: outputURL,
                 progress: progress
             )
@@ -109,21 +110,43 @@ enum ProjectExporter {
 
     nonisolated static func failureDetail(for error: Error) -> String {
         let nsError = error as NSError
-        if let reason = nsError.localizedFailureReason, !reason.isEmpty {
+        if let reason = nsError.localizedFailureReason, isUsefulFailureDetail(reason) {
             return reason
         }
         if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
-            if let reason = underlying.localizedFailureReason, !reason.isEmpty {
+            if let reason = underlying.localizedFailureReason, isUsefulFailureDetail(reason) {
                 return reason
             }
-            if underlying.localizedDescription != "The operation could not be completed." {
+            if isUsefulFailureDetail(underlying.localizedDescription) {
                 return underlying.localizedDescription
             }
         }
-        if nsError.localizedDescription != "The operation could not be completed." {
+        if isUsefulFailureDetail(nsError.localizedDescription) {
             return nsError.localizedDescription
         }
-        return "The media encoder reported error \(nsError.code)."
+        return "The media encoder stopped before it could finish the file."
+    }
+
+    nonisolated static func userFacingMessage(for error: Error) -> String {
+        if error is ExportError || error is ClipExportError {
+            return error.localizedDescription
+        }
+        let detail: String
+        if error is FFmpegCommandError {
+            detail = "The media encoder stopped before it could finish the file."
+        } else {
+            detail = failureDetail(for: error)
+        }
+        return ExportError.encodingFailed(detail).localizedDescription
+    }
+
+    private nonisolated static func isUsefulFailureDetail(_ detail: String) -> Bool {
+        let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        return !normalized.contains("operation could not be completed")
+            && !normalized.contains("osstatus error")
+            && !normalized.contains("error code")
+            && !normalized.contains("code=")
     }
 
     nonisolated static func validatedTimeRange(
@@ -139,13 +162,17 @@ enum ProjectExporter {
 }
 
 enum AudioOnlyExporter {
-    static func exportWAV(
+    static func export(
         asset: AVAsset,
         audioMix: AVAudioMix?,
         timeRange: CMTimeRange?,
+        format: ExportFormat,
         to outputURL: URL,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
+        guard format == .wav || format == .m4a else {
+            throw ProjectExporter.ExportError.incompatibleFormat(format.title)
+        }
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard !tracks.isEmpty else { throw ProjectExporter.ExportError.noAudio }
 
@@ -159,7 +186,7 @@ enum AudioOnlyExporter {
         defer { try? fileManager.removeItem(at: replacementDirectory) }
         let temporaryURL = replacementDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("wav")
+            .appendingPathExtension(format.fileExtension)
 
         let reader = try AVAssetReader(asset: asset)
         if let timeRange { reader.timeRange = timeRange }
@@ -175,20 +202,40 @@ enum AudioOnlyExporter {
         let readerOutput = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: pcmSettings)
         readerOutput.audioMix = audioMix
         guard reader.canAdd(readerOutput) else {
-            throw ProjectExporter.ExportError.incompatibleFormat(ExportFormat.wav.title)
+            throw ProjectExporter.ExportError.incompatibleFormat(format.title)
         }
         reader.add(readerOutput)
 
-        let writer = try AVAssetWriter(outputURL: temporaryURL, fileType: .wav)
-        let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: pcmSettings)
+        let writerFileType: AVFileType
+        let writerSettings: [String: Any]
+        switch format {
+        case .wav:
+            writerFileType = .wav
+            writerSettings = pcmSettings
+        case .m4a:
+            writerFileType = .m4a
+            writerSettings = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 48_000,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderBitRateKey: 192_000,
+            ]
+        default:
+            throw ProjectExporter.ExportError.incompatibleFormat(format.title)
+        }
+
+        let writer = try AVAssetWriter(outputURL: temporaryURL, fileType: writerFileType)
+        let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: writerSettings)
         guard writer.canAdd(writerInput) else {
-            throw ProjectExporter.ExportError.incompatibleFormat(ExportFormat.wav.title)
+            throw ProjectExporter.ExportError.incompatibleFormat(format.title)
         }
         writer.add(writerInput)
 
         guard writer.startWriting(), reader.startReading() else {
+            let underlyingError = writer.error ?? reader.error
             throw ProjectExporter.ExportError.encodingFailed(
-                writer.error?.localizedDescription ?? reader.error?.localizedDescription ?? "The audio encoder could not start."
+                underlyingError.map(ProjectExporter.failureDetail(for:))
+                    ?? "The audio encoder could not start."
             )
         }
         writer.startSession(atSourceTime: timeRange?.start ?? .zero)
@@ -209,7 +256,8 @@ enum AudioOnlyExporter {
             guard let sample = readerOutput.copyNextSampleBuffer() else { break }
             guard writerInput.append(sample) else {
                 throw ProjectExporter.ExportError.encodingFailed(
-                    writer.error?.localizedDescription ?? "The audio encoder stopped writing."
+                    writer.error.map(ProjectExporter.failureDetail(for:))
+                        ?? "The audio encoder stopped writing."
                 )
             }
             let elapsed = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
@@ -219,14 +267,16 @@ enum AudioOnlyExporter {
         try Task.checkCancellation()
         if reader.status == .failed {
             throw ProjectExporter.ExportError.encodingFailed(
-                reader.error?.localizedDescription ?? "The project audio could not be read."
+                reader.error.map(ProjectExporter.failureDetail(for:))
+                    ?? "The audio could not be read."
             )
         }
         writerInput.markAsFinished()
         await writer.finishWriting()
         guard writer.status == .completed else {
             throw ProjectExporter.ExportError.encodingFailed(
-                writer.error?.localizedDescription ?? "The audio file could not be completed."
+                writer.error.map(ProjectExporter.failureDetail(for:))
+                    ?? "The audio file could not be completed."
             )
         }
         progress(1)

@@ -62,6 +62,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var isExporting = false
     @Published private(set) var exportStatus: String?
     @Published private(set) var exportProgress: Double?
+    @Published private(set) var exportErrorMessage: String?
     @Published private(set) var isPresentingExportPanel = false
     @Published private(set) var isLoadingMedia = false
     @Published private(set) var mediaStatus: String?
@@ -265,6 +266,7 @@ final class VideoPlayerViewModel: ObservableObject {
         outMarker = nil
         exportStatus = nil
         exportProgress = nil
+        exportErrorMessage = nil
         mediaStatus = "Inspecting \(url.lastPathComponent)"
         mediaFilename = url.lastPathComponent
         mediaProgress = nil
@@ -616,6 +618,7 @@ final class VideoPlayerViewModel: ObservableObject {
         isExporting = true
         exportStatus = "Exporting clip"
         exportProgress = format == .original ? nil : 0
+        exportErrorMessage = nil
         announce("Export started")
         exportTask = Task { @MainActor in
             do {
@@ -661,8 +664,10 @@ final class VideoPlayerViewModel: ObservableObject {
                     self.exportStatus = "Export canceled"
                     self.announce("Export canceled")
                 } else {
-                    self.exportStatus = "Export failed: \(error.localizedDescription)"
-                    self.announce("Export failed. \(error.localizedDescription)")
+                    let message = ProjectExporter.userFacingMessage(for: error)
+                    self.exportStatus = "Export failed"
+                    self.exportErrorMessage = message
+                    self.announce("Clip could not be exported. \(message)")
                 }
             }
         }
@@ -673,6 +678,10 @@ final class VideoPlayerViewModel: ObservableObject {
         exportTask?.cancel()
         exportStatus = "Canceling export"
         announce("Canceling export")
+    }
+
+    func dismissExportError() {
+        exportErrorMessage = nil
     }
 
     static func validExportRange(inMarker: CMTime?, outMarker: CMTime?) -> CMTimeRange? {
