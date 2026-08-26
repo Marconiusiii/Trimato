@@ -6,6 +6,8 @@
 	<string>Trimato.help</string>
 	<key>CFBundleHelpBookName</key>
 	<string>com.marconius.trimato.help</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

@@ -670,6 +670,13 @@ struct TrimatoTests {
         #expect(contentTypes.contains("com.marconius.trimato.project"))
     }
 
+    @Test func appDeclaresThatItDoesNotUseNonExemptEncryption() throws {
+        let usesNonExemptEncryption = try #require(
+            Bundle.main.object(forInfoDictionaryKey: "ITSAppUsesNonExemptEncryption") as? Bool
+        )
+        #expect(usesNonExemptEncryption == false)
+    }
+
     @Test func aboutInformationIsAccessibleAndAcknowledgesFFmpeg() throws {
         #expect(AboutInformation.copyright == "© 2026 Marco Salsiccia")
         #expect(!AboutInformation.copyright.contains("Copyright ©"))
