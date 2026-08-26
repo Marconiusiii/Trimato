@@ -80,10 +80,10 @@ actor MediaCacheManager {
     private var pendingRemoval: Set<UUID> = []
 
     nonisolated static func sourceFingerprint(for url: URL) throws -> SourceMediaFingerprint {
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         return SourceMediaFingerprint(
-            fileSize: Int64(values.fileSize ?? 0),
-            modificationTime: values.contentModificationDate?.timeIntervalSince1970 ?? 0,
+            fileSize: (attributes[.size] as? NSNumber)?.int64Value ?? 0,
+            modificationTime: (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0,
             proxyFormatVersion: SourceMediaFingerprint.proxyFormatVersion
         )
     }

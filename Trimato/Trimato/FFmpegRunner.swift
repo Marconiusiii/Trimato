@@ -88,6 +88,52 @@ private nonisolated final class FFmpegOutputCollector: @unchecked Sendable {
     }
 }
 
+private actor FFmpegExecutionGate {
+    static let shared = FFmpegExecutionGate()
+
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Error>
+    }
+
+    private var isOccupied = false
+    private var waiters: [Waiter] = []
+
+    func acquire() async throws {
+        try Task.checkCancellation()
+        guard isOccupied else {
+            isOccupied = true
+            return
+        }
+
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    waiters.append(Waiter(id: id, continuation: continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+    }
+
+    func release() {
+        guard !waiters.isEmpty else {
+            isOccupied = false
+            return
+        }
+        waiters.removeFirst().continuation.resume()
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+}
+
 struct FFmpegRunner {
     nonisolated struct Result: Sendable {
         let standardOutput: Data
@@ -110,6 +156,31 @@ struct FFmpegRunner {
         progress: (@MainActor @Sendable (Double) -> Void)? = nil,
         expectedDuration: Double? = nil,
         outputLine: (@Sendable (String) -> Void)? = nil
+    ) async throws -> Result {
+        try await FFmpegExecutionGate.shared.acquire()
+        do {
+            try Task.checkCancellation()
+            let result = try await runProcess(
+                tool: tool,
+                arguments: arguments,
+                progress: progress,
+                expectedDuration: expectedDuration,
+                outputLine: outputLine
+            )
+            await FFmpegExecutionGate.shared.release()
+            return result
+        } catch {
+            await FFmpegExecutionGate.shared.release()
+            throw error
+        }
+    }
+
+    private static func runProcess(
+        tool: FFmpegTool,
+        arguments: [String],
+        progress: (@MainActor @Sendable (Double) -> Void)?,
+        expectedDuration: Double?,
+        outputLine: (@Sendable (String) -> Void)?
     ) async throws -> Result {
         guard let executableURL = bundledURL(for: tool) else {
             throw MediaSourceError.bundledToolsMissing
