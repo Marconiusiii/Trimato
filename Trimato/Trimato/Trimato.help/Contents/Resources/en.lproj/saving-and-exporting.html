@@ -30,6 +30,11 @@
     <p>The project frame rate is the export cadence. Trimato omits source frames when converting from a higher rate and repeats source frames when converting from a lower rate. This does not change clip speed or audio duration. Optical-flow frame generation is not currently applied.</p>
     <p>When most material uses one rate, choosing that rate for the project usually preserves its original motion cadence. For example, a 30 fps project is a practical match for predominantly 30 and 60 fps material, while a 24 fps project preserves the cadence of predominantly 24 fps material.</p>
 
+    <h2>Understand which media export uses</h2>
+    <p>Playback proxies are used for responsive preview and editing, not as the final-quality sources for a project export. Trimato returns to the original source files and applies the source ranges, timeline arrangement, cutaways, audio choices, project resolution, and project frame rate saved in the project.</p>
+    <p>If macOS cannot use an original source directly in the final composition, Trimato creates a temporary full-resolution ProRes render intermediate from that original. Trimato uses the intermediate to complete the selected output and removes it after export.</p>
+    <p>Keep every original source used by the timeline available. A cached proxy does not make an offline original available for final export.</p>
+
     <h2>Export the project</h2>
     <ol>
         <li>Choose File &gt; Export Project or press Command-E.</li>

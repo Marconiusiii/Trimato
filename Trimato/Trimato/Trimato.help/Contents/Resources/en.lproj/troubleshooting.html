@@ -36,7 +36,7 @@
     <p>Trimato uses proportional Fit so the complete source remains visible without stretching or automatic cropping. A vertical or narrower source in a landscape project is pillarboxed on the left and right. A wider source is letterboxed above and below. Select the clip and read Project Fit in the Inspector for its project conversion.</p>
 
     <h2>A project cannot export offline media</h2>
-    <p>Relink every offline source used by the timeline, then choose Export Project again.</p>
+    <p>A playback proxy is not a replacement or backup for its original source. Relink every offline source used by the timeline, then choose Export Project again.</p>
 
     <h2>Blade at playhead is unavailable</h2>
     <p>Move the project playhead inside a timeline clip, away from its beginning or end, then activate Blade at playhead again.</p>
@@ -48,12 +48,14 @@
     </ul>
 
     <h2>Clear the media cache</h2>
+    <p>Trimato stores playback proxies in the macOS Caches directory. It limits the cache to 10 GB, removes the least recently used proxies when necessary, and requires enough storage for a new proxy while retaining at least 10 GB of available disk space. Proxies required by open projects and editors are protected from removal.</p>
     <ol>
         <li>Open Trimato Settings.</li>
-        <li>Choose Clear Unused Media Cache or Clear All Media Cache.</li>
+        <li>Read Current size to review the space used by playback proxies.</li>
+        <li>Choose Clear Unused Media Cache to remove proxies not used in the last seven days, or choose Clear All Media Cache to remove every proxy not required by an open project or editor.</li>
         <li>Confirm the action.</li>
     </ol>
-    <p>These commands leave original media and Trimato projects unchanged.</p>
+    <p>These commands leave original media and Trimato projects unchanged. Trimato recreates a cleared proxy when it is next needed, provided the original source file remains available. macOS may also remove cached files when storage is constrained.</p>
 
     <h2>Report a problem</h2>
     <p>Include the Trimato version, macOS version, media file type, assistive technology, selected item, focused control, command used, expected result, and actual result.</p>

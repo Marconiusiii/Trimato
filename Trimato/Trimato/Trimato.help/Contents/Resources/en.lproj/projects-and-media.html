@@ -45,6 +45,23 @@
     </ol>
     <p>Imported clips appear in the Clips section of the project.</p>
 
+    <h2>Understand non-destructive editing</h2>
+    <p>Trimato does not cut, rewrite, or move an imported source file. Trimming, deleting sections, splitting clips, and arranging the timeline save instructions that identify which source ranges to use and where to use them.</p>
+    <p>The project package saves these editing instructions and a reference to each source file. It does not contain a copy of the original media. Keep original files available at their saved locations. If a file is moved, renamed, disconnected, or deleted, Trimato may report it as offline until it is relinked.</p>
+
+    <h2>Understand playback compatibility</h2>
+    <p>Trimato examines the media streams inside a file instead of deciding compatibility from the filename extension alone. Two files with the same extension can use different codecs.</p>
+    <ul>
+        <li>If macOS can play and pass through a source, Trimato plays the original and can retain its original file type and codec for an Original format standalone clip export.</li>
+        <li>If macOS can play a source but cannot pass it through, Trimato still plays the original and converts it when exporting.</li>
+        <li>If macOS cannot play a source, Trimato creates an MP4 playback proxy for preview and editing.</li>
+    </ul>
+
+    <h2>Understand playback proxies</h2>
+    <p>A playback proxy is an internal editing copy designed for responsive playback. It does not replace or modify the original, and it is not the final-quality source for a project export.</p>
+    <p>Project proxies are stored in the macOS Caches directory and can be reused after a project is closed and reopened. If a proxy is missing, cleared, or no longer matches the source file's size and modification date, Trimato recreates it from the original when needed.</p>
+    <p>A proxy is disposable cache data, not a backup. A project still needs access to its original source files for reliable preview, relinking, and final export.</p>
+
     <h2>Use media with different dimensions and frame rates</h2>
     <p>A project can contain sources with different file formats, codecs, resolutions, orientations, aspect ratios, and frame rates. Trimato conforms each timeline instance to the project during preview and export while leaving the original file unchanged.</p>
     <p>For dimensions and orientation, Trimato uses proportional Fit:</p>

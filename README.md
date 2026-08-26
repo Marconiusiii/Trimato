@@ -77,7 +77,7 @@ Editor shortcuts remain available while focus is on any editor control. Native i
 
 ## Editing model
 
-Trimato uses a non-destructive edit timeline. Deleting or trimming media changes the in-memory playback composition, not the original file.
+Trimato uses a non-destructive edit timeline. Deleting or trimming media changes Trimato's saved source-range instructions and playback composition, not the original file.
 
 In and Out are general selection markers:
 
@@ -117,9 +117,13 @@ When entering custom dimensions, Lock aspect ratio is on initially. Changing eit
 
 ## Supported media
 
-When AVFoundation can play and export a source natively, Trimato uses passthrough export to retain the source file type and codec. This commonly includes QuickTime Movie, MP4, and M4V sources whose internal codecs are supported by macOS.
+Trimato checks the media streams inside a file rather than relying only on its filename extension. Two files with the same extension can use different codecs and require different handling.
 
-When native playback is unavailable, Trimato can use its bundled FFmpeg and ffprobe tools to inspect a local source and create a temporary playback proxy. Converted exports are written as MP4. The bundled tools have networking, encrypted-stream protocols, and HLS support disabled; they can access only local files and local process pipes. Explicitly registered fallback extensions include:
+When AVFoundation can play and pass through a source natively, Trimato plays the original and can retain its file type and codec when Original format is selected for a standalone clip export. This commonly includes QuickTime Movie, MP4, and M4V sources whose internal codecs are supported by macOS.
+
+Some sources can be played by AVFoundation but cannot be passed through in their original file type or codec. Trimato still plays these sources directly, then converts them when an exported format requires it.
+
+When AVFoundation cannot play a source, Trimato uses its bundled FFmpeg and ffprobe tools to inspect the local file and create an MP4 playback proxy. The proxy is used for responsive preview and editing; it does not replace the original and is not used as the final-quality source for a project export. Explicitly registered fallback extensions include:
 
 - MKV
 - WebM
@@ -129,6 +133,28 @@ When native playback is unavailable, Trimato can use its bundled FFmpeg and ffpr
 - FLV
 
 Format recognition does not guarantee that every possible codec or media feature inside a container can be edited. Trimato currently rejects HDR and alpha-channel sources when a safe MP4 conversion would not preserve those properties.
+
+The bundled tools have networking, encrypted-stream protocols, and HLS support disabled. They can access only local files and local process pipes.
+
+## Original media, playback proxies, and the media cache
+
+Trimato projects save editing instructions and references to source files. They do not copy the original media into the project package. Keep the original files available at their saved locations. If a source is moved, renamed, disconnected, or deleted, use Relink Clip to locate it before previewing or exporting that part of the project.
+
+For media that AVFoundation cannot play, Trimato stores an MP4 playback proxy in the macOS Caches directory. A project can reuse a valid proxy after it is closed and reopened. Trimato compares the source file's size and modification date with the information saved for the proxy; if the source changes, Trimato discards the stale proxy and creates a new one.
+
+Playback proxies are disposable. Trimato recreates a missing proxy when the project next needs it, provided the original source remains accessible. macOS may also remove files from its Caches directory when storage is constrained.
+
+Trimato manages the media cache automatically:
+
+- The cache has an automatic limit of 10 GB.
+- Trimato removes the least recently used unprotected proxies when necessary.
+- Trimato requires enough storage for a new proxy while retaining at least 10 GB of available disk space.
+- Proxies required by open projects and editors are protected from manual and automatic removal.
+- Clear Unused Media Cache removes proxies not used in the last seven days.
+- Clear All Media Cache removes every proxy not required by an open project or editor.
+- Clearing the cache never deletes original media or Trimato project files.
+
+Project export returns to the original source files rather than rendering from playback proxies. When AVFoundation cannot use an original directly in the final composition, Trimato creates a temporary full-resolution ProRes render intermediate from that original, applies the saved timeline instructions and project format, writes the chosen output, and removes the intermediate after export.
 
 ## Accessibility
 
@@ -210,7 +236,7 @@ xcodebuild \
 
 Trimato has no accounts, advertising, analytics, or tracking. Video inspection, proxy creation, editing, and export happen locally on the Mac.
 
-The original source file is not modified. A format that macOS cannot play directly may receive a temporary MP4 playback proxy under the user's Caches directory. Trimato removes that proxy when the media is replaced, the import is canceled, or the editor window closes normally. An abnormal process termination can prevent normal cleanup code from running.
+The original source file is not modified. Project playback proxies can remain in the macOS Caches directory so they can be reused across sessions. Standalone temporary proxies and final-export render intermediates are removed after their operation or editor session ends normally. Canceling an import or export removes its incomplete output. An abnormal process termination can prevent normal cleanup code from running.
 
 Opening the FFmpeg website from the About window leaves the app and uses the selected web browser, whose privacy policy then applies.
 
