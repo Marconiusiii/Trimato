@@ -4,6 +4,10 @@ Trimato is an accessibility-first, keyboard-driven lightweight video editor for 
 
 Created by Marco Salsiccia.
 
+## Release status
+
+Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not be released to the production App Store. The current source expands Trimato into a complete project editor and is being prepared as the first production App Store release.
+
 ## Features
 
 - Create and save `.trimato` project packages with automatic or custom dimensions and frame rate.
@@ -121,11 +125,11 @@ Accessibility reports from VoiceOver and other assistive technology users are es
 
 ## Requirements
 
-- macOS 26.4 or later
-- A Mac supported by that macOS release
+- macOS Sonoma 14.0 or later
+- An Apple silicon Mac or an Intel Mac supported by macOS Sonoma
 - Xcode with support for the project's macOS deployment target when building from source
 
-The bundled FFmpeg and ffprobe executables contain Apple silicon and Intel slices.
+The Trimato application and its bundled FFmpeg and ffprobe executables are built for both Apple silicon and Intel. Release builds are checked for both architectures; hands-on Intel validation depends on beta testers with Intel hardware.
 
 ## Installing a local build
 
