@@ -39,7 +39,7 @@ struct FFmpegClipExporter {
             if hasAudio { result += ["-map", "0:a:0?"] }
             result += ["-sn", "-dn"]
             result += encodingArguments(format: format, useVideoToolbox: useVideoToolbox, hasAudio: hasAudio)
-            if format != .wav { result += ["-movflags", "+faststart"] }
+            if format.supportsFastStart { result += ["-movflags", "+faststart"] }
             result += ["-progress", "pipe:1", "-nostats", outputURL.path]
             return result
         }
@@ -77,7 +77,7 @@ struct FFmpegClipExporter {
         if hasAudio { result += ["-map", "[a]"] }
         result += ["-sn", "-dn"]
         result += encodingArguments(format: format, useVideoToolbox: useVideoToolbox, hasAudio: hasAudio)
-        if format != .wav { result += ["-movflags", "+faststart"] }
+        if format.supportsFastStart { result += ["-movflags", "+faststart"] }
         result += ["-progress", "pipe:1", "-nostats", outputURL.path]
         return result
     }
@@ -94,18 +94,25 @@ struct FFmpegClipExporter {
                 : ["-c:v", "mpeg4", "-q:v", "3", "-tag:v", "mp4v"]
             if hasAudio { result += ["-c:a", "aac"] }
             return result
-        case .hevcMovie:
+        case .hevcMP4, .hevcMovie:
             var result = ["-c:v", "hevc_videotoolbox", "-allow_sw", "1", "-tag:v", "hvc1"]
             if hasAudio { result += ["-c:a", "aac"] }
             return result
-        case .proRes422:
-            var result = ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"]
+        case .proRes422LT, .proRes422, .proRes422HQ:
+            let profile = format == .proRes422LT ? "1" : format == .proRes422 ? "2" : "3"
+            var result = ["-c:v", "prores_ks", "-profile:v", profile, "-pix_fmt", "yuv422p10le"]
             if hasAudio { result += ["-c:a", "pcm_s16le"] }
             return result
         case .m4a:
-            return ["-vn", "-c:a", "aac"]
+            return ["-vn", "-c:a", "aac", "-b:a", "192k"]
+        case .m4aAppleLossless:
+            return ["-vn", "-c:a", "alac"]
+        case .flac:
+            return ["-vn", "-c:a", "flac"]
         case .wav:
             return ["-vn", "-c:a", "pcm_s16le"]
+        case .wav24:
+            return ["-vn", "-c:a", "pcm_s24le"]
         case .original:
             return []
         }

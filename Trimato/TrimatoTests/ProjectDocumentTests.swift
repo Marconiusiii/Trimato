@@ -91,6 +91,21 @@ struct ProjectDocumentTests {
         #expect(decoded.media.first?.proxyCacheKey == nil)
         #expect(decoded.media.first?.sourceFingerprint == nil)
         #expect(decoded.primaryTimeline.first?.labelOrdinal == nil)
+        #expect(decoded.primaryTimeline.first?.customName == nil)
         #expect(decoded.primaryTimeline.first?.displayName == "Interview")
+    }
+
+    @Test func customTimelineNamesPersistInTheProjectManifest() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 5)
+        var project = TrimatoProject(name: "Renamed Project")
+        project.media = [asset]
+        let clipID = try project.append(asset: asset)
+        try project.renameTimelineClip(id: clipID, to: "Opening")
+
+        let data = try ProjectDocument.manifestData(for: project)
+        let decoded = try JSONDecoder().decode(TrimatoProject.self, from: data)
+
+        #expect(decoded.primaryTimeline.first?.customName == "Opening")
+        #expect(decoded.primaryTimeline.first?.displayName == "Opening")
     }
 }

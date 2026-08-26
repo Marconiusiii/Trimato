@@ -1,6 +1,6 @@
 # Trimato
 
-Trimato is an accessibility-first, keyboard-driven lightweight video editor for macOS. Its focused clip editor remains the primary place to mark, trim, and remove sections. Edited source clips can then be arranged non-destructively in a saved Trimato project and exported as one video.
+Trimato is an accessibility-first, keyboard-driven lightweight video editor for macOS. Its focused clip editor remains the primary place to mark, trim, and remove sections. Edited source clips can then be arranged non-destructively in a saved Trimato project and exported as a finished video or audio file.
 
 Created by Marco Salsiccia.
 
@@ -16,8 +16,8 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 - Arrange clips in a magnetic primary storyline with no empty gaps.
 - Append clips, insert and split at the playhead, or replace the remainder of the clip at the playhead.
 - Add a single-layer cutaway that temporarily replaces the picture, either with its source audio or while retaining the primary storyline audio.
-- Split, delete, and reorder timeline clips while preserving non-destructive source ranges.
-- Preview and export the complete arranged project as MP4.
+- Split, rename, delete, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
+- Preview and export the complete arranged project as H.264 or HEVC MP4, H.264 or HEVC QuickTime, ProRes 422 LT, ProRes 422, ProRes 422 HQ, M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, or 24-bit WAV.
 - Open videos from the File menu, Finder, drag and drop, or Command-O.
 - Play, pause, seek, and move forward or backward one frame at a time.
 - Display the playhead as timecode or a frame number.
@@ -89,6 +89,12 @@ In and Out are general selection markers:
 After a clip-editor deletion, the playhead moves to the new edit point and the markers are cleared. In a Trimato project, the resulting source ranges are saved with the media or timeline clip. Project changes participate in the standard Undo and Redo commands.
 
 The project timeline is a magnetic primary storyline. Insert at Playhead splits the clip under the playhead and preserves both sides. Replace Clip Remainder preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips in place. A cutaway changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
+
+Every primary clip and cutaway has a distinct displayed timeline name. Repeated filenames and additional uses of the same source receive stable letter suffixes. Choose Rename Clip from the item's context menu or Selected Clip Actions to give an instance a unique custom name. Timeline renames are saved in the project and participate in Undo and Redo.
+
+## Export formats
+
+Video exports include H.264 MP4, HEVC MP4, H.264 QuickTime, HEVC QuickTime, ProRes 422 LT, ProRes 422, and ProRes 422 HQ. Audio-only exports include M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, and 24-bit WAV. Audio-only choices are available when the edited clip or project contains exportable audio.
 
 ## Supported media
 

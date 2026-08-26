@@ -91,6 +91,60 @@ struct ProjectTimelineOperationsTests {
         #expect(project.primaryTimeline[26].displayName == "Clip01 AA")
     }
 
+    @Test func distinctAssetsWithTheSameFilenameReceiveUniqueTimelineNames() throws {
+        let first = fixtureAsset(name: "Interview.mov", duration: 2)
+        let second = fixtureAsset(name: "Interview.mov", duration: 3)
+        var project = TrimatoProject()
+
+        _ = try project.append(asset: first)
+        _ = try project.append(asset: second)
+
+        #expect(first.id != second.id)
+        #expect(project.primaryTimeline.map(\.displayName) == ["Interview.mov A", "Interview.mov B"])
+    }
+
+    @Test func cutawaysShareTheTimelineNameSequence() throws {
+        let primary = fixtureAsset(name: "Interview", duration: 10)
+        let first = fixtureAsset(name: "Angle", duration: 2)
+        let second = fixtureAsset(name: "Angle", duration: 2)
+        var project = TrimatoProject()
+        _ = try project.append(asset: primary)
+
+        _ = try project.addCutaway(asset: first, at: ProjectTime(seconds: 1), audioMode: .primaryAudio)
+        _ = try project.addCutaway(asset: second, at: ProjectTime(seconds: 5), audioMode: .primaryAudio)
+
+        #expect(project.cutaways.map(\.displayName) == ["Angle A", "Angle B"])
+    }
+
+    @Test func timelineRenamesAreTrimmedAndMustRemainUnique() throws {
+        let first = fixtureAsset(name: "First", duration: 2)
+        let second = fixtureAsset(name: "Second", duration: 3)
+        var project = TrimatoProject()
+        let firstID = try project.append(asset: first)
+        let secondID = try project.append(asset: second)
+
+        try project.renameTimelineClip(id: firstID, to: "  Opening  ")
+
+        #expect(project.primaryTimeline.first?.displayName == "Opening")
+        #expect(throws: ProjectTimelineError.duplicateName) {
+            try project.renameTimelineClip(id: secondID, to: "opening")
+        }
+        #expect(throws: ProjectTimelineError.invalidName) {
+            try project.renameTimelineClip(id: secondID, to: "   ")
+        }
+    }
+
+    @Test func splittingARenamedClipCreatesUniqueLetteredNames() throws {
+        let source = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject()
+        let clipID = try project.append(asset: source)
+        try project.renameTimelineClip(id: clipID, to: "Opening")
+
+        _ = try project.splitClip(id: clipID, atTimelineTime: ProjectTime(seconds: 4))
+
+        #expect(project.primaryTimeline.map(\.displayName) == ["Opening A", "Opening B"])
+    }
+
     @Test func replacingRemainderKeepsLeftAndLaterClips() throws {
         let interview = fixtureAsset(name: "Interview", duration: 30)
         let closing = fixtureAsset(name: "Closing", duration: 8)

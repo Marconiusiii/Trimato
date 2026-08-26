@@ -489,6 +489,22 @@ final class ProjectController: ObservableObject {
         }
     }
 
+    func renameTimelineEntry(_ selection: EditorSelection, to name: String) throws {
+        switch selection {
+        case .timelineClip(let id):
+            try mutateProjectThrowing(actionName: "Rename Timeline Clip") {
+                try $0.renameTimelineClip(id: id, to: name)
+            }
+        case .cutaway(let id):
+            try mutateProjectThrowing(actionName: "Rename Cutaway") {
+                try $0.renameCutaway(id: id, to: name)
+            }
+        case .asset, .project:
+            return
+        }
+        announce("Timeline clip renamed")
+    }
+
     func place(
         _ placement: PlacementAction,
         editing editSelection: EditorSelection,

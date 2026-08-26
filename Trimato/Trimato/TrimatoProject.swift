@@ -80,12 +80,14 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
     var name: String
     var segments: [SourceSegment]
     var labelOrdinal: Int?
+    var customName: String?
 
     var duration: ProjectTime {
         segments.reduce(.zero) { $0 + $1.duration }
     }
 
     var displayName: String {
+        if let customName { return customName }
         guard let labelOrdinal else { return name }
         return "\(name) \(Self.letterLabel(for: labelOrdinal))"
     }
@@ -95,16 +97,18 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
         assetID: UUID,
         name: String,
         segments: [SourceSegment],
-        labelOrdinal: Int? = nil
+        labelOrdinal: Int? = nil,
+        customName: String? = nil
     ) {
         self.id = id
         self.assetID = assetID
         self.name = name
         self.segments = segments
         self.labelOrdinal = labelOrdinal
+        self.customName = customName
     }
 
-    private static func letterLabel(for ordinal: Int) -> String {
+    static func letterLabel(for ordinal: Int) -> String {
         var value = max(ordinal, 0) + 1
         var characters: [Character] = []
         while value > 0 {
@@ -130,12 +134,20 @@ nonisolated struct TimelineCutaway: Codable, Hashable, Identifiable, Sendable {
     var start: ProjectTime
     var segments: [SourceSegment]
     var audioMode: CutawayAudioMode
+    var labelOrdinal: Int? = nil
+    var customName: String? = nil
 
     var duration: ProjectTime {
         segments.reduce(.zero) { $0 + $1.duration }
     }
 
     var end: ProjectTime { start + duration }
+
+    var displayName: String {
+        if let customName { return customName }
+        guard let labelOrdinal else { return name }
+        return "\(name) \(TimelineClip.letterLabel(for: labelOrdinal))"
+    }
 }
 
 nonisolated struct TrimatoProject: Codable, Equatable, Sendable {

@@ -7,6 +7,8 @@ enum ProjectTimelineError: LocalizedError, Equatable {
     case cannotSplitAtBoundary
     case cutawayDoesNotFit
     case cutawayOverlap
+    case invalidName
+    case duplicateName
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +18,8 @@ enum ProjectTimelineError: LocalizedError, Equatable {
         case .cannotSplitAtBoundary: "Move the playhead inside a clip before splitting it."
         case .cutawayDoesNotFit: "The cutaway extends beyond the end of the project."
         case .cutawayOverlap: "Another cutaway already occupies that position."
+        case .invalidName: "Enter a name for the timeline clip."
+        case .duplicateName: "Choose a name that is not already used in the timeline."
         }
     }
 }
@@ -65,7 +69,7 @@ extension TrimatoProject {
 
         if destination.offset <= .zero {
             if incoming.assetID == destination.clip.assetID {
-                ensureInstanceLabels(for: destination.clip.assetID)
+                ensureInstanceLabels(named: destination.clip.name)
                 incoming.labelOrdinal = primaryTimeline[destination.index].labelOrdinal
             } else {
                 primaryTimeline.remove(at: destination.index)
@@ -79,7 +83,7 @@ extension TrimatoProject {
             incoming = labelForInsertion(incoming)
             primaryTimeline.insert(incoming, at: destination.index + 1)
         } else {
-            ensureInstanceLabels(for: destination.clip.assetID)
+            ensureInstanceLabels(named: destination.clip.name)
             let labeledDestination = primaryTimeline[destination.index]
             var left = try split(labeledDestination, at: destination.offset).0
             left.labelOrdinal = labeledDestination.labelOrdinal
@@ -99,7 +103,7 @@ extension TrimatoProject {
     ) throws -> UUID {
         let selectedSegments = (segments ?? asset.sourceEdit).filter { $0.duration.isPositive }
         guard !selectedSegments.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
-        let cutaway = TimelineCutaway(
+        var cutaway = TimelineCutaway(
             assetID: asset.id,
             name: asset.name,
             start: playhead,
@@ -114,6 +118,7 @@ extension TrimatoProject {
         }) else {
             throw ProjectTimelineError.cutawayOverlap
         }
+        cutaway = labelForInsertion(cutaway)
         cutaways.append(cutaway)
         cutaways.sort { $0.start < $1.start }
         return cutaway.id
@@ -156,6 +161,30 @@ extension TrimatoProject {
         cutaways[index].segments = selected
     }
 
+    mutating func renameTimelineClip(id: UUID, to customName: String) throws {
+        guard let index = primaryTimeline.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        let cleanName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { throw ProjectTimelineError.invalidName }
+        guard isTimelineNameAvailable(cleanName, excluding: id) else {
+            throw ProjectTimelineError.duplicateName
+        }
+        primaryTimeline[index].customName = cleanName
+    }
+
+    mutating func renameCutaway(id: UUID, to customName: String) throws {
+        guard let index = cutaways.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        let cleanName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { throw ProjectTimelineError.invalidName }
+        guard isTimelineNameAvailable(cleanName, excluding: id) else {
+            throw ProjectTimelineError.duplicateName
+        }
+        cutaways[index].customName = cleanName
+    }
+
     mutating func removeClip(id: UUID) throws {
         guard let index = primaryTimeline.firstIndex(where: { $0.id == id }) else {
             throw ProjectTimelineError.clipNotFound
@@ -173,40 +202,97 @@ extension TrimatoProject {
     }
 
     private mutating func labelForInsertion(_ clip: TimelineClip) -> TimelineClip {
-        guard primaryTimeline.contains(where: { $0.assetID == clip.assetID }) else { return clip }
-        ensureInstanceLabels(for: clip.assetID)
+        guard automaticEntries(named: clip.name) > 0 || !isTimelineNameAvailable(clip.name) else {
+            return clip
+        }
+        ensureInstanceLabels(named: clip.name)
         var labeled = clip
-        labeled.labelOrdinal = nextLabelOrdinal(for: clip.assetID)
+        labeled.labelOrdinal = nextAvailableLabelOrdinal(named: clip.name)
         return labeled
     }
 
-    private mutating func ensureInstanceLabels(for assetID: UUID) {
-        var nextOrdinal = nextLabelOrdinal(for: assetID)
-        for index in primaryTimeline.indices where
-            primaryTimeline[index].assetID == assetID && primaryTimeline[index].labelOrdinal == nil {
-            primaryTimeline[index].labelOrdinal = nextOrdinal
-            nextOrdinal += 1
+    private mutating func labelForInsertion(_ cutaway: TimelineCutaway) -> TimelineCutaway {
+        guard automaticEntries(named: cutaway.name) > 0 || !isTimelineNameAvailable(cutaway.name) else {
+            return cutaway
+        }
+        ensureInstanceLabels(named: cutaway.name)
+        var labeled = cutaway
+        labeled.labelOrdinal = nextAvailableLabelOrdinal(named: cutaway.name)
+        return labeled
+    }
+
+    private mutating func ensureInstanceLabels(named baseName: String) {
+        var used = Set(allTimelineDisplayNames().map { $0.lowercased() })
+        for index in primaryTimeline.indices where primaryTimeline[index].name == baseName &&
+            primaryTimeline[index].customName == nil && primaryTimeline[index].labelOrdinal == nil {
+            used.remove(primaryTimeline[index].displayName.lowercased())
+            let ordinal = nextAvailableLabelOrdinal(named: baseName, usedNames: used)
+            primaryTimeline[index].labelOrdinal = ordinal
+            used.insert(primaryTimeline[index].displayName.lowercased())
+        }
+        for index in cutaways.indices where cutaways[index].name == baseName &&
+            cutaways[index].customName == nil && cutaways[index].labelOrdinal == nil {
+            used.remove(cutaways[index].displayName.lowercased())
+            let ordinal = nextAvailableLabelOrdinal(named: baseName, usedNames: used)
+            cutaways[index].labelOrdinal = ordinal
+            used.insert(cutaways[index].displayName.lowercased())
         }
     }
 
-    private func nextLabelOrdinal(for assetID: UUID) -> Int {
-        primaryTimeline
-            .filter { $0.assetID == assetID }
-            .compactMap(\.labelOrdinal)
-            .max()
-            .map { $0 + 1 } ?? 0
+    private func nextAvailableLabelOrdinal(named baseName: String) -> Int {
+        nextAvailableLabelOrdinal(
+            named: baseName,
+            usedNames: Set(allTimelineDisplayNames().map { $0.lowercased() })
+        )
+    }
+
+    private func nextAvailableLabelOrdinal(named baseName: String, usedNames: Set<String>) -> Int {
+        var ordinal = 0
+        while usedNames.contains("\(baseName) \(TimelineClip.letterLabel(for: ordinal))".lowercased()) {
+            ordinal += 1
+        }
+        return ordinal
+    }
+
+    private func automaticEntries(named baseName: String) -> Int {
+        primaryTimeline.filter { $0.name == baseName && $0.customName == nil }.count +
+            cutaways.filter { $0.name == baseName && $0.customName == nil }.count
+    }
+
+    private func allTimelineDisplayNames(excluding id: UUID? = nil) -> [String] {
+        primaryTimeline.filter { $0.id != id }.map(\.displayName) +
+            cutaways.filter { $0.id != id }.map(\.displayName)
+    }
+
+    private func isTimelineNameAvailable(_ name: String, excluding id: UUID? = nil) -> Bool {
+        !allTimelineDisplayNames(excluding: id).contains {
+            $0.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }
     }
 
     private mutating func labeledSplit(
         at index: Int,
         offset: ProjectTime
     ) throws -> (TimelineClip, TimelineClip) {
-        let assetID = primaryTimeline[index].assetID
-        ensureInstanceLabels(for: assetID)
+        let original = primaryTimeline[index]
+        if let customName = original.customName {
+            var halves = try split(original, at: offset)
+            let used = Set(allTimelineDisplayNames(excluding: original.id).map { $0.lowercased() })
+            halves.0.name = customName
+            halves.0.customName = nil
+            halves.0.labelOrdinal = nextAvailableLabelOrdinal(named: customName, usedNames: used)
+            var usedWithLeft = used
+            usedWithLeft.insert(halves.0.displayName.lowercased())
+            halves.1.name = customName
+            halves.1.customName = nil
+            halves.1.labelOrdinal = nextAvailableLabelOrdinal(named: customName, usedNames: usedWithLeft)
+            return halves
+        }
+        ensureInstanceLabels(named: original.name)
         let clip = primaryTimeline[index]
         var halves = try split(clip, at: offset)
         halves.0.labelOrdinal = clip.labelOrdinal
-        halves.1.labelOrdinal = nextLabelOrdinal(for: assetID)
+        halves.1.labelOrdinal = nextAvailableLabelOrdinal(named: clip.name)
         return halves
     }
 
@@ -272,8 +358,8 @@ extension TrimatoProject {
             throw ProjectTimelineError.cannotSplitAtBoundary
         }
         return (
-            TimelineClip(assetID: clip.assetID, name: clip.name, segments: leftSegments),
-            TimelineClip(assetID: clip.assetID, name: clip.name, segments: rightSegments)
+            TimelineClip(assetID: clip.assetID, name: clip.name, segments: leftSegments, customName: clip.customName),
+            TimelineClip(assetID: clip.assetID, name: clip.name, segments: rightSegments, customName: clip.customName)
         )
     }
 }

@@ -405,12 +405,40 @@ struct TrimatoTests {
             progress: { _ in }
         )
 
-        let report = try await FFmpegMediaProbe.inspect(url: outputURL)
-        let containsVideo = await report.videoStream != nil
-        let containsAudio = await report.hasAudio
+        let outputAsset = AVURLAsset(url: outputURL)
+        let containsVideo = try await !outputAsset.loadTracks(withMediaType: .video).isEmpty
+        let containsAudio = try await !outputAsset.loadTracks(withMediaType: .audio).isEmpty
         #expect(FileManager.default.fileExists(atPath: outputURL.path))
         #expect(containsAudio)
         #expect(format.isAudioOnly ? !containsVideo : containsVideo)
+    }
+
+    @Test func ffmpegFormatsUseTheRequestedCodecsAndProResProfiles() {
+        let source = URL(fileURLWithPath: "/tmp/source.mkv")
+        let range = [CMTimeRange(start: .zero, duration: CMTime(seconds: 1, preferredTimescale: 600))]
+        func arguments(for format: ExportFormat) -> [String] {
+            FFmpegClipExporter.arguments(
+                sourceURL: source,
+                sourceRanges: range,
+                hasAudio: true,
+                outputURL: URL(fileURLWithPath: "/tmp/output.\(format.fileExtension)"),
+                format: format
+            )
+        }
+        func containsPair(_ first: String, _ second: String, in arguments: [String]) -> Bool {
+            arguments.indices.dropLast().contains {
+                arguments[$0] == first && arguments[arguments.index(after: $0)] == second
+            }
+        }
+
+        #expect(arguments(for: .hevcMP4).contains("hevc_videotoolbox"))
+        #expect(containsPair("-profile:v", "1", in: arguments(for: .proRes422LT)))
+        #expect(containsPair("-profile:v", "2", in: arguments(for: .proRes422)))
+        #expect(containsPair("-profile:v", "3", in: arguments(for: .proRes422HQ)))
+        #expect(arguments(for: .m4aAppleLossless).contains("alac"))
+        #expect(arguments(for: .flac).contains("flac"))
+        #expect(arguments(for: .wav).contains("pcm_s16le"))
+        #expect(arguments(for: .wav24).contains("pcm_s24le"))
     }
 
     @Test func nativeCompositionJoinsAndPassesThroughEditedRanges() async throws {

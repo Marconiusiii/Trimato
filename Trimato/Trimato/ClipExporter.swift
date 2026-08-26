@@ -108,6 +108,18 @@ struct ClipExporter {
             )
             return
         }
+        if format.requiresCustomVideoWriter {
+            try await CustomMovieExporter.export(
+                asset: composition,
+                videoComposition: nil,
+                audioMix: nil,
+                timeRange: nil,
+                format: format,
+                to: outputURL,
+                progress: progress
+            )
+            return
+        }
 
         guard let preset = format.exportPreset, let fileType = format.fileType,
               let session = AVAssetExportSession(asset: composition, presetName: preset),

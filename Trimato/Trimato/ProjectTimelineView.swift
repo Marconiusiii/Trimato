@@ -4,6 +4,9 @@ struct ProjectTimelineView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var renameSelection: EditorSelection?
+    @State private var renamedClipName = ""
+    @State private var renameError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,6 +61,14 @@ struct ProjectTimelineView: View {
             }
             .padding(8)
             .background(.bar)
+        }
+        .sheet(isPresented: Binding(
+            get: { renameSelection != nil },
+            set: { presented in
+                if !presented { cancelRename() }
+            }
+        )) {
+            renameClipSheet
         }
     }
 
@@ -151,7 +162,7 @@ struct ProjectTimelineView: View {
             select(selection)
             openClipEditor(selection)
         } label: {
-            Text(cutaway.name)
+            Text(cutaway.displayName)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -162,7 +173,7 @@ struct ProjectTimelineView: View {
         .frame(minHeight: cutawayMinimumHeight, alignment: .leading)
         .background(clipBackground(for: selection), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.accent.opacity(0.75)))
-        .accessibilityLabel("\(cutaway.name), cutaway")
+        .accessibilityLabel("\(cutaway.displayName), cutaway")
         .accessibilityValue(cutaway.audioMode == .sourceAudio
             ? "Uses source audio"
             : "Uses primary audio")
@@ -190,6 +201,9 @@ struct ProjectTimelineView: View {
         Button("Open Clip Editor") {
             select(.timelineClip(clip.id))
             openClipEditor(.timelineClip(clip.id))
+        }
+        Button("Rename Clip\u{2026}") {
+            beginRename(.timelineClip(clip.id), currentName: clip.displayName)
         }
         if index > 0 {
             Button("Move to Beginning") {
@@ -224,6 +238,9 @@ struct ProjectTimelineView: View {
             select(.cutaway(cutaway.id))
             openClipEditor(.cutaway(cutaway.id))
         }
+        Button("Rename Clip\u{2026}") {
+            beginRename(.cutaway(cutaway.id), currentName: cutaway.displayName)
+        }
         Divider()
         Button("Delete from Timeline", role: .destructive) {
             select(.cutaway(cutaway.id))
@@ -233,6 +250,48 @@ struct ProjectTimelineView: View {
 
     private func select(_ selection: EditorSelection) {
         controller.selection = selection
+    }
+
+    private var renameClipSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Rename Timeline Clip")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            TextField("Clip Name", text: $renamedClipName)
+            if let renameError {
+                Text(renameError)
+                    .foregroundStyle(.red)
+            }
+            HStack {
+                Button("Cancel", role: .cancel) { cancelRename() }
+                Button("Rename") { completeRename() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+    }
+
+    private func beginRename(_ selection: EditorSelection, currentName: String) {
+        renameSelection = selection
+        renamedClipName = currentName
+        renameError = nil
+    }
+
+    private func completeRename() {
+        guard let renameSelection else { return }
+        do {
+            try controller.renameTimelineEntry(renameSelection, to: renamedClipName)
+            cancelRename()
+        } catch {
+            renameError = error.localizedDescription
+        }
+    }
+
+    private func cancelRename() {
+        renameSelection = nil
+        renamedClipName = ""
+        renameError = nil
     }
 }
 

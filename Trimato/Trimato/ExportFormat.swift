@@ -5,70 +5,101 @@ import UniformTypeIdentifiers
 nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
     case original
     case h264MP4
+    case hevcMP4
     case hevcMovie
     case h264QuickTime
+    case proRes422LT
     case proRes422
+    case proRes422HQ
     case m4a
+    case m4aAppleLossless
+    case flac
     case wav
+    case wav24
 
     static let projectFormats: [ExportFormat] = [
-        .h264MP4, .hevcMovie, .h264QuickTime, .proRes422, .m4a, .wav,
+        .h264MP4, .hevcMP4, .h264QuickTime, .hevcMovie,
+        .proRes422LT, .proRes422, .proRes422HQ,
+        .m4a, .m4aAppleLossless, .flac, .wav, .wav24,
     ]
 
     var title: String {
         switch self {
         case .original: "Original format"
-        case .h264MP4: "MP4"
+        case .h264MP4: "H.264 MP4"
+        case .hevcMP4: "HEVC MP4"
         case .hevcMovie: "HEVC movie"
-        case .h264QuickTime: "QuickTime movie"
+        case .h264QuickTime: "H.264 QuickTime movie"
+        case .proRes422LT: "ProRes 422 LT movie"
         case .proRes422: "ProRes 422 movie"
-        case .m4a: "M4A audio"
-        case .wav: "WAV audio"
+        case .proRes422HQ: "ProRes 422 HQ movie"
+        case .m4a: "M4A AAC audio"
+        case .m4aAppleLossless: "M4A Apple Lossless audio"
+        case .flac: "FLAC audio"
+        case .wav: "WAV audio, 16-bit"
+        case .wav24: "WAV audio, 24-bit"
         }
     }
 
     var fileExtension: String {
         switch self {
         case .original: ""
-        case .h264MP4: "mp4"
-        case .hevcMovie, .h264QuickTime, .proRes422: "mov"
-        case .m4a: "m4a"
-        case .wav: "wav"
+        case .h264MP4, .hevcMP4: "mp4"
+        case .hevcMovie, .h264QuickTime, .proRes422LT, .proRes422, .proRes422HQ: "mov"
+        case .m4a, .m4aAppleLossless: "m4a"
+        case .flac: "flac"
+        case .wav, .wav24: "wav"
         }
     }
 
     var contentType: UTType {
         switch self {
         case .original: .data
-        case .h264MP4: .mpeg4Movie
-        case .hevcMovie, .h264QuickTime, .proRes422: .quickTimeMovie
-        case .m4a: UTType(filenameExtension: "m4a") ?? .audio
-        case .wav: UTType(filenameExtension: "wav") ?? .audio
+        case .h264MP4, .hevcMP4: .mpeg4Movie
+        case .hevcMovie, .h264QuickTime, .proRes422LT, .proRes422, .proRes422HQ: .quickTimeMovie
+        case .m4a, .m4aAppleLossless: UTType(filenameExtension: "m4a") ?? .audio
+        case .flac: UTType(filenameExtension: "flac") ?? .audio
+        case .wav, .wav24: UTType(filenameExtension: "wav") ?? .audio
         }
     }
 
     var fileType: AVFileType? {
         switch self {
         case .original: nil
-        case .h264MP4: .mp4
-        case .hevcMovie, .h264QuickTime, .proRes422: .mov
-        case .m4a: .m4a
-        case .wav: .wav
+        case .h264MP4, .hevcMP4: .mp4
+        case .hevcMovie, .h264QuickTime, .proRes422LT, .proRes422, .proRes422HQ: .mov
+        case .m4a, .m4aAppleLossless: .m4a
+        case .flac: AVFileType(rawValue: "org.xiph.flac")
+        case .wav, .wav24: .wav
         }
     }
 
     var exportPreset: String? {
         switch self {
-        case .original, .wav: nil
+        case .original, .proRes422LT, .proRes422HQ,
+             .m4a, .m4aAppleLossless, .flac, .wav, .wav24: nil
         case .h264MP4, .h264QuickTime: AVAssetExportPresetHighestQuality
-        case .hevcMovie: AVAssetExportPresetHEVCHighestQuality
+        case .hevcMP4, .hevcMovie: AVAssetExportPresetHEVCHighestQuality
         case .proRes422: AVAssetExportPresetAppleProRes422LPCM
-        case .m4a: AVAssetExportPresetAppleM4A
         }
     }
 
     var isAudioOnly: Bool {
-        self == .m4a || self == .wav
+        switch self {
+        case .m4a, .m4aAppleLossless, .flac, .wav, .wav24: true
+        default: false
+        }
+    }
+
+    var requiresCustomVideoWriter: Bool {
+        self == .proRes422LT || self == .proRes422HQ
+    }
+
+    var supportsFastStart: Bool {
+        switch self {
+        case .h264MP4, .hevcMP4, .h264QuickTime, .hevcMovie, .m4a, .m4aAppleLossless: true
+        default: false
+        }
     }
 
     func filename(for baseName: String, originalExtension: String? = nil) -> String {
