@@ -50,6 +50,15 @@ struct TrimatoTests {
         #expect(content.sound == .default)
     }
 
+    @Test func exportNotificationPermissionStatesHaveRecoverableGuidance() {
+        #expect(ExportNotificationAuthorizationState.resolve(.notDetermined) == .notRequested)
+        #expect(ExportNotificationAuthorizationState.resolve(.authorized) == .allowed)
+        #expect(ExportNotificationAuthorizationState.resolve(.provisional) == .allowed)
+        #expect(ExportNotificationAuthorizationState.resolve(.denied) == .denied)
+        #expect(ExportNotificationAuthorizationState.denied.statusText == "Not allowed")
+        #expect(ExportNotificationAuthorizationState.denied.explanation.contains("System Settings"))
+    }
+
     @Test func placementCommandsUseTheApprovedEditorTerminology() {
         #expect(PlacementAction.allCases.map(\.title) == [
             "Append to Timeline",

@@ -1,16 +1,14 @@
+import AppKit
 import SwiftUI
 
 @main
 struct TrimatoApp: App {
+    @NSApplicationDelegateAdaptor(TrimatoApplicationDelegate.self) private var appDelegate
     @FocusedObject private var viewModel: VideoPlayerViewModel?
     @FocusedObject private var projectPlayer: ProjectPlayerViewModel?
     @FocusedObject private var projectController: ProjectController?
     @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
     @Environment(\.openWindow) private var openWindow
-
-    init() {
-        ExportNotificationCenter.requestAuthorizationIfNeeded()
-    }
 
     var body: some Scene {
         Window("Trimato", id: "project-launcher") {
@@ -197,6 +195,20 @@ struct TrimatoApp: App {
     }
 }
 
+private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !Self.isRunningTests else { return }
+        Task { @MainActor in
+            await ExportNotificationCenter.requestAuthorizationIfNeeded()
+        }
+    }
+
+    private static var isRunningTests: Bool {
+        NSClassFromString("XCTestCase") != nil ||
+            ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+}
+
 private struct ProjectFileCommands: Commands {
     @FocusedObject private var projectController: ProjectController?
     @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
@@ -273,11 +285,14 @@ private struct ContextualExportCommands: Commands {
             }
         }
         CommandGroup(after: .saveItem) {
-            switch destination {
-            case .project:
+            if destination == .project {
                 Button("Project Settings\u{2026}") { project?.showProjectSettings() }
                     .disabled(project == nil)
-                Divider()
+            }
+        }
+        CommandGroup(replacing: .importExport) {
+            switch destination {
+            case .project:
                 Button("Export Project\u{2026}") { project?.exportProject() }
                     .keyboardShortcut("e", modifiers: .command)
                     .disabled(project?.canExportProject != true)

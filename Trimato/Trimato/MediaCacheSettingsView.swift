@@ -3,6 +3,27 @@ import Combine
 import SwiftUI
 
 @MainActor
+final class ExportNotificationSettingsModel: ObservableObject {
+    @Published private(set) var state: ExportNotificationAuthorizationState = .loading
+    @Published private(set) var isRequesting = false
+
+    func refresh() {
+        Task { @MainActor in
+            state = await ExportNotificationCenter.authorizationState()
+        }
+    }
+
+    func requestAuthorization() {
+        guard !isRequesting else { return }
+        isRequesting = true
+        Task { @MainActor in
+            state = await ExportNotificationCenter.requestAuthorizationIfNeeded()
+            isRequesting = false
+        }
+    }
+}
+
+@MainActor
 final class MediaCacheSettingsModel: ObservableObject {
     @Published private(set) var status: MediaCacheStatus?
     @Published private(set) var isWorking = false
@@ -49,11 +70,25 @@ final class MediaCacheSettingsModel: ObservableObject {
 }
 
 struct MediaCacheSettingsView: View {
+    @StateObject private var notificationModel = ExportNotificationSettingsModel()
     @StateObject private var model = MediaCacheSettingsModel()
     @State private var confirmation: CacheConfirmation?
 
     var body: some View {
         Form {
+            Section("Export Notifications") {
+                LabeledContent("Permission", value: notificationModel.state.statusText)
+                Text(notificationModel.state.explanation)
+                    .foregroundStyle(.secondary)
+
+                if notificationModel.state == .notRequested {
+                    Button("Allow Export Notifications…") {
+                        notificationModel.requestAuthorization()
+                    }
+                    .disabled(notificationModel.isRequesting)
+                }
+            }
+
             Section("Media Cache") {
                 LabeledContent("Current size", value: formattedSize)
                 LabeledContent("Automatic limit", value: "10 GB")
@@ -78,8 +113,14 @@ struct MediaCacheSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 260)
-        .onAppear { model.refresh() }
+        .frame(width: 560, height: 420)
+        .onAppear {
+            notificationModel.refresh()
+            model.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            notificationModel.refresh()
+        }
         .alert(item: $confirmation) { confirmation in
             Alert(
                 title: Text(confirmation.title),
