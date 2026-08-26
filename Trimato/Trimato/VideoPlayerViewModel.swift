@@ -83,6 +83,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var rateObserver: AnyCancellable?
     private var keyEventMonitor: Any?
     private var keyboardCommandsAreActive: (() -> Bool)?
+    private var createProjectFromClipAction: (() -> Void)?
     private var isScrubbing = false
     private var scrubTask: Task<Void, Never>?
     private var frameStepPosition: CMTime?
@@ -126,6 +127,10 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func scopeKeyboardCommands(to isActive: @escaping () -> Bool) {
         keyboardCommandsAreActive = isActive
+    }
+
+    func configureCreateProjectFromClipAction(_ action: @escaping () -> Void) {
+        createProjectFromClipAction = action
     }
 
     var inMarkerDisplay: String {
@@ -1060,6 +1065,15 @@ final class VideoPlayerViewModel: ObservableObject {
                         if !event.isARepeat {
                             DispatchQueue.main.async { [weak self] in
                                 self?.exportTrimmedClip()
+                            }
+                        }
+                        return nil
+                    }
+                    if event.charactersIgnoringModifiers?.lowercased() == "r",
+                       let createProjectFromClipAction = self.createProjectFromClipAction {
+                        if !event.isARepeat {
+                            DispatchQueue.main.async {
+                                createProjectFromClipAction()
                             }
                         }
                         return nil

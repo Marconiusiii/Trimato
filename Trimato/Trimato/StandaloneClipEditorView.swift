@@ -92,6 +92,9 @@ struct StandaloneClipEditorView: View {
             loadedURL = url
             viewModel.load(url: url)
             commandContext.configureCreateAction(createProject)
+            viewModel.configureCreateProjectFromClipAction {
+                commandContext.createProject()
+            }
         }
         .alert("Project Could Not Be Created", isPresented: Binding(
             get: { commandContext.creationError != nil },
