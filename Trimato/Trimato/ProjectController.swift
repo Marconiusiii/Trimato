@@ -25,6 +25,7 @@ final class ProjectController: ObservableObject {
     @Published var timelinePlayhead = ProjectTime.zero
     @Published var isImporting = false
     @Published var isShowingProjectSettings: Bool
+    @Published private(set) var isCreatingProject: Bool
     @Published var presentedError: ProjectPresentedError?
     @Published private(set) var isExporting = false
     @Published private(set) var exportProgress: Double?
@@ -40,10 +41,12 @@ final class ProjectController: ObservableObject {
 
     init(document: ProjectDocument) {
         self.document = document
-        isShowingProjectSettings =
+        let requiresInitialProjectSetup =
             document.project.name == "Untitled Project" &&
             document.project.media.isEmpty &&
             document.project.primaryTimeline.isEmpty
+        isShowingProjectSettings = requiresInitialProjectSetup
+        isCreatingProject = requiresInitialProjectSetup
         document.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
@@ -462,6 +465,19 @@ final class ProjectController: ObservableObject {
 
     func showProjectSettings() {
         isShowingProjectSettings = true
+    }
+
+    func completeProjectSettings() {
+        isShowingProjectSettings = false
+        isCreatingProject = false
+    }
+
+    func cancelProjectSettings() {
+        if isCreatingProject {
+            closeProject()
+        } else {
+            isShowingProjectSettings = false
+        }
     }
 
     func updateSourceEdit(assetID: UUID, segments: [SourceSegment]) {

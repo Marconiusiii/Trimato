@@ -4,6 +4,43 @@ import Testing
 @testable import Trimato
 
 struct ProjectSaveStateTests {
+    @Test @MainActor func emptyUntitledDocumentStartsInInitialProjectCreation() {
+        let controller = ProjectController(document: ProjectDocument())
+
+        #expect(controller.isCreatingProject)
+        #expect(controller.isShowingProjectSettings)
+
+        controller.completeProjectSettings()
+
+        #expect(!controller.isCreatingProject)
+        #expect(!controller.isShowingProjectSettings)
+    }
+
+    @Test @MainActor func cancellingInitialProjectCreationRequestsProjectClosure() {
+        let controller = ProjectController(document: ProjectDocument())
+        var requestedClosure = false
+        controller.installCloseProjectAction { requestedClosure = true }
+
+        controller.cancelProjectSettings()
+
+        #expect(requestedClosure)
+        #expect(controller.isCreatingProject)
+    }
+
+    @Test @MainActor func cancellingSettingsForAnExistingProjectOnlyDismissesSettings() {
+        let document = ProjectDocument(project: TrimatoProject(name: "Existing Project"))
+        let controller = ProjectController(document: document)
+        var requestedClosure = false
+        controller.installCloseProjectAction { requestedClosure = true }
+        controller.showProjectSettings()
+
+        controller.cancelProjectSettings()
+
+        #expect(!requestedClosure)
+        #expect(!controller.isCreatingProject)
+        #expect(!controller.isShowingProjectSettings)
+    }
+
     @Test func launcherReturnsOnlyAfterTheLastProjectClosesOutsideTermination() {
         #expect(ProjectWindowSaveCoordinator.shouldRestoreLauncher(
             isApplicationTerminating: false,

@@ -168,6 +168,7 @@ nonisolated enum ProjectAspectRatioLock {
 struct ProjectCreationView: View {
     @ObservedObject var controller: ProjectController
     let finish: () -> Void
+    let cancel: () -> Void
 
     @State private var name: String
     @State private var mode: ProjectFormatMode
@@ -192,9 +193,14 @@ struct ProjectCreationView: View {
         case frameRate
     }
 
-    init(controller: ProjectController, finish: @escaping () -> Void) {
+    init(
+        controller: ProjectController,
+        finish: @escaping () -> Void,
+        cancel: @escaping () -> Void
+    ) {
         self.controller = controller
         self.finish = finish
+        self.cancel = cancel
         let project = controller.project
         _name = State(initialValue: project.name)
         _mode = State(initialValue: project.format.mode)
@@ -282,6 +288,9 @@ struct ProjectCreationView: View {
 
             HStack {
                 Spacer()
+                Button("Cancel", action: cancel)
+                    .keyboardShortcut(.cancelAction)
+
                 Button("Save Project Settings") {
                     if mode == .custom,
                        let message = ProjectFormatValidation.message(
