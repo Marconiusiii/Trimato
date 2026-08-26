@@ -19,86 +19,80 @@ struct EditorWorkspaceView: View {
     }
 
     var body: some View {
-        Group {
-            if controller.isCreatingProject {
-                initialProjectSettings
-            } else {
-                editor
-            }
-        }
-        .background(EditorTheme.workspace)
-        .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
-        .preferredColorScheme(.dark)
-        .focusedSceneObject(controller)
-        .handlesTrimatoMediaOpening()
-        .onAppear {
-            controller.installSaveCoordinator(projectWindowSaveCoordinator)
-            ExternalMediaOpenCoordinator.shared.register(
-                controller: controller,
-                openClipEditor: { [weak clipEditorWindows] selection in
-                    clipEditorWindows?.open(selection)
-                }
-            )
-            ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-            projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
-                guard let controller else { return }
+        editor
+            .background(EditorTheme.workspace)
+            .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
+            .preferredColorScheme(.dark)
+            .focusedSceneObject(controller)
+            .handlesTrimatoMediaOpening()
+            .onAppear {
+                controller.installSaveCoordinator(projectWindowSaveCoordinator)
+                ExternalMediaOpenCoordinator.shared.register(
+                    controller: controller,
+                    openClipEditor: { [weak clipEditorWindows] selection in
+                        clipEditorWindows?.open(selection)
+                    }
+                )
                 ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-                if !controller.isShowingProjectSettings, !hasRequestedInitialProjectFocus {
-                    requestProjectFocus()
+                projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
+                    guard let controller else { return }
+                    ExternalMediaOpenCoordinator.shared.activate(controller: controller)
+                    if !controller.isShowingProjectSettings, !hasRequestedInitialProjectFocus {
+                        requestProjectFocus()
+                    }
                 }
-            }
-            projectWindowSaveCoordinator.onLastProjectWindowWillClose {
-                openWindow(id: "project-launcher")
-            }
-            controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] in
-                clipEditorWindows?.requestCloseAll { didClose in
-                    guard didClose else { return }
-                    projectWindowSaveCoordinator?.requestClose { _ in }
+                projectWindowSaveCoordinator.onLastProjectWindowWillClose {
+                    openWindow(id: "project-launcher")
                 }
+                controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] in
+                    clipEditorWindows?.requestCloseAll { didClose in
+                        guard didClose else { return }
+                        projectWindowSaveCoordinator?.requestClose { _ in }
+                    }
+                }
+                NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
-            NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
-        }
-        .onChange(of: controller.isShowingProjectSettings) { isShowing in
-            if !isShowing { requestProjectFocus() }
-        }
-        .onDisappear {
-            ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
-        }
-        .sheet(isPresented: existingProjectSettingsPresented) {
-            ProjectCreationView(
-                controller: controller,
-                finish: controller.completeProjectSettings,
-                cancel: controller.cancelProjectSettings
-            )
-        }
-        .sheet(isPresented: Binding(
-            get: { controller.isExporting },
-            set: { presented in
-                if !presented, controller.isExporting { controller.cancelExport() }
+            .onChange(of: controller.isShowingProjectSettings) { isShowing in
+                if !isShowing { requestProjectFocus() }
             }
-        )) {
-            ExportProgressSheet(
-                title: "Exporting Project",
-                progress: controller.exportProgress,
-                cancel: controller.cancelExport
-            )
-        }
-        .alert(item: $controller.presentedError) { error in
-            Alert(
-                title: Text(error.title),
-                message: Text(error.message),
-                dismissButton: .default(Text("OK"))
-            )
-        }
-    }
-
-    private var initialProjectSettings: some View {
-        ProjectCreationView(
-            controller: controller,
-            finish: controller.completeProjectSettings,
-            cancel: controller.cancelProjectSettings
-        )
-        .frame(minWidth: 560, minHeight: 680)
+            .onDisappear {
+                ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
+            }
+            .sheet(isPresented: $controller.isShowingProjectSettings) {
+                ProjectCreationView(
+                    initialProject: controller.project,
+                    heading: "Project Settings",
+                    actionTitle: "Save Project Settings",
+                    finish: { values in
+                        controller.updateProjectSettings(
+                            name: values.name,
+                            format: values.format,
+                            targetDuration: values.targetDuration
+                        )
+                        controller.dismissProjectSettings()
+                    },
+                    cancel: controller.dismissProjectSettings
+                )
+            }
+            .sheet(isPresented: Binding(
+                get: { controller.isExporting },
+                set: { presented in
+                    if !presented, controller.isExporting { controller.cancelExport() }
+                }
+            )) {
+                ExportProgressSheet(
+                    title: "Exporting Project",
+                    progress: controller.exportProgress,
+                    cancel: controller.cancelExport
+                )
+            }
+            .alert(item: $controller.presentedError) { error in
+                Alert(
+                    title: Text(error.title),
+                    message: Text(error.message),
+                    dismissButton: .default(Text("OK"))
+                )
+            }
     }
 
     private var editor: some View {
@@ -149,15 +143,6 @@ struct EditorWorkspaceView: View {
             }
         }
         .frame(minWidth: 1_020, minHeight: 720)
-    }
-
-    private var existingProjectSettingsPresented: Binding<Bool> {
-        Binding(
-            get: { controller.isShowingProjectSettings && !controller.isCreatingProject },
-            set: { isPresented in
-                if !isPresented { controller.cancelProjectSettings() }
-            }
-        )
     }
 
     private func requestProjectFocus() {

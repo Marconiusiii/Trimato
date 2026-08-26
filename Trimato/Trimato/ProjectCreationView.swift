@@ -165,9 +165,25 @@ nonisolated enum ProjectAspectRatioLock {
     }
 }
 
+nonisolated struct ProjectSettingsValues: Equatable, Sendable {
+    let name: String
+    let format: ProjectFormat
+    let targetDuration: ProjectTime?
+
+    func applying(to initialProject: TrimatoProject) -> TrimatoProject {
+        var project = initialProject
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        project.name = cleanName.isEmpty ? "Untitled Project" : cleanName
+        project.applyProjectFormat(format)
+        project.targetDuration = targetDuration
+        return project
+    }
+}
+
 struct ProjectCreationView: View {
-    @ObservedObject var controller: ProjectController
-    let finish: () -> Void
+    let heading: String
+    let actionTitle: String
+    let finish: (ProjectSettingsValues) -> Void
     let cancel: () -> Void
 
     @State private var name: String
@@ -194,14 +210,17 @@ struct ProjectCreationView: View {
     }
 
     init(
-        controller: ProjectController,
-        finish: @escaping () -> Void,
+        initialProject: TrimatoProject,
+        heading: String,
+        actionTitle: String,
+        finish: @escaping (ProjectSettingsValues) -> Void,
         cancel: @escaping () -> Void
     ) {
-        self.controller = controller
+        self.heading = heading
+        self.actionTitle = actionTitle
         self.finish = finish
         self.cancel = cancel
-        let project = controller.project
+        let project = initialProject
         _name = State(initialValue: project.name)
         _mode = State(initialValue: project.format.mode)
         let initialWidth = project.format.width ?? 1_920
@@ -228,7 +247,7 @@ struct ProjectCreationView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Project Settings")
+            Text(heading)
                 .font(.title2)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($headingFocused)
@@ -291,7 +310,7 @@ struct ProjectCreationView: View {
                 Button("Cancel", action: cancel)
                     .keyboardShortcut(.cancelAction)
 
-                Button("Save Project Settings") {
+                Button(actionTitle) {
                     if mode == .custom,
                        let message = ProjectFormatValidation.message(
                            width: resolvedWidth,
@@ -309,12 +328,11 @@ struct ProjectCreationView: View {
                         height: mode == .custom ? resolvedHeight : nil,
                         frameRate: mode == .custom ? resolvedFrameRate : nil
                     )
-                    controller.updateProjectSettings(
+                    finish(ProjectSettingsValues(
                         name: name,
                         format: format,
                         targetDuration: usesTargetDuration ? ProjectTime(seconds: max(targetSeconds, 0.001)) : nil
-                    )
-                    finish()
+                    ))
                 }
                 .keyboardShortcut(.defaultAction)
             }

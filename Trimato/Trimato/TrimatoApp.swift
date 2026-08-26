@@ -210,6 +210,7 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
 }
 
 private struct ProjectFileCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
     @FocusedObject private var projectController: ProjectController?
     @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
     @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
@@ -219,6 +220,13 @@ private struct ProjectFileCommands: Commands {
     }
 
     var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Project") {
+                ProjectLauncherNavigation.shared.showProjectCreation()
+                openWindow(id: "project-launcher")
+            }
+            .keyboardShortcut("n", modifiers: .command)
+        }
         CommandGroup(replacing: .saveItem) {
             Button("Save") { controller?.saveProjectDocument() }
                 .keyboardShortcut("s", modifiers: .command)

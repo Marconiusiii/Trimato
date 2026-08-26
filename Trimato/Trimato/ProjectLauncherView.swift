@@ -7,16 +7,19 @@ struct ProjectLauncherView: View {
     @Environment(\.newDocument) private var newDocument
     @Environment(\.openDocument) private var openDocument
 
+    @ObservedObject private var navigation = ProjectLauncherNavigation.shared
     @StateObject private var recentProjects = RecentProjectStore()
     @State private var presentedError: ProjectLauncherError?
     @State private var launcherWindow: NSWindow?
     @AccessibilityFocusState private var newProjectFocused: Bool
 
     var body: some View {
-        VStack(spacing: 24) {
-            welcome
-            primaryActions
-            recentProjectGroup
+        Group {
+            if navigation.isCreatingProject {
+                newProjectOptions
+            } else {
+                launcherContent
+            }
         }
         .padding(32)
         .frame(width: 560, height: 680)
@@ -26,8 +29,9 @@ struct ProjectLauncherView: View {
         .background(ProjectLauncherWindowBridge { launcherWindow = $0 })
         .onAppear {
             recentProjects.refresh()
-            newProjectFocused = true
+            if !navigation.isCreatingProject { newProjectFocused = true }
         }
+        .onDisappear { navigation.showWelcome() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             recentProjects.refresh()
         }
@@ -44,6 +48,24 @@ struct ProjectLauncherView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+    }
+
+    private var launcherContent: some View {
+        VStack(spacing: 24) {
+            welcome
+            primaryActions
+            recentProjectGroup
+        }
+    }
+
+    private var newProjectOptions: some View {
+        ProjectCreationView(
+            initialProject: TrimatoProject(),
+            heading: "New Project",
+            actionTitle: "Create Project",
+            finish: createProject,
+            cancel: cancelProjectCreation
+        )
     }
 
     private var welcome: some View {
@@ -73,8 +95,7 @@ struct ProjectLauncherView: View {
     private var primaryActions: some View {
         HStack(spacing: 12) {
             Button("New Project") {
-                newDocument { ProjectDocument() }
-                closeLauncher()
+                beginProjectCreation()
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
@@ -86,6 +107,25 @@ struct ProjectLauncherView: View {
             .buttonStyle(.bordered)
         }
         .controlSize(.large)
+    }
+
+    private func beginProjectCreation() {
+        newProjectFocused = false
+        navigation.showProjectCreation()
+    }
+
+    private func cancelProjectCreation() {
+        navigation.showWelcome()
+        DispatchQueue.main.async { newProjectFocused = true }
+    }
+
+    private func createProject(with values: ProjectSettingsValues) {
+        let project = values.applying(to: TrimatoProject())
+        navigation.showWelcome()
+        newDocument {
+            ProjectDocument(project: project, isExplicitlySaved: false)
+        }
+        closeLauncher()
     }
 
     private var recentProjectGroup: some View {
@@ -148,6 +188,21 @@ struct ProjectLauncherView: View {
 
     private func closeLauncher() {
         launcherWindow?.performClose(nil)
+    }
+}
+
+@MainActor
+final class ProjectLauncherNavigation: ObservableObject {
+    static let shared = ProjectLauncherNavigation()
+
+    @Published private(set) var isCreatingProject = false
+
+    func showProjectCreation() {
+        isCreatingProject = true
+    }
+
+    func showWelcome() {
+        isCreatingProject = false
     }
 }
 
