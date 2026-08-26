@@ -286,13 +286,12 @@ private struct ContextualExportCommands: Commands {
     }
 
     var body: some Commands {
-        CommandGroup(after: .newItem) {
+        CommandGroup(after: .saveItem) {
             if destination == .standaloneClip {
                 Button("Create Project from Clip") { projectCreation?.createProject() }
+                    .keyboardShortcut("r", modifiers: .command)
                     .disabled(projectCreation?.canCreateProject != true)
             }
-        }
-        CommandGroup(after: .saveItem) {
             if destination == .project {
                 Button("Project Settings\u{2026}") { project?.showProjectSettings() }
                     .disabled(project == nil)

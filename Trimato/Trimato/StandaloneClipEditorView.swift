@@ -58,7 +58,29 @@ struct StandaloneClipEditorView: View {
 
     var body: some View {
         MacEditorPane("Clip Editor") {
-            ContentView(viewModel: viewModel, allowsFileOpening: false)
+            VStack(spacing: 0) {
+                ContentView(viewModel: viewModel, allowsFileOpening: false)
+
+                Divider()
+
+                HStack {
+                    Button("Create Project from Clip") {
+                        commandContext.createProject()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!commandContext.canCreateProject)
+
+                    if commandContext.isCreatingProject {
+                        ProgressView("Creating Project")
+                            .controlSize(.small)
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(EditorTheme.controlSurface)
+            }
         }
         .focusedObject(viewModel)
         .focusedObject(commandContext)
