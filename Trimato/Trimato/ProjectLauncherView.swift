@@ -18,19 +18,16 @@ struct ProjectLauncherView: View {
     }
 
     var body: some View {
-        Group {
-            if navigation.isCreatingProject {
-                newProjectOptions
-            } else {
-                launcherContent
-            }
-        }
+        launcherContent
         .padding(32)
         .frame(width: 560, height: 680)
         .background(EditorTheme.workspace)
         .tint(EditorTheme.accent)
         .preferredColorScheme(.dark)
         .background(ProjectLauncherWindowBridge { launcherWindow = $0 })
+        .sheet(isPresented: projectCreationPresentation) {
+            newProjectOptions
+        }
         .onAppear { recentProjects.refresh() }
         .onDisappear {
             navigation.showWelcome()
@@ -70,6 +67,19 @@ struct ProjectLauncherView: View {
             actionTitle: "Create Project",
             finish: createProject,
             cancel: cancelProjectCreation
+        )
+    }
+
+    private var projectCreationPresentation: Binding<Bool> {
+        Binding(
+            get: { navigation.isCreatingProject },
+            set: { isPresented in
+                if isPresented {
+                    navigation.showProjectCreation()
+                } else {
+                    navigation.showWelcome()
+                }
+            }
         )
     }
 
@@ -115,7 +125,6 @@ struct ProjectLauncherView: View {
     }
 
     private func beginProjectCreation() {
-        launcherFocus = nil
         navigation.showProjectCreation()
     }
 
