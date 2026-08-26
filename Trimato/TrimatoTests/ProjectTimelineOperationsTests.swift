@@ -163,6 +163,71 @@ struct ProjectTimelineOperationsTests {
         #expect(project.duration == ProjectTime(seconds: 23))
     }
 
+    @Test func automaticFormatResolvesFromTheFirstExistingTimelineClip() throws {
+        var first = fixtureAsset(name: "Portrait", duration: 5)
+        first.naturalWidth = 1_080
+        first.naturalHeight = 1_920
+        first.frameRate = 29.97
+        let later = fixtureAsset(name: "Landscape", duration: 5)
+        var project = TrimatoProject()
+        project.media = [first, later]
+        _ = try project.append(asset: first)
+        _ = try project.append(asset: later)
+        project.format = ProjectFormat(mode: .custom, width: 1_920, height: 1_080, frameRate: 60)
+
+        project.applyProjectFormat(ProjectFormat(mode: .automatic))
+
+        #expect(project.format.mode == .automatic)
+        #expect(project.format.width == 1_080)
+        #expect(project.format.height == 1_920)
+        #expect(project.format.frameRate == 29.97)
+    }
+
+    @Test func automaticFormatRemainsUnresolvedWithoutATimelineClip() {
+        var project = TrimatoProject()
+        project.media = [fixtureAsset(name: "Imported Only", duration: 5)]
+
+        project.applyProjectFormat(ProjectFormat(mode: .automatic))
+
+        #expect(!project.format.isResolved)
+    }
+
+    @Test func customFormatValidationAcceptsFractionalRatesAndRejectsUnsafeValues() {
+        #expect(ProjectFormatValidation.message(width: 1_920, height: 1_080, frameRate: 29.97) == nil)
+        #expect(ProjectFormatValidation.message(width: 1_921, height: 1_080, frameRate: 30) != nil)
+        #expect(ProjectFormatValidation.message(width: 1_920, height: 1_081, frameRate: 30) != nil)
+        #expect(ProjectFormatValidation.message(width: 8_194, height: 1_080, frameRate: 30) != nil)
+        #expect(ProjectFormatValidation.message(width: 1_920, height: 1_080, frameRate: 240.1) != nil)
+    }
+
+    @Test func projectMediaConformanceExplainsPillarboxingAndFrameRateConversion() {
+        var portrait = fixtureAsset(name: "Phone", duration: 5)
+        portrait.naturalWidth = 1_080
+        portrait.naturalHeight = 1_920
+        portrait.frameRate = 60
+        let description = ProjectMediaConformance.describe(
+            asset: portrait,
+            projectFormat: ProjectFormat(mode: .custom, width: 1_920, height: 1_080, frameRate: 30)
+        )
+
+        #expect(description.fit?.contains("pillarboxed on the left and right") == true)
+        #expect(description.fit?.contains("without stretching or cropping") == true)
+        #expect(description.frameRate?.contains("60 fps source rendered at the 30 fps project rate") == true)
+        #expect(description.frameRate?.contains("Clip speed and audio duration remain unchanged") == true)
+    }
+
+    @Test func projectMediaConformanceExplainsLetterboxing() {
+        var wide = fixtureAsset(name: "Wide", duration: 5)
+        wide.naturalWidth = 2_560
+        wide.naturalHeight = 1_080
+        let description = ProjectMediaConformance.describe(
+            asset: wide,
+            projectFormat: ProjectFormat(mode: .custom, width: 1_920, height: 1_080, frameRate: 30)
+        )
+
+        #expect(description.fit?.contains("letterboxed above and below") == true)
+    }
+
     @Test func cutawaysDoNotChangePrimaryDuration() throws {
         let interview = fixtureAsset(name: "Interview", duration: 30)
         let cutaway = fixtureAsset(name: "Cutaway", duration: 5)

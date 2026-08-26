@@ -25,6 +25,11 @@
         <li>Place In earlier than Out.</li>
     </ul>
 
+    <h2>Understand the exported project frame</h2>
+    <p>Every video export uses the project's resolution and frame rate. Mixed source dimensions are proportionally fitted without stretching or automatic cropping. Narrower sources are pillarboxed, wider sources are letterboxed, and unused parts of the project frame are black.</p>
+    <p>The project frame rate is the export cadence. Trimato omits source frames when converting from a higher rate and repeats source frames when converting from a lower rate. This does not change clip speed or audio duration. Optical-flow frame generation is not currently applied.</p>
+    <p>When most material uses one rate, choosing that rate for the project usually preserves its original motion cadence. For example, a 30 fps project is a practical match for predominantly 30 and 60 fps material, while a 24 fps project preserves the cadence of predominantly 24 fps material.</p>
+
     <h2>Export the project</h2>
     <ol>
         <li>Choose File &gt; Export Project or press Command-E.</li>

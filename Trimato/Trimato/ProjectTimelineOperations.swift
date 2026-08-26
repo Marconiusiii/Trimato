@@ -25,6 +25,21 @@ enum ProjectTimelineError: LocalizedError, Equatable {
 }
 
 extension TrimatoProject {
+    mutating func applyProjectFormat(_ requestedFormat: ProjectFormat) {
+        guard requestedFormat.mode == .automatic else {
+            format = requestedFormat
+            return
+        }
+        format = ProjectFormat(mode: .automatic)
+        guard let firstClip = primaryTimeline.first,
+              let asset = asset(id: firstClip.assetID),
+              let width = asset.naturalWidth,
+              let height = asset.naturalHeight else { return }
+        format.width = width
+        format.height = height
+        format.frameRate = asset.frameRate ?? 30
+    }
+
     mutating func append(asset: MediaAssetRecord, segments: [SourceSegment]? = nil) throws -> UUID {
         let clip = labelForInsertion(try makeTimelineClip(asset: asset, segments: segments))
         primaryTimeline.append(clip)

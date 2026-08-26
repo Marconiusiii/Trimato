@@ -293,7 +293,7 @@ enum ProjectCompositionBuilder {
         return asset
     }
 
-    private static func displayTransform(
+    static func displayTransform(
         for track: AVAssetTrack,
         renderSize: CGSize
     ) async throws -> CGAffineTransform {
@@ -331,6 +331,7 @@ enum ProjectCompositionBuilder {
             guard end > start else { return nil }
             let instruction = AVMutableVideoCompositionInstruction()
             instruction.timeRange = ProjectTimeRange(start: start, duration: end - start).cmTimeRange
+            instruction.backgroundColor = CGColor(gray: 0, alpha: 1)
 
             let primaryLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: primaryTrack)
             if let transform = primaryTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {

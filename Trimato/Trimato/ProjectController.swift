@@ -455,7 +455,7 @@ final class ProjectController: ObservableObject {
     func updateProjectSettings(name: String, format: ProjectFormat, targetDuration: ProjectTime?) {
         mutateProject(actionName: "Change Project Settings") { project in
             project.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Project" : name
-            project.format = format
+            project.applyProjectFormat(format)
             project.targetDuration = targetDuration
         }
     }

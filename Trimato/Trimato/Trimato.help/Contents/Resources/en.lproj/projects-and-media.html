@@ -25,6 +25,16 @@
         <li>Activate Save Project Settings.</li>
     </ol>
 
+    <h2>Choose a project format</h2>
+    <p>Every project has one resolution and frame rate. These values define the project frame used for preview and export; they do not modify the original media.</p>
+    <dl>
+        <dt>Automatic from First Clip</dt>
+        <dd>Uses the displayed dimensions and nominal frame rate of the first clip placed on the primary timeline. Importing a file into the Project Browser does not establish the format until that clip is placed on the timeline.</dd>
+        <dt>Custom</dt>
+        <dd>Uses the width, height, and frame rate entered in Project Settings. Width and height must be even numbers from 2 through 8,192 pixels. Frame rate must be from 1 through 240 frames per second; fractional rates such as 23.976 and 29.97 are allowed.</dd>
+    </dl>
+    <p>If a populated project is changed to Automatic, Trimato resolves the format from its first primary timeline clip.</p>
+
     <h2>Import clips</h2>
     <ol>
         <li>Activate Import Clips in the Project group or choose File &gt; Import Media.</li>
@@ -32,6 +42,21 @@
         <li>Activate Open.</li>
     </ol>
     <p>Imported clips appear in the Clips section of the project.</p>
+
+    <h2>Use media with different dimensions and frame rates</h2>
+    <p>A project can contain sources with different file formats, codecs, resolutions, orientations, aspect ratios, and frame rates. Trimato conforms each timeline instance to the project during preview and export while leaving the original file unchanged.</p>
+    <p>For dimensions and orientation, Trimato uses proportional Fit:</p>
+    <ul>
+        <li>A vertical or narrower source in a landscape project is centered and pillarboxed with black space on the left and right.</li>
+        <li>A source wider than the project frame is centered and letterboxed with black space above and below.</li>
+        <li>A source with the same aspect ratio is scaled proportionally to the project frame.</li>
+        <li>Trimato does not stretch or automatically crop a source to fill the project frame.</li>
+    </ul>
+    <p>Fit may enlarge a lower-resolution source until one dimension reaches the project boundary. It does not enlarge the source beyond that boundary to remove letterboxing or pillarboxing.</p>
+    <p>For frame rate, Trimato renders every source at the project cadence. Frames from higher-rate sources are omitted as needed, and frames from lower-rate sources are repeated as needed. Clip speed and audio duration remain unchanged. Trimato does not currently synthesize intermediate frames with optical flow.</p>
+
+    <h2>Review how a clip fits the project</h2>
+    <p>Select a source clip, timeline clip, or cutaway, then move to the Inspector. When its dimensions, aspect ratio, or frame rate differ from the project, Project Fit and Frame Rate Conversion describe what Trimato will do.</p>
 
     <h2>Use project folders</h2>
     <ul>

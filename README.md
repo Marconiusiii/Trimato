@@ -96,6 +96,23 @@ Every primary clip and cutaway has a distinct displayed timeline name. Repeated 
 
 Video exports include H.264 MP4, HEVC MP4, H.264 QuickTime, HEVC QuickTime, ProRes 422 LT, ProRes 422, and ProRes 422 HQ. Audio-only exports include M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, and 24-bit WAV. Audio-only choices are available when the edited clip or project contains exportable audio.
 
+## Mixed media and project format
+
+Each project has one resolution and frame rate. Automatic from First Clip uses the first clip placed on the primary timeline, not the first file imported into the Project Browser. A project created directly from a standalone clip uses that clip's displayed dimensions and nominal frame rate. Later clips retain their own source properties while Trimato conforms them to the project during preview and export.
+
+Trimato uses proportional Fit for source dimensions and orientation. The complete source image remains visible and its aspect ratio is preserved:
+
+- A vertical or narrower source in a landscape project is centered and pillarboxed with black space on the left and right.
+- A source wider than the project frame is centered and letterboxed with black space above and below.
+- A source with the same aspect ratio is scaled proportionally to the project frame.
+- Trimato does not stretch, automatically crop, or rotate a source merely to fill the frame.
+
+Fit can scale a lower-resolution source up until one dimension reaches the project boundary, but it never enlarges the source past that boundary to eliminate letterboxing or pillarboxing. Fill, manual crop, positioning, and background controls are not currently part of the project timeline.
+
+The project frame rate establishes a fixed output cadence. Frames from higher-rate sources are omitted as needed, and frames from lower-rate sources are repeated as needed. This conversion does not change clip speed or audio duration. Trimato does not currently use optical flow to synthesize intermediate frames, so conversions such as 24 fps to 30 fps can retain visible motion judder.
+
+Custom projects accept even width and height values from 2 through 8,192 pixels and frame rates from 1 through 240 fps. Fractional rates such as 23.976 and 29.97 are supported. The Inspector identifies proportional fitting and frame-rate conversion when a selected source differs from the project.
+
 ## Supported media
 
 When AVFoundation can play and export a source natively, Trimato uses passthrough export to retain the source file type and codec. This commonly includes QuickTime Movie, MP4, and M4V sources whose internal codecs are supported by macOS.

@@ -1,5 +1,39 @@
 import SwiftUI
 
+nonisolated struct ProjectMediaConformance: Equatable, Sendable {
+    let fit: String?
+    let frameRate: String?
+
+    static func describe(asset: MediaAssetRecord, projectFormat: ProjectFormat) -> Self {
+        var fit: String?
+        if let sourceWidth = asset.naturalWidth,
+           let sourceHeight = asset.naturalHeight,
+           let projectWidth = projectFormat.width,
+           let projectHeight = projectFormat.height {
+            let sourceRatio = Double(sourceWidth) / Double(max(sourceHeight, 1))
+            let projectRatio = Double(projectWidth) / Double(max(projectHeight, 1))
+            if abs(sourceRatio - projectRatio) > 0.001 {
+                let bars = sourceRatio < projectRatio ? "pillarboxed on the left and right" : "letterboxed above and below"
+                fit = "Proportional Fit; \(bars) in the \(projectWidth) by \(projectHeight) project frame. The complete image remains visible without stretching or cropping."
+            } else if sourceWidth != projectWidth || sourceHeight != projectHeight {
+                fit = "Proportional Fit from \(sourceWidth) by \(sourceHeight) to the \(projectWidth) by \(projectHeight) project frame without stretching or cropping."
+            }
+        }
+
+        var frameRateDescription: String?
+        if let sourceRate = asset.frameRate,
+           let projectRate = projectFormat.frameRate,
+           abs(sourceRate - projectRate) > 0.01 {
+            frameRateDescription = "\(formatRate(sourceRate)) fps source rendered at the \(formatRate(projectRate)) fps project rate. Clip speed and audio duration remain unchanged."
+        }
+        return Self(fit: fit, frameRate: frameRateDescription)
+    }
+
+    private static func formatRate(_ rate: Double) -> String {
+        rate.formatted(.number.precision(.fractionLength(0...3)))
+    }
+}
+
 struct ClipInspectorView: View {
     @ObservedObject var controller: ProjectController
 
@@ -18,7 +52,7 @@ struct ClipInspectorView: View {
 
     private var inspectorContext: String {
         if let clip = controller.selectedTimelineClip { return clip.displayName }
-        if let cutaway = controller.selectedCutaway { return cutaway.name }
+        if let cutaway = controller.selectedCutaway { return cutaway.displayName }
         if let asset = controller.selectedAsset { return asset.name }
         return "Project Details"
     }
@@ -74,6 +108,16 @@ struct ClipInspectorView: View {
         }
         if let frameRate = asset.frameRate {
             inspectorRow("Frame Rate", frameRate.formatted())
+        }
+        let conformance = ProjectMediaConformance.describe(
+            asset: asset,
+            projectFormat: controller.project.format
+        )
+        if let fit = conformance.fit {
+            inspectorRow("Project Fit", fit)
+        }
+        if let frameRate = conformance.frameRate {
+            inspectorRow("Frame Rate Conversion", frameRate)
         }
     }
 
