@@ -9,11 +9,15 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
     let requestRenameFolder: (UUID) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
+        Coordinator(
+            parent: self,
+            root: ProjectSourceNode(item: ProjectSourceItem.hierarchy(for: controller.project))
+        )
     }
 
     func makeNSView(context: Context) -> NSScrollView {
         let outline = ProjectSourceOutline()
+        outline.setAccessibilityElement(false)
         let column = NSTableColumn(identifier: .projectSourceColumn)
         outline.addTableColumn(column)
         outline.outlineTableColumn = column
@@ -35,9 +39,9 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
-        context.coordinator.outlineView = outline
-        context.coordinator.reload(with: ProjectSourceItem.hierarchy(for: controller.project))
+        context.coordinator.installInitialContent(in: outline)
         scrollView.documentView = outline
+        outline.setAccessibilityElement(true)
         return scrollView
     }
 
@@ -49,55 +53,65 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         var parent: ProjectSourceOutlineView
         weak var outlineView: NSOutlineView?
-        private var root: ProjectSourceItem?
+        private var root: ProjectSourceNode
         private var expandedIDs: Set<ProjectSourceItemID> = []
-        private var hasEstablishedExpansion = false
         private var isSynchronizingSelection = false
 
-        init(parent: ProjectSourceOutlineView) {
+        init(parent: ProjectSourceOutlineView, root: ProjectSourceNode) {
             self.parent = parent
+            self.root = root
         }
 
-        func reload(with root: ProjectSourceItem) {
-            guard let outlineView else { return }
-
-            if self.root == root {
-                synchronizeSelection(in: outlineView)
-                return
-            }
-
-            if hasEstablishedExpansion {
-                captureExpansion(in: outlineView)
-            } else {
-                expandedIDs = Set([root.id] + root.children.compactMap { item in
-                    switch item.id {
-                    case .clips, .folder: item.id
-                    case .project, .timeline, .asset: nil
-                    }
-                })
-                hasEstablishedExpansion = true
-            }
+        func installInitialContent(in outlineView: NSOutlineView) {
+            self.outlineView = outlineView
+            expandedIDs = Set([root.id] + root.children.compactMap { node in
+                switch node.id {
+                case .clips, .folder: node.id
+                case .project, .timeline, .asset: nil
+                }
+            })
 
             isSynchronizingSelection = true
-            self.root = root
             outlineView.reloadData()
             restoreExpansion(in: outlineView, item: root)
             synchronizeSelection(in: outlineView)
             isSynchronizingSelection = false
         }
 
+        func reload(with item: ProjectSourceItem) {
+            guard let outlineView else { return }
+            captureExpansion(in: outlineView)
+            let change = root.reconcile(with: item)
+            guard change.hasChanges else {
+                synchronizeSelection(in: outlineView)
+                return
+            }
+
+            isSynchronizingSelection = true
+            if change.structureChanged {
+                outlineView.reloadItem(root, reloadChildren: true)
+                restoreExpansion(in: outlineView, item: root)
+            } else {
+                for id in change.renamedIDs {
+                    updateVisibleName(for: id, in: outlineView)
+                }
+            }
+            synchronizeSelection(in: outlineView)
+            isSynchronizingSelection = false
+        }
+
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-            if let item = item as? ProjectSourceItem { return item.children.count }
-            return root == nil ? 0 : 1
+            if let item = item as? ProjectSourceNode { return item.children.count }
+            return 1
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-            if let item = item as? ProjectSourceItem { return item.children[index] }
-            return root as Any
+            if let item = item as? ProjectSourceNode { return item.children[index] }
+            return root
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-            (item as? ProjectSourceItem)?.isExpandable == true
+            (item as? ProjectSourceNode)?.isExpandable == true
         }
 
         func outlineView(
@@ -105,7 +119,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             viewFor tableColumn: NSTableColumn?,
             item: Any
         ) -> NSView? {
-            guard let item = item as? ProjectSourceItem else { return nil }
+            guard let item = item as? ProjectSourceNode else { return nil }
             if case .asset(let assetID) = item.id {
                 let button: ProjectSourceButton
                 if let reused = outlineView.makeView(
@@ -154,7 +168,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             guard !isSynchronizingSelection,
                   let outlineView,
                   outlineView.selectedRow >= 0,
-                  let item = outlineView.item(atRow: outlineView.selectedRow) as? ProjectSourceItem else { return }
+                  let item = outlineView.item(atRow: outlineView.selectedRow) as? ProjectSourceNode else { return }
             parent.selection = item.id
             switch item.id {
             case .project, .timeline, .clips:
@@ -208,7 +222,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             parent.selection = sourceID
             parent.controller.selection = .asset(assetID)
             guard let outlineView,
-                  let item = root?.item(withID: sourceID) else { return }
+                  let item = root.item(withID: sourceID) else { return }
             let row = outlineView.row(forItem: item)
             guard row >= 0 else { return }
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
@@ -255,7 +269,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         func contextMenuForSelectedRow() -> NSMenu? {
             guard let outlineView,
                   outlineView.selectedRow >= 0,
-                  let item = outlineView.item(atRow: outlineView.selectedRow) as? ProjectSourceItem else {
+                  let item = outlineView.item(atRow: outlineView.selectedRow) as? ProjectSourceNode else {
                 return nil
             }
             return contextMenu(for: item.id)
@@ -289,7 +303,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             let urls = fileURLs(from: info)
             guard !urls.isEmpty else { return false }
             let folderID: UUID?
-            if let sourceItem = item as? ProjectSourceItem {
+            if let sourceItem = item as? ProjectSourceNode {
                 switch sourceItem.id {
                 case .folder(let id): folderID = id
                 case .project, .timeline, .clips, .asset: folderID = nil
@@ -307,19 +321,18 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         }
 
         private func captureExpansion(in outlineView: NSOutlineView) {
-            guard let root else { return }
             expandedIDs.removeAll()
             captureExpansion(of: root, in: outlineView)
         }
 
-        private func captureExpansion(of item: ProjectSourceItem, in outlineView: NSOutlineView) {
+        private func captureExpansion(of item: ProjectSourceNode, in outlineView: NSOutlineView) {
             if outlineView.isItemExpanded(item) { expandedIDs.insert(item.id) }
             for child in item.children where child.isExpandable {
                 captureExpansion(of: child, in: outlineView)
             }
         }
 
-        private func restoreExpansion(in outlineView: NSOutlineView, item: ProjectSourceItem) {
+        private func restoreExpansion(in outlineView: NSOutlineView, item: ProjectSourceNode) {
             if expandedIDs.contains(item.id) { outlineView.expandItem(item) }
             for child in item.children where child.isExpandable {
                 restoreExpansion(in: outlineView, item: child)
@@ -328,7 +341,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
 
         private func synchronizeSelection(in outlineView: NSOutlineView) {
             let requested = parent.selection ?? .timeline(parent.controller.project.id)
-            guard let root, let item = root.item(withID: requested) else { return }
+            guard let item = root.item(withID: requested) else { return }
             let row = outlineView.row(forItem: item)
             guard row >= 0, outlineView.selectedRow != row else { return }
             let wasSynchronizing = isSynchronizingSelection
@@ -337,6 +350,90 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             outlineView.scrollRowToVisible(row)
             isSynchronizingSelection = wasSynchronizing
         }
+
+        private func updateVisibleName(for id: ProjectSourceItemID, in outlineView: NSOutlineView) {
+            guard let node = root.item(withID: id) else { return }
+            let row = outlineView.row(forItem: node)
+            guard row >= 0,
+                  let view = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) else { return }
+            if let button = view as? ProjectSourceButton {
+                button.title = node.name
+            } else if let cell = view as? NSTableCellView {
+                cell.textField?.stringValue = node.name
+            }
+        }
+    }
+}
+
+nonisolated struct ProjectSourceNodeChange: Equatable, Sendable {
+    var structureChanged = false
+    var renamedIDs: Set<ProjectSourceItemID> = []
+
+    var hasChanges: Bool {
+        structureChanged || !renamedIDs.isEmpty
+    }
+
+    mutating func merge(_ other: Self) {
+        structureChanged = structureChanged || other.structureChanged
+        renamedIDs.formUnion(other.renamedIDs)
+    }
+}
+
+final class ProjectSourceNode: NSObject {
+    let id: ProjectSourceItemID
+    private(set) var name: String
+    private(set) var children: [ProjectSourceNode]
+
+    var isExpandable: Bool {
+        switch id {
+        case .project, .clips, .folder: true
+        case .timeline, .asset: false
+        }
+    }
+
+    init(item: ProjectSourceItem) {
+        id = item.id
+        name = item.name
+        var childNodes: [ProjectSourceNode] = []
+        for child in item.children {
+            childNodes.append(ProjectSourceNode(item: child))
+        }
+        children = childNodes
+    }
+
+    func item(withID requestedID: ProjectSourceItemID) -> ProjectSourceNode? {
+        if id == requestedID { return self }
+        for child in children {
+            if let match = child.item(withID: requestedID) { return match }
+        }
+        return nil
+    }
+
+    func reconcile(with item: ProjectSourceItem) -> ProjectSourceNodeChange {
+        precondition(id == item.id)
+        var change = ProjectSourceNodeChange()
+        if name != item.name {
+            name = item.name
+            change.renamedIDs.insert(id)
+        }
+
+        let previousIDs = children.map(\.id)
+        let existingChildren = Dictionary(uniqueKeysWithValues: children.map { ($0.id, $0) })
+        var reconciledChildren: [ProjectSourceNode] = []
+        for childItem in item.children {
+            if let existing = existingChildren[childItem.id] {
+                change.merge(existing.reconcile(with: childItem))
+                reconciledChildren.append(existing)
+            } else {
+                reconciledChildren.append(ProjectSourceNode(item: childItem))
+            }
+        }
+        let reconciledIDs = reconciledChildren.map(\.id)
+        if previousIDs != reconciledIDs {
+            change.structureChanged = true
+        }
+        children = reconciledChildren
+        return change
     }
 }
 

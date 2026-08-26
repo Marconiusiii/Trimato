@@ -38,6 +38,57 @@ struct ProjectSourceItemTests {
         #expect(root.children.last?.children.map(\.id) == [.asset(filed.id)])
     }
 
+    @Test func renamingAProjectKeepsTheRootNodeAndDoesNotChangeStructure() {
+        var project = TrimatoProject(name: "Untitled Project")
+        let node = ProjectSourceNode(item: ProjectSourceItem.hierarchy(for: project))
+        let originalNode = node
+
+        project.name = "Documentary"
+        let change = node.reconcile(with: ProjectSourceItem.hierarchy(for: project))
+
+        #expect(node === originalNode)
+        #expect(node.name == "Documentary")
+        #expect(!change.structureChanged)
+        #expect(change.renamedIDs == [.project(project.id)])
+    }
+
+    @Test func unchangedProjectSourceHierarchyProducesNoUpdate() {
+        let project = TrimatoProject(name: "Documentary")
+        let hierarchy = ProjectSourceItem.hierarchy(for: project)
+        let node = ProjectSourceNode(item: hierarchy)
+
+        let change = node.reconcile(with: hierarchy)
+
+        #expect(!change.hasChanges)
+    }
+
+    @Test func importingAClipChangesStructureButKeepsExistingNodeIdentity() {
+        var project = TrimatoProject(name: "Documentary")
+        let node = ProjectSourceNode(item: ProjectSourceItem.hierarchy(for: project))
+        let originalClipsNode = node.item(withID: .clips(project.id))
+        let interview = makeAsset(name: "Interview")
+
+        project.media = [interview]
+        let change = node.reconcile(with: ProjectSourceItem.hierarchy(for: project))
+
+        #expect(change.structureChanged)
+        #expect(node.item(withID: .clips(project.id)) === originalClipsNode)
+        #expect(node.item(withID: .asset(interview.id)) != nil)
+    }
+
+    @Test func reconciledHierarchyStillResolvesSelectionIDs() {
+        let interview = makeAsset(name: "Interview")
+        var project = TrimatoProject(name: "Documentary")
+        project.media = [interview]
+        let node = ProjectSourceNode(item: ProjectSourceItem.hierarchy(for: project))
+
+        project.name = "Renamed Documentary"
+        _ = node.reconcile(with: ProjectSourceItem.hierarchy(for: project))
+
+        #expect(node.item(withID: .timeline(project.id)) != nil)
+        #expect(node.item(withID: .asset(interview.id)) != nil)
+    }
+
     private func makeAsset(name: String) -> MediaAssetRecord {
         MediaAssetRecord(
             name: name,
