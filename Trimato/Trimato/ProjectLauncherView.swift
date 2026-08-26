@@ -11,6 +11,7 @@ struct ProjectLauncherView: View {
     @StateObject private var recentProjects = RecentProjectStore()
     @State private var presentedError: ProjectLauncherError?
     @State private var launcherWindow: NSWindow?
+    @State private var newProjectFocusRequestID = 0
     @AccessibilityFocusState private var newProjectFocused: Bool
 
     var body: some View {
@@ -29,14 +30,18 @@ struct ProjectLauncherView: View {
         .background(ProjectLauncherWindowBridge { launcherWindow = $0 })
         .onAppear {
             recentProjects.refresh()
-            if !navigation.isCreatingProject { newProjectFocused = true }
+            if !navigation.isCreatingProject { requestNewProjectFocus() }
         }
         .onDisappear { navigation.showWelcome() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             recentProjects.refresh()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
             recentProjects.refresh()
+            guard let window = notification.object as? NSWindow,
+                  window === launcherWindow,
+                  !navigation.isCreatingProject else { return }
+            requestNewProjectFocus()
         }
         .onReceive(NotificationCenter.default.publisher(for: .trimatoProjectDidOpen)) { _ in
             closeLauncher()
@@ -110,13 +115,33 @@ struct ProjectLauncherView: View {
     }
 
     private func beginProjectCreation() {
+        newProjectFocusRequestID += 1
         newProjectFocused = false
         navigation.showProjectCreation()
     }
 
     private func cancelProjectCreation() {
         navigation.showWelcome()
-        DispatchQueue.main.async { newProjectFocused = true }
+        requestNewProjectFocus()
+    }
+
+    private func requestNewProjectFocus() {
+        newProjectFocusRequestID += 1
+        let requestID = newProjectFocusRequestID
+        newProjectFocused = false
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            guard requestID == newProjectFocusRequestID,
+                  !navigation.isCreatingProject,
+                  launcherWindow?.isKeyWindow == true else { return }
+            newProjectFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            guard requestID == newProjectFocusRequestID,
+                  !navigation.isCreatingProject,
+                  launcherWindow?.isKeyWindow == true else { return }
+            newProjectFocused = true
+        }
     }
 
     private func createProject(with values: ProjectSettingsValues) {
