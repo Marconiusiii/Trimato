@@ -111,7 +111,9 @@ Fit can scale a lower-resolution source up until one dimension reaches the proje
 
 The project frame rate establishes a fixed output cadence. Frames from higher-rate sources are omitted as needed, and frames from lower-rate sources are repeated as needed. This conversion does not change clip speed or audio duration. Trimato does not currently use optical flow to synthesize intermediate frames, so conversions such as 24 fps to 30 fps can retain visible motion judder.
 
-Custom projects accept even width and height values from 2 through 8,192 pixels and frame rates from 1 through 240 fps. Fractional rates such as 23.976 and 29.97 are supported. The Inspector identifies proportional fitting and frame-rate conversion when a selected source differs from the project.
+Custom projects provide common landscape, vertical, square, and portrait resolution presets, plus standard frame rates from 23.976 through 120 fps. Choose Custom dimensions or Custom frame rate when a preset does not match the intended output. Custom dimensions accept even width and height values from 2 through 8,192 pixels, and custom frame rates accept values from 1 through 240 fps.
+
+When entering custom dimensions, Lock aspect ratio is on initially. Changing either dimension calculates the other from the locked ratio and rounds the calculated value to an even pixel count. Turn the checkbox off to set width and height independently, including unconventional project frames. Turning it back on locks the dimensions at their current ratio. The Inspector identifies proportional fitting and frame-rate conversion when a selected source differs from the project.
 
 ## Supported media
 

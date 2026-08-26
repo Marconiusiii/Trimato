@@ -200,6 +200,49 @@ struct ProjectTimelineOperationsTests {
         #expect(ProjectFormatValidation.message(width: 1_920, height: 1_080, frameRate: 240.1) != nil)
     }
 
+    @Test func projectResolutionChoicesRecognizePresetsAndPreserveUnconventionalFrames() {
+        #expect(ProjectResolutionChoice.selection(width: 1_920, height: 1_080) == .fullHD)
+        #expect(ProjectResolutionChoice.selection(width: 1_080, height: 1_920) == .verticalFullHD)
+        #expect(ProjectResolutionChoice.selection(width: 1_080, height: 1_350) == .portraitFourByFive)
+        #expect(ProjectResolutionChoice.selection(width: 1_234, height: 678) == .custom)
+    }
+
+    @Test func projectFrameRateChoicesRecognizeIntegerAndFractionalStandards() {
+        #expect(ProjectFrameRateChoice.selection(frameRate: 30) == .fps30)
+        #expect(ProjectFrameRateChoice.selection(frameRate: 23.976) == .fps23_976)
+        #expect(ProjectFrameRateChoice.selection(frameRate: 30_000.0 / 1_001.0) == .fps29_97)
+        #expect(ProjectFrameRateChoice.selection(frameRate: 48) == .custom)
+    }
+
+    @Test func aspectRatioLockAdjustsEitherDimensionAndKeepsEncoderSafeValues() {
+        let widescreenRatio = 1_920.0 / 1_080.0
+
+        #expect(ProjectAspectRatioLock.height(forWidth: 1_280, ratio: widescreenRatio) == 720)
+        #expect(ProjectAspectRatioLock.width(forHeight: 720, ratio: widescreenRatio) == 1_280)
+        #expect(ProjectAspectRatioLock.height(forWidth: 1_001, ratio: widescreenRatio)?.isMultiple(of: 2) == true)
+        #expect(ProjectAspectRatioLock.height(forWidth: 1_920, ratio: 0) == nil)
+    }
+
+    @Test func unlockedCustomDimensionsChangeIndependently() {
+        let widthEdit = ProjectAspectRatioLock.dimensions(
+            afterEditingWidth: 1_234,
+            currentHeight: 1_080,
+            ratio: 1_920.0 / 1_080.0,
+            isLocked: false
+        )
+        let heightEdit = ProjectAspectRatioLock.dimensions(
+            afterEditingHeight: 678,
+            currentWidth: widthEdit.width,
+            ratio: 1_920.0 / 1_080.0,
+            isLocked: false
+        )
+
+        #expect(widthEdit.width == 1_234)
+        #expect(widthEdit.height == 1_080)
+        #expect(heightEdit.width == 1_234)
+        #expect(heightEdit.height == 678)
+    }
+
     @Test func projectMediaConformanceExplainsPillarboxingAndFrameRateConversion() {
         var portrait = fixtureAsset(name: "Phone", duration: 5)
         portrait.naturalWidth = 1_080

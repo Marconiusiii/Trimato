@@ -31,8 +31,10 @@
         <dt>Automatic from First Clip</dt>
         <dd>Uses the displayed dimensions and nominal frame rate of the first clip placed on the primary timeline. Importing a file into the Project Browser does not establish the format until that clip is placed on the timeline.</dd>
         <dt>Custom</dt>
-        <dd>Uses the width, height, and frame rate entered in Project Settings. Width and height must be even numbers from 2 through 8,192 pixels. Frame rate must be from 1 through 240 frames per second; fractional rates such as 23.976 and 29.97 are allowed.</dd>
+        <dd>Provides Resolution and Frame Rate menus with common choices. Choose Custom dimensions or Custom frame rate when the project needs values that are not listed.</dd>
     </dl>
+    <p>Custom dimensions must be even numbers from 2 through 8,192 pixels. Lock aspect ratio is on initially: changing Width calculates Height, and changing Height calculates Width. Turn the checkbox off to edit the dimensions independently. Turning it back on locks the current ratio.</p>
+    <p>A custom frame rate must be from 1 through 240 frames per second. Fractional rates are allowed. Standard menu choices include 23.976, 24, 25, 29.97, 30, 50, 59.94, 60, and 120 fps.</p>
     <p>If a populated project is changed to Automatic, Trimato resolves the format from its first primary timeline clip.</p>
 
     <h2>Import clips</h2>
