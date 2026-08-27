@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="description" content="Append, insert, overwrite, blade, move, and delete clips in the Trimato timeline.">
+    <meta name="description" content="Arrange clips on tracks and add, edit, or remove video and audio transitions in Trimato.">
     <title>Build and edit the project timeline</title>
     <link rel="stylesheet" href="trimato-help.css">
 </head>
@@ -61,9 +61,55 @@
     <ol>
         <li>Focus a clip in Timeline clips.</li>
         <li>Press Command-T.</li>
-        <li>Choose Intro, Outro, or both, then choose each type and duration.</li>
+        <li>Choose Intro, Outro, or both, then choose the transition type for each selected side.</li>
+        <li>If the video clip has audio, choose Fade Audio or Crossfade Audio to apply the matching audio transition.</li>
+        <li>Enter the duration in seconds, then activate Add.</li>
     </ol>
-    <p>Video tracks offer fades, cross dissolves, and directional wipes. Audio tracks offer fades and cross fades. A transition appears as its own Timeline clips item. Activate it to edit or delete it.</p>
+    <p>The duration begins at 1.0 seconds and accepts fractional seconds such as 1.25. Trimato checks that the selected clip and any neighboring clip have enough media for the transition.</p>
+
+    <h3>Use Quick Fade</h3>
+    <ol>
+        <li>Move the Editor playhead onto the clip you want to fade.</li>
+        <li>Press F to open Quick Fade.</li>
+        <li>Choose Intro, Outro, or both. In a video context, choose Fade Audio when the clip’s audio should fade too.</li>
+        <li>Enter the duration in seconds, then apply the fade.</li>
+    </ol>
+    <p>After applying or canceling, VoiceOver focus returns to the Editor’s Play or Pause button.</p>
+
+    <h3>Use Quick Cross Dissolve or Quick Cross Fade</h3>
+    <ol>
+        <li>Move the Editor playhead to an edit with an outgoing and incoming clip.</li>
+        <li>Press X. A video track opens Quick Cross Dissolve. An audio track opens Quick Cross Fade.</li>
+        <li>Confirm the displayed outgoing and incoming clip names.</li>
+        <li>In a video context, choose Crossfade Audio when the clips’ audio should cross fade too.</li>
+        <li>Enter the duration in seconds, then apply the transition.</li>
+    </ol>
+    <p>After applying or canceling, VoiceOver focus returns to the Editor’s Play or Pause button.</p>
+
+    <h3>Transition types</h3>
+    <dl>
+        <dt>Fade In</dt>
+        <dd>Gradually changes the selected video from black to the clip.</dd>
+        <dt>Fade Out</dt>
+        <dd>Gradually changes the selected video from the clip to black.</dd>
+        <dt>Audio Fade In</dt>
+        <dd>Gradually raises the clip audio from silence.</dd>
+        <dt>Audio Fade Out</dt>
+        <dd>Gradually lowers the clip audio to silence.</dd>
+        <dt>Cross Dissolve</dt>
+        <dd>Blends the outgoing and incoming video across their shared edit.</dd>
+        <dt>Cross Fade</dt>
+        <dd>Lowers the outgoing audio while raising the incoming audio across their shared edit.</dd>
+        <dt>Wipe Left</dt>
+        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves left.</dd>
+        <dt>Wipe Right</dt>
+        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves right.</dd>
+        <dt>Wipe Up</dt>
+        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves upward.</dd>
+        <dt>Wipe Down</dt>
+        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves downward.</dd>
+    </dl>
+    <p>Wipes affect video only. Audio-only projects offer audio fades and cross fades without video transition choices. Each transition appears as its own Timeline clips item. Activate it to edit or delete the transition without changing the source edit.</p>
 
     <h2>Adjust an audio clip</h2>
     <p>Activate a clip on an audio track to open Clip Editor. The Audio section provides gain, low, mid, and high equalization, high-pass and low-pass filters, and Reset Audio. Activate Update Clip to apply the settings.</p>
