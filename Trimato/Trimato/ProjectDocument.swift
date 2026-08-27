@@ -53,11 +53,12 @@ final class ProjectDocument: ReferenceFileDocument {
             throw CocoaError(.fileReadCorruptFile)
         }
 
-        let decoded = try JSONDecoder().decode(TrimatoProject.self, from: data)
-        guard decoded.schemaVersion <= TrimatoProject.currentSchemaVersion else {
+        if let manifest = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let version = manifest["schemaVersion"] as? Int,
+           version > TrimatoProject.currentSchemaVersion {
             throw CocoaError(.fileReadCorruptFile)
         }
-        return decoded
+        return try JSONDecoder().decode(TrimatoProject.self, from: data)
     }
 
     func snapshot(contentType: UTType) throws -> TrimatoProject {

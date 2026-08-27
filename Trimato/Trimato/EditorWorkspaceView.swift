@@ -86,6 +86,9 @@ struct EditorWorkspaceView: View {
                     cancel: controller.cancelExport
                 )
             }
+            .sheet(item: $controller.transitionRequest) { request in
+                transitionSheet(for: request)
+            }
             .alert(item: $controller.presentedError) { error in
                 Alert(
                     title: Text(error.title),
@@ -145,6 +148,49 @@ struct EditorWorkspaceView: View {
         .frame(minWidth: 1_020, minHeight: 720)
     }
 
+    @ViewBuilder
+    private func transitionSheet(for request: TransitionRequest) -> some View {
+        if request.mode == .standard {
+            AddTransitionView(
+                project: controller.project,
+                request: request,
+                add: { transitions in addTransitions(transitions, quick: false) },
+                cancel: { controller.transitionRequest = nil }
+            )
+        } else {
+            QuickTransitionView(
+                project: controller.project,
+                request: request,
+                add: { transitions in addTransitions(transitions, quick: true) },
+                cancel: dismissQuickTransition
+            )
+        }
+    }
+
+    private func addTransitions(_ transitions: [TimelineTransition], quick: Bool) {
+        do {
+            try controller.addTransitions(transitions, selectAddedTransition: !quick)
+            controller.transitionRequest = nil
+            if quick { restoreEditorFocusAfterSheetDismissal() }
+        } catch {
+            controller.presentedError = ProjectPresentedError(
+                title: "Transition Could Not Be Added",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func dismissQuickTransition() {
+        controller.transitionRequest = nil
+        restoreEditorFocusAfterSheetDismissal()
+    }
+
+    private func restoreEditorFocusAfterSheetDismissal() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            controller.requestEditorFocusRestore()
+        }
+    }
+
     private func requestProjectFocus() {
         hasRequestedInitialProjectFocus = true
         projectFocusRequest += 1
@@ -156,6 +202,7 @@ private struct ProjectViewerView: View {
     @ObservedObject var controller: ProjectController
     @StateObject private var viewModel = ProjectPlayerViewModel()
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
+    @AccessibilityFocusState private var playPauseFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -186,6 +233,14 @@ private struct ProjectViewerView: View {
             viewModel.onBladeAtPlayhead { [weak controller] in
                 controller?.splitClipAtPlayhead()
             }
+            viewModel.onQuickCrossTransition { [weak controller, weak viewModel] in
+                guard let controller, let viewModel else { return }
+                controller.requestQuickTransition(at: viewModel.currentTime, mode: .quickCross)
+            }
+            viewModel.onQuickFade { [weak controller, weak viewModel] in
+                guard let controller, let viewModel else { return }
+                controller.requestQuickTransition(at: viewModel.currentTime, mode: .quickFade)
+            }
             prepare()
         }
         .onChange(of: controller.project) { _ in prepare() }
@@ -195,6 +250,17 @@ private struct ProjectViewerView: View {
         }
         .onChange(of: viewModel.currentTime) { time in
             controller.timelinePlayhead = time
+        }
+        .onChange(of: controller.editorFocusRestoreRequest) { _ in
+            restorePlayPauseFocus()
+        }
+        .alert(item: Binding(
+            get: { viewModel.presentedPreviewFailure },
+            set: { failure in
+                if failure == nil { viewModel.dismissPreviewFailure() }
+            }
+        )) { failure in
+            previewFailureAlert(failure)
         }
     }
 
@@ -206,25 +272,63 @@ private struct ProjectViewerView: View {
         )
     }
 
+    private func restorePlayPauseFocus() {
+        playPauseFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            playPauseFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            playPauseFocused = true
+        }
+    }
+
+    private func previewFailureAlert(_ failure: ProjectPreviewFailure) -> Alert {
+        if let transitionID = failure.transitionID {
+            return Alert(
+                title: Text(failure.title),
+                message: Text(failure.message),
+                primaryButton: .destructive(Text("Remove Transition")) {
+                    viewModel.dismissPreviewFailure()
+                    controller.deleteTransition(id: transitionID)
+                    controller.requestEditorFocusRestore()
+                },
+                secondaryButton: .cancel(Text("Dismiss")) {
+                    viewModel.dismissPreviewFailure()
+                    controller.requestEditorFocusRestore()
+                }
+            )
+        }
+        return Alert(
+            title: Text(failure.title),
+            message: Text(failure.message),
+            primaryButton: .default(Text("Retry")) {
+                viewModel.dismissPreviewFailure()
+                prepare()
+            },
+            secondaryButton: .cancel(Text("Dismiss")) {
+                viewModel.dismissPreviewFailure()
+                controller.requestEditorFocusRestore()
+            }
+        )
+    }
+
     private var videoArea: some View {
         ZStack {
             Color.black
             VideoPlayerView(player: viewModel.player)
                 .accessibilityHidden(true)
-            if controller.project.primaryTimeline.isEmpty {
+            if !controller.project.tracks.contains(where: { !$0.clips.isEmpty }) {
                 Text("Add a clip to the project timeline")
                     .foregroundStyle(.secondary)
             } else if viewModel.isPreparing {
                 ProgressView("Preparing Project Preview")
                     .padding()
                     .accessibilityHidden(true)
-            } else if let errorMessage = viewModel.errorMessage {
+            } else if viewModel.errorMessage != nil {
                 VStack(spacing: 12) {
-                    Text("Project Preview Failed")
+                    Text("Project preview unavailable")
                         .font(.headline)
-                    Text(errorMessage)
-                        .multilineTextAlignment(.center)
-                    Button("Retry Project Preview") { prepare() }
+                    Button("Show Preview Error") { viewModel.showPreviewFailure() }
                 }
                 .padding()
                 .frame(maxWidth: 480)
@@ -377,6 +481,7 @@ private struct ProjectViewerView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
                 .accessibilityIdentifier("trimato.editor.play-pause")
+                .accessibilityFocused($playPauseFocused)
 
                 Button { viewModel.seekForward() } label: {
                     Image(systemName: "goforward.10").font(.title2)

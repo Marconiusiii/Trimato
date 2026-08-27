@@ -33,7 +33,7 @@ struct TrimatoApp: App {
             CommandGroup(after: .pasteboard) {
                 Divider()
                 Button("Delete Selection (Delete)") {
-                    if projectController?.selectedTimelineClip != nil || projectController?.selectedCutaway != nil {
+                    if projectController?.selectedTimelineClip != nil || projectController?.selectedCutaway != nil || projectController?.selectedTransition != nil {
                         projectController?.deleteSelection()
                     } else {
                         viewModel?.deleteSelection()
@@ -42,7 +42,8 @@ struct TrimatoApp: App {
                 .disabled(
                     viewModel?.canDeleteSelection != true &&
                     projectController?.selectedTimelineClip == nil &&
-                    projectController?.selectedCutaway == nil
+                    projectController?.selectedCutaway == nil &&
+                    projectController?.selectedTransition == nil
                 )
                 Button("Trim Start to Playhead") { viewModel?.trimStartToPlayhead() }
                     .keyboardShortcut("[", modifiers: .command)
@@ -136,11 +137,20 @@ struct TrimatoApp: App {
                 Button(PlacementAction.append.title) { clipPlacement?.place(.append) }
                     .keyboardShortcut("e", modifiers: [])
                     .disabled(clipPlacement?.canPlace != true)
+                Button("Append to Track…") { clipPlacement?.requestTrackPlacement(.append) }
+                    .keyboardShortcut("e", modifiers: [.option])
+                    .disabled(clipPlacement?.canPlace != true)
                 Button(PlacementAction.insert.title) { clipPlacement?.place(.insert) }
                     .keyboardShortcut("w", modifiers: [])
                     .disabled(clipPlacement?.canPlace != true)
+                Button("Insert on Track…") { clipPlacement?.requestTrackPlacement(.insert) }
+                    .keyboardShortcut("w", modifiers: [.option])
+                    .disabled(clipPlacement?.canPlace != true)
                 Button(PlacementAction.replaceRemainder.title) { clipPlacement?.place(.replaceRemainder) }
                     .keyboardShortcut("d", modifiers: [])
+                    .disabled(clipPlacement?.canPlace != true)
+                Button("Insert and Overwrite on Track…") { clipPlacement?.requestTrackPlacement(.replaceRemainder) }
+                    .keyboardShortcut("d", modifiers: [.option])
                     .disabled(clipPlacement?.canPlace != true)
                 Divider()
                 Button(PlacementAction.cutawaySourceAudio.title) {
@@ -163,6 +173,16 @@ struct TrimatoApp: App {
             CommandMenu("Timeline") {
                 Button("Blade at Playhead (Command-B)") { projectController?.splitClipAtPlayhead() }
                     .disabled(projectController?.project.primaryTimeline.isEmpty != false)
+                Button("Add Transition…") { projectController?.requestTransitionForSelection() }
+                    .keyboardShortcut("t", modifiers: .command)
+                    .disabled(projectController?.selectedTimelineClip == nil)
+                Divider()
+                Button("Previous Track") { projectController?.selectAdjacentTrack(-1) }
+                    .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                    .disabled(projectController?.project.tracks.isEmpty != false)
+                Button("Next Track") { projectController?.selectAdjacentTrack(1) }
+                    .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                    .disabled(projectController?.project.tracks.isEmpty != false)
                 Divider()
                 Button("Move Clip to Beginning") { projectController?.moveSelectedClipToBeginning() }
                     .disabled(projectController?.selectedTimelineClip == nil)

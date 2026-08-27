@@ -3,11 +3,19 @@ import AppKit
 import Combine
 import Foundation
 
+struct ProjectPreviewFailure: Identifiable, Equatable {
+    let id = UUID()
+    let title: String
+    let message: String
+    let transitionID: UUID?
+}
+
 @MainActor
 final class ProjectPlayerViewModel: ObservableObject {
     let player = AVPlayer()
     @Published private(set) var isPreparing = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var presentedPreviewFailure: ProjectPreviewFailure?
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime = ProjectTime.zero
     @Published private(set) var currentFrame = 0
@@ -52,6 +60,9 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var keyEventMonitor: Any?
     private var keyboardCommandsAreActive: (() -> Bool)?
     private var bladeAtPlayhead: (() -> Void)?
+    private var quickCrossTransition: (() -> Void)?
+    private var quickFade: (() -> Void)?
+    private var currentPreviewFailure: ProjectPreviewFailure?
 
     init() {
         player.automaticallyWaitsToMinimizeStalling = false
@@ -89,6 +100,22 @@ final class ProjectPlayerViewModel: ObservableObject {
         bladeAtPlayhead = handler
     }
 
+    func onQuickCrossTransition(_ handler: @escaping () -> Void) {
+        quickCrossTransition = handler
+    }
+
+    func onQuickFade(_ handler: @escaping () -> Void) {
+        quickFade = handler
+    }
+
+    func dismissPreviewFailure() {
+        presentedPreviewFailure = nil
+    }
+
+    func showPreviewFailure() {
+        presentedPreviewFailure = currentPreviewFailure
+    }
+
     func prepare(
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
@@ -108,14 +135,18 @@ final class ProjectPlayerViewModel: ObservableObject {
         if let outMarker, outMarker > projectDuration { self.outMarker = nil }
         editPoints = Self.editPoints(in: project)
         removeTemporaryMedia()
-        guard !project.primaryTimeline.isEmpty else {
+        guard project.tracks.contains(where: { !$0.clips.isEmpty }) else {
             player.replaceCurrentItem(with: nil)
             isPreparing = false
             errorMessage = nil
+            currentPreviewFailure = nil
+            presentedPreviewFailure = nil
             return
         }
         isPreparing = true
         errorMessage = nil
+        currentPreviewFailure = nil
+        presentedPreviewFailure = nil
         buildTask = Task { @MainActor in
             var pendingTemporaryMediaURLs: [URL] = []
             do {
@@ -147,6 +178,8 @@ final class ProjectPlayerViewModel: ObservableObject {
                 temporaryMediaURLs = pendingTemporaryMediaURLs
                 pendingTemporaryMediaURLs.removeAll()
                 isPreparing = false
+                currentPreviewFailure = nil
+                presentedPreviewFailure = nil
             } catch is CancellationError {
                 Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
                 if self.preparationID == preparationID {
@@ -158,6 +191,22 @@ final class ProjectPlayerViewModel: ObservableObject {
                     player.replaceCurrentItem(with: nil)
                     isPreparing = false
                     errorMessage = error.localizedDescription
+                    let failure: ProjectPreviewFailure
+                    if let transitionError = error as? ProjectTransitionRenderError {
+                        failure = ProjectPreviewFailure(
+                            title: "Project Preview Failed",
+                            message: transitionError.localizedDescription,
+                            transitionID: transitionError.transitionID
+                        )
+                    } else {
+                        failure = ProjectPreviewFailure(
+                            title: "Project Preview Failed",
+                            message: error.localizedDescription,
+                            transitionID: nil
+                        )
+                    }
+                    currentPreviewFailure = failure
+                    presentedPreviewFailure = failure
                 }
             }
         }
@@ -432,6 +481,12 @@ final class ProjectPlayerViewModel: ObservableObject {
             cursor = cursor + clip.duration
             points.insert(cursor)
         }
+        for track in project.tracks {
+            for clip in track.clips {
+                points.insert(clip.timelineStart)
+                points.insert(clip.timelineEnd)
+            }
+        }
         for cutaway in project.cutaways {
             points.insert(cutaway.start)
             points.insert(cutaway.end)
@@ -492,6 +547,8 @@ final class ProjectPlayerViewModel: ObservableObject {
                 guard !event.isARepeat, unmodified else { return event }
                 switch event.charactersIgnoringModifiers?.lowercased() {
                 case "c": self.copyTimecode(); return nil
+                case "x": self.quickCrossTransition?(); return nil
+                case "f": self.quickFade?(); return nil
                 case "i": self.markIn(); return nil
                 case "o": self.markOut(); return nil
                 case "j": self.pressJ(); return nil

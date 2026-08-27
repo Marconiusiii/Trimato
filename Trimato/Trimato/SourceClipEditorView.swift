@@ -11,6 +11,7 @@ struct SourceClipEditorView: View {
     @State private var loadedAssetID: UUID?
     @State private var preparationTask: Task<Void, Never>?
     @State private var cacheOwnerID = UUID()
+    @State private var selectedTrackID: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -18,6 +19,11 @@ struct SourceClipEditorView: View {
                 Text("This media file is offline. Relink it before editing.")
             } else {
                 ContentView(viewModel: viewModel, allowsFileOpening: false)
+
+                if commandContext.audioSettings != nil {
+                    AudioClipControlsView(commandContext: commandContext)
+                        .padding(.horizontal, 10)
+                }
 
                 HStack {
                     if commandContext.isTimelineEntry {
@@ -62,6 +68,37 @@ struct SourceClipEditorView: View {
         .onChange(of: viewModel.placementSourceSegments) { segments in
             guard loadedAssetID == asset.id else { return }
             commandContext.setSegments(segments)
+        }
+        .sheet(item: $commandContext.trackPlacementAction) { action in
+            VStack(alignment: .leading, spacing: 16) {
+                Text(action.title)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Picker("Track", selection: $selectedTrackID) {
+                    ForEach(compatibleTracks) { track in
+                        Text(track.name).tag(Optional(track.id))
+                    }
+                }
+                HStack {
+                    Button("New Audio Track") { createAndPlace(kind: .audio, action: action) }
+                        .disabled(!asset.hasAudio)
+                    Button("New Video Track") { createAndPlace(kind: .video, action: action) }
+                        .disabled(!asset.hasVideo)
+                }
+                HStack {
+                    Button("Cancel", role: .cancel) { commandContext.trackPlacementAction = nil }
+                    Button("Place") {
+                        guard let selectedTrackID else { return }
+                        controller.place(action, editing: editSelection, segments: commandContext.segments, onTrack: selectedTrackID)
+                        commandContext.trackPlacementAction = nil
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(selectedTrackID == nil)
+                }
+            }
+            .padding(20)
+            .frame(width: 420)
+            .onAppear { selectedTrackID = compatibleTracks.first?.id }
         }
         .onDisappear {
             preparationTask?.cancel()
@@ -112,5 +149,62 @@ struct SourceClipEditorView: View {
 
     private func place(_ placement: PlacementAction) {
         commandContext.place(placement)
+    }
+
+    private var compatibleTracks: [TimelineTrack] {
+        controller.project.tracks.filter { track in
+            (track.kind == .video && asset.hasVideo) || (track.kind == .audio && asset.hasAudio)
+        }
+    }
+
+    private func createAndPlace(kind: TimelineTrackKind, action: PlacementAction) {
+        controller.addTrack(kind: kind, name: nil)
+        guard let trackID = controller.activeTimelineTrackID else { return }
+        controller.place(action, editing: editSelection, segments: commandContext.segments, onTrack: trackID)
+        commandContext.trackPlacementAction = nil
+    }
+}
+
+private struct AudioClipControlsView: View {
+    @ObservedObject var commandContext: ClipPlacementCommandContext
+
+    var body: some View {
+        GroupBox("Audio") {
+            VStack(alignment: .leading, spacing: 10) {
+                valueField("Gain", value: binding(\.gainDecibels), suffix: "dB")
+                valueField("Low EQ", value: binding(\.lowGainDecibels), suffix: "dB")
+                valueField("Mid EQ", value: binding(\.midGainDecibels), suffix: "dB")
+                valueField("High EQ", value: binding(\.highGainDecibels), suffix: "dB")
+                Toggle("High-pass filter", isOn: binding(\.highPassEnabled))
+                if commandContext.audioSettings?.highPassEnabled == true {
+                    valueField("High-pass frequency", value: binding(\.highPassFrequency), suffix: "Hz")
+                }
+                Toggle("Low-pass filter", isOn: binding(\.lowPassEnabled))
+                if commandContext.audioSettings?.lowPassEnabled == true {
+                    valueField("Low-pass frequency", value: binding(\.lowPassFrequency), suffix: "Hz")
+                }
+                Button("Reset Audio") { commandContext.resetAudioSettings() }
+                    .disabled(commandContext.audioSettings?.isNeutral != false)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func binding<T>(_ keyPath: WritableKeyPath<AudioClipSettings, T>) -> Binding<T> {
+        Binding(
+            get: { commandContext.audioSettings?[keyPath: keyPath] ?? AudioClipSettings.neutral[keyPath: keyPath] },
+            set: { value in
+                var settings = commandContext.audioSettings ?? .neutral
+                settings[keyPath: keyPath] = value
+                commandContext.audioSettings = settings
+            }
+        )
+    }
+
+    private func valueField(_ label: String, value: Binding<Double>, suffix: String) -> some View {
+        HStack {
+            TextField(label, value: value, format: .number.precision(.fractionLength(0...1)))
+            Text(suffix).foregroundStyle(.secondary)
+        }
     }
 }

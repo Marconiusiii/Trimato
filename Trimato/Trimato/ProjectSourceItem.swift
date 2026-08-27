@@ -57,7 +57,7 @@ nonisolated struct ProjectSourceItem: Identifiable, Equatable, Sendable {
     static func sourceID(for selection: EditorSelection, projectID: UUID) -> ProjectSourceItemID {
         switch selection {
         case .asset(let id): .asset(id)
-        case .project, .timelineClip, .cutaway: .timeline(projectID)
+        case .project, .timelineClip, .cutaway, .transition, .track: .timeline(projectID)
         }
     }
 }

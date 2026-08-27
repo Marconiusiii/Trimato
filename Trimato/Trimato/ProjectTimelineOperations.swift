@@ -10,6 +10,9 @@ enum ProjectTimelineError: LocalizedError, Equatable {
     case invalidName
     case duplicateName
     case audioOnlyCutaway
+    case trackNotFound
+    case protectedPrimaryTrack
+    case transitionNotAvailable(String)
 
     var errorDescription: String? {
         switch self {
@@ -22,11 +25,324 @@ enum ProjectTimelineError: LocalizedError, Equatable {
         case .invalidName: "Enter a name for the timeline clip."
         case .duplicateName: "Choose a name that is not already used in the timeline."
         case .audioOnlyCutaway: "Insert on Top requires a clip with video. Add this audio clip to the primary timeline instead."
+        case .trackNotFound: "The selected track is no longer available."
+        case .protectedPrimaryTrack: "The primary track cannot be deleted."
+        case .transitionNotAvailable(let message): message
         }
     }
 }
 
 extension TrimatoProject {
+    mutating func ensureTrackModel() {
+        guard tracks.isEmpty else { return }
+        tracks = Self.migratedTracks(
+            primaryTimeline: &primaryTimeline,
+            cutaways: cutaways,
+            media: media
+        )
+    }
+
+    @discardableResult
+    mutating func createTrack(kind: TimelineTrackKind, name requestedName: String? = nil) -> UUID {
+        ensureTrackModel()
+        let base = requestedName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = kind == .video ? "Video" : "Audio"
+        let existing = tracks.filter { $0.kind == kind }.count
+        let name = (base?.isEmpty == false ? base! : "\(prefix) \(existing + 1)")
+        let track = TimelineTrack(name: name, kind: kind)
+        tracks.append(track)
+        return track.id
+    }
+
+    mutating func renameTrack(id: UUID, to requestedName: String) throws {
+        guard let index = tracks.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.trackNotFound
+        }
+        let name = requestedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw ProjectTimelineError.invalidName }
+        guard !tracks.contains(where: {
+            $0.id != id && $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }) else { throw ProjectTimelineError.duplicateName }
+        tracks[index].name = name
+    }
+
+    mutating func moveTrack(id: UUID, by offset: Int) throws {
+        guard let source = tracks.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.trackNotFound
+        }
+        let destination = min(max(source + offset, 0), tracks.count - 1)
+        guard source != destination else { return }
+        let track = tracks.remove(at: source)
+        tracks.insert(track, at: destination)
+    }
+
+    mutating func removeTrack(id: UUID) throws {
+        guard let index = tracks.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.trackNotFound
+        }
+        guard tracks[index].role == .additional else {
+            throw ProjectTimelineError.protectedPrimaryTrack
+        }
+        let clipIDs = Set(tracks[index].clips.map(\.id))
+        transitions.removeAll {
+            $0.trackID == id ||
+                $0.leadingClipID.map(clipIDs.contains) == true ||
+                $0.trailingClipID.map(clipIDs.contains) == true
+        }
+        tracks.remove(at: index)
+    }
+
+    @discardableResult
+    mutating func append(
+        asset: MediaAssetRecord,
+        segments: [SourceSegment]? = nil,
+        toTrack trackID: UUID
+    ) throws -> UUID {
+        ensureTrackModel()
+        guard let index = tracks.firstIndex(where: { $0.id == trackID }) else {
+            throw ProjectTimelineError.trackNotFound
+        }
+        var clip = try makeTimelineClip(asset: asset, segments: segments)
+        clip.timelineStart = tracks[index].end
+        if tracks[index].kind == .audio, asset.hasVideo { clip.name = "\(clip.displayName) Audio" }
+        tracks[index].clips.append(clip)
+        resolveAutomaticFormat(from: asset)
+        return clip.id
+    }
+
+    @discardableResult
+    mutating func insert(
+        asset: MediaAssetRecord,
+        segments: [SourceSegment]? = nil,
+        at playhead: ProjectTime,
+        onTrack trackID: UUID
+    ) throws -> UUID {
+        ensureTrackModel()
+        guard let trackIndex = tracks.firstIndex(where: { $0.id == trackID }) else {
+            throw ProjectTimelineError.trackNotFound
+        }
+        guard playhead >= .zero, playhead <= duration else { throw ProjectTimelineError.invalidPlayhead }
+        var incoming = try makeTimelineClip(asset: asset, segments: segments)
+        incoming.timelineStart = playhead
+        if tracks[trackIndex].kind == .audio, asset.hasVideo { incoming.name = "\(incoming.displayName) Audio" }
+        if let containingIndex = tracks[trackIndex].clips.firstIndex(where: {
+            playhead > $0.timelineStart && playhead < $0.timelineEnd
+        }) {
+            let original = tracks[trackIndex].clips[containingIndex]
+            let halves = try split(original, at: playhead - original.timelineStart)
+            var left = halves.0
+            var right = halves.1
+            left.timelineStart = original.timelineStart
+            right.timelineStart = playhead + incoming.duration
+            tracks[trackIndex].clips.replaceSubrange(containingIndex...containingIndex, with: [left, incoming, right])
+            for index in tracks[trackIndex].clips.indices where
+                index > containingIndex + 2 && tracks[trackIndex].clips[index].timelineStart >= original.timelineEnd {
+                tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart + incoming.duration
+            }
+            resolveAutomaticFormat(from: asset)
+            return incoming.id
+        }
+        let shift = incoming.duration
+        for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= playhead {
+            tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart + shift
+        }
+        tracks[trackIndex].clips.append(incoming)
+        tracks[trackIndex].clips.sort { $0.timelineStart < $1.timelineStart }
+        shiftTransitions(onTrack: trackID, atOrAfter: playhead, by: shift)
+        resolveAutomaticFormat(from: asset)
+        return incoming.id
+    }
+
+    @discardableResult
+    mutating func replaceRemainder(
+        with asset: MediaAssetRecord,
+        segments: [SourceSegment]? = nil,
+        at playhead: ProjectTime,
+        onTrack trackID: UUID
+    ) throws -> UUID {
+        ensureTrackModel()
+        guard let trackIndex = tracks.firstIndex(where: { $0.id == trackID }) else {
+            throw ProjectTimelineError.trackNotFound
+        }
+        guard playhead >= .zero, playhead <= duration else { throw ProjectTimelineError.invalidPlayhead }
+        var incoming = try makeTimelineClip(asset: asset, segments: segments)
+        incoming.timelineStart = playhead
+        if tracks[trackIndex].kind == .audio, asset.hasVideo { incoming.name = "\(incoming.displayName) Audio" }
+        if let containingIndex = tracks[trackIndex].clips.firstIndex(where: {
+            playhead >= $0.timelineStart && playhead < $0.timelineEnd
+        }) {
+            let original = tracks[trackIndex].clips[containingIndex]
+            let remainder = original.timelineEnd - playhead
+            var replacement: [TimelineClip] = [incoming]
+            if playhead > original.timelineStart {
+                var left = try split(original, at: playhead - original.timelineStart).0
+                left.timelineStart = original.timelineStart
+                replacement.insert(left, at: 0)
+            }
+            tracks[trackIndex].clips.replaceSubrange(containingIndex...containingIndex, with: replacement)
+            let difference = incoming.duration - remainder
+            for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= original.timelineEnd {
+                tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart + difference
+            }
+        } else {
+            _ = try insert(asset: asset, segments: segments, at: playhead, onTrack: trackID)
+        }
+        resolveAutomaticFormat(from: asset)
+        return incoming.id
+    }
+
+    mutating func updateAudioSettings(clipID: UUID, settings: AudioClipSettings) throws {
+        for trackIndex in tracks.indices where tracks[trackIndex].kind == .audio {
+            if let clipIndex = tracks[trackIndex].clips.firstIndex(where: { $0.id == clipID }) {
+                tracks[trackIndex].clips[clipIndex].audioSettings = settings
+                return
+            }
+        }
+        throw ProjectTimelineError.clipNotFound
+    }
+
+    mutating func updateTrackClip(id: UUID, segments: [SourceSegment]) throws {
+        if primaryTimeline.contains(where: { $0.id == id }) {
+            try updateTimelineClip(id: id, segments: segments)
+            return
+        }
+        let selected = segments.filter { $0.duration.isPositive }
+        guard !selected.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
+        guard let trackIndex = tracks.firstIndex(where: { track in track.clips.contains { $0.id == id } }),
+              let clipIndex = tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        let oldEnd = tracks[trackIndex].clips[clipIndex].timelineEnd
+        let difference = selected.reduce(.zero) { $0 + $1.duration } - tracks[trackIndex].clips[clipIndex].duration
+        tracks[trackIndex].clips[clipIndex].segments = selected
+        for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= oldEnd {
+            tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart + difference
+        }
+    }
+
+    mutating func renameTrackClip(id: UUID, to requestedName: String) throws {
+        if primaryTimeline.contains(where: { $0.id == id }) {
+            try renameTimelineClip(id: id, to: requestedName)
+            return
+        }
+        let name = requestedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw ProjectTimelineError.invalidName }
+        guard let trackIndex = tracks.firstIndex(where: { track in track.clips.contains { $0.id == id } }),
+              let clipIndex = tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        guard !tracks.flatMap(\.clips).contains(where: {
+            $0.id != id && $0.displayName.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }) else { throw ProjectTimelineError.duplicateName }
+        tracks[trackIndex].clips[clipIndex].customName = name
+        if let linkedID = tracks[trackIndex].clips[clipIndex].linkedClipID,
+           let linkedTrack = tracks.firstIndex(where: { track in track.clips.contains { $0.id == linkedID } }),
+           let linkedClip = tracks[linkedTrack].clips.firstIndex(where: { $0.id == linkedID }) {
+            tracks[linkedTrack].clips[linkedClip].customName = tracks[linkedTrack].kind == .audio ? "\(name) Audio" : name
+        }
+    }
+
+    mutating func removeTrackClip(id: UUID) throws {
+        if primaryTimeline.contains(where: { $0.id == id }) {
+            try removeClip(id: id)
+            return
+        }
+        guard let trackIndex = tracks.firstIndex(where: { track in track.clips.contains { $0.id == id } }),
+              let clipIndex = tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        let removed = tracks[trackIndex].clips.remove(at: clipIndex)
+        for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= removed.timelineEnd {
+            tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart - removed.duration
+        }
+        transitions.removeAll { $0.leadingClipID == id || $0.trailingClipID == id }
+    }
+
+    mutating func moveTrackClip(id: UUID, to destination: Int) throws {
+        if primaryTimeline.contains(where: { $0.id == id }) {
+            try moveClip(id: id, to: destination)
+            return
+        }
+        guard let trackIndex = tracks.firstIndex(where: { track in track.clips.contains { $0.id == id } }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        var ordered = tracks[trackIndex].sortedClips
+        guard let source = ordered.firstIndex(where: { $0.id == id }) else { throw ProjectTimelineError.clipNotFound }
+        let clip = ordered.remove(at: source)
+        ordered.insert(clip, at: min(max(destination, 0), ordered.count))
+        var cursor = ProjectTime.zero
+        for index in ordered.indices {
+            ordered[index].timelineStart = cursor
+            cursor = cursor + ordered[index].duration
+        }
+        tracks[trackIndex].clips = ordered
+        transitions.removeAll { transition in
+            guard transition.trackID == tracks[trackIndex].id, transition.edge == .between else { return false }
+            guard let leading = transition.leadingClipID, let trailing = transition.trailingClipID,
+                  let leadingIndex = ordered.firstIndex(where: { $0.id == leading }),
+                  let trailingIndex = ordered.firstIndex(where: { $0.id == trailing }) else { return true }
+            return trailingIndex != leadingIndex + 1
+        }
+    }
+
+    mutating func addTransition(_ transition: TimelineTransition) throws {
+        ensureTrackModel()
+        guard let track = track(id: transition.trackID) else { throw ProjectTimelineError.trackNotFound }
+        guard transition.duration.isPositive else {
+            throw ProjectTimelineError.transitionNotAvailable("Enter a transition duration greater than zero.")
+        }
+        guard !transitions.contains(where: {
+            $0.trackID == transition.trackID &&
+                $0.leadingClipID == transition.leadingClipID &&
+                $0.trailingClipID == transition.trailingClipID
+        }) else {
+            throw ProjectTimelineError.transitionNotAvailable("A transition already exists at this edit.")
+        }
+        try validateTransition(transition, on: track)
+        transitions.append(transition)
+    }
+
+    mutating func updateTransition(_ transition: TimelineTransition) throws {
+        guard let index = transitions.firstIndex(where: { $0.id == transition.id }),
+              let track = track(id: transition.trackID) else {
+            throw ProjectTimelineError.transitionNotAvailable("The selected transition is no longer available.")
+        }
+        try validateTransition(transition, on: track)
+        transitions[index] = transition
+    }
+
+    mutating func removeTransition(id: UUID) {
+        transitions.removeAll { $0.id == id }
+    }
+
+    private func validateTransition(_ transition: TimelineTransition, on track: TimelineTrack) throws {
+        let leading = transition.leadingClipID.flatMap { id in track.clips.first { $0.id == id } }
+        let trailing = transition.trailingClipID.flatMap { id in track.clips.first { $0.id == id } }
+        if transition.edge == .between {
+            guard let leading, let trailing, leading.timelineEnd == trailing.timelineStart else {
+                throw ProjectTimelineError.transitionNotAvailable("Cross transitions require two clips that meet at the same edit.")
+            }
+            let half = ProjectTime(seconds: transition.duration.seconds / 2)
+            guard sourceHandleAfter(leading) >= half, sourceHandleBefore(trailing) >= half else {
+                throw ProjectTimelineError.transitionNotAvailable("The adjoining clips do not have enough unused source media for that duration.")
+            }
+        } else {
+            guard let clip = leading ?? trailing, transition.duration < clip.duration else {
+                throw ProjectTimelineError.transitionNotAvailable("The transition must be shorter than the clip.")
+            }
+        }
+    }
+
+    private func sourceHandleBefore(_ clip: TimelineClip) -> ProjectTime {
+        clip.segments.first?.sourceRange.start ?? .zero
+    }
+
+    private func sourceHandleAfter(_ clip: TimelineClip) -> ProjectTime {
+        guard let asset = asset(id: clip.assetID), let last = clip.segments.last else { return .zero }
+        return max(asset.duration - last.sourceRange.end, .zero)
+    }
+
+    private mutating func shiftTransitions(onTrack trackID: UUID, atOrAfter time: ProjectTime, by amount: ProjectTime) {}
     mutating func applyProjectFormat(_ requestedFormat: ProjectFormat) {
         guard requestedFormat.mode == .automatic else {
             format = requestedFormat
@@ -47,6 +363,7 @@ extension TrimatoProject {
         let clip = labelForInsertion(try makeTimelineClip(asset: asset, segments: segments))
         primaryTimeline.append(clip)
         resolveAutomaticFormat(from: asset)
+        synchronizeLegacyTimelineToTracks()
         return clip.id
     }
 
@@ -69,6 +386,7 @@ extension TrimatoProject {
             primaryTimeline.append(incoming)
         }
         resolveAutomaticFormat(from: asset)
+        synchronizeLegacyTimelineToTracks()
         return incoming.id
     }
 
@@ -82,6 +400,7 @@ extension TrimatoProject {
             incoming = labelForInsertion(incoming)
             primaryTimeline.append(incoming)
             resolveAutomaticFormat(from: asset)
+            synchronizeLegacyTimelineToTracks()
             return incoming.id
         }
 
@@ -94,6 +413,7 @@ extension TrimatoProject {
                 incoming = labelForInsertion(incoming)
                 primaryTimeline.insert(incoming, at: destination.index)
                 resolveAutomaticFormat(from: asset)
+                synchronizeLegacyTimelineToTracks()
                 return incoming.id
             }
             primaryTimeline[destination.index] = incoming
@@ -110,6 +430,7 @@ extension TrimatoProject {
             primaryTimeline.insert(incoming, at: destination.index + 1)
         }
         resolveAutomaticFormat(from: asset)
+        synchronizeLegacyTimelineToTracks()
         return incoming.id
     }
 
@@ -141,6 +462,7 @@ extension TrimatoProject {
         cutaways.append(cutaway)
         cutaways.sort { $0.start < $1.start }
         resolveAutomaticFormat(from: asset)
+        synchronizeLegacyTimelineToTracks()
         return cutaway.id
     }
 
@@ -152,6 +474,7 @@ extension TrimatoProject {
         let offset = playhead - start
         let halves = try labeledSplit(at: index, offset: offset)
         primaryTimeline.replaceSubrange(index...index, with: [halves.0, halves.1])
+        synchronizeLegacyTimelineToTracks()
         return halves.1.id
     }
 
@@ -162,9 +485,11 @@ extension TrimatoProject {
             throw ProjectTimelineError.clipNotFound
         }
         primaryTimeline[index].segments = selected
-        guard cutaways.allSatisfy({ $0.end <= duration }) else {
+        let updatedPrimaryDuration = primaryTimeline.reduce(.zero) { $0 + $1.duration }
+        guard cutaways.allSatisfy({ $0.end <= updatedPrimaryDuration }) else {
             throw ProjectTimelineError.cutawayDoesNotFit
         }
+        synchronizeLegacyTimelineToTracks()
     }
 
     mutating func updateCutaway(id: UUID, segments: [SourceSegment]) throws {
@@ -179,6 +504,7 @@ extension TrimatoProject {
             other.id != id && cutaways[index].start < other.end && other.start < updatedEnd
         }) else { throw ProjectTimelineError.cutawayOverlap }
         cutaways[index].segments = selected
+        synchronizeLegacyTimelineToTracks()
     }
 
     mutating func renameTimelineClip(id: UUID, to customName: String) throws {
@@ -191,6 +517,7 @@ extension TrimatoProject {
             throw ProjectTimelineError.duplicateName
         }
         primaryTimeline[index].customName = cleanName
+        synchronizeLegacyTimelineToTracks()
     }
 
     mutating func renameCutaway(id: UUID, to customName: String) throws {
@@ -203,6 +530,7 @@ extension TrimatoProject {
             throw ProjectTimelineError.duplicateName
         }
         cutaways[index].customName = cleanName
+        synchronizeLegacyTimelineToTracks()
     }
 
     mutating func removeClip(id: UUID) throws {
@@ -210,6 +538,7 @@ extension TrimatoProject {
             throw ProjectTimelineError.clipNotFound
         }
         primaryTimeline.remove(at: index)
+        synchronizeLegacyTimelineToTracks()
     }
 
     mutating func moveClip(id: UUID, to destination: Int) throws {
@@ -219,6 +548,76 @@ extension TrimatoProject {
         let clip = primaryTimeline.remove(at: source)
         let bounded = min(max(destination, 0), primaryTimeline.count)
         primaryTimeline.insert(clip, at: bounded)
+        synchronizeLegacyTimelineToTracks()
+    }
+
+    mutating func synchronizeLegacyTimelineToTracks() {
+        let existingVideo = tracks.first { $0.role == .primaryVideo }
+        let existingAudio = tracks.first { $0.role == .primaryAudio }
+        var videoClips: [TimelineClip] = []
+        var audioClips: [TimelineClip] = []
+        var cursor = ProjectTime.zero
+
+        for legacy in primaryTimeline {
+            guard let source = asset(id: legacy.assetID) else { continue }
+            if source.hasVideo {
+                var video = existingVideo?.clips.first(where: { $0.id == legacy.id }) ?? legacy
+                video.segments = legacy.segments
+                video.timelineStart = cursor
+                video.customName = legacy.customName
+                video.labelOrdinal = legacy.labelOrdinal
+                if source.hasAudio {
+                    var audio: TimelineClip
+                    if let linkedID = video.linkedClipID,
+                       let current = existingAudio?.clips.first(where: { $0.id == linkedID }) {
+                        audio = current
+                    } else {
+                        audio = TimelineClip(
+                            assetID: legacy.assetID,
+                            name: "\(legacy.displayName) Audio",
+                            segments: legacy.segments,
+                            timelineStart: cursor,
+                            linkedClipID: video.id
+                        )
+                    }
+                    audio.segments = legacy.segments
+                    audio.timelineStart = cursor
+                    audio.name = "\(legacy.displayName) Audio"
+                    audio.linkedClipID = video.id
+                    video.linkedClipID = audio.id
+                    audioClips.append(audio)
+                }
+                videoClips.append(video)
+            } else if source.hasAudio {
+                var audio = existingAudio?.clips.first(where: { $0.id == legacy.id }) ?? legacy
+                audio.timelineStart = cursor
+                audio.segments = legacy.segments
+                audioClips.append(audio)
+            }
+            cursor = cursor + legacy.duration
+        }
+
+        let additional = tracks.filter { $0.role == .additional }
+        var rebuilt: [TimelineTrack] = []
+        if !videoClips.isEmpty {
+            rebuilt.append(TimelineTrack(
+                id: existingVideo?.id ?? UUID(),
+                name: existingVideo?.name ?? "Primary Video",
+                kind: .video,
+                role: .primaryVideo,
+                clips: videoClips
+            ))
+        }
+        if !audioClips.isEmpty {
+            rebuilt.append(TimelineTrack(
+                id: existingAudio?.id ?? UUID(),
+                name: existingAudio?.name ?? "Primary Audio",
+                kind: .audio,
+                role: .primaryAudio,
+                clips: audioClips
+            ))
+        }
+        tracks = rebuilt + additional
     }
 
     private mutating func labelForInsertion(_ clip: TimelineClip) -> TimelineClip {

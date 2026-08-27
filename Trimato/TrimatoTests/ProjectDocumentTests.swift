@@ -93,6 +93,9 @@ struct ProjectDocumentTests {
         #expect(decoded.primaryTimeline.first?.labelOrdinal == nil)
         #expect(decoded.primaryTimeline.first?.customName == nil)
         #expect(decoded.primaryTimeline.first?.displayName == "Interview")
+        #expect(decoded.schemaVersion == 2)
+        #expect(decoded.tracks.first(where: { $0.role == .primaryVideo })?.clips.count == 1)
+        #expect(decoded.tracks.first(where: { $0.role == .primaryAudio })?.clips.first?.displayName == "Interview Audio")
     }
 
     @Test func customTimelineNamesPersistInTheProjectManifest() throws {

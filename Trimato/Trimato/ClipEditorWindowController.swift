@@ -10,7 +10,10 @@ final class ClipPlacementCommandContext: ObservableObject {
     @Published private(set) var focusRequest = 0
     @Published private(set) var isKeyWindow = false
     @Published var updateErrorMessage: String?
+    @Published var trackPlacementAction: PlacementAction?
     private var draft: ClipEditorDraft
+    private let baselineAudioSettings: AudioClipSettings?
+    @Published var audioSettings: AudioClipSettings?
 
     init(
         controller: ProjectController,
@@ -21,6 +24,15 @@ final class ClipPlacementCommandContext: ObservableObject {
         self.editSelection = editSelection
         self.segments = segments
         draft = ClipEditorDraft(segments: segments)
+        if case .timelineClip(let id) = editSelection,
+           controller.project.tracks.contains(where: { $0.kind == .audio && $0.clips.contains { $0.id == id } }) {
+            let settings = controller.project.timelineClip(id: id)?.audioSettings ?? .neutral
+            baselineAudioSettings = settings
+            audioSettings = settings
+        } else {
+            baselineAudioSettings = nil
+            audioSettings = nil
+        }
     }
 
     var canPlace: Bool {
@@ -30,12 +42,12 @@ final class ClipPlacementCommandContext: ObservableObject {
     var isTimelineEntry: Bool {
         switch editSelection {
         case .timelineClip, .cutaway: true
-        case .asset, .project: false
+        case .asset, .transition, .track, .project: false
         }
     }
 
     var hasUncommittedChanges: Bool {
-        isTimelineEntry && draft.hasChanges
+        isTimelineEntry && (draft.hasChanges || audioSettings != baselineAudioSettings)
     }
 
     var canUpdate: Bool {
@@ -60,6 +72,11 @@ final class ClipPlacementCommandContext: ObservableObject {
         controller.place(placement, editing: editSelection, segments: segments)
     }
 
+    func requestTrackPlacement(_ placement: PlacementAction) {
+        guard canPlace else { return }
+        trackPlacementAction = placement
+    }
+
     @discardableResult
     func performUpdate() -> Bool {
         guard isTimelineEntry else { return false }
@@ -69,6 +86,9 @@ final class ClipPlacementCommandContext: ObservableObject {
         }
         do {
             try controller.updateTimelineEntry(editSelection, segments: segments)
+            if case .timelineClip(let id) = editSelection, let audioSettings {
+                try controller.updateAudioSettings(clipID: id, settings: audioSettings)
+            }
             objectWillChange.send()
             draft.commit()
             return true
@@ -76,6 +96,10 @@ final class ClipPlacementCommandContext: ObservableObject {
             updateErrorMessage = error.localizedDescription
             return false
         }
+    }
+
+    func resetAudioSettings() {
+        audioSettings = .neutral
     }
 
     func requestAccessibilityFocus() {

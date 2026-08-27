@@ -3,10 +3,17 @@ import SwiftUI
 struct ProjectTimelineView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var renameSelection: EditorSelection?
+
+    @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
     @State private var renamedClipName = ""
-    @State private var renameError: String?
+    @State private var isRenamingClip = false
+    @State private var isRenamingTrack = false
+    @State private var trackName = ""
+    @State private var isAddingTrack = false
+    @State private var newTrackName = ""
+    @State private var newTrackKind = TimelineTrackKind.audio
+    @State private var editingTransition: TimelineTransition?
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,281 +24,309 @@ struct ProjectTimelineView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(EditorTheme.controlSurface)
-
             Divider()
-
-            if controller.project.primaryTimeline.isEmpty {
-                Text("No clips in the project timeline")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding()
-            } else {
-                ScrollView(.horizontal) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .top, spacing: 2) {
-                            ForEach(Array(controller.project.primaryTimeline.enumerated()), id: \.element.id) { index, clip in
-                                timelineClipButton(clip, index: index)
-                            }
-                        }
-
-                        if !controller.project.cutaways.isEmpty {
-                            ZStack(alignment: .leading) {
-                                ForEach(controller.project.cutaways) { cutaway in
-                                    cutawayButton(cutaway)
-                                        .offset(x: xPosition(for: cutaway.start))
-                                }
-                            }
-                            .frame(width: timelineWidth, alignment: .leading)
-                            .frame(minHeight: cutawayMinimumHeight, alignment: .leading)
-                        }
+            HStack {
+                Picker("Track", selection: activeTrackBinding) {
+                    ForEach(controller.project.tracks) { track in
+                        Text(track.name).tag(Optional(track.id))
                     }
-                    .padding(8)
                 }
-                .accessibilityRepresentation {
-                    timelineAccessibilityContent
+                .disabled(controller.project.tracks.isEmpty)
+                Menu("Track Actions") {
+                    Button("Add Track…") { beginAddTrack() }
+                    Button("Rename Track…") { beginRenameTrack() }
+                        .disabled(controller.activeTimelineTrack == nil)
+                    Divider()
+                    Button("Move Track Up") { controller.moveActiveTrack(by: -1) }
+                        .disabled(controller.activeTimelineTrack == nil)
+                    Button("Move Track Down") { controller.moveActiveTrack(by: 1) }
+                        .disabled(controller.activeTimelineTrack == nil)
+                    Button("Delete Track", role: .destructive) { controller.deleteActiveTrack() }
+                        .disabled(controller.activeTimelineTrack?.role != .additional)
                 }
             }
-
+            .padding(8)
             Divider()
-
+            timelineContent
+            Divider()
             HStack {
-                Menu("Selected Clip Actions") { selectedClipActions }
-                    .disabled(!hasSelectedClip)
+                Menu("Selected Element Actions") { selectedElementActions }
+                    .disabled(!hasSelectedElement)
                 Spacer()
             }
             .padding(8)
             .background(.bar)
         }
-        .sheet(isPresented: Binding(
-            get: { renameSelection != nil },
-            set: { presented in
-                if !presented { cancelRename() }
-            }
+        .onAppear { reconcileActiveTrack() }
+        .onChange(of: controller.project.tracks.map(\.id)) { _ in reconcileActiveTrack() }
+        .onChange(of: focusedElement) { element in
+            guard let element else { return }
+            controller.focusTimelineElement(element)
+        }
+        .sheet(isPresented: $isRenamingClip) { renameClipSheet }
+        .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
+        .sheet(isPresented: $isAddingTrack) { addTrackSheet }
+        .sheet(item: $editingTransition) { transition in
+            TransitionEditorView(
+                transition: transition,
+                update: { updated in
+                    do {
+                        try controller.updateTransition(updated)
+                        editingTransition = nil
+                    } catch { errorMessage = error.localizedDescription }
+                },
+                delete: {
+                    controller.deleteTransition(id: transition.id)
+                    editingTransition = nil
+                },
+                cancel: { editingTransition = nil }
+            )
+        }
+        .alert("Timeline Change Failed", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
         )) {
-            renameClipSheet
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "The timeline could not be updated.")
         }
     }
 
-    private var hasSelectedClip: Bool {
-        controller.selectedTimelineClip != nil || controller.selectedCutaway != nil
-    }
-
-    private var timelineAccessibilityContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(controller.project.primaryTimeline.enumerated()), id: \.element.id) { index, clip in
-                timelineClipButton(clip, index: index)
+    @ViewBuilder
+    private var timelineContent: some View {
+        if controller.project.tracks.isEmpty {
+            emptyMessage("No clips in the project timeline")
+        } else if timelineElements.isEmpty {
+            emptyMessage("No clips on this track")
+        } else {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 2) {
+                    ForEach(timelineElements) { element in
+                        switch element.content {
+                        case .clip(let clip): clipButton(clip)
+                        case .transition(let transition): transitionButton(transition)
+                        }
+                    }
+                }
+                .padding(8)
             }
-            ForEach(controller.project.cutaways) { cutaway in
-                cutawayButton(cutaway)
-            }
+            .accessibilityLabel("Timeline clips")
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Timeline clips")
     }
 
-    private var minimumClipWidth: CGFloat {
-        dynamicTypeSize.isAccessibilitySize ? 220 : 140
+    private func emptyMessage(_ message: String) -> some View {
+        Text(message)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding()
     }
 
-    private var maximumClipWidth: CGFloat {
-        dynamicTypeSize.isAccessibilitySize ? 520 : 420
-    }
-
-    private var cutawayMinimumHeight: CGFloat {
-        dynamicTypeSize.isAccessibilitySize ? 72 : 48
-    }
-
-    private var timelineWidth: CGFloat {
-        controller.project.primaryTimeline.reduce(0) { $0 + clipWidth(for: $1.duration) } +
-            CGFloat(max(controller.project.primaryTimeline.count - 1, 0)) * 2
-    }
-
-    private func clipWidth(for duration: ProjectTime) -> CGFloat {
-        min(max(CGFloat(duration.seconds * 18), minimumClipWidth), maximumClipWidth)
-    }
-
-    private func xPosition(for time: ProjectTime) -> CGFloat {
-        var elapsed = ProjectTime.zero
-        var position: CGFloat = 0
-        for clip in controller.project.primaryTimeline {
-            let end = elapsed + clip.duration
-            let width = clipWidth(for: clip.duration)
-            if time <= end, clip.duration.isPositive {
-                let fraction = min(max((time - elapsed).seconds / clip.duration.seconds, 0), 1)
-                return position + width * CGFloat(fraction)
-            }
-            elapsed = end
-            position += width + 2
+    private var timelineElements: [TimelineListElement] {
+        guard let track = controller.activeTimelineTrack else { return [] }
+        var result = track.sortedClips.map {
+            TimelineListElement(content: .clip($0), time: $0.timelineStart, order: 1)
         }
-        return position
+        for transition in controller.project.transitions where transition.trackID == track.id {
+            let position: ProjectTime
+            if let trailingID = transition.trailingClipID,
+               let trailing = track.clips.first(where: { $0.id == trailingID }) {
+                position = trailing.timelineStart
+            } else if let leadingID = transition.leadingClipID,
+                      let leading = track.clips.first(where: { $0.id == leadingID }) {
+                position = transition.edge == .outro ? leading.timelineEnd : leading.timelineStart
+            } else {
+                position = .zero
+            }
+            let order = transition.edge == .intro ? 0 : 2
+            result.append(TimelineListElement(content: .transition(transition), time: position, order: order))
+        }
+        return result.sorted {
+            if $0.time == $1.time { return $0.order < $1.order }
+            return $0.time < $1.time
+        }
     }
 
-    private func cutawayWidth(_ cutaway: TimelineCutaway) -> CGFloat {
-        max(xPosition(for: cutaway.end) - xPosition(for: cutaway.start), minimumClipWidth)
+    private var activeTrackBinding: Binding<UUID?> {
+        Binding(
+            get: { controller.activeTimelineTrackID ?? controller.project.tracks.first?.id },
+            set: { controller.activeTimelineTrackID = $0 }
+        )
     }
 
-    private func timelineClipButton(_ clip: TimelineClip, index: Int) -> some View {
-        let selection = EditorSelection.timelineClip(clip.id)
-        return Button {
-            select(selection)
-            openClipEditor(selection)
+    private func clipButton(_ clip: TimelineClip) -> some View {
+        Button {
+            controller.selection = .timelineClip(clip.id)
+            openClipEditor(.timelineClip(clip.id))
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(clip.displayName)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                Text(clip.displayName).lineLimit(2)
                 Text(ProjectTimecodeFormatter.string(clip.duration))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: 180, alignment: .leading)
             .padding(8)
         }
         .buttonStyle(.plain)
-        .frame(width: clipWidth(for: clip.duration), alignment: .topLeading)
         .frame(minHeight: 56, alignment: .topLeading)
-        .background(clipBackground(for: selection), in: RoundedRectangle(cornerRadius: 6))
+        .background(selectionBackground(.timelineClip(clip.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.separator))
-        .accessibilityLabel("\(clip.displayName), clip \(index + 1) of \(controller.project.primaryTimeline.count)")
-        .contextMenu { primaryClipActions(clip, index: index) }
+        .accessibilityLabel(clip.displayName)
+        .accessibilityFocused($focusedElement, equals: .clip(clip.id))
+        .contextMenu { clipActions(clip) }
     }
 
-    private func cutawayButton(_ cutaway: TimelineCutaway) -> some View {
-        let selection = EditorSelection.cutaway(cutaway.id)
-        return Button {
-            select(selection)
-            openClipEditor(selection)
+    private func transitionButton(_ transition: TimelineTransition) -> some View {
+        Button {
+            controller.selection = .transition(transition.id)
+            editingTransition = transition
         } label: {
-            Text(cutaway.displayName)
+            Text(transition.displayName)
                 .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: 150, alignment: .leading)
                 .padding(8)
         }
         .buttonStyle(.plain)
-        .frame(width: cutawayWidth(cutaway), alignment: .leading)
-        .frame(minHeight: cutawayMinimumHeight, alignment: .leading)
-        .background(clipBackground(for: selection), in: RoundedRectangle(cornerRadius: 6))
+        .frame(minHeight: 56, alignment: .topLeading)
+        .background(selectionBackground(.transition(transition.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.accent.opacity(0.75)))
-        .accessibilityLabel("\(cutaway.displayName), cutaway")
-        .accessibilityValue(cutaway.audioMode == .sourceAudio
-            ? "Uses source audio"
-            : "Uses primary audio")
-        .contextMenu { cutawayActions(cutaway) }
-    }
-
-    private func clipBackground(for selection: EditorSelection) -> Color {
-        controller.selection == selection
-            ? EditorTheme.accent.opacity(0.28)
-            : EditorTheme.raisedSurface
-    }
-
-    @ViewBuilder
-    private var selectedClipActions: some View {
-        if let clip = controller.selectedTimelineClip,
-           let index = controller.project.primaryTimeline.firstIndex(where: { $0.id == clip.id }) {
-            primaryClipActions(clip, index: index)
-        } else if let cutaway = controller.selectedCutaway {
-            cutawayActions(cutaway)
+        .accessibilityLabel(transition.displayName)
+        .accessibilityFocused($focusedElement, equals: .transition(transition.id))
+        .contextMenu {
+            Button("Edit Transition…") { editingTransition = transition }
+            Button("Delete Transition", role: .destructive) {
+                controller.deleteTransition(id: transition.id)
+            }
         }
+    }
+
+    private func selectionBackground(_ selection: EditorSelection) -> Color {
+        controller.selection == selection ? EditorTheme.accent.opacity(0.28) : EditorTheme.raisedSurface
+    }
+
+    private var hasSelectedElement: Bool {
+        controller.selectedTimelineClip != nil || controller.selectedTransition != nil
     }
 
     @ViewBuilder
-    private func primaryClipActions(_ clip: TimelineClip, index: Int) -> some View {
-        Button("Open Clip Editor") {
-            select(.timelineClip(clip.id))
-            openClipEditor(.timelineClip(clip.id))
-        }
-        Button("Rename Clip\u{2026}") {
-            beginRename(.timelineClip(clip.id), currentName: clip.displayName)
-        }
-        if index > 0 {
-            Button("Move to Beginning") {
-                select(.timelineClip(clip.id))
-                controller.moveSelectedClipToBeginning()
-            }
-            Button("Move Earlier") {
-                select(.timelineClip(clip.id))
-                controller.moveSelectedClip(by: -1)
+    private var selectedElementActions: some View {
+        if let clip = controller.selectedTimelineClip {
+            clipActions(clip)
+        } else if let transition = controller.selectedTransition {
+            Button("Edit Transition…") { editingTransition = transition }
+            Button("Delete Transition", role: .destructive) {
+                controller.deleteTransition(id: transition.id)
             }
         }
-        if index < controller.project.primaryTimeline.count - 1 {
-            Button("Move Later") {
-                select(.timelineClip(clip.id))
-                controller.moveSelectedClip(by: 1)
-            }
-            Button("Move to End") {
-                select(.timelineClip(clip.id))
-                controller.moveSelectedClipToEnd()
-            }
+    }
+
+    @ViewBuilder
+    private func clipActions(_ clip: TimelineClip) -> some View {
+        Button("Open Clip Editor") { openClipEditor(.timelineClip(clip.id)) }
+        Button("Rename Clip…") {
+            controller.selection = .timelineClip(clip.id)
+            renamedClipName = clip.displayName
+            isRenamingClip = true
         }
         Divider()
         Button("Delete from Timeline", role: .destructive) {
-            select(.timelineClip(clip.id))
+            controller.selection = .timelineClip(clip.id)
             controller.deleteSelection()
         }
-    }
-
-    @ViewBuilder
-    private func cutawayActions(_ cutaway: TimelineCutaway) -> some View {
-        Button("Open Clip Editor") {
-            select(.cutaway(cutaway.id))
-            openClipEditor(.cutaway(cutaway.id))
-        }
-        Button("Rename Clip\u{2026}") {
-            beginRename(.cutaway(cutaway.id), currentName: cutaway.displayName)
-        }
-        Divider()
-        Button("Delete from Timeline", role: .destructive) {
-            select(.cutaway(cutaway.id))
-            controller.deleteSelection()
-        }
-    }
-
-    private func select(_ selection: EditorSelection) {
-        controller.selection = selection
     }
 
     private var renameClipSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename Timeline Clip")
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
+            Text("Rename Timeline Clip").font(.headline).accessibilityAddTraits(.isHeader)
             TextField("Clip Name", text: $renamedClipName)
-            if let renameError {
-                Text(renameError)
-                    .foregroundStyle(.red)
-            }
             HStack {
-                Button("Cancel", role: .cancel) { cancelRename() }
-                Button("Rename") { completeRename() }
-                    .keyboardShortcut(.defaultAction)
+                Button("Cancel", role: .cancel) { isRenamingClip = false }
+                Button("Rename") {
+                    do {
+                        try controller.renameTimelineEntry(controller.selection, to: renamedClipName)
+                        isRenamingClip = false
+                    } catch { errorMessage = error.localizedDescription }
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
         .frame(width: 380)
     }
 
-    private func beginRename(_ selection: EditorSelection, currentName: String) {
-        renameSelection = selection
-        renamedClipName = currentName
-        renameError = nil
-    }
-
-    private func completeRename() {
-        guard let renameSelection else { return }
-        do {
-            try controller.renameTimelineEntry(renameSelection, to: renamedClipName)
-            cancelRename()
-        } catch {
-            renameError = error.localizedDescription
+    private var renameTrackSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Rename Track").font(.headline).accessibilityAddTraits(.isHeader)
+            TextField("Track Name", text: $trackName)
+            HStack {
+                Button("Cancel", role: .cancel) { isRenamingTrack = false }
+                Button("Rename") {
+                    do {
+                        try controller.renameActiveTrack(to: trackName)
+                        isRenamingTrack = false
+                    } catch { errorMessage = error.localizedDescription }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
         }
+        .padding(20)
+        .frame(width: 380)
     }
 
-    private func cancelRename() {
-        renameSelection = nil
-        renamedClipName = ""
-        renameError = nil
+    private var addTrackSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Add Track").font(.headline).accessibilityAddTraits(.isHeader)
+            Picker("Track Type", selection: $newTrackKind) {
+                ForEach(TimelineTrackKind.allCases) { kind in Text(kind.title).tag(kind) }
+            }
+            TextField("Track Name", text: $newTrackName)
+            HStack {
+                Button("Cancel", role: .cancel) { isAddingTrack = false }
+                Button("Add Track") {
+                    controller.addTrack(kind: newTrackKind, name: newTrackName)
+                    isAddingTrack = false
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+    }
+
+    private func reconcileActiveTrack() {
+        if let id = controller.activeTimelineTrackID,
+           controller.project.tracks.contains(where: { $0.id == id }) { return }
+        controller.activeTimelineTrackID = controller.project.tracks.first?.id
+    }
+
+    private func beginRenameTrack() {
+        guard let track = controller.activeTimelineTrack else { return }
+        trackName = track.name
+        isRenamingTrack = true
+    }
+
+    private func beginAddTrack() {
+        newTrackName = ""
+        newTrackKind = .audio
+        isAddingTrack = true
+    }
+}
+
+private struct TimelineListElement: Identifiable {
+    enum Content {
+        case clip(TimelineClip)
+        case transition(TimelineTransition)
+    }
+
+    let content: Content
+    let time: ProjectTime
+    let order: Int
+
+    var id: String {
+        switch content {
+        case .clip(let clip): "clip-\(clip.id.uuidString)"
+        case .transition(let transition): "transition-\(transition.id.uuidString)"
+        }
     }
 }
 

@@ -70,13 +70,11 @@ struct ProjectPlaybackTests {
         ) == nil)
     }
 
-    @Test @MainActor func nonemptyProjectCanExportBeforePreviewIsPrepared() {
+    @Test @MainActor func nonemptyProjectCanExportBeforePreviewIsPrepared() throws {
         let asset = fixtureAsset(name: "Interview", duration: 10)
         var project = TrimatoProject(name: "Immediate Export")
         project.media = [asset]
-        project.primaryTimeline = [
-            TimelineClip(assetID: asset.id, name: asset.name, segments: asset.sourceEdit)
-        ]
+        _ = try project.append(asset: asset)
 
         let controller = ProjectController(document: ProjectDocument(project: project))
 
@@ -211,6 +209,46 @@ struct ProjectPlaybackTests {
         #expect(controller.project.primaryTimeline == project.primaryTimeline)
     }
 
+    @Test @MainActor func quickTransitionRequestKeepsTheEditorSelectionContext() throws {
+        let first = fixtureAsset(name: "Interview", duration: 5)
+        let second = fixtureAsset(name: "Closing", duration: 5)
+        var project = TrimatoProject(name: "Quick transition")
+        project.media = [first, second]
+        _ = try project.append(asset: first)
+        _ = try project.append(asset: second)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.selection = .project
+
+        controller.requestQuickTransition(at: ProjectTime(seconds: 5), mode: .quickCross)
+
+        #expect(controller.selection == .project)
+        #expect(controller.transitionRequest?.mode == .quickCross)
+        #expect(controller.transitionRequest?.clipID == controller.project.tracks.first?.sortedClips.first?.id)
+    }
+
+    @Test @MainActor func quickTransitionAdditionDoesNotSelectTheTimelineTransition() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 5)
+        var project = TrimatoProject(name: "Quick fade")
+        project.media = [asset]
+        let clipID = try project.append(asset: asset)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let trackID = try #require(controller.project.tracks.first { $0.kind == .video }?.id)
+        let fade = TimelineTransition(
+            trackID: trackID,
+            edge: .outro,
+            kind: .video(.fade),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: clipID,
+            trailingClipID: nil
+        )
+        controller.selection = .project
+
+        try controller.addTransitions([fade], selectAddedTransition: false)
+
+        #expect(controller.selection == .project)
+        #expect(controller.project.transition(id: fade.id) == fade)
+    }
+
     @Test @MainActor func nonemptyProjectPreviewPreservesTheRequestedTimelineTime() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -245,6 +283,77 @@ struct ProjectPlaybackTests {
         #expect(viewModel.errorMessage == nil)
         #expect(viewModel.player.currentItem != nil)
         #expect(abs(viewModel.player.currentTime().seconds - requestedTime.seconds) < 0.01)
+    }
+
+    @Test @MainActor func crossDissolvePreviewRendersSourcesWithDifferentFrameRates() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let leadingURL = directory.appendingPathComponent("leading.mov")
+        let trailingURL = directory.appendingPathComponent("trailing.mov")
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "color=c=red:size=320x180:rate=24",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+            "-t", "2", "-c:v", "mpeg4", "-c:a", "aac", leadingURL.path,
+        ])
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "color=c=blue:size=640x360:rate=30",
+            "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000",
+            "-t", "2", "-c:v", "mpeg4", "-c:a", "aac", trailingURL.path,
+        ])
+
+        var leadingAsset = fixtureAsset(name: "Leading", duration: 2)
+        leadingAsset.originalPath = leadingURL.path
+        leadingAsset.frameRate = 24
+        var trailingAsset = fixtureAsset(name: "Trailing", duration: 2)
+        trailingAsset.originalPath = trailingURL.path
+        trailingAsset.frameRate = 30
+        var project = TrimatoProject(name: "Cross dissolve")
+        project.format = ProjectFormat(mode: .custom, width: 640, height: 360, frameRate: 30)
+        project.media = [leadingAsset, trailingAsset]
+        let editedSegment = [SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 0.5),
+            duration: ProjectTime(seconds: 1)
+        ))]
+        let leadingID = try project.append(asset: leadingAsset, segments: editedSegment)
+        let trailingID = try project.append(asset: trailingAsset, segments: editedSegment)
+        let videoTrack = try #require(project.tracks.first { $0.kind == .video })
+        let leadingVideo = try #require(videoTrack.clips.first { $0.id == leadingID })
+        let trailingVideo = try #require(videoTrack.clips.first { $0.id == trailingID })
+        let audioTrack = try #require(project.tracks.first { $0.kind == .audio })
+        let leadingAudioID = try #require(leadingVideo.linkedClipID)
+        let trailingAudioID = try #require(trailingVideo.linkedClipID)
+        let duration = ProjectTime(seconds: 0.5)
+        try project.addTransition(TimelineTransition(
+            trackID: videoTrack.id,
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: duration,
+            leadingClipID: leadingVideo.id,
+            trailingClipID: trailingVideo.id
+        ))
+        try project.addTransition(TimelineTransition(
+            trackID: audioTrack.id,
+            edge: .between,
+            kind: .audio(.crossFade),
+            duration: duration,
+            leadingClipID: leadingAudioID,
+            trailingClipID: trailingAudioID
+        ))
+
+        let result = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: [leadingAsset.id: leadingURL, trailingAsset.id: trailingURL],
+            purpose: .preview
+        )
+        defer { result.temporaryMediaURLs.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        #expect(result.videoComposition != nil)
+        #expect(!result.temporaryMediaURLs.isEmpty)
     }
 
     @Test @MainActor func emptyProjectSupersedesEarlierPreviewPreparation() async throws {

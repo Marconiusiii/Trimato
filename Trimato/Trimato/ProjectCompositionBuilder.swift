@@ -36,6 +36,31 @@ enum ProjectCompositionError: LocalizedError {
     }
 }
 
+struct ProjectTransitionRenderError: LocalizedError {
+    let transitionID: UUID
+    let transitionName: String
+    let diagnostics: String?
+
+    var errorDescription: String? {
+        var message = "Trimato could not prepare the \(transitionName) transition. Remove the transition to restore project playback."
+        if let diagnostics, !diagnostics.isEmpty {
+            message += " \(diagnostics)"
+        }
+        return message
+    }
+
+    static func diagnosticSummary(for error: Error) -> String? {
+        guard let commandError = error as? FFmpegCommandError else { return nil }
+        let ignored = ["Conversion failed!", "Unknown error"]
+        return commandError.diagnostics
+            .split(whereSeparator: \Character.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .last { line in
+                !line.isEmpty && !ignored.contains(line) && !line.hasPrefix("frame=")
+            }
+    }
+}
+
 enum ProjectCompositionBuilder {
     nonisolated static func mediaSelection(
         for record: MediaAssetRecord,
@@ -51,12 +76,14 @@ enum ProjectCompositionBuilder {
         mediaURLs: [UUID: URL],
         purpose: ProjectCompositionPurpose = .preview
     ) async throws -> ProjectCompositionResult {
-        guard !project.primaryTimeline.isEmpty else { throw ProjectCompositionError.emptyTimeline }
+        guard project.tracks.contains(where: { !$0.clips.isEmpty }) else { throw ProjectCompositionError.emptyTimeline }
         let composition = AVMutableComposition()
         var primaryVideo: AVMutableCompositionTrack?
         var primaryAudio: AVMutableCompositionTrack?
         var cutawayVideo: AVMutableCompositionTrack?
         var cutawayAudio: AVMutableCompositionTrack?
+        var additionalVideoTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)])] = []
+        var additionalAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
 
         let renderSize: CGSize? = {
             guard let width = project.format.width, let height = project.format.height,
@@ -87,6 +114,27 @@ enum ProjectCompositionBuilder {
             )
             let video = try await asset.loadTracks(withMediaType: .video).first
             let audio = try await asset.loadTracks(withMediaType: .audio).first
+            let primaryAudioClip = project.tracks.first(where: { $0.role == .primaryAudio })?.clips.first(where: {
+                $0.id == clip.id || $0.linkedClipID == clip.id
+            })
+            var processedAudio: AVAssetTrack?
+            if let primaryAudioClip, !primaryAudioClip.audioSettings.isNeutral,
+               let sourceURL = mediaURLs[clip.assetID] {
+                let renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
+                    sourceURL: sourceURL,
+                    segments: clip.segments,
+                    settings: primaryAudioClip.audioSettings
+                )
+                temporaryMediaURLs.append(renderedURL)
+                processedAudio = try await AVURLAsset(url: renderedURL).loadTracks(withMediaType: .audio).first
+                if primaryAudio == nil {
+                    primaryAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+                }
+                if let processedAudio, let primaryAudio {
+                    let range = try await processedAudio.load(.timeRange)
+                    try primaryAudio.insertTimeRange(range, of: processedAudio, at: cursor.cmTime)
+                }
+            }
             guard video != nil || audio != nil else {
                 throw ProjectCompositionError.missingMedia(assetRecord.name)
             }
@@ -109,7 +157,7 @@ enum ProjectCompositionBuilder {
                 if let video, let primaryVideo {
                     try primaryVideo.insertTimeRange(range, of: video, at: cursor.cmTime)
                 }
-                if let audio {
+                if let audio, processedAudio == nil {
                     let available = try await audio.load(.timeRange)
                     let portion = CMTimeRangeGetIntersection(range, otherRange: available)
                     if portion.isValid, !portion.isEmpty {
@@ -194,8 +242,133 @@ enum ProjectCompositionBuilder {
             }
         }
 
+        for timelineTrack in project.tracks where timelineTrack.role == .additional {
+            if timelineTrack.kind == .video {
+                guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
+                guard let compositionTrack = composition.addMutableTrack(
+                    withMediaType: .video,
+                    preferredTrackID: kCMPersistentTrackID_Invalid
+                ) else { throw ProjectCompositionError.cannotCreateTrack }
+                var transforms: [(ProjectTimeRange, CGAffineTransform)] = []
+                for clip in timelineTrack.sortedClips {
+                    if project.cutaways.contains(where: { $0.id == clip.id }) { continue }
+                    let record = try requireAsset(clip.assetID, in: project)
+                    let asset = try await preparedAsset(
+                        record, urls: mediaURLs, purpose: purpose, cache: &assets,
+                        temporaryMediaURLs: &temporaryMediaURLs
+                    )
+                    guard let source = try await asset.loadTracks(withMediaType: .video).first else {
+                        throw ProjectCompositionError.missingVideo(record.name)
+                    }
+                    let transform = try await displayTransform(for: source, renderSize: renderSize)
+                    var destination = clip.timelineStart
+                    for segment in clip.segments {
+                        try compositionTrack.insertTimeRange(segment.sourceRange.cmTimeRange, of: source, at: destination.cmTime)
+                        transforms.append((ProjectTimeRange(start: destination, duration: segment.duration), transform))
+                        destination = destination + segment.duration
+                    }
+                }
+                additionalVideoTracks.append((compositionTrack, transforms))
+            } else {
+                guard let compositionTrack = composition.addMutableTrack(
+                    withMediaType: .audio,
+                    preferredTrackID: kCMPersistentTrackID_Invalid
+                ) else { throw ProjectCompositionError.cannotCreateTrack }
+                for clip in timelineTrack.sortedClips {
+                    if project.cutaways.contains(where: {
+                        $0.audioMode == .sourceAudio && $0.assetID == clip.assetID &&
+                            $0.start == clip.timelineStart && $0.segments == clip.segments
+                    }) { continue }
+                    let record = try requireAsset(clip.assetID, in: project)
+                    let asset = try await preparedAsset(
+                        record, urls: mediaURLs, purpose: purpose, cache: &assets,
+                        temporaryMediaURLs: &temporaryMediaURLs
+                    )
+                    var source = try await asset.loadTracks(withMediaType: .audio).first
+                    var usesRenderedAudio = false
+                    if !clip.audioSettings.isNeutral, let sourceURL = mediaURLs[clip.assetID] {
+                        let renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
+                            sourceURL: sourceURL,
+                            segments: clip.segments,
+                            settings: clip.audioSettings
+                        )
+                        temporaryMediaURLs.append(renderedURL)
+                        source = try await AVURLAsset(url: renderedURL).loadTracks(withMediaType: .audio).first
+                        usesRenderedAudio = true
+                    }
+                    guard let source else { continue }
+                    var destination = clip.timelineStart
+                    if usesRenderedAudio {
+                        let range = try await source.load(.timeRange)
+                        try compositionTrack.insertTimeRange(range, of: source, at: destination.cmTime)
+                        continue
+                    }
+                    for segment in clip.segments {
+                        let available = try await source.load(.timeRange)
+                        let portion = CMTimeRangeGetIntersection(segment.sourceRange.cmTimeRange, otherRange: available)
+                        if portion.isValid, !portion.isEmpty {
+                            let offset = CMTimeSubtract(portion.start, segment.sourceRange.start.cmTime)
+                            try compositionTrack.insertTimeRange(portion, of: source, at: CMTimeAdd(destination.cmTime, offset))
+                        }
+                        destination = destination + segment.duration
+                    }
+                }
+                additionalAudioTracks.append((compositionTrack, timelineTrack))
+            }
+        }
+
+        if let renderSize, let width = project.format.width, let height = project.format.height {
+            for transition in project.transitions {
+                guard transition.edge == .between,
+                      case .video(let type) = transition.kind,
+                      type != .fade,
+                      let track = project.track(id: transition.trackID),
+                      let leadingID = transition.leadingClipID,
+                      let trailingID = transition.trailingClipID,
+                      let leading = track.clips.first(where: { $0.id == leadingID }),
+                      let trailing = track.clips.first(where: { $0.id == trailingID }),
+                      let leadingURL = mediaURLs[leading.assetID],
+                      let trailingURL = mediaURLs[trailing.assetID] else { continue }
+                let renderedURL: URL
+                do {
+                    renderedURL = try await FFmpegTimelineEffectRenderer.renderVideoTransition(
+                        leadingURL: leadingURL,
+                        trailingURL: trailingURL,
+                        leadingClip: leading,
+                        trailingClip: trailing,
+                        type: type,
+                        duration: transition.duration,
+                        width: width,
+                        height: height,
+                        frameRate: max(project.format.frameRate ?? 30, 1)
+                    )
+                } catch {
+                    throw ProjectTransitionRenderError(
+                        transitionID: transition.id,
+                        transitionName: transition.displayName,
+                        diagnostics: ProjectTransitionRenderError.diagnosticSummary(for: error)
+                    )
+                }
+                temporaryMediaURLs.append(renderedURL)
+                let renderedAsset = AVURLAsset(url: renderedURL)
+                guard let source = try await renderedAsset.loadTracks(withMediaType: .video).first,
+                      let transitionTrack = composition.addMutableTrack(
+                        withMediaType: .video,
+                        preferredTrackID: kCMPersistentTrackID_Invalid
+                      ) else { throw ProjectCompositionError.cannotCreateTrack }
+                let sourceRange = try await source.load(.timeRange)
+                let start = max(trailing.timelineStart - ProjectTime(seconds: transition.duration.seconds / 2), .zero)
+                try transitionTrack.insertTimeRange(sourceRange, of: source, at: start.cmTime)
+                additionalVideoTracks.append((transitionTrack, [(
+                    ProjectTimeRange(start: start, duration: transition.duration),
+                    CGAffineTransform.identity
+                )]))
+                _ = renderSize
+            }
+        }
+
         let videoComposition: AVMutableVideoComposition?
-        if primaryVideo != nil || cutawayVideo != nil {
+        if primaryVideo != nil || cutawayVideo != nil || !additionalVideoTracks.isEmpty {
             guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
             let composition = AVMutableVideoComposition()
             composition.renderSize = renderSize
@@ -209,7 +382,10 @@ enum ProjectCompositionBuilder {
                 primaryTransforms: primaryTransforms,
                 cutawayTrack: cutawayVideo,
                 cutawayTransforms: cutawayTransforms,
-                cutaways: project.cutaways
+                cutaways: project.cutaways,
+                additionalTracks: additionalVideoTracks,
+                transitions: project.transitions,
+                primaryTimelineTrack: project.tracks.first(where: { $0.role == .primaryVideo })
             )
             videoComposition = composition
         } else {
@@ -218,7 +394,7 @@ enum ProjectCompositionBuilder {
 
         let sourceAudioCutaways = project.cutaways.filter { $0.audioMode == .sourceAudio }
         let audioMix: AVMutableAudioMix?
-        if sourceAudioCutaways.isEmpty || (primaryAudio == nil && cutawayAudio == nil) {
+        if primaryAudio == nil && cutawayAudio == nil && additionalAudioTracks.isEmpty {
             audioMix = nil
         } else {
             var parameters: [AVMutableAudioMixInputParameters] = []
@@ -228,6 +404,16 @@ enum ProjectCompositionBuilder {
                 for cutaway in sourceAudioCutaways {
                     primaryParameters.setVolume(0, at: cutaway.start.cmTime)
                     primaryParameters.setVolume(1, at: cutaway.end.cmTime)
+                }
+                if let primaryTrack = project.tracks.first(where: { $0.role == .primaryAudio }) {
+                    for clip in primaryTrack.clips {
+                        applyAudioTransitions(
+                            project.transitions.filter { $0.trackID == primaryTrack.id },
+                            clip: clip,
+                            volume: 1,
+                            parameters: primaryParameters
+                        )
+                    }
                 }
                 parameters.append(primaryParameters)
             }
@@ -239,6 +425,22 @@ enum ProjectCompositionBuilder {
                     cutawayParameters.setVolume(0, at: cutaway.end.cmTime)
                 }
                 parameters.append(cutawayParameters)
+            }
+            for item in additionalAudioTracks {
+                let input = AVMutableAudioMixInputParameters(track: item.track)
+                input.setVolume(0, at: .zero)
+                for clip in item.source.sortedClips {
+                    let volume: Float = 1
+                    input.setVolume(volume, at: clip.timelineStart.cmTime)
+                    input.setVolume(0, at: clip.timelineEnd.cmTime)
+                    applyAudioTransitions(
+                        project.transitions.filter { $0.trackID == item.source.id },
+                        clip: clip,
+                        volume: volume,
+                        parameters: input
+                    )
+                }
+                parameters.append(input)
             }
             let mix = AVMutableAudioMix()
             mix.inputParameters = parameters
@@ -342,11 +544,29 @@ enum ProjectCompositionBuilder {
         primaryTransforms: [(ProjectTimeRange, CGAffineTransform)],
         cutawayTrack: AVCompositionTrack?,
         cutawayTransforms: [(ProjectTimeRange, CGAffineTransform)],
-        cutaways: [TimelineCutaway]
+        cutaways: [TimelineCutaway],
+        additionalTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)])],
+        transitions: [TimelineTransition],
+        primaryTimelineTrack: TimelineTrack?
     ) -> [AVVideoCompositionInstructionProtocol] {
         var boundaries = [ProjectTime.zero, duration]
         boundaries.append(contentsOf: primaryTransforms.flatMap { [$0.0.start, $0.0.end] })
         boundaries.append(contentsOf: cutaways.flatMap { [$0.start, $0.end] })
+        boundaries.append(contentsOf: additionalTracks.flatMap { $0.transforms.flatMap { [$0.0.start, $0.0.end] } })
+        if let primaryTimelineTrack {
+            for transition in transitions where transition.trackID == primaryTimelineTrack.id {
+                guard case .video(.fade) = transition.kind else { continue }
+                if transition.edge == .intro,
+                   let id = transition.trailingClipID,
+                   let clip = primaryTimelineTrack.clips.first(where: { $0.id == id }) {
+                    boundaries.append(contentsOf: [clip.timelineStart, clip.timelineStart + transition.duration])
+                } else if transition.edge == .outro,
+                          let id = transition.leadingClipID,
+                          let clip = primaryTimelineTrack.clips.first(where: { $0.id == id }) {
+                    boundaries.append(contentsOf: [clip.timelineEnd - transition.duration, clip.timelineEnd])
+                }
+            }
+        }
         boundaries = Array(Set(boundaries)).sorted()
 
         return zip(boundaries, boundaries.dropFirst()).compactMap { start, end in
@@ -361,16 +581,76 @@ enum ProjectCompositionBuilder {
             if let primaryLayer,
                let transform = primaryTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
                 primaryLayer.setTransform(transform, at: start.cmTime)
+                if let primaryTimelineTrack {
+                    for transition in transitions where transition.trackID == primaryTimelineTrack.id {
+                        guard case .video(.fade) = transition.kind else { continue }
+                        if transition.edge == .intro,
+                           let id = transition.trailingClipID,
+                           let clip = primaryTimelineTrack.clips.first(where: { $0.id == id }),
+                           start == clip.timelineStart {
+                            primaryLayer.setOpacityRamp(
+                                fromStartOpacity: 0,
+                                toEndOpacity: 1,
+                                timeRange: ProjectTimeRange(start: start, duration: transition.duration).cmTimeRange
+                            )
+                        } else if transition.edge == .outro,
+                                  let id = transition.leadingClipID,
+                                  let clip = primaryTimelineTrack.clips.first(where: { $0.id == id }),
+                                  start == clip.timelineEnd - transition.duration {
+                            primaryLayer.setOpacityRamp(
+                                fromStartOpacity: 1,
+                                toEndOpacity: 0,
+                                timeRange: ProjectTimeRange(start: start, duration: transition.duration).cmTimeRange
+                            )
+                        }
+                    }
+                }
+            }
+            var layers: [AVVideoCompositionLayerInstruction] = []
+            for item in additionalTracks.reversed() {
+                guard let transform = item.transforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 else { continue }
+                let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: item.track)
+                layer.setTransform(transform, at: start.cmTime)
+                layers.append(layer)
             }
             if let cutawayTrack,
                let cutawayTransform = cutawayTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
                 let cutawayLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: cutawayTrack)
                 cutawayLayer.setTransform(cutawayTransform, at: start.cmTime)
-                instruction.layerInstructions = [cutawayLayer] + [primaryLayer].compactMap { $0 }
-            } else {
-                instruction.layerInstructions = [primaryLayer].compactMap { $0 }
+                layers.append(cutawayLayer)
             }
+            layers.append(contentsOf: [primaryLayer].compactMap { $0 })
+            instruction.layerInstructions = layers
             return instruction
+        }
+    }
+
+    private static func applyAudioTransitions(
+        _ transitions: [TimelineTransition],
+        clip: TimelineClip,
+        volume: Float,
+        parameters: AVMutableAudioMixInputParameters
+    ) {
+        for transition in transitions {
+            let range: ProjectTimeRange?
+            if transition.edge == .intro, transition.trailingClipID == clip.id {
+                range = ProjectTimeRange(start: clip.timelineStart, duration: transition.duration)
+            } else if transition.edge == .outro, transition.leadingClipID == clip.id {
+                range = ProjectTimeRange(start: clip.timelineEnd - transition.duration, duration: transition.duration)
+            } else if transition.edge == .between, transition.leadingClipID == clip.id {
+                range = ProjectTimeRange(start: clip.timelineEnd - transition.duration, duration: transition.duration)
+            } else if transition.edge == .between, transition.trailingClipID == clip.id {
+                range = ProjectTimeRange(start: clip.timelineStart, duration: transition.duration)
+            } else {
+                range = nil
+            }
+            guard let range else { continue }
+            let fadesIn = transition.trailingClipID == clip.id
+            parameters.setVolumeRamp(
+                fromStartVolume: fadesIn ? 0 : volume,
+                toEndVolume: fadesIn ? volume : 0,
+                timeRange: range.cmTimeRange
+            )
         }
     }
 }

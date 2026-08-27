@@ -51,6 +51,8 @@ struct ClipInspectorView: View {
     }
 
     private var inspectorContext: String {
+        if let transition = controller.selectedTransition { return transition.displayName }
+        if case .track(let id) = controller.selection, let track = controller.project.track(id: id) { return track.name }
         if let clip = controller.selectedTimelineClip { return clip.displayName }
         if let cutaway = controller.selectedCutaway { return cutaway.displayName }
         if let asset = controller.selectedAsset { return asset.name }
@@ -59,12 +61,21 @@ struct ClipInspectorView: View {
 
     @ViewBuilder
     private var inspectorDetails: some View {
-        if let clip = controller.selectedTimelineClip {
+        if let transition = controller.selectedTransition {
+            inspectorRow("Duration", ProjectTimecodeFormatter.string(transition.duration))
+            inspectorRow("Position", transition.edge == .between ? "Between Clips" : transition.edge == .intro ? "Intro" : "Outro")
+        } else if case .track(let id) = controller.selection, let track = controller.project.track(id: id) {
+            inspectorRow("Type", track.kind.title)
+            inspectorRow("Clips", "\(track.clips.count)")
+        } else if let clip = controller.selectedTimelineClip {
             inspectorRow("Length", ProjectTimecodeFormatter.string(clip.duration))
             if let start = controller.project.startTime(of: clip.id) {
                 inspectorRow("Timeline Start", ProjectTimecodeFormatter.string(start))
             }
             inspectorRow("Source Segments", "\(clip.segments.count)")
+            if controller.project.tracks.contains(where: { $0.kind == .audio && $0.clips.contains { $0.id == clip.id } }) {
+                inspectorRow("Gain", "\(clip.audioSettings.gainDecibels.formatted()) dB")
+            }
             if let asset = controller.project.asset(id: clip.assetID) {
                 resolutionRows(for: asset)
             }
@@ -97,7 +108,7 @@ struct ClipInspectorView: View {
             if let frameRate = controller.project.format.frameRate {
                 inspectorRow("Frame Rate", frameRate.formatted())
             }
-            inspectorRow("Total Clips", "\(controller.project.primaryTimeline.count)")
+            inspectorRow("Total Clips", "\(controller.project.tracks.reduce(0) { $0 + $1.clips.count })")
         }
     }
 

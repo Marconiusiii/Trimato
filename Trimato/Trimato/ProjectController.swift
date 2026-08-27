@@ -9,6 +9,8 @@ enum EditorSelection: Hashable {
     case asset(UUID)
     case timelineClip(UUID)
     case cutaway(UUID)
+    case transition(UUID)
+    case track(UUID)
 }
 
 struct ProjectPresentedError: Identifiable {
@@ -23,6 +25,9 @@ final class ProjectController: ObservableObject {
 
     @Published var selection: EditorSelection = .project
     @Published var timelinePlayhead = ProjectTime.zero
+    @Published var activeTimelineTrackID: UUID?
+    @Published var transitionRequest: TransitionRequest?
+    @Published private(set) var editorFocusRestoreRequest = 0
     @Published var isImporting = false
     @Published var isShowingProjectSettings = false
     @Published var presentedError: ProjectPresentedError?
@@ -44,6 +49,7 @@ final class ProjectController: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         updateCacheProtection(for: document.project)
+        activeTimelineTrackID = document.project.tracks.first?.id
     }
 
     deinit {
@@ -55,7 +61,8 @@ final class ProjectController: ObservableObject {
 
     func resolvedMediaURLs() -> [UUID: URL] {
         var result: [UUID: URL] = [:]
-        let usedIDs = Set(project.primaryTimeline.map(\.assetID) + project.cutaways.map(\.assetID))
+        let trackIDs = project.tracks.flatMap(\.clips).map(\.assetID)
+        let usedIDs = Set(trackIDs + project.primaryTimeline.map(\.assetID) + project.cutaways.map(\.assetID))
         for id in usedIDs {
             guard let asset = project.asset(id: id), let url = resolveURL(for: asset) else { continue }
             result[id] = url
@@ -82,7 +89,7 @@ final class ProjectController: ObservableObject {
     var canExportProject: Bool {
         !isExporting &&
             !isPresentingExportPanel &&
-            !project.primaryTimeline.isEmpty &&
+            project.tracks.contains(where: { !$0.clips.isEmpty }) &&
             (projectPlayer?.hasValidExportSelection ?? true)
     }
 
@@ -136,7 +143,7 @@ final class ProjectController: ObservableObject {
         guard canExportProject, NSApp.modalWindow == nil else { return }
         let exportRange = projectPlayer?.exportRange
         let urls = resolvedMediaURLs()
-        let requiredIDs = Set(project.primaryTimeline.map(\.assetID) + project.cutaways.map(\.assetID))
+        let requiredIDs = Set(project.tracks.flatMap(\.clips).map(\.assetID) + project.primaryTimeline.map(\.assetID) + project.cutaways.map(\.assetID))
         guard requiredIDs.allSatisfy({ urls[$0] != nil }) else {
             presentedError = ProjectPresentedError(
                 title: "Media Is Offline",
@@ -225,21 +232,130 @@ final class ProjectController: ObservableObject {
         switch selection {
         case .asset(let id): return project.asset(id: id)
         case .timelineClip(let id):
-            return project.primaryTimeline.first(where: { $0.id == id }).flatMap { project.asset(id: $0.assetID) }
+            return project.timelineClip(id: id).flatMap { project.asset(id: $0.assetID) }
         case .cutaway(let id):
             return project.cutaways.first(where: { $0.id == id }).flatMap { project.asset(id: $0.assetID) }
-        case .project: return nil
+        case .transition, .track, .project: return nil
         }
     }
 
     var selectedTimelineClip: TimelineClip? {
         guard case .timelineClip(let id) = selection else { return nil }
-        return project.primaryTimeline.first { $0.id == id }
+        return project.timelineClip(id: id)
     }
 
     var selectedCutaway: TimelineCutaway? {
         guard case .cutaway(let id) = selection else { return nil }
         return project.cutaways.first { $0.id == id }
+    }
+
+    var selectedTransition: TimelineTransition? {
+        guard case .transition(let id) = selection else { return nil }
+        return project.transition(id: id)
+    }
+
+    var activeTimelineTrack: TimelineTrack? {
+        guard let activeTimelineTrackID else { return project.tracks.first }
+        return project.track(id: activeTimelineTrackID)
+    }
+
+    func focusTimelineElement(_ element: TimelineElementSelection) {
+        switch element {
+        case .clip(let id): selection = .timelineClip(id)
+        case .transition(let id): selection = .transition(id)
+        }
+    }
+
+    func selectAdjacentTrack(_ offset: Int) {
+        guard !project.tracks.isEmpty else { return }
+        let current = activeTimelineTrackID.flatMap { id in project.tracks.firstIndex { $0.id == id } } ?? 0
+        let destination = min(max(current + offset, 0), project.tracks.count - 1)
+        activeTimelineTrackID = project.tracks[destination].id
+    }
+
+    func addTrack(kind: TimelineTrackKind, name: String?) {
+        var createdID: UUID?
+        mutateProject(actionName: "Add \(kind.title) Track") {
+            createdID = $0.createTrack(kind: kind, name: name)
+        }
+        activeTimelineTrackID = createdID
+    }
+
+    func renameActiveTrack(to name: String) throws {
+        guard let activeTimelineTrackID else { throw ProjectTimelineError.trackNotFound }
+        try mutateProjectThrowing(actionName: "Rename Track") {
+            try $0.renameTrack(id: activeTimelineTrackID, to: name)
+        }
+    }
+
+    func moveActiveTrack(by offset: Int) {
+        guard let activeTimelineTrackID else { return }
+        do {
+            try mutateProjectThrowing(actionName: "Move Track") { try $0.moveTrack(id: activeTimelineTrackID, by: offset) }
+        } catch { announce(error.localizedDescription) }
+    }
+
+    func deleteActiveTrack() {
+        guard let activeTimelineTrackID else { return }
+        do {
+            try mutateProjectThrowing(actionName: "Delete Track") { try $0.removeTrack(id: activeTimelineTrackID) }
+            self.activeTimelineTrackID = project.tracks.first?.id
+            selection = .project
+        } catch { announce(error.localizedDescription) }
+    }
+
+    func addTransition(_ transition: TimelineTransition) throws {
+        try mutateProjectThrowing(actionName: "Add Transition") { try $0.addTransition(transition) }
+        selection = .transition(transition.id)
+    }
+
+    func addTransitions(_ additions: [TimelineTransition], selectAddedTransition: Bool = true) throws {
+        guard !additions.isEmpty else { return }
+        try mutateProjectThrowing(actionName: additions.count == 1 ? "Add Transition" : "Add Transitions") { project in
+            for transition in additions { try project.addTransition(transition) }
+        }
+        if selectAddedTransition {
+            selection = .transition(additions[0].id)
+        }
+    }
+
+    func requestTransitionForSelection(mode: TransitionRequest.Mode = .standard) {
+        guard let clip = selectedTimelineClip,
+              let track = project.tracks.first(where: { $0.clips.contains { $0.id == clip.id } }) else {
+            announce("Focus a timeline clip first")
+            return
+        }
+        activeTimelineTrackID = track.id
+        transitionRequest = TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode)
+    }
+
+    func requestQuickTransition(at time: ProjectTime, mode: TransitionRequest.Mode) {
+        guard let track = activeTimelineTrack,
+              let clip = track.sortedClips.first(where: { time >= $0.timelineStart && time <= $0.timelineEnd }) else {
+            announce("Move the playhead to a clip first")
+            return
+        }
+        transitionRequest = TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode)
+    }
+
+    func requestEditorFocusRestore() {
+        editorFocusRestoreRequest += 1
+    }
+
+    func updateTransition(_ transition: TimelineTransition) throws {
+        try mutateProjectThrowing(actionName: "Update Transition") { try $0.updateTransition(transition) }
+        selection = .transition(transition.id)
+    }
+
+    func updateAudioSettings(clipID: UUID, settings: AudioClipSettings) throws {
+        try mutateProjectThrowing(actionName: "Adjust Clip Audio") {
+            try $0.updateAudioSettings(clipID: clipID, settings: settings)
+        }
+    }
+
+    func deleteTransition(id: UUID) {
+        mutateProject(actionName: "Delete Transition") { $0.removeTransition(id: id) }
+        selection = .project
     }
 
     func primaryTimelineClip(at time: ProjectTime) -> TimelineClip? {
@@ -478,7 +594,7 @@ final class ProjectController: ObservableObject {
         switch selection {
         case .timelineClip(let id):
             try mutateProjectThrowing(actionName: "Update Timeline Clip") {
-                try $0.updateTimelineClip(id: id, segments: segments)
+                try $0.updateTrackClip(id: id, segments: segments)
             }
             announce("Timeline clip updated")
         case .cutaway(let id):
@@ -486,7 +602,7 @@ final class ProjectController: ObservableObject {
                 try $0.updateCutaway(id: id, segments: segments)
             }
             announce("Cutaway updated")
-        case .asset, .project:
+        case .asset, .transition, .track, .project:
             return
         }
     }
@@ -495,13 +611,13 @@ final class ProjectController: ObservableObject {
         switch selection {
         case .timelineClip(let id):
             try mutateProjectThrowing(actionName: "Rename Timeline Clip") {
-                try $0.renameTimelineClip(id: id, to: name)
+                try $0.renameTrackClip(id: id, to: name)
             }
         case .cutaway(let id):
             try mutateProjectThrowing(actionName: "Rename Cutaway") {
                 try $0.renameCutaway(id: id, to: name)
             }
-        case .asset, .project:
+        case .asset, .transition, .track, .project:
             return
         }
         announce("Timeline clip renamed")
@@ -538,17 +654,46 @@ final class ProjectController: ObservableObject {
         }
     }
 
+    func place(
+        _ placement: PlacementAction,
+        editing editSelection: EditorSelection,
+        segments: [SourceSegment]?,
+        onTrack trackID: UUID
+    ) {
+        guard let asset = asset(for: editSelection) else { return }
+        do {
+            var selectedID: UUID?
+            try mutateProjectThrowing(actionName: placement.undoName) { project in
+                switch placement {
+                case .append:
+                    selectedID = try project.append(asset: asset, segments: segments, toTrack: trackID)
+                case .insert:
+                    selectedID = try project.insert(asset: asset, segments: segments, at: timelinePlayhead, onTrack: trackID)
+                case .replaceRemainder:
+                    selectedID = try project.replaceRemainder(with: asset, segments: segments, at: timelinePlayhead, onTrack: trackID)
+                case .cutawaySourceAudio, .cutawayPrimaryAudio:
+                    return
+                }
+            }
+            if let selectedID {
+                activeTimelineTrackID = trackID
+                selection = .timelineClip(selectedID)
+            }
+            announce(placement.confirmation)
+        } catch { announce(error.localizedDescription) }
+    }
+
     func asset(for editSelection: EditorSelection) -> MediaAssetRecord? {
         switch editSelection {
         case .asset(let id):
             return project.asset(id: id)
         case .timelineClip(let id):
-            return project.primaryTimeline.first(where: { $0.id == id })
+            return project.timelineClip(id: id)
                 .flatMap { project.asset(id: $0.assetID) }
         case .cutaway(let id):
             return project.cutaways.first(where: { $0.id == id })
                 .flatMap { project.asset(id: $0.assetID) }
-        case .project:
+        case .transition, .track, .project:
             return nil
         }
     }
@@ -558,10 +703,10 @@ final class ProjectController: ObservableObject {
         case .asset(let id):
             return project.asset(id: id)?.sourceEdit
         case .timelineClip(let id):
-            return project.primaryTimeline.first(where: { $0.id == id })?.segments
+            return project.timelineClip(id: id)?.segments
         case .cutaway(let id):
             return project.cutaways.first(where: { $0.id == id })?.segments
-        case .project:
+        case .transition, .track, .project:
             return nil
         }
     }
@@ -586,7 +731,7 @@ final class ProjectController: ObservableObject {
         switch selection {
         case .timelineClip(let id):
             do {
-                try mutateProjectThrowing(actionName: "Delete Timeline Clip") { try $0.removeClip(id: id) }
+                try mutateProjectThrowing(actionName: "Delete Timeline Clip") { try $0.removeTrackClip(id: id) }
                 selection = .project
                 announce("Timeline clip deleted")
             } catch { announce(error.localizedDescription) }
@@ -594,6 +739,8 @@ final class ProjectController: ObservableObject {
             mutateProject(actionName: "Delete Cutaway") { $0.cutaways.removeAll { $0.id == id } }
             selection = .project
             announce("Cutaway removed")
+        case .transition(let id):
+            deleteTransition(id: id)
         default:
             break
         }
@@ -601,10 +748,11 @@ final class ProjectController: ObservableObject {
 
     func moveSelectedClip(by offset: Int) {
         guard let clip = selectedTimelineClip,
-              let current = project.primaryTimeline.firstIndex(where: { $0.id == clip.id }) else { return }
+              let track = project.tracks.first(where: { $0.clips.contains { $0.id == clip.id } }),
+              let current = track.sortedClips.firstIndex(where: { $0.id == clip.id }) else { return }
         do {
             try mutateProjectThrowing(actionName: "Move Timeline Clip") {
-                try $0.moveClip(id: clip.id, to: current + offset)
+                try $0.moveTrackClip(id: clip.id, to: current + offset)
             }
             announce("Clip moved")
         } catch { announce(error.localizedDescription) }
@@ -615,14 +763,16 @@ final class ProjectController: ObservableObject {
     }
 
     func moveSelectedClipToEnd() {
-        moveSelectedClip(to: max(project.primaryTimeline.count - 1, 0))
+        guard let clip = selectedTimelineClip,
+              let track = project.tracks.first(where: { $0.clips.contains { $0.id == clip.id } }) else { return }
+        moveSelectedClip(to: max(track.clips.count - 1, 0))
     }
 
     private func moveSelectedClip(to destination: Int) {
         guard let clip = selectedTimelineClip else { return }
         do {
             try mutateProjectThrowing(actionName: "Move Timeline Clip") {
-                try $0.moveClip(id: clip.id, to: destination)
+                try $0.moveTrackClip(id: clip.id, to: destination)
             }
             announce("Clip moved")
         } catch { announce(error.localizedDescription) }

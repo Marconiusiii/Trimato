@@ -81,12 +81,22 @@ nonisolated struct MediaAssetRecord: Codable, Hashable, Identifiable, Sendable {
 
 extension TrimatoProject {
     var hasTimelineVideo: Bool {
-        primaryTimeline.contains { clip in asset(id: clip.assetID)?.hasVideo == true } ||
+        if !tracks.isEmpty {
+            return tracks.contains { track in
+                track.kind == .video && !track.clips.isEmpty
+            }
+        }
+        return primaryTimeline.contains { clip in asset(id: clip.assetID)?.hasVideo == true } ||
             cutaways.contains { cutaway in asset(id: cutaway.assetID)?.hasVideo == true }
     }
 
     var hasTimelineAudio: Bool {
-        primaryTimeline.contains { clip in asset(id: clip.assetID)?.hasAudio == true } ||
+        if !tracks.isEmpty {
+            return tracks.contains { track in
+                track.kind == .audio && !track.clips.isEmpty
+            }
+        }
+        return primaryTimeline.contains { clip in asset(id: clip.assetID)?.hasAudio == true } ||
             cutaways.contains { cutaway in
                 cutaway.audioMode == .sourceAudio && asset(id: cutaway.assetID)?.hasAudio == true
             }
@@ -100,10 +110,15 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
     var segments: [SourceSegment]
     var labelOrdinal: Int?
     var customName: String?
+    var timelineStart: ProjectTime = .zero
+    var linkedClipID: UUID? = nil
+    var audioSettings: AudioClipSettings = .neutral
 
     var duration: ProjectTime {
         segments.reduce(.zero) { $0 + $1.duration }
     }
+
+    var timelineEnd: ProjectTime { timelineStart + duration }
 
     var displayName: String {
         if let customName { return customName }
@@ -117,7 +132,10 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
         name: String,
         segments: [SourceSegment],
         labelOrdinal: Int? = nil,
-        customName: String? = nil
+        customName: String? = nil,
+        timelineStart: ProjectTime = .zero,
+        linkedClipID: UUID? = nil,
+        audioSettings: AudioClipSettings = .neutral
     ) {
         self.id = id
         self.assetID = assetID
@@ -125,6 +143,27 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
         self.segments = segments
         self.labelOrdinal = labelOrdinal
         self.customName = customName
+        self.timelineStart = timelineStart
+        self.linkedClipID = linkedClipID
+        self.audioSettings = audioSettings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, assetID, name, segments, labelOrdinal, customName
+        case timelineStart, linkedClipID, audioSettings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        assetID = try container.decode(UUID.self, forKey: .assetID)
+        name = try container.decode(String.self, forKey: .name)
+        segments = try container.decode([SourceSegment].self, forKey: .segments)
+        labelOrdinal = try container.decodeIfPresent(Int.self, forKey: .labelOrdinal)
+        customName = try container.decodeIfPresent(String.self, forKey: .customName)
+        timelineStart = try container.decodeIfPresent(ProjectTime.self, forKey: .timelineStart) ?? .zero
+        linkedClipID = try container.decodeIfPresent(UUID.self, forKey: .linkedClipID)
+        audioSettings = try container.decodeIfPresent(AudioClipSettings.self, forKey: .audioSettings) ?? .neutral
     }
 
     static func letterLabel(for ordinal: Int) -> String {
@@ -170,7 +209,7 @@ nonisolated struct TimelineCutaway: Codable, Hashable, Identifiable, Sendable {
 }
 
 nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     var schemaVersion = currentSchemaVersion
     var id = UUID()
@@ -181,13 +220,76 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
     var media: [MediaAssetRecord] = []
     var primaryTimeline: [TimelineClip] = []
     var cutaways: [TimelineCutaway] = []
+    var tracks: [TimelineTrack] = []
+    var transitions: [TimelineTransition] = []
 
     init(name: String = "Untitled Project") {
         self.name = name
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, id, name, format, targetDuration, folders, media
+        case primaryTimeline, cutaways, tracks, transitions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Untitled Project"
+        format = try container.decodeIfPresent(ProjectFormat.self, forKey: .format) ?? ProjectFormat()
+        targetDuration = try container.decodeIfPresent(ProjectTime.self, forKey: .targetDuration)
+        folders = try container.decodeIfPresent([ProjectFolder].self, forKey: .folders) ?? []
+        media = try container.decodeIfPresent([MediaAssetRecord].self, forKey: .media) ?? []
+        primaryTimeline = try container.decodeIfPresent([TimelineClip].self, forKey: .primaryTimeline) ?? []
+        cutaways = try container.decodeIfPresent([TimelineCutaway].self, forKey: .cutaways) ?? []
+        tracks = try container.decodeIfPresent([TimelineTrack].self, forKey: .tracks) ?? []
+        transitions = try container.decodeIfPresent([TimelineTransition].self, forKey: .transitions) ?? []
+        if tracks.isEmpty {
+            tracks = Self.migratedTracks(
+                primaryTimeline: &primaryTimeline,
+                cutaways: cutaways,
+                media: media
+            )
+        }
+        schemaVersion = Self.currentSchemaVersion
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(Self.currentSchemaVersion, forKey: .schemaVersion)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(format, forKey: .format)
+        try container.encodeIfPresent(targetDuration, forKey: .targetDuration)
+        try container.encode(folders, forKey: .folders)
+        try container.encode(media, forKey: .media)
+        try container.encode(primaryTimeline, forKey: .primaryTimeline)
+        try container.encode(cutaways, forKey: .cutaways)
+        try container.encode(tracks, forKey: .tracks)
+        try container.encode(transitions, forKey: .transitions)
+    }
+
     var duration: ProjectTime {
-        primaryTimeline.reduce(.zero) { $0 + $1.duration }
+        if !tracks.isEmpty {
+            return tracks.map(\.end).max() ?? .zero
+        }
+        return primaryTimeline.reduce(.zero) { $0 + $1.duration }
+    }
+
+    func track(id: UUID) -> TimelineTrack? {
+        tracks.first { $0.id == id }
+    }
+
+    func timelineClip(id: UUID) -> TimelineClip? {
+        for track in tracks {
+            if let clip = track.clips.first(where: { $0.id == id }) { return clip }
+        }
+        return primaryTimeline.first { $0.id == id }
+    }
+
+    func transition(id: UUID) -> TimelineTransition? {
+        transitions.first { $0.id == id }
     }
 
     func asset(id: UUID) -> MediaAssetRecord? {
@@ -195,11 +297,85 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
     }
 
     func startTime(of clipID: UUID) -> ProjectTime? {
+        if let clip = timelineClip(id: clipID), !tracks.isEmpty { return clip.timelineStart }
         var cursor = ProjectTime.zero
         for clip in primaryTimeline {
             if clip.id == clipID { return cursor }
             cursor = cursor + clip.duration
         }
         return nil
+    }
+
+    static func migratedTracks(
+        primaryTimeline: inout [TimelineClip],
+        cutaways: [TimelineCutaway],
+        media: [MediaAssetRecord]
+    ) -> [TimelineTrack] {
+        func asset(_ id: UUID) -> MediaAssetRecord? { media.first { $0.id == id } }
+        var videoClips: [TimelineClip] = []
+        var audioClips: [TimelineClip] = []
+        var cursor = ProjectTime.zero
+        for index in primaryTimeline.indices {
+            primaryTimeline[index].timelineStart = cursor
+            let source = primaryTimeline[index]
+            if asset(source.assetID)?.hasVideo == true {
+                var video = source
+                video.timelineStart = cursor
+                if asset(source.assetID)?.hasAudio == true {
+                    var audio = source
+                    audio.id = UUID()
+                    audio.name = "\(source.displayName) Audio"
+                    audio.labelOrdinal = nil
+                    audio.customName = nil
+                    video.linkedClipID = audio.id
+                    audio.linkedClipID = video.id
+                    videoClips.append(video)
+                    audioClips.append(audio)
+                } else {
+                    videoClips.append(video)
+                }
+            } else if asset(source.assetID)?.hasAudio == true {
+                var audio = source
+                audio.timelineStart = cursor
+                audioClips.append(audio)
+            }
+            cursor = cursor + source.duration
+        }
+
+        var result: [TimelineTrack] = []
+        if !videoClips.isEmpty {
+            result.append(TimelineTrack(name: "Primary Video", kind: .video, role: .primaryVideo, clips: videoClips))
+        }
+        if !audioClips.isEmpty {
+            result.append(TimelineTrack(name: "Primary Audio", kind: .audio, role: .primaryAudio, clips: audioClips))
+        }
+        if !cutaways.isEmpty {
+            let clips = cutaways.map {
+                TimelineClip(
+                    id: $0.id,
+                    assetID: $0.assetID,
+                    name: $0.name,
+                    segments: $0.segments,
+                    labelOrdinal: $0.labelOrdinal,
+                    customName: $0.customName,
+                    timelineStart: $0.start
+                )
+            }
+            result.append(TimelineTrack(name: "Video 2", kind: .video, clips: clips))
+            let audioCutaways = cutaways.filter {
+                $0.audioMode == .sourceAudio && asset($0.assetID)?.hasAudio == true
+            }.map {
+                TimelineClip(
+                    assetID: $0.assetID,
+                    name: "\($0.displayName) Audio",
+                    segments: $0.segments,
+                    timelineStart: $0.start
+                )
+            }
+            if !audioCutaways.isEmpty {
+                result.append(TimelineTrack(name: "Audio 2", kind: .audio, clips: audioCutaways))
+            }
+        }
+        return result
     }
 }
