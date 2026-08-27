@@ -41,7 +41,7 @@ struct SourceClipEditorView: View {
                         Button("Over Primary Audio") { place(.cutawayPrimaryAudio) }
                             .keyboardShortcut("q", modifiers: [.option])
                     }
-                    .disabled(!commandContext.canPlace)
+                    .disabled(!commandContext.canPlace || !asset.hasVideo)
                 }
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)

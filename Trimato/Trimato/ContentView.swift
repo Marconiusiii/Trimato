@@ -66,7 +66,7 @@ struct ContentView: View {
         )) {
             MediaImportView(
                 filename: viewModel.mediaFilename,
-                status: viewModel.mediaStatus ?? "Preparing video",
+                status: viewModel.mediaStatus ?? "Preparing media",
                 progress: viewModel.mediaProgress,
                 cancel: viewModel.cancelMediaLoad
             )
@@ -101,27 +101,38 @@ struct ContentView: View {
     // MARK: - Video area
 
     private var canNavigateTimeline: Bool {
-        viewModel.hasVideo && !viewModel.isExporting && !viewModel.isApplyingEdit
+        viewModel.hasMedia && !viewModel.isExporting && !viewModel.isApplyingEdit
     }
 
     private var videoArea: some View {
         ZStack {
             Color.black
-            VideoPlayerView(player: viewModel.player)
-            if !viewModel.hasVideo, !viewModel.isLoadingMedia {
+            if viewModel.hasMedia {
+                if viewModel.hasVideo {
+                    VideoPlayerView(player: viewModel.player)
+                } else {
+                    AudioWaveformView(
+                        samples: viewModel.waveformSamples,
+                        playbackFraction: viewModel.duration > 0
+                            ? viewModel.currentTime / viewModel.duration
+                            : 0,
+                        isLoading: viewModel.isPreparingWaveform
+                    )
+                }
+            } else if !viewModel.isLoadingMedia {
                 VStack(spacing: 16) {
-                    Image(systemName: "film")
+                    Image(systemName: "waveform")
                         .font(.system(size: 64))
                         .foregroundStyle(.tertiary)
-                    Text(viewModel.mediaStatus ?? "Open a video file to begin")
+                    Text(viewModel.mediaStatus ?? "Open an audio or video file to begin")
                         .foregroundStyle(.secondary)
                     if viewModel.isLoadingMedia {
                         if let progress = viewModel.mediaProgress {
                             ProgressView(value: progress) {
-                                Text("Preparing video")
+                                Text("Preparing media")
                             }
                         } else {
-                            ProgressView("Preparing video")
+                            ProgressView("Preparing media")
                         }
                     } else if allowsFileOpening {
                         Button("Open File\u{2026}") { viewModel.openFile() }
@@ -178,9 +189,13 @@ struct ContentView: View {
                 .accessibilityHidden(true)  // inner text hidden; button owns all AX content
             }
             .buttonStyle(.plain)
-            .disabled(!viewModel.hasVideo)
+            .disabled(!viewModel.hasMedia)
             .accessibilityLabel(viewModel.accessibilityTimecodeLabel)
-            .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
+            .accessibilityHint(
+                viewModel.hasVideo
+                    ? (viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
+                    : "Current playback time. Frame display is unavailable for audio-only media"
+            )
 
             markerControls
 
@@ -201,7 +216,7 @@ struct ContentView: View {
                     Image(systemName: "gobackward.10").font(.title2)
                 }
                 .buttonStyle(.plain)
-                .disabled(!viewModel.hasVideo)
+                .disabled(!viewModel.hasMedia)
                 .accessibilityLabel("Skip back 10 seconds")
 
                 Button { viewModel.togglePlayPause() } label: {
@@ -210,14 +225,14 @@ struct ContentView: View {
                         .frame(width: 38)
                 }
                 .buttonStyle(.plain)
-                .disabled(!viewModel.hasVideo)
+                .disabled(!viewModel.hasMedia)
                 .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
 
                 Button { viewModel.seekForward() } label: {
                     Image(systemName: "goforward.10").font(.title2)
                 }
                 .buttonStyle(.plain)
-                .disabled(!viewModel.hasVideo)
+                .disabled(!viewModel.hasMedia)
                 .accessibilityLabel("Skip forward 10 seconds")
 
                 Button { viewModel.stepForward() } label: {
@@ -228,7 +243,7 @@ struct ContentView: View {
                 .accessibilityLabel("Step forward one frame")
             }
             .foregroundStyle(EditorTheme.accent)
-            .disabled(!viewModel.hasVideo || viewModel.isExporting || viewModel.isApplyingEdit)
+            .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
             .padding(.bottom, 8)
 
             Button("Export Clip\u{2026}") {
@@ -274,7 +289,7 @@ struct ContentView: View {
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .disabled(!viewModel.hasVideo || viewModel.isExporting || viewModel.isApplyingEdit)
+        .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
     }
 
     @ViewBuilder

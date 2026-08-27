@@ -384,4 +384,37 @@ struct ProjectTimelineOperationsTests {
             ))])
         }
     }
+
+    @Test func automaticFormatWaitsForTheFirstVideoAfterAudio() throws {
+        var audio = fixtureAsset(name: "Narration", duration: 2)
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
+        audio.frameRate = nil
+        let video = fixtureAsset(name: "Picture", duration: 3)
+        var project = TrimatoProject()
+        project.media = [audio, video]
+
+        _ = try project.append(asset: audio)
+        #expect(!project.format.isResolved)
+        _ = try project.append(asset: video)
+
+        #expect(project.format.width == video.naturalWidth)
+        #expect(project.format.height == video.naturalHeight)
+        #expect(project.format.frameRate == video.frameRate)
+    }
+
+    @Test func audioOnlyMediaCannotBecomeAVisualCutaway() throws {
+        let primary = fixtureAsset(name: "Picture", duration: 5)
+        var audio = fixtureAsset(name: "Music", duration: 2)
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
+        audio.frameRate = nil
+        var project = TrimatoProject()
+        project.media = [primary, audio]
+        _ = try project.append(asset: primary)
+
+        #expect(throws: ProjectTimelineError.audioOnlyCutaway) {
+            try project.addCutaway(asset: audio, at: .zero, audioMode: .sourceAudio)
+        }
+    }
 }

@@ -26,10 +26,10 @@
     </ol>
 
     <h2>Choose a project format</h2>
-    <p>Every project has one resolution and frame rate. These values define the project frame used for preview and export; they do not modify the original media.</p>
+    <p>Every project containing video has one resolution and frame rate. These values define the project frame used for preview and export; they do not modify the original media. An audio-only project does not need a visual format.</p>
     <dl>
         <dt>Automatic from First Clip</dt>
-        <dd>Uses the displayed dimensions and nominal frame rate of the first clip placed on the primary timeline. Importing a file into the Project Browser does not establish the format until that clip is placed on the timeline.</dd>
+        <dd>Uses the displayed dimensions and nominal frame rate of the first video clip placed on the primary timeline. Importing a file into the Project Browser does not establish the format, and an audio-only clip does not establish visual dimensions or a frame rate.</dd>
         <dt>Custom</dt>
         <dd>Provides Resolution and Frame Rate menus with common choices. Choose Custom dimensions or Custom frame rate when the project needs values that are not listed.</dd>
     </dl>
@@ -40,7 +40,7 @@
     <h2>Import clips</h2>
     <ol>
         <li>Activate Import Clips in the Project group or choose File &gt; Import Media.</li>
-        <li>Select one or more video files.</li>
+        <li>Select one or more audio or video files.</li>
         <li>Activate Open.</li>
     </ol>
     <p>Imported clips appear in the Clips section of the project.</p>
@@ -54,7 +54,7 @@
     <ul>
         <li>If macOS can play and pass through a source, Trimato plays the original and can retain its original file type and codec for an Original format standalone clip export.</li>
         <li>If macOS can play a source but cannot pass it through, Trimato still plays the original and converts it when exporting.</li>
-        <li>If macOS cannot play a source, Trimato creates an MP4 playback proxy for preview and editing.</li>
+        <li>If macOS cannot play a source, Trimato creates a local playback proxy for preview and editing. Audio-only proxies remain audio-only.</li>
     </ul>
 
     <h2>Understand playback proxies</h2>
@@ -64,6 +64,7 @@
 
     <h2>Use media with different dimensions and frame rates</h2>
     <p>A project can contain sources with different file formats, codecs, resolutions, orientations, aspect ratios, and frame rates. Trimato conforms each timeline instance to the project during preview and export while leaving the original file unchanged.</p>
+    <p>Audio-only clips use the same magnetic primary timeline, markers, trimming, splitting, naming, and ordering tools as video clips. In a video project, an audio-only section produces black picture while its audio plays. A video cutaway can provide picture over that section. Insert on Top is unavailable when the source itself has no video.</p>
     <p>For dimensions and orientation, Trimato uses proportional Fit:</p>
     <ul>
         <li>A vertical or narrower source in a landscape project is centered and pillarboxed with black space on the left and right.</li>

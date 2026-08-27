@@ -26,7 +26,9 @@
     </ul>
 
     <h2>Understand the exported project frame</h2>
+    <p>An audio-only project has no picture and offers audio output formats. When a project contains video, it also offers video output formats and uses the project's resolution and frame rate.</p>
     <p>Every video export uses the project's resolution and frame rate. Mixed source dimensions are proportionally fitted without stretching or automatic cropping. Narrower sources are pillarboxed, wider sources are letterboxed, and unused parts of the project frame are black.</p>
+    <p>An audio-only timeline section inside a video project uses black picture for that section unless a video cutaway supplies the picture.</p>
     <p>The project frame rate is the export cadence. Trimato omits source frames when converting from a higher rate and repeats source frames when converting from a lower rate. This does not change clip speed or audio duration. Optical-flow frame generation is not currently applied.</p>
     <p>When most material uses one rate, choosing that rate for the project usually preserves its original motion cadence. For example, a 30 fps project is a practical match for predominantly 30 and 60 fps material, while a 24 fps project preserves the cadence of predominantly 24 fps material.</p>
 
@@ -38,7 +40,7 @@
     <h2>Export the project</h2>
     <ol>
         <li>Choose File &gt; Export Project or press Command-E.</li>
-        <li>In the Export Project dialog, enter a filename, choose a location, and choose H.264 MP4, HEVC MP4, H.264 QuickTime movie, HEVC movie, ProRes 422 LT movie, ProRes 422 movie, ProRes 422 HQ movie, M4A AAC audio, M4A Apple Lossless audio, FLAC audio, WAV audio at 16-bit, or WAV audio at 24-bit.</li>
+        <li>In the Export Project dialog, enter a filename and choose a location. For a project containing video, choose a video or audio output. For an audio-only project, choose M4A AAC audio, M4A Apple Lossless audio, FLAC audio, WAV audio at 16-bit, or WAV audio at 24-bit.</li>
         <li>Activate Export.</li>
         <li>Read Export progress in the progress dialog. Activate Cancel Export to stop.</li>
     </ol>

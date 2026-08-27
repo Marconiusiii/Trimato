@@ -66,6 +66,7 @@ enum ProjectImportCoordinator {
             width: Int?,
             height: Int?,
             frameRate: Double?,
+            hasVideo: Bool,
             hasAudio: Bool,
             playbackMode: ProjectMediaPlaybackMode
         ),
@@ -78,7 +79,8 @@ enum ProjectImportCoordinator {
                 sourceURL: url,
                 duration: metadata.duration,
                 cacheKey: cacheKey,
-                fingerprint: fingerprint
+                fingerprint: fingerprint,
+                hasVideo: metadata.hasVideo
             )
         }
         return PlaybackPreparation(
@@ -93,18 +95,27 @@ enum ProjectImportCoordinator {
         width: Int?,
         height: Int?,
         frameRate: Double?,
+        hasVideo: Bool,
         hasAudio: Bool,
         playbackMode: ProjectMediaPlaybackMode
     ) {
         let asset = AVURLAsset(url: url)
         if let duration = try? await asset.load(.duration),
-           duration.isValid, duration.isNumeric, duration > .zero,
-           let videoTrack = try? await asset.loadTracks(withMediaType: .video).first {
-            let naturalSize = try await videoTrack.load(.naturalSize)
-            let transform = try await videoTrack.load(.preferredTransform)
-            let displayedSize = naturalSize.applying(transform)
-            let frameRate = try await videoTrack.load(.nominalFrameRate)
-            let hasAudio = try await !asset.loadTracks(withMediaType: .audio).isEmpty
+           duration.isValid, duration.isNumeric, duration > .zero {
+            let videoTrack = try? await asset.loadTracks(withMediaType: .video).first
+            let hasAudio = ((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty == false
+            if videoTrack != nil || hasAudio {
+                let displayedSize: CGSize?
+                let frameRate: Float?
+                if let videoTrack {
+                    let naturalSize = try await videoTrack.load(.naturalSize)
+                    let transform = try await videoTrack.load(.preferredTransform)
+                    displayedSize = naturalSize.applying(transform)
+                    frameRate = try await videoTrack.load(.nominalFrameRate)
+                } else {
+                    displayedSize = nil
+                    frameRate = nil
+                }
             let isPlayable = (try? await asset.load(.isPlayable)) ?? false
             let contentType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
                 ?? UTType(filenameExtension: url.pathExtension)
@@ -119,24 +130,27 @@ enum ProjectImportCoordinator {
             }
             return (
                 duration.seconds,
-                Int(abs(displayedSize.width.rounded())),
-                Int(abs(displayedSize.height.rounded())),
-                frameRate > 0 ? Double(frameRate) : nil,
+                displayedSize.map { Int(abs($0.width.rounded())) },
+                displayedSize.map { Int(abs($0.height.rounded())) },
+                frameRate.flatMap { $0 > 0 ? Double($0) : nil },
+                videoTrack != nil,
                 hasAudio,
                 playbackMode
             )
+            }
         }
 
         let report = try await FFmpegMediaProbe.inspect(url: url)
         try FFmpegMediaProbe.validateForMP4Conversion(report)
         guard report.duration.isFinite, report.duration > 0 else {
-            throw MediaSourceError.unreadable("The selected video does not have a usable duration.")
+            throw MediaSourceError.unreadable("The selected media does not have a usable duration.")
         }
         return (
             report.duration,
             report.videoStream?.width,
             report.videoStream?.height,
             report.frameRate,
+            report.videoStream != nil,
             report.hasAudio,
             .cachedProxy
         )

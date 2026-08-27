@@ -14,6 +14,16 @@ struct ExternalMediaOpenRoutingTests {
         #expect(ExternalMediaOpenCoordinator.route(for: url, hasActiveProject: true) == .activeProject)
     }
 
+    @Test func audioOpensStandaloneWhenNoProjectIsActive() {
+        let url = URL(fileURLWithPath: "/tmp/Narration.wav")
+        #expect(ExternalMediaOpenCoordinator.route(for: url, hasActiveProject: false) == .standaloneEditor)
+    }
+
+    @Test func audioImportsWhenAProjectIsActive() {
+        let url = URL(fileURLWithPath: "/tmp/Music.m4a")
+        #expect(ExternalMediaOpenCoordinator.route(for: url, hasActiveProject: true) == .activeProject)
+    }
+
     @Test func projectFilesRemainDocumentGroupResponsibility() {
         let url = URL(fileURLWithPath: "/tmp/Documentary.trimato")
         #expect(ExternalMediaOpenCoordinator.route(for: url, hasActiveProject: true) == .ignore)

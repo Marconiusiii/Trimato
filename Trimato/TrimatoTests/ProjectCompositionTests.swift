@@ -124,7 +124,7 @@ struct ProjectCompositionTests {
 
         #expect(abs(CMTimeGetSeconds(duration) - 2) < 0.02)
         #expect(result.audioMix != nil)
-        #expect(!result.videoComposition.instructions.isEmpty)
+        #expect(!(try #require(result.videoComposition)).instructions.isEmpty)
     }
 
     @Test func mixedResolutionOrientationAndFrameRateUseTheProjectFormat() async throws {
@@ -176,11 +176,12 @@ struct ProjectCompositionTests {
             mediaURLs: [landscape.id: landscapeURL, portrait.id: portraitURL],
             purpose: .finalExport
         )
-        #expect(abs(CMTimeGetSeconds(result.videoComposition.frameDuration) - (1 / 30)) < 0.000_001)
-        let instructions = result.videoComposition.instructions.compactMap {
+        let videoComposition = try #require(result.videoComposition)
+        #expect(abs(CMTimeGetSeconds(videoComposition.frameDuration) - (1 / 30)) < 0.000_001)
+        let instructions = videoComposition.instructions.compactMap {
             $0 as? AVMutableVideoCompositionInstruction
         }
-        #expect(instructions.count == result.videoComposition.instructions.count)
+        #expect(instructions.count == videoComposition.instructions.count)
         #expect(instructions.allSatisfy { $0.backgroundColor != nil })
 
         let portraitTracks = try await AVURLAsset(url: portraitURL).loadTracks(withMediaType: .video)
@@ -220,9 +221,85 @@ struct ProjectCompositionTests {
             purpose: .finalExport
         )
         #expect(
-            abs(CMTimeGetSeconds(automaticResult.videoComposition.frameDuration) - (1_001.0 / 24_000.0))
+            abs(CMTimeGetSeconds((try #require(automaticResult.videoComposition)).frameDuration) - (1_001.0 / 24_000.0))
                 < 0.000_001
         )
+    }
+
+    @Test func audioOnlyProjectPreviewsAndExportsWithoutAProjectCanvas() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("narration.wav")
+        let outputURL = directory.appendingPathComponent("finished.wav")
+        try await makeAudioFixture(at: sourceURL, frequency: 440, duration: 0.5)
+
+        var asset = fixtureAsset(name: "Narration", duration: 0.5)
+        asset.originalPath = sourceURL.path
+        asset.naturalWidth = nil
+        asset.naturalHeight = nil
+        asset.frameRate = nil
+        asset.hasAudio = true
+        var project = TrimatoProject(name: "Audio Only")
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+
+        #expect(!project.format.isResolved)
+        let result = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: [asset.id: sourceURL]
+        )
+        #expect(result.videoComposition == nil)
+        #expect(try await result.composition.loadTracks(withMediaType: .video).isEmpty)
+        #expect(try await result.composition.loadTracks(withMediaType: .audio).count == 1)
+
+        try await ProjectExporter.export(
+            project: project,
+            mediaURLs: [asset.id: sourceURL],
+            format: .wav,
+            to: outputURL,
+            progress: { _ in }
+        )
+        let output = AVURLAsset(url: outputURL)
+        #expect(try await output.loadTracks(withMediaType: .video).isEmpty)
+        #expect(try await output.loadTracks(withMediaType: .audio).count == 1)
+    }
+
+    @Test func audioFirstMixedTimelineResolvesFromVideoAndKeepsAudioOnlySpan() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let audioURL = directory.appendingPathComponent("intro.wav")
+        let videoURL = directory.appendingPathComponent("picture.mov")
+        try await makeAudioFixture(at: audioURL, frequency: 220, duration: 0.5)
+        try await makeFixture(at: videoURL, color: "purple", frequency: 440, duration: 0.5)
+
+        var audio = fixtureAsset(name: "Intro", duration: 0.5)
+        audio.originalPath = audioURL.path
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
+        audio.frameRate = nil
+        var video = fixtureAsset(name: "Picture", duration: 0.5)
+        video.originalPath = videoURL.path
+        var project = TrimatoProject(name: "Mixed")
+        project.media = [audio, video]
+        _ = try project.append(asset: audio)
+        #expect(!project.format.isResolved)
+        _ = try project.append(asset: video)
+        #expect(project.format.width == video.naturalWidth)
+        #expect(project.format.height == video.naturalHeight)
+
+        let result = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: [audio.id: audioURL, video.id: videoURL],
+            purpose: .finalExport
+        )
+        let videoComposition = try #require(result.videoComposition)
+        #expect(abs((try await result.composition.load(.duration)).seconds - 1) < 0.02)
+        let firstInstruction = try #require(videoComposition.instructions.first as? AVMutableVideoCompositionInstruction)
+        #expect(firstInstruction.backgroundColor != nil)
     }
 
     private func makeFixture(
@@ -243,5 +320,15 @@ struct ProjectCompositionTests {
         arguments += videoCodecArguments
         arguments += ["-c:a", "aac", url.path]
         _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: arguments)
+    }
+
+    private func makeAudioFixture(at url: URL, frequency: Int, duration: Double) async throws {
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=\(frequency):sample_rate=48000",
+            "-t", String(duration),
+            "-c:a", "pcm_s16le",
+            url.path,
+        ])
     }
 }

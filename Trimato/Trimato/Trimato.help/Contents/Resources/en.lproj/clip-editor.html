@@ -13,10 +13,10 @@
 
     <h2>Open the Clip Editor</h2>
     <ul>
-        <li>Activate Trim a Clip in the Trimato welcome window, select one video in the Open dialog, and activate Open to begin a standalone edit without creating a project.</li>
+        <li>Activate Trim a Clip in the Trimato welcome window, select one audio or video file in the Open dialog, and activate Open to begin a standalone edit without creating a project.</li>
         <li>Select a source clip and choose Open Clip Editor from Actions.</li>
         <li>Activate a timeline clip or cutaway to open that instance in the Clip Editor.</li>
-        <li>Open a video with Trimato from Finder to use a standalone Clip Editor.</li>
+        <li>Open an audio or video file with Trimato from Finder to use a standalone Clip Editor.</li>
     </ul>
 
     <h2>Continue after a standalone edit</h2>
@@ -33,6 +33,9 @@
         <li>Activate Mark Out or press O.</li>
     </ol>
 
+    <h2>Edit audio against its waveform</h2>
+    <p>An audio-only clip displays a static waveform in the viewer with a visible playhead that follows playback and seeking. The waveform is a visual overview; the standard playhead, timecode, markers, transport controls, and edit commands remain the operable controls. Frame stepping is unavailable because an audio file has no video frames.</p>
+
     <h2>Delete or trim material</h2>
     <ul>
         <li>Activate Delete Selection or press Delete to remove the marked section.</li>
@@ -44,14 +47,14 @@
     <p>When editing a timeline clip or cutaway from a project, activate Update Clip to apply the current edit to that timeline item.</p>
 
     <h2>Add the edit to the project</h2>
-    <p>Use Append to Timeline, Insert and Split, Insert and Overwrite, or Insert on Top. If both In and Out points are set, the placement uses that marked section. Otherwise, it uses the complete current edit.</p>
+    <p>Use Append to Timeline, Insert and Split, or Insert and Overwrite with audio or video. Video clips also provide Insert on Top because a cutaway supplies picture. If both In and Out points are set, the placement uses that marked section. Otherwise, it uses the complete current edit.</p>
 
     <h2>Export a standalone clip</h2>
     <ol>
         <li>Set both In and Out points to export a marked section, or clear both to export the complete current edit.</li>
         <li>Activate Export Clip or press Command-E.</li>
         <li>In the Export Clip dialog, enter a filename and choose a location.</li>
-        <li>Choose Original format, H.264 MP4, HEVC MP4, H.264 QuickTime movie, HEVC movie, ProRes 422 LT movie, ProRes 422 movie, ProRes 422 HQ movie, M4A AAC audio, M4A Apple Lossless audio, FLAC audio, WAV audio at 16-bit, or WAV audio at 24-bit.</li>
+        <li>For video, choose H.264 MP4, HEVC MP4, H.264 QuickTime movie, HEVC movie, ProRes 422 LT movie, ProRes 422 movie, ProRes 422 HQ movie, or an audio format. For audio-only media, choose M4A AAC audio, M4A Apple Lossless audio, FLAC audio, WAV audio at 16-bit, or WAV audio at 24-bit. Original format also appears when macOS can pass through the source container and codec.</li>
         <li>Activate Export.</li>
         <li>Read Export progress in the progress dialog. Activate Cancel Export to stop.</li>
     </ol>

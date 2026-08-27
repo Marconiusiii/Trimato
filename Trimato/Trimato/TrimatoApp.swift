@@ -56,22 +56,22 @@ struct TrimatoApp: App {
                     if let projectPlayer { projectPlayer.togglePlayback() }
                     else { viewModel?.togglePlayPause() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
                 Button("Play Backward (J)") {
                     if let projectPlayer { projectPlayer.pressJ() }
                     else { viewModel?.pressJ() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
                 Button("Play or Pause (K)") {
                     if let projectPlayer { projectPlayer.pressK() }
                     else { viewModel?.pressK() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
                 Button("Play Forward (L)") {
                     if let projectPlayer { projectPlayer.pressL() }
                     else { viewModel?.pressL() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
                 Divider()
                 Button("Step Backward (Left Arrow)") {
                     if let projectPlayer { projectPlayer.stepBackward() }
@@ -88,34 +88,34 @@ struct TrimatoApp: App {
                     if let projectPlayer { projectPlayer.goToPreviousEdit() }
                     else { viewModel?.goToPreviousTimelinePoint() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
                 Button("Next Edit Point (Command-Right Arrow)") {
                     if let projectPlayer { projectPlayer.goToNextEdit() }
                     else { viewModel?.goToNextTimelinePoint() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
                 Button("Go to Beginning (Command-Up Arrow)") {
                     if let projectPlayer { projectPlayer.goToStart() }
                     else { viewModel?.goToStart() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
                 Button("Go to End (Command-Down Arrow)") {
                     if let projectPlayer { projectPlayer.goToEnd() }
                     else { viewModel?.goToEnd() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasVideo != true)
+                .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
             }
             CommandMenu("Markers") {
                 Button("Mark In (I)") {
                     if let projectPlayer { projectPlayer.markIn() }
                     else { viewModel?.markIn() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasVideo != true || viewModel?.isExporting == true))
+                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasMedia != true || viewModel?.isExporting == true))
                 Button("Mark Out (O)") {
                     if let projectPlayer { projectPlayer.markOut() }
                     else { viewModel?.markOut() }
                 }
-                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasVideo != true || viewModel?.isExporting == true))
+                .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasMedia != true || viewModel?.isExporting == true))
                 Divider()
                 Button("Clear In") {
                     if let projectPlayer { projectPlayer.clearIn() }
@@ -147,12 +147,18 @@ struct TrimatoApp: App {
                     clipPlacement?.place(.cutawaySourceAudio)
                 }
                 .keyboardShortcut("q", modifiers: [])
-                .disabled(clipPlacement?.canPlace != true)
+                .disabled(
+                    clipPlacement?.canPlace != true ||
+                        clipPlacement.flatMap { $0.controller.asset(for: $0.editSelection) }?.hasVideo != true
+                )
                 Button(PlacementAction.cutawayPrimaryAudio.title) {
                     clipPlacement?.place(.cutawayPrimaryAudio)
                 }
                 .keyboardShortcut("q", modifiers: [.option])
-                .disabled(clipPlacement?.canPlace != true)
+                .disabled(
+                    clipPlacement?.canPlace != true ||
+                        clipPlacement.flatMap { $0.controller.asset(for: $0.editSelection) }?.hasVideo != true
+                )
             }
             CommandMenu("Timeline") {
                 Button("Blade at Playhead (Command-B)") { projectController?.splitClipAtPlayhead() }

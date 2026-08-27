@@ -90,4 +90,28 @@ struct MediaCacheManagerTests {
         #expect(arguments.contains("pcm_s16le"))
         #expect(!arguments.contains("-vf"))
     }
+
+    @Test func audioProxyAndIntermediateDoNotRequestVideo() {
+        let source = URL(fileURLWithPath: "/source/Recording.wma")
+        let proxy = URL(fileURLWithPath: "/temporary/Proxy.mp4")
+        let intermediate = URL(fileURLWithPath: "/temporary/Intermediate.mov")
+
+        let proxyArguments = ProxyMediaManager.arguments(
+            sourceURL: source,
+            outputURL: proxy,
+            hasVideo: false
+        )
+        let intermediateArguments = ProjectRenderMediaManager.arguments(
+            sourceURL: source,
+            outputURL: intermediate,
+            hasVideo: false,
+            hasAudio: true
+        )
+
+        #expect(proxyArguments.contains("-vn"))
+        #expect(!proxyArguments.contains("0:v:0"))
+        #expect(intermediateArguments.contains("-vn"))
+        #expect(!intermediateArguments.contains("prores_ks"))
+        #expect(intermediateArguments.contains("pcm_s16le"))
+    }
 }

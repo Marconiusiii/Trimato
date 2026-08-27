@@ -115,12 +115,14 @@ struct FFmpegMediaProbe {
         ])
         do {
             let report = try JSONDecoder().decode(Report.self, from: result.standardOutput)
-            guard report.videoStream != nil else { throw MediaSourceError.noVideoTrack }
+            guard report.videoStream != nil || report.hasAudio else {
+                throw MediaSourceError.noMediaTracks
+            }
             return report
         } catch let error as MediaSourceError {
             throw error
         } catch {
-            throw MediaSourceError.unreadable("The selected video's technical information could not be read.")
+            throw MediaSourceError.unreadable("The selected media's technical information could not be read.")
         }
     }
 

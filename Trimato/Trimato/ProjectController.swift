@@ -104,7 +104,7 @@ final class ProjectController: ObservableObject {
         panel.title = "Relink \(asset.name)"
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.movie, .data]
+        panel.allowedContentTypes = [.movie, .audio, .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         Task { @MainActor in
@@ -146,12 +146,10 @@ final class ProjectController: ObservableObject {
             return
         }
 
-        let hasExportableAudio = project.primaryTimeline.contains { clip in
-            project.asset(id: clip.assetID)?.hasAudio == true
-        } || project.cutaways.contains { cutaway in
-            cutaway.audioMode == .sourceAudio && project.asset(id: cutaway.assetID)?.hasAudio == true
+        let formats = ExportFormat.projectFormats.filter { format in
+            (format.isAudioOnly && project.hasTimelineAudio) ||
+                (!format.isAudioOnly && project.hasTimelineVideo)
         }
-        let formats = ExportFormat.projectFormats.filter { !$0.isAudioOnly || hasExportableAudio }
         guard let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         let savePanel = ExportSavePanel(
             title: "Export Project",
@@ -291,6 +289,7 @@ final class ProjectController: ObservableObject {
                 asset: originalAsset,
                 contentType: contentType,
                 mode: .nativePassthrough,
+                hasVideo: asset.hasVideo,
                 hasAudio: asset.hasAudio
             )
         case .nativeMP4Export:
@@ -299,6 +298,7 @@ final class ProjectController: ObservableObject {
                 asset: originalAsset,
                 contentType: contentType,
                 mode: .nativePlaybackMP4Export,
+                hasVideo: asset.hasVideo,
                 hasAudio: asset.hasAudio
             )
         case .cachedProxy:
@@ -308,7 +308,8 @@ final class ProjectController: ObservableObject {
                 sourceURL: originalURL,
                 duration: asset.duration.seconds,
                 cacheKey: cacheKey,
-                fingerprint: fingerprint
+                fingerprint: fingerprint,
+                hasVideo: asset.hasVideo
             )
             return MediaSource(
                 originalURL: originalURL,
@@ -318,6 +319,7 @@ final class ProjectController: ObservableObject {
                 contentType: contentType,
                 mode: .proxyPlaybackMP4Export,
                 frameTimestamps: [],
+                hasVideo: asset.hasVideo,
                 hasAudio: asset.hasAudio
             )
         }
@@ -326,10 +328,10 @@ final class ProjectController: ObservableObject {
     func importFiles(into folderID: UUID? = nil) {
         guard !isImporting, NSApp.modalWindow == nil else { return }
         let panel = NSOpenPanel()
-        panel.title = "Import Video Files"
+        panel.title = "Import Media Files"
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.movie, .data]
+        panel.allowedContentTypes = [.movie, .audio, .data]
         guard panel.runModal() == .OK else { return }
 
         importFiles(at: panel.urls, into: folderID)

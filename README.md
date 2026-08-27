@@ -1,6 +1,6 @@
 # Trimato
 
-Trimato is an accessibility-first, keyboard-driven lightweight video editor for macOS. Its focused clip editor remains the primary place to mark, trim, and remove sections. Edited source clips can then be arranged non-destructively in a saved Trimato project and exported as a finished video or audio file.
+Trimato is an accessibility-first, keyboard-driven lightweight audio and video editor for macOS. Its focused clip editor remains the primary place to mark, trim, and remove sections. Edited source clips can then be arranged non-destructively in a saved Trimato project and exported as a finished video or audio file.
 
 Created by Marco Salsiccia.
 
@@ -12,14 +12,15 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 
 - Create and save `.trimato` project packages with automatic or custom dimensions and frame rate.
 - Organize imported media in project folders without moving the original files in Finder.
-- Activate Trim a Clip on the welcome screen to choose a video and open the standalone Clip Editor without creating a project first, then create a project from the current edit when ready.
+- Activate Trim a Clip on the welcome screen to choose an audio or video file and open the standalone Clip Editor without creating a project first, then create a project from the current edit when ready.
+- Edit audio-only sources against a static waveform with a visible playhead, using the same playback, marker, trimming, timeline, and project tools as video.
 - Open a source clip, timeline clip, or cutaway in Trimato's focused clip editor.
 - Arrange clips in a magnetic primary storyline with no empty gaps.
 - Append clips, insert and split at the playhead, or replace the remainder of the clip at the playhead.
 - Add a single-layer cutaway that temporarily replaces the picture, either with its source audio or while retaining the primary storyline audio.
 - Split, rename, delete, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
 - Preview and export the complete arranged project as H.264 or HEVC MP4, H.264 or HEVC QuickTime, ProRes 422 LT, ProRes 422, ProRes 422 HQ, M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, or 24-bit WAV.
-- Open videos from the File menu, Finder, drag and drop, or Command-O.
+- Open audio and video files from the File menu, Finder, drag and drop, or Command-O.
 - Play, pause, seek, and move forward or backward one frame at a time.
 - Display the playhead as timecode or a frame number.
 - Copy the current `hh:mm:ss.mmm` timecode as plain text.
@@ -30,8 +31,8 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 - Jump among the start, In marker, Out marker, and end of the current edit.
 - Export the complete edited clip or only the current In-to-Out selection.
 - Preserve the source container and codec when native passthrough is available.
-- Convert unsupported playback formats to an MP4 export using the bundled FFmpeg tools.
-- Open common video formats through Finder after installing the app in Applications.
+- Convert unsupported playback formats to a local playback proxy using the bundled FFmpeg tools.
+- Open common audio and video formats through Finder after installing the app in Applications.
 
 ## Keyboard controls
 
@@ -61,7 +62,7 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 ### Files and timecode
 
 - C: Copy the current timecode as plain text.
-- Command-O: Open a video.
+- Command-O: Open an audio or video file.
 - Command-R: Create a project from the current standalone clip edit.
 - Command-E: Export the edited clip or current selection.
 
@@ -90,7 +91,7 @@ In and Out are general selection markers:
 
 After a clip-editor deletion, the playhead moves to the new edit point and the markers are cleared. In a Trimato project, the resulting source ranges are saved with the media or timeline clip. Project changes participate in the standard Undo and Redo commands.
 
-The project timeline is a magnetic primary storyline. Insert at Playhead splits the clip under the playhead and preserves both sides. Replace Clip Remainder preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips in place. A cutaway changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
+The project timeline is a magnetic primary storyline for both audio and video. Insert at Playhead splits the clip under the playhead and preserves both sides. Replace Clip Remainder preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips in place. A cutaway requires a visual source. It changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
 
 Every primary clip and cutaway has a distinct displayed timeline name. Repeated filenames and additional uses of the same source receive stable letter suffixes. Choose Rename Clip from the item's context menu or Selected Clip Actions to give an instance a unique custom name. Timeline renames are saved in the project and participate in Undo and Redo.
 
@@ -98,9 +99,11 @@ Every primary clip and cutaway has a distinct displayed timeline name. Repeated 
 
 Video exports include H.264 MP4, HEVC MP4, H.264 QuickTime, HEVC QuickTime, ProRes 422 LT, ProRes 422, and ProRes 422 HQ. Audio-only exports include M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, and 24-bit WAV. Audio-only choices are available when the edited clip or project contains exportable audio.
 
+An audio-only clip or project offers only audio output formats because it has no picture to encode. A mixed project offers both video and audio output formats. In an audio-only project, adding the first video clip establishes the automatic project resolution and frame rate.
+
 ## Mixed media and project format
 
-Each project has one resolution and frame rate. Automatic from First Clip uses the first clip placed on the primary timeline, not the first file imported into the Project Browser. A project created directly from a standalone clip uses that clip's displayed dimensions and nominal frame rate. Later clips retain their own source properties while Trimato conforms them to the project during preview and export.
+Each project that contains video has one resolution and frame rate. Automatic from First Clip uses the first video clip placed on the primary timeline, not the first file imported into the Project Browser. An earlier audio-only timeline clip does not establish a visual format. A project created directly from a standalone video uses that clip's displayed dimensions and nominal frame rate; a project created from standalone audio remains automatic until video is added. Later clips retain their own source properties while Trimato conforms them to the project during preview and export.
 
 Trimato uses proportional Fit for source dimensions and orientation. The complete source image remains visible and its aspect ratio is preserved:
 
@@ -113,6 +116,8 @@ Fit can scale a lower-resolution source up until one dimension reaches the proje
 
 The project frame rate establishes a fixed output cadence. Frames from higher-rate sources are omitted as needed, and frames from lower-rate sources are repeated as needed. This conversion does not change clip speed or audio duration. Trimato does not currently use optical flow to synthesize intermediate frames, so conversions such as 24 fps to 30 fps can retain visible motion judder.
 
+Audio-only timeline sections display as black picture in a video project while their audio continues normally. A visual cutaway can supply picture over an audio-only primary clip. Insert on Top is unavailable for an audio-only source because a cutaway must contain video.
+
 Custom projects provide common landscape, vertical, square, and portrait resolution presets, plus standard frame rates from 23.976 through 120 fps. Choose Custom dimensions or Custom frame rate when a preset does not match the intended output. Custom dimensions accept even width and height values from 2 through 8,192 pixels, and custom frame rates accept values from 1 through 240 fps.
 
 When entering custom dimensions, Lock aspect ratio is on initially. Changing either dimension calculates the other from the locked ratio and rounds the calculated value to an even pixel count. Turn the checkbox off to set width and height independently, including unconventional project frames. Turning it back on locks the dimensions at their current ratio. The Inspector identifies proportional fitting and frame-rate conversion when a selected source differs from the project.
@@ -121,11 +126,11 @@ When entering custom dimensions, Lock aspect ratio is on initially. Changing eit
 
 Trimato checks the media streams inside a file rather than relying only on its filename extension. Two files with the same extension can use different codecs and require different handling.
 
-When AVFoundation can play and pass through a source natively, Trimato plays the original and can retain its file type and codec when Original format is selected for a standalone clip export. This commonly includes QuickTime Movie, MP4, and M4V sources whose internal codecs are supported by macOS.
+When AVFoundation can play and pass through a source natively, Trimato plays the original and can retain its file type and codec when Original format is selected for a standalone clip export. This commonly includes QuickTime Movie, MP4, M4V, M4A, WAV, AIFF, and other sources whose internal codecs are supported by macOS.
 
 Some sources can be played by AVFoundation but cannot be passed through in their original file type or codec. Trimato still plays these sources directly, then converts them when an exported format requires it.
 
-When AVFoundation cannot play a source, Trimato uses its bundled FFmpeg and ffprobe tools to inspect the local file and create an MP4 playback proxy. The proxy is used for responsive preview and editing; it does not replace the original and is not used as the final-quality source for a project export. Explicitly registered fallback extensions include:
+When AVFoundation cannot play a source, Trimato uses its bundled FFmpeg and ffprobe tools to inspect the local file and create a playback proxy. Audio-only proxies contain audio without manufacturing a video track. The proxy is used for responsive preview and editing; it does not replace the original and is not used as the final-quality source for a project export. Explicitly registered fallback extensions include:
 
 - MKV
 - WebM
@@ -142,7 +147,7 @@ The bundled tools have networking, encrypted-stream protocols, and HLS support d
 
 Trimato projects save editing instructions and references to source files. They do not copy the original media into the project package. Keep the original files available at their saved locations. If a source is moved, renamed, disconnected, or deleted, use Relink Clip to locate it before previewing or exporting that part of the project.
 
-For media that AVFoundation cannot play, Trimato stores an MP4 playback proxy in the macOS Caches directory. A project can reuse a valid proxy after it is closed and reopened. Trimato compares the source file's size and modification date with the information saved for the proxy; if the source changes, Trimato discards the stale proxy and creates a new one.
+For media that AVFoundation cannot play, Trimato stores a playback proxy in the macOS Caches directory. A project can reuse a valid proxy after it is closed and reopened. Trimato compares the source file's size and modification date with the information saved for the proxy; if the source changes, Trimato discards the stale proxy and creates a new one.
 
 Playback proxies are disposable. Trimato recreates a missing proxy when the project next needs it, provided the original source remains accessible. macOS may also remove files from its Caches directory when storage is constrained.
 
@@ -236,7 +241,7 @@ xcodebuild \
 
 ## Privacy and temporary files
 
-Trimato has no accounts, advertising, analytics, or tracking. Video inspection, proxy creation, editing, and export happen locally on the Mac.
+Trimato has no accounts, advertising, analytics, or tracking. Media inspection, waveform generation, proxy creation, editing, and export happen locally on the Mac.
 
 The original source file is not modified. Project playback proxies can remain in the macOS Caches directory so they can be reused across sessions. Standalone temporary proxies and final-export render intermediates are removed after their operation or editor session ends normally. Canceling an import or export removes its incomplete output. An abnormal process termination can prevent normal cleanup code from running.
 

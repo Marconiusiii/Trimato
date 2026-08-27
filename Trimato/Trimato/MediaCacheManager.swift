@@ -93,6 +93,7 @@ actor MediaCacheManager {
         duration: Double,
         cacheKey: UUID,
         fingerprint: SourceMediaFingerprint,
+        hasVideo: Bool = true,
         progress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
     ) async throws -> URL {
         try loadIndexIfNeeded()
@@ -115,6 +116,7 @@ actor MediaCacheManager {
                 sourceURL: sourceURL,
                 duration: duration,
                 cacheKey: cacheKey,
+                hasVideo: hasVideo,
                 progress: progress
             )
         }

@@ -32,22 +32,30 @@ nonisolated enum ProxyMediaManager {
     static func arguments(
         sourceURL: URL,
         outputURL: URL,
+        hasVideo: Bool = true,
         useVideoToolbox: Bool = true
     ) -> [String] {
         var result = [
             "-hide_banner", "-nostdin", "-y",
-            "-i", sourceURL.path,
-            "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
-            "-vf", "scale='min(1280,iw)':-2",
-            "-fps_mode", "passthrough",
+            "-i", sourceURL.path
         ]
-        if useVideoToolbox {
-            result += ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-tag:v", "avc1"]
+        if hasVideo {
+            result += [
+                "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
+                "-vf", "scale='min(1280,iw)':-2",
+                "-fps_mode", "passthrough",
+            ]
+            if useVideoToolbox {
+                result += ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-tag:v", "avc1"]
+            } else {
+                result += ["-c:v", "mpeg4", "-q:v", "5", "-tag:v", "mp4v"]
+            }
+            result += ["-c:a", "aac"]
         } else {
-            result += ["-c:v", "mpeg4", "-q:v", "5", "-tag:v", "mp4v"]
+            result += ["-map", "0:a:0", "-vn", "-sn", "-dn", "-c:a", "aac"]
         }
         result += [
-            "-c:a", "aac", "-movflags", "+faststart",
+            "-movflags", "+faststart",
             "-progress", "pipe:1", "-nostats",
             outputURL.path
         ]
@@ -57,12 +65,14 @@ nonisolated enum ProxyMediaManager {
     static func createProxy(
         sourceURL: URL,
         duration: Double,
+        hasVideo: Bool = true,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws -> URL {
         let outputURL = try proxyURL(for: sourceURL)
         return try await createProxy(
             sourceURL: sourceURL,
             duration: duration,
+            hasVideo: hasVideo,
             outputURL: outputURL,
             progress: progress
         )
@@ -72,6 +82,7 @@ nonisolated enum ProxyMediaManager {
         sourceURL: URL,
         duration: Double,
         cacheKey: UUID,
+        hasVideo: Bool = true,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws -> URL {
         let finalURL = try cachedProxyURL(for: cacheKey)
@@ -81,6 +92,7 @@ nonisolated enum ProxyMediaManager {
         let generatedURL = try await createProxy(
             sourceURL: sourceURL,
             duration: duration,
+            hasVideo: hasVideo,
             outputURL: temporaryURL,
             progress: progress
         )
@@ -100,6 +112,7 @@ nonisolated enum ProxyMediaManager {
     private static func createProxy(
         sourceURL: URL,
         duration: Double,
+        hasVideo: Bool,
         outputURL: URL,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws -> URL {
@@ -107,17 +120,18 @@ nonisolated enum ProxyMediaManager {
             do {
                 _ = try await FFmpegRunner.run(
                     tool: .ffmpeg,
-                    arguments: arguments(sourceURL: sourceURL, outputURL: outputURL),
+                    arguments: arguments(sourceURL: sourceURL, outputURL: outputURL, hasVideo: hasVideo),
                     progress: progress,
                     expectedDuration: duration
                 )
-            } catch let error as FFmpegCommandError where error.isVideoToolboxUnavailable {
+            } catch let error as FFmpegCommandError where hasVideo && error.isVideoToolboxUnavailable {
                 try Task.checkCancellation()
                 _ = try await FFmpegRunner.run(
                     tool: .ffmpeg,
                     arguments: arguments(
                         sourceURL: sourceURL,
                         outputURL: outputURL,
+                        hasVideo: hasVideo,
                         useVideoToolbox: false
                     ),
                     progress: progress,

@@ -196,7 +196,7 @@ struct ProjectLauncherView: View {
         let panel = NSOpenPanel()
         panel.title = "Trim a Clip"
         panel.prompt = "Open"
-        panel.allowedContentTypes = [.movie, .data]
+        panel.allowedContentTypes = [.movie, .audio, .data]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true

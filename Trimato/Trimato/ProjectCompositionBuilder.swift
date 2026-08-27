@@ -3,7 +3,7 @@ import Foundation
 
 struct ProjectCompositionResult {
     let composition: AVMutableComposition
-    let videoComposition: AVMutableVideoComposition
+    let videoComposition: AVMutableVideoComposition?
     let audioMix: AVMutableAudioMix?
     let temporaryMediaURLs: [URL]
 }
@@ -52,23 +52,17 @@ enum ProjectCompositionBuilder {
         purpose: ProjectCompositionPurpose = .preview
     ) async throws -> ProjectCompositionResult {
         guard !project.primaryTimeline.isEmpty else { throw ProjectCompositionError.emptyTimeline }
-        guard let width = project.format.width, let height = project.format.height,
-              width > 0, height > 0 else {
-            throw ProjectCompositionError.unresolvedFormat
-        }
-
         let composition = AVMutableComposition()
-        guard let primaryVideo = composition.addMutableTrack(
-            withMediaType: .video,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            throw ProjectCompositionError.cannotCreateTrack
-        }
+        var primaryVideo: AVMutableCompositionTrack?
         var primaryAudio: AVMutableCompositionTrack?
         var cutawayVideo: AVMutableCompositionTrack?
         var cutawayAudio: AVMutableCompositionTrack?
 
-        let renderSize = CGSize(width: width, height: height)
+        let renderSize: CGSize? = {
+            guard let width = project.format.width, let height = project.format.height,
+                  width > 0, height > 0 else { return nil }
+            return CGSize(width: width, height: height)
+        }()
         var assets: [UUID: AVURLAsset] = [:]
         var temporaryMediaURLs: [URL] = []
         var shouldPreserveTemporaryMedia = false
@@ -91,14 +85,30 @@ enum ProjectCompositionBuilder {
                 cache: &assets,
                 temporaryMediaURLs: &temporaryMediaURLs
             )
-            guard let video = try await asset.loadTracks(withMediaType: .video).first else {
-                throw ProjectCompositionError.missingVideo(assetRecord.name)
-            }
+            let video = try await asset.loadTracks(withMediaType: .video).first
             let audio = try await asset.loadTracks(withMediaType: .audio).first
-            let transform = try await displayTransform(for: video, renderSize: renderSize)
+            guard video != nil || audio != nil else {
+                throw ProjectCompositionError.missingMedia(assetRecord.name)
+            }
+            let transform: CGAffineTransform?
+            if let video {
+                guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
+                transform = try await displayTransform(for: video, renderSize: renderSize)
+                if primaryVideo == nil {
+                    primaryVideo = composition.addMutableTrack(
+                        withMediaType: .video,
+                        preferredTrackID: kCMPersistentTrackID_Invalid
+                    )
+                }
+                guard primaryVideo != nil else { throw ProjectCompositionError.cannotCreateTrack }
+            } else {
+                transform = nil
+            }
             for segment in clip.segments {
                 let range = segment.sourceRange.cmTimeRange
-                try primaryVideo.insertTimeRange(range, of: video, at: cursor.cmTime)
+                if let video, let primaryVideo {
+                    try primaryVideo.insertTimeRange(range, of: video, at: cursor.cmTime)
+                }
                 if let audio {
                     let available = try await audio.load(.timeRange)
                     let portion = CMTimeRangeGetIntersection(range, otherRange: available)
@@ -118,10 +128,12 @@ enum ProjectCompositionBuilder {
                         )
                     }
                 }
-                primaryTransforms.append((
-                    ProjectTimeRange(start: cursor, duration: segment.duration),
-                    transform
-                ))
+                if let transform {
+                    primaryTransforms.append((
+                        ProjectTimeRange(start: cursor, duration: segment.duration),
+                        transform
+                    ))
+                }
                 cursor = cursor + segment.duration
             }
         }
@@ -139,6 +151,7 @@ enum ProjectCompositionBuilder {
             guard let video = try await asset.loadTracks(withMediaType: .video).first else {
                 throw ProjectCompositionError.missingVideo(assetRecord.name)
             }
+            guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
             if cutawayVideo == nil {
                 cutawayVideo = composition.addMutableTrack(
                     withMediaType: .video,
@@ -181,20 +194,27 @@ enum ProjectCompositionBuilder {
             }
         }
 
-        let videoComposition = AVMutableVideoComposition()
-        videoComposition.renderSize = renderSize
-        videoComposition.frameDuration = CMTime(
-            seconds: 1 / max(project.format.frameRate ?? 30, 1),
-            preferredTimescale: ProjectTime.defaultTimescale
-        )
-        videoComposition.instructions = makeVideoInstructions(
-            duration: project.duration,
-            primaryTrack: primaryVideo,
-            primaryTransforms: primaryTransforms,
-            cutawayTrack: cutawayVideo,
-            cutawayTransforms: cutawayTransforms,
-            cutaways: project.cutaways
-        )
+        let videoComposition: AVMutableVideoComposition?
+        if primaryVideo != nil || cutawayVideo != nil {
+            guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
+            let composition = AVMutableVideoComposition()
+            composition.renderSize = renderSize
+            composition.frameDuration = CMTime(
+                seconds: 1 / max(project.format.frameRate ?? 30, 1),
+                preferredTimescale: ProjectTime.defaultTimescale
+            )
+            composition.instructions = makeVideoInstructions(
+                duration: project.duration,
+                primaryTrack: primaryVideo,
+                primaryTransforms: primaryTransforms,
+                cutawayTrack: cutawayVideo,
+                cutawayTransforms: cutawayTransforms,
+                cutaways: project.cutaways
+            )
+            videoComposition = composition
+        } else {
+            videoComposition = nil
+        }
 
         let sourceAudioCutaways = project.cutaways.filter { $0.audioMode == .sourceAudio }
         let audioMix: AVMutableAudioMix?
@@ -258,7 +278,8 @@ enum ProjectCompositionBuilder {
                 sourceURL: url,
                 duration: record.duration.seconds,
                 cacheKey: cacheKey,
-                fingerprint: fingerprint
+                fingerprint: fingerprint,
+                hasVideo: record.hasVideo
             )
             let asset = AVURLAsset(url: proxyURL)
             cache[record.id] = asset
@@ -266,24 +287,25 @@ enum ProjectCompositionBuilder {
         }
         var asset = AVURLAsset(url: url)
         let isPlayable = (try? await asset.load(.isPlayable)) ?? false
-        let videoTracks = try await asset.loadTracks(withMediaType: .video)
         if purpose == .finalExport,
-           record.playbackMode == .cachedProxy || !isPlayable || videoTracks.isEmpty {
+           record.playbackMode == .cachedProxy || !isPlayable {
             let intermediateURL = try await ProjectRenderMediaManager.createIntermediate(
                 sourceURL: url,
                 duration: record.duration.seconds,
                 width: record.naturalWidth,
                 height: record.naturalHeight,
+                hasVideo: record.hasVideo,
                 hasAudio: record.hasAudio
             )
             temporaryMediaURLs.append(intermediateURL)
             asset = AVURLAsset(url: intermediateURL)
-        } else if purpose == .preview, !isPlayable || videoTracks.isEmpty {
+        } else if purpose == .preview, !isPlayable {
             let report = try await FFmpegMediaProbe.inspect(url: url)
             try FFmpegMediaProbe.validateForMP4Conversion(report)
             let proxyURL = try await ProxyMediaManager.createProxy(
                 sourceURL: url,
                 duration: report.duration,
+                hasVideo: report.videoStream != nil,
                 progress: { _ in }
             )
             temporaryMediaURLs.append(proxyURL)
@@ -316,7 +338,7 @@ enum ProjectCompositionBuilder {
 
     private static func makeVideoInstructions(
         duration: ProjectTime,
-        primaryTrack: AVCompositionTrack,
+        primaryTrack: AVCompositionTrack?,
         primaryTransforms: [(ProjectTimeRange, CGAffineTransform)],
         cutawayTrack: AVCompositionTrack?,
         cutawayTransforms: [(ProjectTimeRange, CGAffineTransform)],
@@ -333,17 +355,20 @@ enum ProjectCompositionBuilder {
             instruction.timeRange = ProjectTimeRange(start: start, duration: end - start).cmTimeRange
             instruction.backgroundColor = CGColor(gray: 0, alpha: 1)
 
-            let primaryLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: primaryTrack)
-            if let transform = primaryTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
+            let primaryLayer: AVMutableVideoCompositionLayerInstruction? = primaryTrack.map {
+                AVMutableVideoCompositionLayerInstruction(assetTrack: $0)
+            }
+            if let primaryLayer,
+               let transform = primaryTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
                 primaryLayer.setTransform(transform, at: start.cmTime)
             }
             if let cutawayTrack,
                let cutawayTransform = cutawayTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
                 let cutawayLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: cutawayTrack)
                 cutawayLayer.setTransform(cutawayTransform, at: start.cmTime)
-                instruction.layerInstructions = [cutawayLayer, primaryLayer]
+                instruction.layerInstructions = [cutawayLayer] + [primaryLayer].compactMap { $0 }
             } else {
-                instruction.layerInstructions = [primaryLayer]
+                instruction.layerInstructions = [primaryLayer].compactMap { $0 }
             }
             return instruction
         }

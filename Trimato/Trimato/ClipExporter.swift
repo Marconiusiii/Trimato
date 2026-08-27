@@ -8,9 +8,9 @@ enum ClipExportError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            return "This video cannot be exported without converting it."
+            return "This media cannot be exported without converting it."
         case .unsupportedFileType:
-            return "The selected output file type is not supported for this video."
+            return "The selected output file type is not supported for this media."
         }
     }
 }

@@ -9,6 +9,7 @@ enum ProjectTimelineError: LocalizedError, Equatable {
     case cutawayOverlap
     case invalidName
     case duplicateName
+    case audioOnlyCutaway
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +21,7 @@ enum ProjectTimelineError: LocalizedError, Equatable {
         case .cutawayOverlap: "Another cutaway already occupies that position."
         case .invalidName: "Enter a name for the timeline clip."
         case .duplicateName: "Choose a name that is not already used in the timeline."
+        case .audioOnlyCutaway: "Insert on Top requires a clip with video. Add this audio clip to the primary timeline instead."
         }
     }
 }
@@ -31,8 +33,9 @@ extension TrimatoProject {
             return
         }
         format = ProjectFormat(mode: .automatic)
-        guard let firstClip = primaryTimeline.first,
-              let asset = asset(id: firstClip.assetID),
+        guard let asset = primaryTimeline.compactMap({ clip in
+            self.asset(id: clip.assetID)
+        }).first(where: \.hasVideo),
               let width = asset.naturalWidth,
               let height = asset.naturalHeight else { return }
         format.width = width
@@ -116,6 +119,7 @@ extension TrimatoProject {
         at playhead: ProjectTime,
         audioMode: CutawayAudioMode
     ) throws -> UUID {
+        guard asset.hasVideo else { throw ProjectTimelineError.audioOnlyCutaway }
         let selectedSegments = (segments ?? asset.sourceEdit).filter { $0.duration.isPositive }
         guard !selectedSegments.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
         var cutaway = TimelineCutaway(
@@ -136,6 +140,7 @@ extension TrimatoProject {
         cutaway = labelForInsertion(cutaway)
         cutaways.append(cutaway)
         cutaways.sort { $0.start < $1.start }
+        resolveAutomaticFormat(from: asset)
         return cutaway.id
     }
 

@@ -47,7 +47,7 @@ nonisolated enum ProjectMediaPlaybackMode: String, Codable, Hashable, Sendable {
 }
 
 nonisolated struct SourceMediaFingerprint: Codable, Hashable, Sendable {
-    static let proxyFormatVersion = 1
+    static let proxyFormatVersion = 2
 
     var fileSize: Int64
     var modificationTime: TimeInterval
@@ -71,6 +71,25 @@ nonisolated struct MediaAssetRecord: Codable, Hashable, Identifiable, Sendable {
 
     var editedDuration: ProjectTime {
         sourceEdit.reduce(.zero) { $0 + $1.duration }
+    }
+
+    var hasVideo: Bool {
+        guard let naturalWidth, let naturalHeight else { return false }
+        return naturalWidth > 0 && naturalHeight > 0
+    }
+}
+
+extension TrimatoProject {
+    var hasTimelineVideo: Bool {
+        primaryTimeline.contains { clip in asset(id: clip.assetID)?.hasVideo == true } ||
+            cutaways.contains { cutaway in asset(id: cutaway.assetID)?.hasVideo == true }
+    }
+
+    var hasTimelineAudio: Bool {
+        primaryTimeline.contains { clip in asset(id: clip.assetID)?.hasAudio == true } ||
+            cutaways.contains { cutaway in
+                cutaway.audioMode == .sourceAudio && asset(id: cutaway.assetID)?.hasAudio == true
+            }
     }
 }
 

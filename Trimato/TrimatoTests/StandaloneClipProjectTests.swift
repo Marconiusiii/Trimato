@@ -34,4 +34,28 @@ struct StandaloneClipProjectTests {
         #expect(project.format.height == 2_160)
         #expect(project.format.frameRate == 24)
     }
+
+    @MainActor
+    @Test func audioOnlySelectionCreatesAnUnresolvedAudioFirstProject() throws {
+        var asset = fixtureAsset(name: "Narration", duration: 12)
+        asset.naturalWidth = nil
+        asset.naturalHeight = nil
+        asset.frameRate = nil
+        asset.hasAudio = true
+        let selection = [SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 2),
+            duration: ProjectTime(seconds: 5)
+        ))]
+
+        let project = try StandaloneClipProjectBuilder.build(
+            asset: asset,
+            timelineSegments: selection
+        )
+
+        #expect(project.primaryTimeline.count == 1)
+        #expect(project.duration == ProjectTime(seconds: 5))
+        #expect(project.hasTimelineAudio)
+        #expect(!project.hasTimelineVideo)
+        #expect(!project.format.isResolved)
+    }
 }

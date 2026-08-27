@@ -651,7 +651,7 @@ struct TrimatoTests {
         #expect(edited.map(seconds) == [0, 1, 2, 3, 4, 5, 6])
     }
 
-    @Test func appDeclaresVideoDocumentTypes() throws {
+    @Test func appDeclaresAudioAndVideoDocumentTypes() throws {
         let documentTypes = try #require(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleDocumentTypes")
                 as? [[String: Any]]
@@ -660,6 +660,7 @@ struct TrimatoTests {
             .flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }
 
         #expect(contentTypes.contains("public.movie"))
+        #expect(contentTypes.contains("public.audio"))
         #expect(contentTypes.contains("com.marconius.trimato.matroska-video"))
         #expect(contentTypes.contains("com.marconius.trimato.webm-video"))
         let videoType = try #require(documentTypes.first {

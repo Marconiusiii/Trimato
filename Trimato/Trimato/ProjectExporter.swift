@@ -57,6 +57,10 @@ enum ProjectExporter {
             return
         }
 
+        guard project.hasTimelineVideo, result.videoComposition != nil else {
+            throw ExportError.incompatibleFormat(format.title)
+        }
+
         if format.requiresCustomVideoWriter {
             try await CustomMovieExporter.export(
                 asset: result.composition,

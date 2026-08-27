@@ -26,7 +26,7 @@ final class ExternalMediaOpenCoordinator: ObservableObject {
     nonisolated static func route(for url: URL, hasActiveProject: Bool) -> ExternalMediaOpenRoute {
         guard url.isFileURL,
               url.pathExtension.caseInsensitiveCompare("trimato") != .orderedSame,
-              isSupportedVideo(url) else { return .ignore }
+              isSupportedMedia(url) else { return .ignore }
         return hasActiveProject ? .activeProject : .standaloneEditor
     }
 
@@ -82,10 +82,11 @@ final class ExternalMediaOpenCoordinator: ObservableObject {
         }
     }
 
-    private nonisolated static func isSupportedVideo(_ url: URL) -> Bool {
+    private nonisolated static func isSupportedMedia(_ url: URL) -> Bool {
         let explicitlySupported = ["mkv", "webm", "ts", "mts", "m2ts", "vob", "wmv", "flv"]
         if explicitlySupported.contains(url.pathExtension.lowercased()) { return true }
-        return UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return type.conforms(to: .movie) || type.conforms(to: .audio)
     }
 
     private func removeExpiredRegistrations() {

@@ -53,7 +53,10 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published var playbackRate: Float = 0
     @Published var duration: Double = 0
     @Published var currentTime: Double = 0
-    @Published var hasVideo: Bool = false
+    @Published private(set) var hasMedia = false
+    @Published private(set) var hasVideo = false
+    @Published private(set) var waveformSamples: [Float] = []
+    @Published private(set) var isPreparingWaveform = false
     @Published var showingFrames: Bool = false
     @Published var currentFrame: Int = 0
     @Published private(set) var accessibilityTimecodeLabel: String = "0 seconds, 0 milliseconds"
@@ -90,6 +93,8 @@ final class VideoPlayerViewModel: ObservableObject {
     private var exportTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var frameIndexTask: Task<Void, Never>?
+    private var waveformTask: Task<Void, Never>?
+    private var sourceWaveform: AudioWaveformData?
     private var editTask: Task<Void, Never>?
     private var editID: UUID?
     private var loadID: UUID?
@@ -116,6 +121,7 @@ final class VideoPlayerViewModel: ObservableObject {
         exportTask?.cancel()
         loadTask?.cancel()
         frameIndexTask?.cancel()
+        waveformTask?.cancel()
         editTask?.cancel()
         editID = nil
         ProxyMediaManager.removeProxy(at: proxyURL)
@@ -144,18 +150,18 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     var canExport: Bool {
-        guard hasVideo, !isExporting, !isPresentingExportPanel, !isApplyingEdit else { return false }
+        guard hasMedia, !isExporting, !isPresentingExportPanel, !isApplyingEdit else { return false }
         if inMarker == nil, outMarker == nil { return true }
         return Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil
     }
 
     var canDeleteSelection: Bool {
         Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil &&
-            hasVideo && !isExporting && !isApplyingEdit
+            hasMedia && !isExporting && !isApplyingEdit
     }
 
     var canCreateProjectFromClip: Bool {
-        hasVideo && !isLoadingMedia && !isExporting && !isApplyingEdit && !placementSourceSegments.isEmpty
+        hasMedia && !isLoadingMedia && !isExporting && !isApplyingEdit && !placementSourceSegments.isEmpty
     }
 
     func makeProjectFromCurrentClip() async throws -> TrimatoProject {
@@ -166,14 +172,21 @@ final class VideoPlayerViewModel: ObservableObject {
         let originalURL = mediaSource.originalURL
         let originalAsset = mediaSource.originalAsset
         let duration = try await originalAsset.load(.duration)
-        guard duration.isValid, duration.isNumeric, duration > .zero,
-              let videoTrack = try await originalAsset.loadTracks(withMediaType: .video).first else {
-            throw MediaSourceError.noVideoTrack
+        guard duration.isValid, duration.isNumeric, duration > .zero else {
+            throw MediaSourceError.unreadable("The selected media does not have a usable duration.")
         }
-        let naturalSize = try await videoTrack.load(.naturalSize)
-        let transform = try await videoTrack.load(.preferredTransform)
-        let displayedSize = naturalSize.applying(transform)
-        let sourceFrameRate = try await videoTrack.load(.nominalFrameRate)
+        let videoTrack = try await originalAsset.loadTracks(withMediaType: .video).first
+        let displayedSize: CGSize?
+        let sourceFrameRate: Float?
+        if let videoTrack {
+            let naturalSize = try await videoTrack.load(.naturalSize)
+            let transform = try await videoTrack.load(.preferredTransform)
+            displayedSize = naturalSize.applying(transform)
+            sourceFrameRate = try await videoTrack.load(.nominalFrameRate)
+        } else {
+            displayedSize = nil
+            sourceFrameRate = nil
+        }
         let fingerprint = try MediaCacheManager.sourceFingerprint(for: originalURL)
         let bookmark = try? originalURL.bookmarkData(
             options: [.withSecurityScope],
@@ -206,9 +219,9 @@ final class VideoPlayerViewModel: ObservableObject {
             originalPath: originalURL.path,
             bookmarkData: bookmark,
             duration: ProjectTime(duration),
-            naturalWidth: Int(abs(displayedSize.width.rounded())),
-            naturalHeight: Int(abs(displayedSize.height.rounded())),
-            frameRate: sourceFrameRate > 0 ? Double(sourceFrameRate) : nil,
+            naturalWidth: displayedSize.map { Int(abs($0.width.rounded())) },
+            naturalHeight: displayedSize.map { Int(abs($0.height.rounded())) },
+            frameRate: sourceFrameRate.flatMap { $0 > 0 ? Double($0) : nil },
             hasAudio: mediaSource.hasAudio,
             sourceEdit: projectSourceSegments,
             playbackMode: playbackMode,
@@ -222,12 +235,12 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     var canTrimStart: Bool {
-        hasVideo && !isExporting && !isApplyingEdit &&
+        hasMedia && !isExporting && !isApplyingEdit &&
             CMTimeCompare(effectivePlayheadTime, .zero) > 0
     }
 
     var canTrimEnd: Bool {
-        hasVideo && !isExporting && !isApplyingEdit &&
+        hasMedia && !isExporting && !isApplyingEdit &&
             CMTimeCompare(effectivePlayheadTime, mediaDuration) < 0
     }
 
@@ -236,8 +249,8 @@ final class VideoPlayerViewModel: ObservableObject {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.data]
-        panel.title = "Open Video File"
+        panel.allowedContentTypes = [.movie, .audio, .data]
+        panel.title = "Open Media File"
         if panel.runModal() == .OK, let url = panel.url { load(url: url) }
     }
 
@@ -252,6 +265,11 @@ final class VideoPlayerViewModel: ObservableObject {
         loadTask?.cancel()
         frameIndexTask?.cancel()
         frameIndexTask = nil
+        waveformTask?.cancel()
+        waveformTask = nil
+        sourceWaveform = nil
+        waveformSamples = []
+        isPreparingWaveform = false
         editTask?.cancel()
         editTask = nil
         editID = nil
@@ -277,6 +295,7 @@ final class VideoPlayerViewModel: ObservableObject {
         mediaProgress = nil
         isLoadingMedia = true
         player.replaceCurrentItem(with: nil)
+        hasMedia = false
         hasVideo = false
         displayTimecode = "00:00:00.000"
         currentTime = 0; currentFrame = 0; frameRate = 0; duration = 0
@@ -301,6 +320,7 @@ final class VideoPlayerViewModel: ObservableObject {
                     throw CancellationError()
                 }
                 self.mediaSource = source
+                self.hasVideo = source.hasVideo
                 self.proxyURL = preparedSource == nil && source.usesProxy ? source.playbackURL : nil
                 preparedProxyURL = nil
                 if let track = try await source.playbackAsset.loadTracks(withMediaType: .video).first {
@@ -337,7 +357,7 @@ final class VideoPlayerViewModel: ObservableObject {
                     sourceTimestamps: source.frameTimestamps,
                     sourceRanges: timeline.sourceRanges
                 )
-                self.hasVideo = true
+                self.hasMedia = true
                 self.isLoadingMedia = false
                 self.mediaProgress = nil
                 self.mediaStatus = source.usesProxy
@@ -345,13 +365,17 @@ final class VideoPlayerViewModel: ObservableObject {
                     : "Ready"
                 self.loadID = nil
                 self.loadTask = nil
-                if source.frameTimestamps.isEmpty {
+                if source.hasVideo && source.frameTimestamps.isEmpty {
                     self.indexFramesInBackground(
                         at: source.playbackURL,
                         sourceRanges: timeline.sourceRanges
                     )
                 }
-                self.announce(source.usesProxy ? "Video ready using a playback proxy" : "Video ready")
+                if source.hasAudio && !source.hasVideo {
+                    self.prepareWaveform(asset: source.playbackAsset)
+                }
+                let mediaKind = source.hasVideo ? "Video" : "Audio"
+                self.announce(source.usesProxy ? "\(mediaKind) ready using a playback proxy" : "\(mediaKind) ready")
             } catch is CancellationError {
                 ProxyMediaManager.removeProxy(at: preparedProxyURL)
                 guard self.loadID == operationID else { return }
@@ -389,6 +413,8 @@ final class VideoPlayerViewModel: ObservableObject {
         loadTask = nil
         frameIndexTask?.cancel()
         frameIndexTask = nil
+        waveformTask?.cancel()
+        waveformTask = nil
         editTask?.cancel()
         editTask = nil
         editID = nil
@@ -405,6 +431,10 @@ final class VideoPlayerViewModel: ObservableObject {
         editedFrameTimestamps = []
         projectSourceSegments = []
         placementSourceSegments = []
+        sourceWaveform = nil
+        waveformSamples = []
+        isPreparingWaveform = false
+        hasMedia = false
         hasVideo = false
     }
 
@@ -415,7 +445,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func stepForward() {
-        guard !arrowHolding else { return }
+        guard hasVideo, !arrowHolding else { return }
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         scheduleStepEnd()
@@ -425,7 +455,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func stepBackward() {
-        guard !arrowHolding else { return }
+        guard hasVideo, !arrowHolding else { return }
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         scheduleStepEnd()
@@ -444,6 +474,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func toggleTimecodeDisplay() {
+        guard hasVideo else { return }
         showingFrames.toggle()
         accessibilityTimecodeLabel = buildAccessibilityLabel()
     }
@@ -456,14 +487,14 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func markIn() {
-        guard hasVideo, NSApp.modalWindow == nil else { return }
+        guard hasMedia, NSApp.modalWindow == nil else { return }
         let time = effectivePlayheadTime
         setInMarker(at: time)
         announce("In marked at \(spokenTime(time))")
     }
 
     func markOut() {
-        guard hasVideo, NSApp.modalWindow == nil else { return }
+        guard hasMedia, NSApp.modalWindow == nil else { return }
         let time = effectivePlayheadTime
         setOutMarker(at: time)
         announce("Out marked at \(spokenTime(time))")
@@ -565,7 +596,7 @@ final class VideoPlayerViewModel: ObservableObject {
     func exportTrimmedClip() {
         guard NSApp.modalWindow == nil, !isExporting, !isPresentingExportPanel, !isApplyingEdit else { return }
         guard let mediaSource, let editTimeline else {
-            announce("Open a video before exporting")
+            announce("Open a media file before exporting")
             return
         }
 
@@ -584,7 +615,9 @@ final class VideoPlayerViewModel: ObservableObject {
             return
         }
 
-        var formats = ExportFormat.projectFormats.filter { !$0.isAudioOnly || mediaSource.hasAudio }
+        var formats = ExportFormat.projectFormats.filter { format in
+            (format.isAudioOnly && mediaSource.hasAudio) || (!format.isAudioOnly && mediaSource.hasVideo)
+        }
         if mediaSource.mode == .nativePassthrough,
            let sourceContentType = mediaSource.contentType,
            ClipExporter.canPassthrough(asset: mediaSource.originalAsset, sourceContentType: sourceContentType) {
@@ -891,7 +924,7 @@ final class VideoPlayerViewModel: ObservableObject {
         targetTime: CMTime,
         actionDescription: String
     ) {
-        guard hasVideo, !isExporting, !isApplyingEdit,
+        guard hasMedia, !isExporting, !isApplyingEdit,
               let mediaSource, var updatedTimeline = editTimeline else { return }
         do {
             try updatedTimeline.delete(editedRange: range)
@@ -928,6 +961,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.inMarker = nil
                 self.outMarker = nil
                 self.refreshPlacementSourceSegments()
+                self.refreshWaveformSamples()
                 self.player.replaceCurrentItem(with: AVPlayerItem(asset: composition))
                 let destination = CMTimeMinimum(targetTime, updatedTimeline.duration)
                 await self.player.seek(to: destination, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -963,7 +997,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func jump(to point: TimelinePoint) {
-        guard hasVideo else { return }
+        guard hasMedia else { return }
         cancelScrub()
         player.seek(to: point.time, toleranceBefore: .zero, toleranceAfter: .zero)
         announce("\(point.kind.spokenName), \(spokenTime(point.time))")
@@ -1041,7 +1075,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private func setupKeyEventMonitor() {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             guard let self, !self.isLoadingMedia, !self.isExporting, !self.isApplyingEdit,
-                  self.hasVideo, NSApp.modalWindow == nil,
+                  self.hasMedia, NSApp.modalWindow == nil,
                   self.keyboardCommandsAreActive?() != false else {
                 return event
             }
@@ -1161,6 +1195,39 @@ final class VideoPlayerViewModel: ObservableObject {
         }
     }
 
+    private func prepareWaveform(asset: AVAsset) {
+        waveformTask?.cancel()
+        sourceWaveform = nil
+        waveformSamples = []
+        isPreparingWaveform = true
+        waveformTask = Task { @MainActor [weak self] in
+            do {
+                let waveform = try await AudioWaveformAnalyzer.analyze(asset: asset)
+                try Task.checkCancellation()
+                guard let self else { return }
+                self.sourceWaveform = waveform
+                self.refreshWaveformSamples()
+                self.isPreparingWaveform = false
+                self.waveformTask = nil
+            } catch is CancellationError {
+                self?.isPreparingWaveform = false
+                self?.waveformTask = nil
+            } catch {
+                self?.waveformSamples = []
+                self?.isPreparingWaveform = false
+                self?.waveformTask = nil
+            }
+        }
+    }
+
+    private func refreshWaveformSamples() {
+        guard let sourceWaveform, let editTimeline else {
+            waveformSamples = []
+            return
+        }
+        waveformSamples = sourceWaveform.samples(for: editTimeline.sourceRanges)
+    }
+
     // MARK: - Private: media preparation
 
     private func prepareMediaSource(url: URL) async throws -> MediaSource {
@@ -1170,40 +1237,63 @@ final class VideoPlayerViewModel: ObservableObject {
         let isProtected = (try? await asset.load(.hasProtectedContent)) ?? false
         if isProtected { throw MediaSourceError.protectedContent }
         let isPlayable = (try? await asset.load(.isPlayable)) ?? false
+        let hasNativeVideo = ((try? await asset.loadTracks(withMediaType: .video)) ?? []).isEmpty == false
         let hasNativeAudio = ((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty == false
         let nativeDuration = (try? await asset.load(.duration)).map(CMTimeGetSeconds)
 
         if isPlayable, let contentType,
            ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
-            beginFrameIndexing()
-            let timestamps = (try? await FFmpegMediaProbe.frameTimestamps(
-                url: url,
-                duration: nativeDuration,
-                progress: { [weak self] progress in
-                    self?.updateFrameIndexProgress(progress)
-                }
-            )) ?? []
+            let timestamps: [CMTime]
+            if hasNativeVideo {
+                beginFrameIndexing()
+                timestamps = (try? await FFmpegMediaProbe.frameTimestamps(
+                    url: url,
+                    duration: nativeDuration,
+                    progress: { [weak self] progress in
+                        self?.updateFrameIndexProgress(progress)
+                    }
+                )) ?? []
+            } else {
+                timestamps = []
+            }
             return .native(
                 url: url,
                 asset: asset,
                 contentType: contentType,
                 mode: .nativePassthrough,
                 frameTimestamps: timestamps,
+                hasVideo: hasNativeVideo,
                 hasAudio: hasNativeAudio
             )
         }
 
-        updateImportStatus("Analyzing video compatibility")
+        if isPlayable, !hasNativeVideo, hasNativeAudio {
+            return .native(
+                url: url,
+                asset: asset,
+                contentType: contentType,
+                mode: .nativePlaybackMP4Export,
+                hasVideo: false,
+                hasAudio: true
+            )
+        }
+
+        updateImportStatus("Analyzing media compatibility")
         let report = try await FFmpegMediaProbe.inspect(url: url)
         try FFmpegMediaProbe.validateForMP4Conversion(report)
-        beginFrameIndexing()
-        let timestamps = try await FFmpegMediaProbe.frameTimestamps(
-            url: url,
-            duration: report.duration,
-            progress: { [weak self] progress in
-                self?.updateFrameIndexProgress(progress)
-            }
-        )
+        let timestamps: [CMTime]
+        if report.videoStream != nil {
+            beginFrameIndexing()
+            timestamps = try await FFmpegMediaProbe.frameTimestamps(
+                url: url,
+                duration: report.duration,
+                progress: { [weak self] progress in
+                    self?.updateFrameIndexProgress(progress)
+                }
+            )
+        } else {
+            timestamps = []
+        }
 
         if isPlayable {
             return .native(
@@ -1212,6 +1302,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 contentType: contentType,
                 mode: .nativePlaybackMP4Export,
                 frameTimestamps: timestamps,
+                hasVideo: report.videoStream != nil,
                 hasAudio: report.hasAudio
             )
         }
@@ -1221,7 +1312,8 @@ final class VideoPlayerViewModel: ObservableObject {
         mediaProgress = 0
         let generatedProxy = try await ProxyMediaManager.createProxy(
             sourceURL: url,
-            duration: report.duration
+            duration: report.duration,
+            hasVideo: report.videoStream != nil
         ) { [weak self] progress in
             self?.updateImportProgress(progress)
         }
@@ -1234,9 +1326,10 @@ final class VideoPlayerViewModel: ObservableObject {
                 originalAsset: asset,
                 playbackAsset: proxyAsset,
             contentType: contentType,
-            mode: .proxyPlaybackMP4Export,
-            frameTimestamps: timestamps,
-            hasAudio: report.hasAudio
+                mode: .proxyPlaybackMP4Export,
+                frameTimestamps: timestamps,
+                hasVideo: report.videoStream != nil,
+                hasAudio: report.hasAudio
             )
         } catch {
             ProxyMediaManager.removeProxy(at: generatedProxy)
