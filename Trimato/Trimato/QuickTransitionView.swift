@@ -1,16 +1,20 @@
 import SwiftUI
 
 struct QuickTransitionView: View {
+    @Environment(\.dismiss) private var dismiss
+
     let project: TrimatoProject
     let request: TransitionRequest
-    let add: ([TimelineTransition]) -> Void
-    let cancel: () -> Void
+    let add: ([TimelineTransition]) throws -> Void
+    let finished: () -> Void
 
     @State private var addIntro = true
     @State private var addOutro = true
     @State private var includeAudio = true
     @State private var durationText = TransitionDurationInput.defaultText
     @State private var validationMessage: String?
+    @State private var isSubmitting = false
+    @AccessibilityFocusState private var validationMessageFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -36,17 +40,19 @@ struct QuickTransitionView: View {
             if let validationMessage {
                 Text(validationMessage)
                     .foregroundStyle(.red)
+                    .accessibilityFocused($validationMessageFocused)
             }
 
             HStack {
-                Button("Cancel", role: .cancel, action: cancel)
+                Button("Cancel", role: .cancel) { dismiss() }
                 Button(applyTitle, action: apply)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(request.mode == .quickFade && !addIntro && !addOutro)
+                    .disabled(isSubmitting || (request.mode == .quickFade && !addIntro && !addOutro))
             }
         }
         .padding(20)
         .frame(width: 430)
+        .onDisappear(perform: finished)
     }
 
     private var track: TimelineTrack? { project.track(id: request.trackID) }
@@ -92,11 +98,11 @@ struct QuickTransitionView: View {
 
     private func apply() {
         guard let duration = TransitionDurationInput.parse(durationText) else {
-            validationMessage = "Enter a duration greater than zero, such as 1.0 or 1.25 seconds."
+            showValidation("Enter a duration greater than zero, such as 1.0 or 1.25 seconds.")
             return
         }
         guard let track, let clip else {
-            validationMessage = "The timeline clip is no longer available."
+            showValidation("The timeline clip is no longer available.")
             return
         }
         if request.mode == .quickFade {
@@ -107,11 +113,11 @@ struct QuickTransitionView: View {
                 if addIntro { transitions.append(fade(edge: .intro, clip: context.leading, track: context.track, duration: duration)) }
                 if addOutro { transitions.append(fade(edge: .outro, clip: context.leading, track: context.track, duration: duration)) }
             }
-            add(transitions)
+            submit(transitions)
             return
         }
         guard let followingClip else {
-            validationMessage = "Move the playhead to a clip with a following edit."
+            showValidation("Move the playhead to a clip with a following edit.")
             return
         }
         var transitions = [TimelineTransition(
@@ -132,7 +138,26 @@ struct QuickTransitionView: View {
                 trailingClipID: trailing.id
             ))
         }
-        add(transitions)
+        submit(transitions)
+    }
+
+    private func submit(_ transitions: [TimelineTransition]) {
+        isSubmitting = true
+        do {
+            try add(transitions)
+            dismiss()
+        } catch {
+            isSubmitting = false
+            showValidation("Transition could not be added. \(error.localizedDescription)")
+        }
+    }
+
+    private func showValidation(_ message: String) {
+        validationMessageFocused = false
+        validationMessage = message
+        DispatchQueue.main.async {
+            validationMessageFocused = true
+        }
     }
 
     private func fade(

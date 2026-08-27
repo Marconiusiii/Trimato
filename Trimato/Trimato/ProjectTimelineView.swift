@@ -10,8 +10,6 @@ struct ProjectTimelineView: View {
     @State private var isRenamingTrack = false
     @State private var trackName = ""
     @State private var isAddingTrack = false
-    @State private var newTrackName = ""
-    @State private var newTrackKind = TimelineTrackKind.audio
     @State private var editingTransition: TimelineTransition?
     @State private var errorMessage: String?
 
@@ -52,6 +50,7 @@ struct ProjectTimelineView: View {
             HStack {
                 Menu("Selected Element Actions") { selectedElementActions }
                     .disabled(!hasSelectedElement)
+                    .keyboardShortcut(.return, modifiers: .control)
                 Spacer()
             }
             .padding(8)
@@ -65,7 +64,15 @@ struct ProjectTimelineView: View {
         }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
-        .sheet(isPresented: $isAddingTrack) { addTrackSheet }
+        .sheet(isPresented: $isAddingTrack) {
+            AddTrackView(
+                add: { kind, name in
+                    controller.addTrack(kind: kind, name: name)
+                    isAddingTrack = false
+                },
+                cancel: { isAddingTrack = false }
+            )
+        }
         .sheet(item: $editingTransition) { transition in
             TransitionEditorView(
                 transition: transition,
@@ -110,8 +117,23 @@ struct ProjectTimelineView: View {
                 }
                 .padding(8)
             }
-            .accessibilityLabel("Timeline clips")
+            .accessibilityRepresentation {
+                timelineAccessibilityContent
+            }
         }
+    }
+
+    private var timelineAccessibilityContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(timelineElements) { element in
+                switch element.content {
+                case .clip(let clip): clipButton(clip)
+                case .transition(let transition): transitionButton(transition)
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Timeline clips")
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -273,26 +295,6 @@ struct ProjectTimelineView: View {
         .frame(width: 380)
     }
 
-    private var addTrackSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Add Track").font(.headline).accessibilityAddTraits(.isHeader)
-            Picker("Track Type", selection: $newTrackKind) {
-                ForEach(TimelineTrackKind.allCases) { kind in Text(kind.title).tag(kind) }
-            }
-            TextField("Track Name", text: $newTrackName)
-            HStack {
-                Button("Cancel", role: .cancel) { isAddingTrack = false }
-                Button("Add Track") {
-                    controller.addTrack(kind: newTrackKind, name: newTrackName)
-                    isAddingTrack = false
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(width: 380)
-    }
-
     private func reconcileActiveTrack() {
         if let id = controller.activeTimelineTrackID,
            controller.project.tracks.contains(where: { $0.id == id }) { return }
@@ -306,9 +308,58 @@ struct ProjectTimelineView: View {
     }
 
     private func beginAddTrack() {
-        newTrackName = ""
-        newTrackKind = .audio
         isAddingTrack = true
+    }
+}
+
+private struct AddTrackView: View {
+    let add: (TimelineTrackKind, String) -> Void
+    let cancel: () -> Void
+
+    @State private var trackName = ""
+    @State private var trackKind = TimelineTrackKind.audio
+    @AccessibilityFocusState private var trackTypeFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Add Track")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Picker("Track Type", selection: trackKindBinding) {
+                ForEach(TimelineTrackKind.allCases) { kind in
+                    Text(kind.title).tag(kind)
+                }
+            }
+            .accessibilityFocused($trackTypeFocused)
+            TextField("Track Name", text: $trackName)
+            HStack {
+                Button("Cancel", role: .cancel, action: cancel)
+                Button("Add Track") { add(trackKind, trackName) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+    }
+
+    private var trackKindBinding: Binding<TimelineTrackKind> {
+        Binding(
+            get: { trackKind },
+            set: { value in
+                trackKind = value
+                restoreTrackTypeFocus()
+            }
+        )
+    }
+
+    private func restoreTrackTypeFocus() {
+        trackTypeFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            trackTypeFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            trackTypeFocused = true
+        }
     }
 }
 

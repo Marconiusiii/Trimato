@@ -17,6 +17,7 @@ struct AddTransitionView: View {
     @State private var includeIntroAudio = false
     @State private var includeOutroAudio = false
     @State private var validationMessage: String?
+    @AccessibilityFocusState private var focusedPicker: TransitionPickerFocus?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -53,12 +54,12 @@ struct AddTransitionView: View {
         GroupBox(edge == .intro ? "Intro transition" : "Outro transition") {
             VStack(alignment: .leading, spacing: 12) {
                 if track?.kind == .video {
-                    labeledVideoPicker(selection: videoTypeBinding(edge), values: videoTypes(for: edge))
+                    labeledVideoPicker(edge: edge, selection: videoTypeBinding(edge), values: videoTypes(for: edge))
                     if hasLinkedAudio && !isWipe(videoTypeBinding(edge).wrappedValue) {
                         Toggle(videoTypeBinding(edge).wrappedValue == .fade ? "Fade Audio" : "Crossfade Audio", isOn: audioInclusionBinding(edge))
                     }
                 } else {
-                    labeledAudioPicker(selection: audioTypeBinding(edge), values: audioTypes(for: edge))
+                    labeledAudioPicker(edge: edge, selection: audioTypeBinding(edge), values: audioTypes(for: edge))
                 }
                 TransitionDurationField(text: durationBinding(edge))
             }
@@ -68,13 +69,14 @@ struct AddTransitionView: View {
 
     @ViewBuilder
     private func labeledVideoPicker(
+        edge: TimelineTransitionEdge,
         selection: Binding<VideoTransitionType>,
         values: [VideoTransitionType]
     ) -> some View {
         HStack(spacing: 8) {
             Text("Type")
                 .accessibilityHidden(true)
-            Picker(selection: selection) {
+            Picker(selection: pickerBinding(selection, edge: edge)) {
                 ForEach(values) { value in
                     Text(value.title).tag(value)
                 }
@@ -82,17 +84,20 @@ struct AddTransitionView: View {
                 Text("Type")
             }
             .labelsHidden()
+            .accessibilityLabel("Type")
+            .accessibilityFocused($focusedPicker, equals: pickerFocus(for: edge))
         }
     }
 
     private func labeledAudioPicker(
+        edge: TimelineTransitionEdge,
         selection: Binding<AudioTransitionType>,
         values: [AudioTransitionType]
     ) -> some View {
         HStack(spacing: 8) {
             Text("Type")
                 .accessibilityHidden(true)
-            Picker(selection: selection) {
+            Picker(selection: pickerBinding(selection, edge: edge)) {
                 ForEach(values) { value in
                     Text(value.title).tag(value)
                 }
@@ -100,6 +105,33 @@ struct AddTransitionView: View {
                 Text("Type")
             }
             .labelsHidden()
+            .accessibilityLabel("Type")
+            .accessibilityFocused($focusedPicker, equals: pickerFocus(for: edge))
+        }
+    }
+
+    private func pickerBinding<Value>(_ binding: Binding<Value>, edge: TimelineTransitionEdge) -> Binding<Value> {
+        Binding(
+            get: { binding.wrappedValue },
+            set: { value in
+                binding.wrappedValue = value
+                restorePickerFocus(for: edge)
+            }
+        )
+    }
+
+    private func pickerFocus(for edge: TimelineTransitionEdge) -> TransitionPickerFocus {
+        edge == .intro ? .intro : .outro
+    }
+
+    private func restorePickerFocus(for edge: TimelineTransitionEdge) {
+        let target = pickerFocus(for: edge)
+        focusedPicker = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            focusedPicker = target
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            focusedPicker = target
         }
     }
 
@@ -195,4 +227,9 @@ struct AddTransitionView: View {
     private func isWipe(_ type: VideoTransitionType) -> Bool {
         type == .wipeLeft || type == .wipeRight || type == .wipeUp || type == .wipeDown
     }
+}
+
+private enum TransitionPickerFocus: Hashable {
+    case intro
+    case outro
 }

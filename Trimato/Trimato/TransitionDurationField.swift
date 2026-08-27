@@ -33,6 +33,7 @@ struct TransitionDurationField: View {
                 Text("Duration")
             }
             .labelsHidden()
+            .accessibilityLabel("Duration")
             .accessibilityValue(accessibilityValue)
             Text("seconds")
                 .accessibilityHidden(true)

@@ -4,6 +4,7 @@ struct TransitionEditorView: View {
     @State private var draft: TimelineTransition
     @State private var durationText: String
     @State private var validationMessage: String?
+    @AccessibilityFocusState private var typePickerFocused: Bool
     let update: (TimelineTransition) -> Void
     let delete: () -> Void
     let cancel: () -> Void
@@ -56,7 +57,10 @@ struct TransitionEditorView: View {
                 Text("Type").accessibilityHidden(true)
                 Picker(selection: Binding(
                     get: { current },
-                    set: { draft.kind = .video($0) }
+                    set: {
+                        draft.kind = .video($0)
+                        restoreTypePickerFocus()
+                    }
                 )) {
                     ForEach(videoTypes) { type in
                         Text(type.title).tag(type)
@@ -65,13 +69,18 @@ struct TransitionEditorView: View {
                     Text("Type")
                 }
                 .labelsHidden()
+                .accessibilityLabel("Type")
+                .accessibilityFocused($typePickerFocused)
             }
         case .audio(let current):
             HStack(spacing: 8) {
                 Text("Type").accessibilityHidden(true)
                 Picker(selection: Binding(
                     get: { current },
-                    set: { draft.kind = .audio($0) }
+                    set: {
+                        draft.kind = .audio($0)
+                        restoreTypePickerFocus()
+                    }
                 )) {
                     ForEach(audioTypes) { type in
                         Text(type.title).tag(type)
@@ -80,7 +89,19 @@ struct TransitionEditorView: View {
                     Text("Type")
                 }
                 .labelsHidden()
+                .accessibilityLabel("Type")
+                .accessibilityFocused($typePickerFocused)
             }
+        }
+    }
+
+    private func restoreTypePickerFocus() {
+        typePickerFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            typePickerFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            typePickerFocused = true
         }
     }
 

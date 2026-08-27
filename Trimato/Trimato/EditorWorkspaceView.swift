@@ -154,24 +154,25 @@ struct EditorWorkspaceView: View {
             AddTransitionView(
                 project: controller.project,
                 request: request,
-                add: { transitions in addTransitions(transitions, quick: false) },
+                add: addTransitions,
                 cancel: { controller.transitionRequest = nil }
             )
         } else {
             QuickTransitionView(
                 project: controller.project,
                 request: request,
-                add: { transitions in addTransitions(transitions, quick: true) },
-                cancel: dismissQuickTransition
+                add: { transitions in
+                    try controller.addTransitions(transitions, selectAddedTransition: false)
+                },
+                finished: dismissQuickTransition
             )
         }
     }
 
-    private func addTransitions(_ transitions: [TimelineTransition], quick: Bool) {
+    private func addTransitions(_ transitions: [TimelineTransition]) {
         do {
-            try controller.addTransitions(transitions, selectAddedTransition: !quick)
+            try controller.addTransitions(transitions)
             controller.transitionRequest = nil
-            if quick { restoreEditorFocusAfterSheetDismissal() }
         } catch {
             controller.presentedError = ProjectPresentedError(
                 title: "Transition Could Not Be Added",

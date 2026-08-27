@@ -74,6 +74,7 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 - Command-E: Export the current project when the project workspace is active.
 - Command-B: Split the selected timeline clip at the project playhead.
 - Command-T: Open Add Transition for the focused timeline clip.
+- Control-Enter: Open Selected Element Actions for the focused Timeline clips item.
 - Option-Command-Up Arrow: Move to the previous timeline track.
 - Option-Command-Down Arrow: Move to the next timeline track.
 - Option-Command-Left Arrow: Move the selected timeline clip earlier.
