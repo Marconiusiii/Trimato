@@ -4,6 +4,7 @@ struct ProjectTimelineView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
 
+    @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
     @State private var renamedClipName = ""
     @State private var isRenamingClip = false
     @State private var isRenamingTrack = false
@@ -11,8 +12,6 @@ struct ProjectTimelineView: View {
     @State private var isAddingTrack = false
     @State private var editingTransition: TimelineTransition?
     @State private var transitionFocusReturn: TimelineElementSelection?
-    @State private var timelineFocusRequest: TimelineElementSelection?
-    @State private var timelineFocusRequestID = 0
     @State private var errorMessage: String?
 
     var body: some View {
@@ -63,6 +62,10 @@ struct ProjectTimelineView: View {
         }
         .onChange(of: controller.project.tracks.map(\.id)) {
             reconcileActiveTrack()
+        }
+        .onChange(of: focusedElement) { element in
+            guard let element else { return }
+            controller.focusTimelineElement(element)
         }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
@@ -121,25 +124,19 @@ struct ProjectTimelineView: View {
                 }
                 .padding(8)
             }
-            .accessibilityRepresentation {
-                timelineAccessibilityContent
-            }
+            .accessibilityLabel("Timeline clips")
+            .background(
+                TimelineContextMenuKeyBridge(
+                    focusedElement: focusedElement,
+                    activate: activateTimelineElement,
+                    renameClip: beginRenamingClip,
+                    deleteClip: deleteTimelineClip,
+                    editTransition: editTransition,
+                    deleteTransition: controller.deleteTransition
+                )
+                .frame(width: 0, height: 0)
+            )
         }
-    }
-
-    private var timelineAccessibilityContent: some View {
-        TimelineAccessibilityView(
-            elements: timelineElements,
-            selection: controller.selection,
-            focusRequest: timelineFocusRequest,
-            focusRequestID: timelineFocusRequestID,
-            focus: controller.focusTimelineElement,
-            activate: activateTimelineElement,
-            renameClip: beginRenamingClip,
-            deleteClip: deleteTimelineClip,
-            editTransition: editTransition,
-            deleteTransition: controller.deleteTransition
-        )
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -183,6 +180,7 @@ struct ProjectTimelineView: View {
         .background(selectionBackground(.timelineClip(clip.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.separator))
         .accessibilityLabel(clip.displayName)
+        .accessibilityFocused($focusedElement, equals: .clip(clip.id))
         .contextMenu { clipActions(clip) }
     }
 
@@ -201,6 +199,7 @@ struct ProjectTimelineView: View {
         .background(selectionBackground(.transition(transition.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.accent.opacity(0.75)))
         .accessibilityLabel(transition.displayName)
+        .accessibilityFocused($focusedElement, equals: .transition(transition.id))
         .contextMenu {
             Button("Edit Transition…") { beginEditingTransition(transition) }
             Button("Delete Transition", role: .destructive) {
@@ -253,8 +252,13 @@ struct ProjectTimelineView: View {
     private func restoreTimelineElementFocus() {
         guard let target = transitionFocusReturn else { return }
         transitionFocusReturn = nil
-        timelineFocusRequest = target
-        timelineFocusRequestID += 1
+        focusedElement = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            focusedElement = target
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            focusedElement = target
+        }
     }
 
     private func activateTimelineElement(_ selection: TimelineElementSelection) {

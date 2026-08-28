@@ -6,8 +6,8 @@ struct EditorWorkspaceView: View {
     @StateObject private var controller: ProjectController
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
-    @State private var hasRequestedInitialProjectFocus = false
-    @State private var projectFocusRequest = 0
+    @State private var hasRequestedInitialEditorFocus = false
+    @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
         let controller = ProjectController(document: document)
@@ -37,8 +37,8 @@ struct EditorWorkspaceView: View {
                 projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
                     guard let controller else { return }
                     ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-                    if !controller.isShowingProjectSettings, !hasRequestedInitialProjectFocus {
-                        requestProjectFocus()
+                    if !controller.isShowingProjectSettings, !hasRequestedInitialEditorFocus {
+                        requestEditorFocus()
                     }
                 }
                 projectWindowSaveCoordinator.onLastProjectWindowWillClose {
@@ -53,7 +53,7 @@ struct EditorWorkspaceView: View {
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
             .onChange(of: controller.isShowingProjectSettings) { isShowing in
-                if !isShowing { requestProjectFocus() }
+                if !isShowing { requestEditorFocus() }
             }
             .onDisappear {
                 ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
@@ -103,11 +103,11 @@ struct EditorWorkspaceView: View {
             MacEditorPane("Project") {
                 ProjectBrowserView(
                     controller: controller,
-                    openClipEditor: clipEditorWindows.open,
-                    accessibilityFocusRequest: projectFocusRequest
+                    openClipEditor: clipEditorWindows.open
                 )
             }
                 .frame(minWidth: 210, idealWidth: 260, maxWidth: 360)
+                .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
 
             VSplitView {
                 MacEditorPane("Editor") {
@@ -116,6 +116,7 @@ struct EditorWorkspaceView: View {
                     )
                 }
                 .frame(minHeight: 360)
+                .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
 
                 HSplitView {
                     MacEditorPane("Timeline") {
@@ -125,6 +126,7 @@ struct EditorWorkspaceView: View {
                         )
                     }
                         .frame(minWidth: 460)
+                        .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                     MacEditorPane("Inspector") {
                         VStack(spacing: 0) {
                             Text("Inspector")
@@ -141,6 +143,7 @@ struct EditorWorkspaceView: View {
                         }
                     }
                         .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
+                        .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 }
                 .frame(minHeight: 240)
             }
@@ -198,9 +201,9 @@ struct EditorWorkspaceView: View {
         }
     }
 
-    private func requestProjectFocus() {
-        hasRequestedInitialProjectFocus = true
-        projectFocusRequest += 1
+    private func requestEditorFocus() {
+        hasRequestedInitialEditorFocus = true
+        controller.requestEditorFocusRestore()
     }
 
 }
