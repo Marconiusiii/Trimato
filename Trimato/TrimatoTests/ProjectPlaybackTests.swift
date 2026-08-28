@@ -5,6 +5,17 @@ import Testing
 
 @Suite("Project playback")
 struct ProjectPlaybackTests {
+    @Test func projectPlayheadSliderUsesOneFrameAsItsNativeAdjustmentStep() {
+        #expect(abs(ProjectPlayerViewModel.playbackFractionStep(
+            duration: ProjectTime(seconds: 10),
+            frameRate: 25
+        ) - 0.004) < 0.000_001)
+        #expect(ProjectPlayerViewModel.playbackFractionStep(
+            duration: .zero,
+            frameRate: 25
+        ) == 1)
+    }
+
     @Test func editNavigationIncludesStorylineAndCutawayBoundariesWithoutDuplicates() {
         let firstAsset = fixtureAsset(name: "Interview", duration: 5)
         let secondAsset = fixtureAsset(name: "Closing", duration: 5)

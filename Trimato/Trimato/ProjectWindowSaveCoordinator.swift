@@ -13,6 +13,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private var windowWillCloseObserver: NSObjectProtocol?
     private var applicationWillTerminateObserver: NSObjectProtocol?
     private var windowBecameKeyHandler: (() -> Void)?
+    private var undoManagerHandler: ((UndoManager) -> Void)?
     private var lastProjectWindowWillCloseHandler: (() -> Void)?
     private var isApplicationTerminating = false
 
@@ -57,6 +58,9 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         }
         self.window = window
         nativeDocument = NSDocumentController.shared.document(for: window)
+        if let undoManager = nativeDocument?.undoManager ?? window.undoManager {
+            undoManagerHandler?(undoManager)
+        }
         if projectDocument.hasUnsavedChanges {
             nativeDocument?.updateChangeCount(.changeDone)
         }
@@ -80,6 +84,13 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     func onWindowBecameKey(_ handler: @escaping () -> Void) {
         windowBecameKeyHandler = handler
         if window?.isKeyWindow == true { handler() }
+    }
+
+    func onUndoManagerAvailable(_ handler: @escaping (UndoManager) -> Void) {
+        undoManagerHandler = handler
+        if let undoManager = nativeDocument?.undoManager ?? window?.undoManager {
+            handler(undoManager)
+        }
     }
 
     func onLastProjectWindowWillClose(_ handler: @escaping () -> Void) {

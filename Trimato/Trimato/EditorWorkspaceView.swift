@@ -7,6 +7,7 @@ struct EditorWorkspaceView: View {
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var hasRequestedInitialEditorFocus = false
+    @State private var restoresEditorFocusAfterTransitionSheet = false
     @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
@@ -27,6 +28,9 @@ struct EditorWorkspaceView: View {
             .handlesTrimatoMediaOpening()
             .onAppear {
                 controller.installSaveCoordinator(projectWindowSaveCoordinator)
+                projectWindowSaveCoordinator.onUndoManagerAvailable { [weak controller] undoManager in
+                    controller?.installUndoManager(undoManager)
+                }
                 ExternalMediaOpenCoordinator.shared.register(
                     controller: controller,
                     openClipEditor: { [weak clipEditorWindows] selection in
@@ -86,7 +90,7 @@ struct EditorWorkspaceView: View {
                     cancel: controller.cancelExport
                 )
             }
-            .sheet(item: $controller.transitionRequest) { request in
+            .sheet(item: $controller.transitionRequest, onDismiss: transitionSheetDismissed) { request in
                 transitionSheet(for: request)
             }
             .alert(item: $controller.presentedError) { error in
@@ -182,15 +186,22 @@ struct EditorWorkspaceView: View {
         } else {
             try controller.addTransitions(transitions, selectAddedTransition: !returnsToEditor)
         }
-        controller.transitionRequest = nil
     }
 
     private func dismissStandardTransition() {
+        restoresEditorFocusAfterTransitionSheet = controller.transitionRequestReturnsToEditor
         controller.transitionRequest = nil
     }
 
     private func dismissQuickTransition() {
+        restoresEditorFocusAfterTransitionSheet = controller.transitionRequestReturnsToEditor
         controller.transitionRequest = nil
+    }
+
+    private func transitionSheetDismissed() {
+        guard restoresEditorFocusAfterTransitionSheet else { return }
+        restoresEditorFocusAfterTransitionSheet = false
+        controller.requestEditorFocusRestore()
     }
 
     private func requestEditorFocus() {
@@ -206,8 +217,8 @@ private struct ProjectViewerView: View {
     let workspacePaneLinks: Namespace.ID
     @StateObject private var viewModel = ProjectPlayerViewModel()
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
-    @AccessibilityFocusState private var playPauseFocused: Bool
-    @State private var pendingPlayFocus = false
+    @AccessibilityFocusState private var projectPlayheadFocused: Bool
+    @State private var pendingProjectPlayheadFocus = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -269,7 +280,7 @@ private struct ProjectViewerView: View {
             controller.timelinePlayhead = time
         }
         .onChange(of: controller.editorFocusRestoreRequest) { _ in
-            restorePlayPauseFocus()
+            restoreProjectPlayheadFocus()
         }
         .onChange(of: viewModel.isPreparing) { isPreparing in
             preparationChanged(isPreparing)
@@ -292,16 +303,16 @@ private struct ProjectViewerView: View {
         )
     }
 
-    private func restorePlayPauseFocus() {
+    private func restoreProjectPlayheadFocus() {
         guard viewModel.canControlPlayback else {
-            pendingPlayFocus = true
+            pendingProjectPlayheadFocus = true
             return
         }
-        pendingPlayFocus = false
-        playPauseFocused = false
+        pendingProjectPlayheadFocus = false
+        projectPlayheadFocused = false
         DispatchQueue.main.async {
             if viewModel.canControlPlayback {
-                playPauseFocused = true
+                projectPlayheadFocused = true
             }
         }
     }
@@ -310,10 +321,10 @@ private struct ProjectViewerView: View {
         if isPreparing { return }
         Task { @MainActor in
             await Task.yield()
-            if pendingPlayFocus,
+            if pendingProjectPlayheadFocus,
                viewModel.presentedPreviewFailure == nil,
                viewModel.canControlPlayback {
-                restorePlayPauseFocus()
+                restoreProjectPlayheadFocus()
             }
         }
     }
@@ -385,162 +396,164 @@ private struct ProjectViewerView: View {
                     get: { viewModel.playbackFraction },
                     set: { viewModel.seek(toFraction: $0) }
                 ),
-                in: 0...1
+                in: 0...1,
+                step: viewModel.playbackFractionStep
             )
             .disabled(!viewModel.canControlPlayback)
             .accessibilityLabel("Project playhead")
             .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier("trimato.editor.playhead")
+            .accessibilityFocused($projectPlayheadFocused)
 
-            Button { viewModel.toggleTimecodeDisplay() } label: {
-                VStack(spacing: 2) {
-                    Text(viewModel.showingFrames
-                         ? String(format: "%06d", viewModel.currentFrame)
-                         : viewModel.displayTimecode)
-                        .font(.system(.title, design: .monospaced).weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(EditorTheme.accent)
-                    Text(viewModel.showingFrames ? "FRAMES" : "TIMECODE")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityHidden(true)
-            }
-            .buttonStyle(.plain)
-            .disabled(!viewModel.canControlPlayback)
-            .accessibilityLabel("Project timecode")
-            .accessibilityValue(viewModel.accessibilityTimecodeLabel)
-            .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
-            .accessibilityIdentifier("trimato.editor.timecode")
-
-            HStack(spacing: 20) {
-                Button { viewModel.goToStart() } label: {
-                    Image(systemName: "backward.end.fill")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Go to beginning")
-                .accessibilityIdentifier("trimato.editor.go-to-beginning")
-
-                Button { viewModel.goToPreviousEdit() } label: {
-                    Image(systemName: "chevron.left.2")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Previous edit point")
-                .accessibilityIdentifier("trimato.editor.previous-edit")
-
-                Button { controller.splitClipAtPlayhead() } label: {
-                    Image(systemName: "scissors")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Blade at playhead")
-                .accessibilityHint("Splits the primary timeline clip beneath the playhead")
-                .accessibilityIdentifier("trimato.editor.blade")
-
-                Button { viewModel.goToNextEdit() } label: {
-                    Image(systemName: "chevron.right.2")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Next edit point")
-                .accessibilityIdentifier("trimato.editor.next-edit")
-
-                Button { viewModel.goToEnd() } label: {
-                    Image(systemName: "forward.end.fill")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Go to end")
-                .accessibilityIdentifier("trimato.editor.go-to-end")
-            }
-            .font(.title2)
-            .foregroundStyle(EditorTheme.accent)
-            .disabled(!viewModel.canControlPlayback)
-
-            GroupBox("In and Out Points") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Button("Mark In") { viewModel.markIn() }
-                            .accessibilityIdentifier("trimato.editor.mark-in")
-                        Text("In: \(viewModel.inMarkerDisplay)")
-                            .monospacedDigit()
-                        Button("Clear In") { viewModel.clearIn() }
-                            .disabled(viewModel.inMarker == nil)
-                            .accessibilityIdentifier("trimato.editor.clear-in")
-                    }
-                    HStack {
-                        Button("Mark Out") { viewModel.markOut() }
-                            .accessibilityIdentifier("trimato.editor.mark-out")
-                        Text("Out: \(viewModel.outMarkerDisplay)")
-                            .monospacedDigit()
-                        Button("Clear Out") { viewModel.clearOut() }
-                            .disabled(viewModel.outMarker == nil)
-                            .accessibilityIdentifier("trimato.editor.clear-out")
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 4)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .disabled(!viewModel.canControlPlayback)
-            .accessibilityIdentifier("trimato.editor.in-out-points")
-
-            if viewModel.isPlaying, viewModel.playbackRate != 1 {
-                Text(viewModel.playbackRate < 0
-                     ? "\(Int(abs(viewModel.playbackRate))) times backward"
-                     : "\(Int(viewModel.playbackRate)) times forward")
-                    .font(.system(.caption, design: .monospaced).weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(EditorTheme.raisedSurface, in: Capsule())
-                    .accessibilityHidden(true)
-            }
-
-            HStack(spacing: 20) {
-                Button { viewModel.stepBackward() } label: {
-                    Image(systemName: "backward.frame.fill").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Step backward one frame")
-                .accessibilityIdentifier("trimato.editor.step-backward")
-
-                Button { viewModel.seekBackward() } label: {
-                    Image(systemName: "gobackward.10").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Skip back 10 seconds")
-                .accessibilityIdentifier("trimato.editor.skip-backward")
-
-                Button { viewModel.togglePlayback() } label: {
-                    Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 30))
-                        .frame(width: 38)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
-                .accessibilityIdentifier("trimato.editor.play-pause")
-                .accessibilityFocused($playPauseFocused)
-
-                Button { viewModel.seekForward() } label: {
-                    Image(systemName: "goforward.10").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Skip forward 10 seconds")
-                .accessibilityIdentifier("trimato.editor.skip-forward")
-
-                Button { viewModel.stepForward() } label: {
-                    Image(systemName: "forward.frame.fill").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Step forward one frame")
-                .accessibilityIdentifier("trimato.editor.step-forward")
-            }
-            .foregroundStyle(EditorTheme.accent)
-            .disabled(!viewModel.canControlPlayback)
+            moveAndEditGroup
+            markersGroup
+            playbackGroup
 
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 14)
         .background(EditorTheme.controlSurface)
+    }
+
+    private var moveAndEditGroup: some View {
+        GroupBox("Move and Edit") {
+            HStack(spacing: 20) {
+                Button { viewModel.goToStart() } label: { Image(systemName: "backward.end.fill") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Go to beginning")
+                    .accessibilityIdentifier("trimato.editor.go-to-beginning")
+                Button { viewModel.goToPreviousEdit() } label: { Image(systemName: "chevron.left.2") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Previous edit point")
+                    .accessibilityIdentifier("trimato.editor.previous-edit")
+                Button { controller.splitClipAtPlayhead() } label: { Image(systemName: "scissors") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Blade at playhead")
+                    .accessibilityHint("Splits the primary timeline clip beneath the playhead")
+                    .accessibilityIdentifier("trimato.editor.blade")
+                Button { viewModel.goToNextEdit() } label: { Image(systemName: "chevron.right.2") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Next edit point")
+                    .accessibilityIdentifier("trimato.editor.next-edit")
+                Button { viewModel.goToEnd() } label: { Image(systemName: "forward.end.fill") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Go to end")
+                    .accessibilityIdentifier("trimato.editor.go-to-end")
+            }
+            .font(.title2)
+            .foregroundStyle(EditorTheme.accent)
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(!viewModel.canControlPlayback)
+        .accessibilityIdentifier("trimato.editor.move-and-edit")
+    }
+
+    private var markersGroup: some View {
+        GroupBox("Markers") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Button("Mark In") { viewModel.markIn() }
+                        .accessibilityIdentifier("trimato.editor.mark-in")
+                    Text("In: \(viewModel.inMarkerDisplay)").monospacedDigit()
+                    Button("Clear In") { viewModel.clearIn() }
+                        .disabled(viewModel.inMarker == nil)
+                        .accessibilityIdentifier("trimato.editor.clear-in")
+                }
+                HStack {
+                    Button("Mark Out") { viewModel.markOut() }
+                        .accessibilityIdentifier("trimato.editor.mark-out")
+                    Text("Out: \(viewModel.outMarkerDisplay)").monospacedDigit()
+                    Button("Clear Out") { viewModel.clearOut() }
+                        .disabled(viewModel.outMarker == nil)
+                        .accessibilityIdentifier("trimato.editor.clear-out")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(!viewModel.canControlPlayback)
+        .accessibilityIdentifier("trimato.editor.markers")
+    }
+
+    private var playbackGroup: some View {
+        GroupBox("Playback") {
+            VStack(spacing: 8) {
+                Button { viewModel.toggleTimecodeDisplay() } label: {
+                    VStack(spacing: 2) {
+                        Text(viewModel.showingFrames
+                             ? String(format: "%06d", viewModel.currentFrame)
+                             : viewModel.displayTimecode)
+                            .font(.system(.title, design: .monospaced).weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(EditorTheme.accent)
+                        Text(viewModel.showingFrames ? "FRAMES" : "TIMECODE")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Project timecode")
+                .accessibilityValue(viewModel.accessibilityTimecodeLabel)
+                .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
+                .accessibilityIdentifier("trimato.editor.timecode")
+
+                if viewModel.isPlaying, viewModel.playbackRate != 1 {
+                    Text(viewModel.playbackRate < 0
+                         ? "\(Int(abs(viewModel.playbackRate))) times backward"
+                         : "\(Int(viewModel.playbackRate)) times forward")
+                        .font(.system(.caption, design: .monospaced).weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(EditorTheme.raisedSurface, in: Capsule())
+                        .accessibilityHidden(true)
+                }
+
+                HStack(spacing: 20) {
+                    Button { viewModel.stepBackward() } label: {
+                        Image(systemName: "backward.frame.fill").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Step backward one frame")
+                    .accessibilityIdentifier("trimato.editor.step-backward")
+                    Button { viewModel.seekBackward() } label: {
+                        Image(systemName: "gobackward.10").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Skip back 10 seconds")
+                    .accessibilityIdentifier("trimato.editor.skip-backward")
+                    Button { viewModel.togglePlayback() } label: {
+                        Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 30))
+                            .frame(width: 38)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
+                    .accessibilityIdentifier("trimato.editor.play-pause")
+                    Button { viewModel.seekForward() } label: {
+                        Image(systemName: "goforward.10").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Skip forward 10 seconds")
+                    .accessibilityIdentifier("trimato.editor.skip-forward")
+                    Button { viewModel.stepForward() } label: {
+                        Image(systemName: "forward.frame.fill").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Step forward one frame")
+                    .accessibilityIdentifier("trimato.editor.step-forward")
+                }
+                .foregroundStyle(EditorTheme.accent)
+            }
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(!viewModel.canControlPlayback)
+        .accessibilityIdentifier("trimato.editor.playback")
     }
 }

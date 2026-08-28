@@ -34,7 +34,7 @@ struct AddTransitionView: View {
                         .accessibilityValue(TransitionProgressAccessibility.value(progress))
                         .accessibilityFocused($progressFocused)
                         .onChange(of: TransitionProgressAccessibility.milestone(progress)) { _, milestone in
-                            TransitionProgressAccessibility.announce(milestone)
+                            TransitionProgressAccessibility.announce(milestone, transitionName: applicationName)
                         }
                 }
                 .padding(32)
@@ -234,6 +234,7 @@ struct AddTransitionView: View {
             progressFocused = true
             do {
                 try await add(result)
+                cancel()
             } catch {
                 progressFocused = false
                 isSubmitting = false

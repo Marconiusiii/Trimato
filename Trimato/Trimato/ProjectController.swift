@@ -43,6 +43,7 @@ final class ProjectController: ObservableObject {
     private var accessedURLs: [URL] = []
     private var exportTask: Task<Void, Never>?
     private weak var projectSaveCoordinator: ProjectWindowSaveCoordinator?
+    private weak var projectUndoManager: UndoManager?
     private weak var projectPlayer: ProjectPlayerViewModel?
     private var projectWithPreparedTransitionPreview: TrimatoProject?
     private var closeProjectAction: (() -> Void)?
@@ -77,6 +78,10 @@ final class ProjectController: ObservableObject {
 
     func installSaveCoordinator(_ coordinator: ProjectWindowSaveCoordinator) {
         projectSaveCoordinator = coordinator
+    }
+
+    func installUndoManager(_ undoManager: UndoManager) {
+        projectUndoManager = undoManager
     }
 
     func installProjectPlayer(_ player: ProjectPlayerViewModel) {
@@ -925,9 +930,10 @@ final class ProjectController: ObservableObject {
     }
 
     private func apply(_ project: TrimatoProject, undoingTo previous: TrimatoProject, actionName: String) {
+        guard project != previous else { return }
         document.project = project
         updateCacheProtection(for: project)
-        if let undoManager = NSApp.keyWindow?.undoManager {
+        if let undoManager = projectUndoManager {
             undoManager.registerUndo(withTarget: self) { target in
                 target.apply(previous, undoingTo: project, actionName: actionName)
             }

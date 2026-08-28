@@ -385,6 +385,7 @@ enum ProjectCompositionBuilder {
                 renderedURL = try await FFmpegTimelineEffectRenderer.renderAudioTransition(
                     leadingURL: leadingURL,
                     trailingURL: trailingURL,
+                    projectReferenceURL: track.sortedClips.first.flatMap { mediaURLs[$0.assetID] },
                     leadingClip: leading,
                     trailingClip: trailing,
                     type: type,
@@ -807,6 +808,7 @@ enum ProjectCompositionBuilder {
                 toEndVolume: 0,
                 timeRange: ProjectTimeRange(start: start, duration: transition.duration).cmTimeRange
             )
+            parameters.setVolume(1, at: (start + transition.duration).cmTime)
         }
     }
 }

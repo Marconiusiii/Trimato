@@ -32,6 +32,9 @@ final class ProjectPlayerViewModel: ObservableObject {
         guard projectDuration > .zero else { return 0 }
         return min(max(currentTime.seconds / projectDuration.seconds, 0), 1)
     }
+    var playbackFractionStep: Double {
+        Self.playbackFractionStep(duration: projectDuration, frameRate: projectFrameRate)
+    }
     var inMarkerDisplay: String { inMarker.map(ProjectTimecodeFormatter.string) ?? "Not set" }
     var outMarkerDisplay: String { outMarker.map(ProjectTimecodeFormatter.string) ?? "Not set" }
     var canExport: Bool {
@@ -265,6 +268,20 @@ final class ProjectPlayerViewModel: ObservableObject {
             item.audioMix = result.audioMix
             let duration = project.duration
             let boundedInitialTime = min(max(initialTime, .zero), duration)
+            let stagedPlayer = AVPlayer(playerItem: item)
+            stagedPlayer.automaticallyWaitsToMinimizeStalling = false
+            try await waitUntilReadyToPlay(item)
+            await stagedPlayer.seek(
+                to: boundedInitialTime.cmTime,
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            )
+            guard item.status == .readyToPlay else {
+                throw item.error ?? ProjectTimelineError.transitionNotAvailable(
+                    "The transition preview could not be prepared for playback."
+                )
+            }
+            stagedPlayer.replaceCurrentItem(with: nil)
             player.replaceCurrentItem(with: item)
             progress(0.95)
             await player.seek(
@@ -288,6 +305,34 @@ final class ProjectPlayerViewModel: ObservableObject {
             Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
             if preparationID == requestID { isPreparing = false }
             throw error
+        }
+    }
+
+    private func waitUntilReadyToPlay(_ item: AVPlayerItem) async throws {
+        if item.status == .readyToPlay { return }
+        if item.status == .failed {
+            throw item.error ?? ProjectTimelineError.transitionNotAvailable(
+                "The transition preview could not be prepared for playback."
+            )
+        }
+        try await withCheckedThrowingContinuation { continuation in
+            var observation: NSKeyValueObservation?
+            observation = item.observe(\.status, options: [.initial, .new]) { item, _ in
+                switch item.status {
+                case .readyToPlay:
+                    observation?.invalidate()
+                    continuation.resume()
+                case .failed:
+                    observation?.invalidate()
+                    continuation.resume(throwing: item.error ?? ProjectTimelineError.transitionNotAvailable(
+                        "The transition preview could not be prepared for playback."
+                    ))
+                case .unknown:
+                    break
+                @unknown default:
+                    break
+                }
+            }
         }
     }
 
@@ -596,6 +641,14 @@ final class ProjectPlayerViewModel: ObservableObject {
         return forward
             ? min(current + frameDuration, duration)
             : max(current - frameDuration, .zero)
+    }
+
+    nonisolated static func playbackFractionStep(
+        duration: ProjectTime,
+        frameRate: Double
+    ) -> Double {
+        guard duration > .zero else { return 1 }
+        return min(max(1 / (duration.seconds * max(frameRate, 1)), 0.000_001), 1)
     }
 
     nonisolated static func validExportRange(

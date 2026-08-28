@@ -56,6 +56,36 @@ struct FFmpegMediaProbe {
             let width: Int?
             let height: Int?
             let averageFrameRate: String?
+            let sampleRate: String?
+            let sampleFormat: String?
+            let channels: Int?
+            let channelLayout: String?
+
+            init(
+                codecType: String? = nil,
+                codecName: String? = nil,
+                pixelFormat: String? = nil,
+                colorTransfer: String? = nil,
+                width: Int? = nil,
+                height: Int? = nil,
+                averageFrameRate: String? = nil,
+                sampleRate: String? = nil,
+                sampleFormat: String? = nil,
+                channels: Int? = nil,
+                channelLayout: String? = nil
+            ) {
+                self.codecType = codecType
+                self.codecName = codecName
+                self.pixelFormat = pixelFormat
+                self.colorTransfer = colorTransfer
+                self.width = width
+                self.height = height
+                self.averageFrameRate = averageFrameRate
+                self.sampleRate = sampleRate
+                self.sampleFormat = sampleFormat
+                self.channels = channels
+                self.channelLayout = channelLayout
+            }
 
             enum CodingKeys: String, CodingKey {
                 case codecType = "codec_type"
@@ -65,6 +95,10 @@ struct FFmpegMediaProbe {
                 case width
                 case height
                 case averageFrameRate = "avg_frame_rate"
+                case sampleRate = "sample_rate"
+                case sampleFormat = "sample_fmt"
+                case channels
+                case channelLayout = "channel_layout"
             }
         }
 
@@ -82,6 +116,7 @@ struct FFmpegMediaProbe {
         let format: Format?
 
         var videoStream: Stream? { streams.first { $0.codecType == "video" } }
+        var audioStream: Stream? { streams.first { $0.codecType == "audio" } }
         var hasAudio: Bool { streams.contains { $0.codecType == "audio" } }
         var duration: Double { Double(format?.duration ?? "") ?? 0 }
 

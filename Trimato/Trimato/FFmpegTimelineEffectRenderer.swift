@@ -109,6 +109,7 @@ enum FFmpegTimelineEffectRenderer {
     static func renderAudioTransition(
         leadingURL: URL,
         trailingURL: URL,
+        projectReferenceURL: URL? = nil,
         leadingClip: TimelineClip,
         trailingClip: TimelineClip,
         type: AudioTransitionType,
@@ -120,6 +121,18 @@ enum FFmpegTimelineEffectRenderer {
             throw ProjectTimelineError.transitionNotAvailable("The transition media is no longer available.")
         }
         let half = duration.seconds / 2
+        let referenceReport = try await FFmpegMediaProbe.inspect(url: projectReferenceURL ?? leadingURL)
+        let leadingReport = projectReferenceURL == leadingURL
+            ? referenceReport
+            : try await FFmpegMediaProbe.inspect(url: leadingURL)
+        let trailingReport = projectReferenceURL == trailingURL
+            ? referenceReport
+            : try await FFmpegMediaProbe.inspect(url: trailingURL)
+        let audioFormat = AudioTransitionFormat(
+            reference: referenceReport.audioStream,
+            leading: leadingReport.audioStream,
+            trailing: trailingReport.audioStream
+        )
         let graph: String
         if type == .fadeOutIn {
             graph = audioFadeOutInGraph(
@@ -127,7 +140,8 @@ enum FFmpegTimelineEffectRenderer {
                 trailingStart: trailingStart.seconds,
                 duration: duration.seconds,
                 leadingSettings: leadingClip.audioSettings,
-                trailingSettings: trailingClip.audioSettings
+                trailingSettings: trailingClip.audioSettings,
+                format: audioFormat
             )
         } else {
             graph = audioCrossFadeGraph(
@@ -135,7 +149,8 @@ enum FFmpegTimelineEffectRenderer {
                 trailingStart: max(trailingStart.seconds - half, 0),
                 duration: duration.seconds,
                 leadingSettings: leadingClip.audioSettings,
-                trailingSettings: trailingClip.audioSettings
+                trailingSettings: trailingClip.audioSettings,
+                format: audioFormat
             )
         }
         let directory = FileManager.default.temporaryDirectory
@@ -203,18 +218,17 @@ enum FFmpegTimelineEffectRenderer {
         trailingStart: Double,
         duration: Double,
         leadingSettings: AudioClipSettings,
-        trailingSettings: AudioClipSettings
+        trailingSettings: AudioClipSettings,
+        format: AudioTransitionFormat = .unspecified
     ) -> String {
         let leadingEffects = audioFilter(for: leadingSettings).map { ",\($0)" } ?? ""
         let trailingEffects = audioFilter(for: trailingSettings).map { ",\($0)" } ?? ""
         return "[0:a:0]atrim=start=\(number(leadingStart)):duration=\(number(duration))," +
-            "asetpts=PTS-STARTPTS,aresample=48000:async=0:first_pts=0," +
-            "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo" +
-            "\(leadingEffects),asetpts=N/SR/TB[a0];" +
+            "asetpts=PTS-STARTPTS\(format.filterSuffix)" +
+            "\(leadingEffects)[a0];" +
             "[1:a:0]atrim=start=\(number(trailingStart)):duration=\(number(duration))," +
-            "asetpts=PTS-STARTPTS,aresample=48000:async=0:first_pts=0," +
-            "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo" +
-            "\(trailingEffects),asetpts=N/SR/TB[a1];" +
+            "asetpts=PTS-STARTPTS\(format.filterSuffix)" +
+            "\(trailingEffects)[a1];" +
             "[a0][a1]acrossfade=d=\(number(duration)):o=1:c1=qsin:c2=qsin[outa]"
     }
 
@@ -223,19 +237,18 @@ enum FFmpegTimelineEffectRenderer {
         trailingStart: Double,
         duration: Double,
         leadingSettings: AudioClipSettings,
-        trailingSettings: AudioClipSettings
+        trailingSettings: AudioClipSettings,
+        format: AudioTransitionFormat = .unspecified
     ) -> String {
         let half = duration / 2
         let leadingEffects = audioFilter(for: leadingSettings).map { ",\($0)" } ?? ""
         let trailingEffects = audioFilter(for: trailingSettings).map { ",\($0)" } ?? ""
         return "[0:a:0]atrim=start=\(number(leadingStart)):duration=\(number(half))," +
-            "asetpts=PTS-STARTPTS,aresample=48000:async=0:first_pts=0," +
-            "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo" +
-            "\(leadingEffects),asetpts=N/SR/TB,afade=t=out:st=0:d=\(number(half))[a0];" +
+            "asetpts=PTS-STARTPTS\(format.filterSuffix)" +
+            "\(leadingEffects),afade=t=out:st=0:d=\(number(half))[a0];" +
             "[1:a:0]atrim=start=\(number(trailingStart)):duration=\(number(half))," +
-            "asetpts=PTS-STARTPTS,aresample=48000:async=0:first_pts=0," +
-            "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo" +
-            "\(trailingEffects),asetpts=N/SR/TB,afade=t=in:st=0:d=\(number(half))[a1];" +
+            "asetpts=PTS-STARTPTS\(format.filterSuffix)" +
+            "\(trailingEffects),afade=t=in:st=0:d=\(number(half))[a1];" +
             "[a0][a1]concat=n=2:v=0:a=1[outa]"
     }
 
@@ -291,5 +304,71 @@ enum FFmpegTimelineEffectRenderer {
     private static func number(_ value: Double) -> String {
         String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), value)
             .replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
+    }
+}
+
+struct AudioTransitionFormat: Equatable {
+    let sampleRate: Int?
+    let channelLayout: String?
+
+    static let unspecified = AudioTransitionFormat(sampleRate: nil, channelLayout: nil)
+
+    init(sampleRate: Int?, channelLayout: String?) {
+        self.sampleRate = sampleRate
+        self.channelLayout = channelLayout
+    }
+
+    init(
+        reference: FFmpegMediaProbe.Report.Stream?,
+        leading: FFmpegMediaProbe.Report.Stream?,
+        trailing: FFmpegMediaProbe.Report.Stream?
+    ) {
+        sampleRate = Self.validSampleRate(reference?.sampleRate)
+            ?? Self.validSampleRate(leading?.sampleRate)
+            ?? Self.validSampleRate(trailing?.sampleRate)
+        channelLayout = Self.validChannelLayout(reference?.channelLayout)
+            ?? Self.channelLayout(for: reference?.channels)
+            ?? Self.validChannelLayout(leading?.channelLayout)
+            ?? Self.channelLayout(for: leading?.channels)
+            ?? Self.validChannelLayout(trailing?.channelLayout)
+            ?? Self.channelLayout(for: trailing?.channels)
+    }
+
+    var filterSuffix: String {
+        var filters: [String] = []
+        if let sampleRate {
+            filters.append("aresample=\(sampleRate)")
+        }
+        var constraints: [String] = []
+        if let sampleRate {
+            constraints.append("sample_rates=\(sampleRate)")
+        }
+        if let channelLayout {
+            constraints.append("channel_layouts=\(channelLayout)")
+        }
+        if !constraints.isEmpty {
+            filters.append("aformat=\(constraints.joined(separator: ":"))")
+        }
+        return filters.isEmpty ? "" : "," + filters.joined(separator: ",")
+    }
+
+    private static func validSampleRate(_ value: String?) -> Int? {
+        guard let value, let rate = Int(value), rate > 0 else { return nil }
+        return rate
+    }
+
+    private static func validChannelLayout(_ value: String?) -> String? {
+        guard let value, !value.isEmpty, value != "unknown" else { return nil }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._()+-"))
+        guard value.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        return value
+    }
+
+    private static func channelLayout(for channels: Int?) -> String? {
+        switch channels {
+        case 1: "mono"
+        case 2: "stereo"
+        default: nil
+        }
     }
 }

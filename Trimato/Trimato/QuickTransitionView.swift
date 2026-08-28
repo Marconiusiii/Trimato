@@ -28,7 +28,7 @@ struct QuickTransitionView: View {
                         .accessibilityValue(TransitionProgressAccessibility.value(progress))
                         .accessibilityFocused($progressFocused)
                         .onChange(of: TransitionProgressAccessibility.milestone(progress)) { _, milestone in
-                            TransitionProgressAccessibility.announce(milestone)
+                            TransitionProgressAccessibility.announce(milestone, transitionName: transitionName)
                         }
                 }
                 .padding(32)
@@ -223,14 +223,18 @@ enum TransitionProgressAccessibility {
         "\(milestone(progress)) percent"
     }
 
+    nonisolated static func announcement(_ milestone: Int, transitionName: String) -> String {
+        "Applying \(transitionName), \(milestone) percent"
+    }
+
     @MainActor
-    static func announce(_ milestone: Int) {
+    static func announce(_ milestone: Int, transitionName: String) {
         guard milestone > 0, let application = NSApp else { return }
         NSAccessibility.post(
             element: application,
             notification: .announcementRequested,
             userInfo: [
-                .announcement: "\(milestone) percent",
+                .announcement: announcement(milestone, transitionName: transitionName),
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )

@@ -104,7 +104,8 @@ struct MultiTrackTimelineTests {
             trailingStart: 2,
             duration: 1,
             leadingSettings: AudioClipSettings(),
-            trailingSettings: AudioClipSettings()
+            trailingSettings: AudioClipSettings(),
+            format: AudioTransitionFormat(sampleRate: 44_100, channelLayout: "mono")
         )
         let fadeOutIn = FFmpegTimelineEffectRenderer.audioFadeOutInGraph(
             leadingStart: 1,
@@ -115,14 +116,43 @@ struct MultiTrackTimelineTests {
         )
 
         #expect(crossFade.contains("[a0][a1]acrossfade=d=1:o=1:c1=qsin:c2=qsin[outa]"))
-        #expect(crossFade.components(separatedBy: "aresample=48000").count == 3)
-        #expect(crossFade.components(separatedBy: "channel_layouts=stereo").count == 3)
-        #expect(crossFade.components(separatedBy: "asetpts=N/SR/TB").count == 3)
+        #expect(crossFade.components(separatedBy: "aresample=44100").count == 3)
+        #expect(crossFade.components(separatedBy: "channel_layouts=mono").count == 3)
+        #expect(!crossFade.contains("sample_rates=48000"))
+        #expect(!crossFade.contains("channel_layouts=stereo"))
+        #expect(!crossFade.contains("asetpts=N/SR/TB"))
         #expect(!crossFade.contains("concat="))
         #expect(fadeOutIn.contains("afade=t=out"))
         #expect(fadeOutIn.contains("afade=t=in"))
         #expect(fadeOutIn.contains("concat=n=2:v=0:a=1[outa]"))
         #expect(!fadeOutIn.contains("acrossfade="))
+    }
+
+    @Test @MainActor func audioTransitionFormatUsesTheProbedProjectReference() {
+        let reference = FFmpegMediaProbe.Report.Stream(
+            codecType: "audio",
+            sampleRate: "44100",
+            sampleFormat: "s16",
+            channels: 1,
+            channelLayout: "mono"
+        )
+        let trailing = FFmpegMediaProbe.Report.Stream(
+            codecType: "audio",
+            sampleRate: "48000",
+            sampleFormat: "fltp",
+            channels: 2,
+            channelLayout: "stereo"
+        )
+
+        let format = AudioTransitionFormat(
+            reference: reference,
+            leading: reference,
+            trailing: trailing
+        )
+
+        #expect(format == AudioTransitionFormat(sampleRate: 44_100, channelLayout: "mono"))
+        #expect(format.filterSuffix.contains("aresample=44100"))
+        #expect(format.filterSuffix.contains("channel_layouts=mono"))
     }
 
     @Test @MainActor func renderedThreeSecondCrossFadeContainsBothSourcesThroughoutTheOverlap() async throws {
@@ -296,6 +326,10 @@ struct MultiTrackTimelineTests {
         #expect(TransitionProgressAccessibility.value(0) == "0 percent")
         #expect(TransitionProgressAccessibility.value(0.349) == "30 percent")
         #expect(TransitionProgressAccessibility.value(1) == "100 percent")
+        #expect(TransitionProgressAccessibility.announcement(
+            40,
+            transitionName: "Cross Fade"
+        ) == "Applying Cross Fade, 40 percent")
     }
 
     @Test func timelineElementsPlaceCrossTransitionsBetweenTheirClips() throws {
