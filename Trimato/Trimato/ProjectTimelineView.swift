@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ProjectTimelineView: View {
@@ -6,9 +7,6 @@ struct ProjectTimelineView: View {
     let workspacePaneLinks: Namespace.ID
 
     @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
-    @AccessibilityFocusState private var trackPickerFocused: Bool
-    @State private var accessibilityElements: [TimelineListElement] = []
-    @State private var accessibilitySnapshotID = UUID()
     @State private var renamedClipName = ""
     @State private var isRenamingClip = false
     @State private var isRenamingTrack = false
@@ -36,7 +34,6 @@ struct ProjectTimelineView: View {
                     }
                 }
                 .disabled(controller.project.tracks.isEmpty)
-                .accessibilityFocused($trackPickerFocused)
                 Menu("Track Actions") {
                     Button("Add Track…") { beginAddTrack() }
                     Button("Rename Track…") { beginRenameTrack() }
@@ -65,7 +62,6 @@ struct ProjectTimelineView: View {
         }
         .onAppear {
             reconcileActiveTrack()
-            refreshAccessibilityElements()
         }
         .onChange(of: controller.project.tracks.map(\.id)) {
             reconcileActiveTrack()
@@ -74,13 +70,8 @@ struct ProjectTimelineView: View {
             guard let element else { return }
             controller.focusTimelineElement(element)
         }
-        .onChange(of: trackPickerFocused) { focused in
-            if focused { refreshAccessibilityElements() }
-        }
         .onChange(of: controller.activeTimelineTrackID) {
-            if trackPickerFocused || focusedElement != nil {
-                refreshAccessibilityElements()
-            }
+            focusedElement = nil
         }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
@@ -128,20 +119,7 @@ struct ProjectTimelineView: View {
         } else if timelineElements.isEmpty {
             emptyMessage("No clips on this track")
         } else {
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 2) {
-                    ForEach(timelineElements) { element in
-                        switch element.content {
-                        case .clip(let clip): clipButton(clip)
-                        case .transition(let transition): transitionButton(transition)
-                        }
-                    }
-                }
-                .padding(8)
-            }
-            .accessibilityRepresentation {
-                accessibilityTimelineContent
-            }
+            accessibleTimelineList
             .background(
                 TimelineContextMenuKeyBridge(
                     focusedElement: focusedElement,
@@ -149,26 +127,46 @@ struct ProjectTimelineView: View {
                     renameClip: beginRenamingClip,
                     deleteClip: deleteTimelineClip,
                     editTransition: editTransition,
-                    deleteTransition: controller.deleteTransition
+                    deleteTransition: controller.deleteTransition,
+                    copyClip: controller.copyTimelineClip,
+                    pasteClipAfter: controller.pasteCopiedTimelineClip,
+                    moveClipAfter: controller.moveCopiedTimelineClip
                 )
                 .frame(width: 0, height: 0)
             )
         }
     }
 
-    private var accessibilityTimelineContent: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(accessibilityElements) { element in
+    @ViewBuilder
+    private var accessibleTimelineList: some View {
+        if #available(macOS 26.0, *), let currentSelection {
+            timelineList
+                .accessibilityDefaultFocus($focusedElement, currentSelection)
+        } else {
+            timelineList
+        }
+    }
+
+    private var timelineList: some View {
+        List {
+            ForEach(timelineElements) { element in
                     switch element.content {
                     case .clip(let clip): clipButton(clip)
                     case .transition(let transition): transitionButton(transition)
                     }
-                }
             }
         }
-        .accessibilityLabel("Timeline clips")
-        .id(accessibilitySnapshotID)
+        .listStyle(.plain)
+        .accessibilityLabel(timelineAccessibilityLabel)
+        .background {
+            TimelineTableAccessibilityLabelBridge(label: timelineAccessibilityLabel)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var timelineAccessibilityLabel: String {
+        "Timeline clips, \(controller.activeTimelineTrack?.name ?? "current track")"
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -186,6 +184,10 @@ struct ProjectTimelineView: View {
         )
     }
 
+    private var currentSelection: TimelineElementSelection? {
+        controller.editorClip(at: controller.timelinePlayhead).map { .clip($0.id) }
+    }
+
     private var activeTrackBinding: Binding<UUID?> {
         Binding(
             get: { controller.activeTimelineTrackID ?? controller.project.tracks.first?.id },
@@ -198,13 +200,22 @@ struct ProjectTimelineView: View {
             controller.selection = .timelineClip(clip.id)
             openClipEditor(.timelineClip(clip.id))
         } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(clip.displayName).lineLimit(2)
-                Text(ProjectTimecodeFormatter.string(clip.duration))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(clip.displayName).lineLimit(2)
+                    Text(ProjectTimecodeFormatter.string(clip.duration))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if currentSelection == .clip(clip.id) {
+                    Text("Current")
+                        .font(.caption)
+                        .foregroundStyle(EditorTheme.accent)
+                        .accessibilityHidden(true)
+                }
             }
-            .frame(width: 180, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)
         }
         .buttonStyle(.plain)
@@ -212,6 +223,7 @@ struct ProjectTimelineView: View {
         .background(selectionBackground(.timelineClip(clip.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.separator))
         .accessibilityLabel(clip.displayName)
+        .accessibilityValue(currentSelection == .clip(clip.id) ? "Current clip" : "")
         .accessibilityFocused($focusedElement, equals: .clip(clip.id))
         .contextMenu { clipActions(clip) }
     }
@@ -221,16 +233,23 @@ struct ProjectTimelineView: View {
             controller.selection = .transition(transition.id)
             beginEditingTransition(transition)
         } label: {
-            Text(transition.displayName)
-                .lineLimit(2)
-                .frame(width: 150, alignment: .leading)
-                .padding(8)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(transition.displayName).lineLimit(2)
+                if let description = transitionContextDescription(transition) {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
         }
         .buttonStyle(.plain)
         .frame(minHeight: 56, alignment: .topLeading)
         .background(selectionBackground(.transition(transition.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.accent.opacity(0.75)))
         .accessibilityLabel(transition.displayName)
+        .accessibilityValue(transitionContextDescription(transition) ?? "")
         .accessibilityFocused($focusedElement, equals: .transition(transition.id))
         .contextMenu {
             Button("Edit Transition…") { beginEditingTransition(transition) }
@@ -284,7 +303,6 @@ struct ProjectTimelineView: View {
     private func restoreTimelineElementFocus() {
         guard let target = transitionFocusReturn else { return }
         transitionFocusReturn = nil
-        refreshAccessibilityElements()
         focusedElement = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             focusedElement = target
@@ -292,13 +310,6 @@ struct ProjectTimelineView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             focusedElement = target
         }
-    }
-
-    private func refreshAccessibilityElements() {
-        let refreshed = timelineElements
-        guard refreshed != accessibilityElements else { return }
-        accessibilityElements = refreshed
-        accessibilitySnapshotID = UUID()
     }
 
     private func activateTimelineElement(_ selection: TimelineElementSelection) {
@@ -337,6 +348,10 @@ struct ProjectTimelineView: View {
             renamedClipName = clip.displayName
             isRenamingClip = true
         }
+        Divider()
+        Button("Copy Clip") { controller.copyTimelineClip(id: clip.id) }
+        Button("Paste Clip After") { controller.pasteCopiedTimelineClip(after: clip.id) }
+        Button("Move Copied Clip After") { controller.moveCopiedTimelineClip(after: clip.id) }
         Divider()
         Button("Delete from Timeline", role: .destructive) {
             controller.selection = .timelineClip(clip.id)
@@ -396,6 +411,69 @@ struct ProjectTimelineView: View {
 
     private func beginAddTrack() {
         isAddingTrack = true
+    }
+}
+
+private struct TimelineTableAccessibilityLabelBridge: NSViewRepresentable {
+    let label: String
+
+    func makeNSView(context: Context) -> TimelineTableLabelView {
+        let view = TimelineTableLabelView()
+        view.setAccessibilityElement(false)
+        return view
+    }
+
+    func updateNSView(_ nsView: TimelineTableLabelView, context: Context) {
+        nsView.timelineLabel = label
+        nsView.applyLabelWhenReady()
+    }
+}
+
+private final class TimelineTableLabelView: NSView {
+    var timelineLabel = ""
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyLabelWhenReady()
+    }
+
+    func applyLabelWhenReady() {
+        DispatchQueue.main.async { [weak self] in
+            self?.applyLabel()
+        }
+    }
+
+    private func applyLabel() {
+        guard !timelineLabel.isEmpty,
+              let contentView = window?.contentView else { return }
+
+        let labelFrame = convert(bounds, to: nil)
+        let table = Self.tables(in: contentView)
+            .filter { !$0.isHidden }
+            .max { first, second in
+                Self.intersectionArea(first.convert(first.bounds, to: nil), labelFrame)
+                    < Self.intersectionArea(second.convert(second.bounds, to: nil), labelFrame)
+            }
+
+        guard let table,
+              Self.intersectionArea(table.convert(table.bounds, to: nil), labelFrame) > 0 else { return }
+        table.setAccessibilityLabel(timelineLabel)
+    }
+
+    private static func tables(in view: NSView) -> [NSTableView] {
+        var result: [NSTableView] = []
+        if let table = view as? NSTableView {
+            result.append(table)
+        }
+        for subview in view.subviews {
+            result.append(contentsOf: tables(in: subview))
+        }
+        return result
+    }
+
+    private static func intersectionArea(_ first: NSRect, _ second: NSRect) -> CGFloat {
+        let intersection = first.intersection(second)
+        return intersection.isNull ? 0 : intersection.width * intersection.height
     }
 }
 

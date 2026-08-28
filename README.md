@@ -25,7 +25,6 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 - Open audio and video files from the File menu, Finder, drag and drop, or Command-O.
 - Play, pause, seek, and move forward or backward one frame at a time.
 - Display the playhead as timecode or a frame number.
-- Copy the current `hh:mm:ss.mmm` timecode as plain text.
 - Mark reusable In and Out points on the edited timeline.
 - Delete a selected section from the middle of a clip and immediately preview the joined result.
 - Trim everything before or after the playhead with keyboard commands.
@@ -61,9 +60,8 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 - Command-[: Trim everything from the start of the clip to the playhead.
 - Command-]: Trim everything from the playhead to the end of the clip.
 
-### Files and timecode
+### Files
 
-- C: Copy the current timecode as plain text.
 - Command-O: Open an audio or video file.
 - Command-R: Create a project from the current standalone clip edit.
 - Command-E: Export the edited clip or current selection.
@@ -74,6 +72,10 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 - Command-E: Export the current project when the project workspace is active.
 - Command-B: Split the selected timeline clip at the project playhead.
 - Command-T: Open Add Transition for the clip at the Editor playhead or the focused Timeline clips item.
+- C: Open Clip Editor for the active-track clip at or immediately after the Editor playhead.
+- Command-C: Copy the focused Timeline clip.
+- Command-V: Paste a copy immediately after the focused Timeline clip.
+- Command-Option-V: Move the copied Timeline clip immediately after the focused Timeline clip.
 - Control-Enter: Open Selected Element Actions for the focused Timeline clips item.
 - Option-Command-Up Arrow: Move to the previous timeline track.
 - Option-Command-Down Arrow: Move to the next timeline track.
@@ -99,7 +101,7 @@ In and Out are general selection markers:
 
 After a clip-editor deletion, the playhead moves to the new edit point and the markers are cleared. In a Trimato project, the resulting source ranges are saved with the media or timeline clip. Project changes participate in the standard Undo and Redo commands.
 
-Each project track is magnetic within itself, so deleting or moving an item closes gaps on that track. Clips on different tracks can begin and end independently. The Track picker chooses the one video or audio track presented as a linear Timeline clips list, while the Editor playhead remains shared across the complete project.
+Each project track is magnetic within itself, so deleting or moving an item closes gaps on that track. Clips on different tracks can begin and end independently. The Track picker chooses the video or audio track presented as a native chronological Timeline clips list, while the Editor playhead remains shared across the complete project. Timeline clips is for reviewing and arranging the project. Clip timing belongs in Clip Editor, transition timing belongs in Transition Editor, and project playback belongs in Editor.
 
 The protected primary video and audio tracks retain the standard placement commands. Insert at Playhead splits the clip under the playhead and preserves both sides. Replace Clip Remainder preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips in place. User-created tracks can be added, renamed, reordered, and deleted independently. A cutaway requires a visual source. It changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
 
@@ -108,6 +110,8 @@ Every primary clip and cutaway has a distinct displayed timeline name. Repeated 
 ## Tracks and transitions
 
 VoiceOver focus in Timeline clips identifies the current clip or transition for timeline commands and loads the same item into Inspector. Change the Track picker, or press Option-Command-Up Arrow and Option-Command-Down Arrow, to move between tracks without turning the complete project into one long list.
+
+The clip at the Editor playhead is identified as Current clip in the active track. At an edit point, the incoming clip is current. Press C from Editor to open that clip directly. Timeline clipboard commands operate only on the focused track item and require matching video or audio track types.
 
 Press Command-T in the Editor to add a transition at the playhead, or press it on a focused Timeline clips item. In the Editor, press F to open Quick Fade for the clip at the playhead. Press X at an edit between clips to open Quick Cross Dissolve on a video track or Quick Cross Fade on an audio track. Duration is entered in seconds and accepts fractional values such as `1.25`. Video transition sheets can also apply a linked audio fade or cross fade when audio is available.
 

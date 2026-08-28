@@ -3,7 +3,7 @@ import SwiftUI
 struct AddTransitionView: View {
     let project: TrimatoProject
     let request: TransitionRequest
-    let add: ([TimelineTransition]) -> Void
+    let add: ([TimelineTransition]) async throws -> Void
     let cancel: () -> Void
 
     @State private var addIntro = false
@@ -17,9 +17,29 @@ struct AddTransitionView: View {
     @State private var includeIntroAudio = false
     @State private var includeOutroAudio = false
     @State private var validationMessage: String?
+    @State private var isSubmitting = false
     @AccessibilityFocusState private var focusedPicker: TransitionPickerFocus?
+    @AccessibilityFocusState private var validationMessageFocused: Bool
+    @AccessibilityFocusState private var progressFocused: Bool
 
     var body: some View {
+        Group {
+            if isSubmitting {
+                VStack(spacing: 16) {
+                    ProgressView("Applying \(applicationName)…")
+                        .accessibilityFocused($progressFocused)
+                }
+                .padding(32)
+                .frame(width: 440)
+                .frame(minHeight: 180)
+            } else {
+                form
+            }
+        }
+        .interactiveDismissDisabled(isSubmitting)
+    }
+
+    private var form: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Transition")
                 .font(.headline)
@@ -36,6 +56,7 @@ struct AddTransitionView: View {
             if let validationMessage {
                 Text(validationMessage)
                     .foregroundStyle(.red)
+                    .accessibilityFocused($validationMessageFocused)
             }
 
             HStack {
@@ -47,6 +68,20 @@ struct AddTransitionView: View {
         }
         .padding(20)
         .frame(width: 440)
+    }
+
+    private var applicationName: String {
+        if addIntro, !addOutro { return introTransitionName }
+        if addOutro, !addIntro { return outroTransitionName }
+        return "Transitions"
+    }
+
+    private var introTransitionName: String {
+        track?.kind == .video ? introVideoType.title : introAudioType.title
+    }
+
+    private var outroTransitionName: String {
+        track?.kind == .video ? outroVideoType.title : outroAudioType.title
     }
 
     @ViewBuilder
@@ -177,13 +212,30 @@ struct AddTransitionView: View {
         let intro = addIntro ? TransitionDurationInput.parse(introDuration) : nil
         let outro = addOutro ? TransitionDurationInput.parse(outroDuration) : nil
         if (addIntro && intro == nil) || (addOutro && outro == nil) {
-            validationMessage = "Enter a duration greater than zero, such as 1.0 or 1.25 seconds."
+            showValidation("Enter a duration greater than zero, such as 1.0 or 1.25 seconds.")
             return
         }
         var result: [TimelineTransition] = []
         if let intro { result.append(contentsOf: makeTransitions(edge: .intro, duration: intro)) }
         if let outro { result.append(contentsOf: makeTransitions(edge: .outro, duration: outro)) }
-        add(result)
+        isSubmitting = true
+        Task { @MainActor in
+            await Task.yield()
+            progressFocused = true
+            do {
+                try await add(result)
+            } catch {
+                progressFocused = false
+                isSubmitting = false
+                showValidation("Transition could not be added. \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func showValidation(_ message: String) {
+        validationMessageFocused = false
+        validationMessage = message
+        DispatchQueue.main.async { validationMessageFocused = true }
     }
 
     private func makeTransitions(edge: TimelineTransitionEdge, duration: ProjectTime) -> [TimelineTransition] {

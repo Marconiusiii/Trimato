@@ -163,6 +163,30 @@ struct MultiTrackTimelineTests {
             "Interview A to Interview B")
     }
 
+    @Test @MainActor func editorClipLookupPrefersIncomingThenContainingThenFollowing() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 12)
+        var project = TrimatoProject(name: "Editor lookup")
+        project.media = [asset]
+        let trackID = project.createTrack(kind: .video, name: "Main Video")
+        let firstID = try project.append(asset: asset, segments: [segment(0, 3)], toTrack: trackID)
+        let secondID = try project.append(asset: asset, segments: [segment(3, 4)], toTrack: trackID)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = trackID
+
+        #expect(controller.editorClip(at: .zero)?.id == firstID)
+        #expect(controller.editorClip(at: ProjectTime(seconds: 3))?.id == secondID)
+        #expect(controller.editorClip(at: ProjectTime(seconds: 5))?.id == secondID)
+        #expect(controller.editorClip(at: ProjectTime(seconds: 7))?.id == secondID)
+
+        var projectWithGap = project
+        let trackIndex = try #require(projectWithGap.tracks.firstIndex(where: { $0.id == trackID }))
+        let secondIndex = try #require(projectWithGap.tracks[trackIndex].clips.firstIndex(where: { $0.id == secondID }))
+        projectWithGap.tracks[trackIndex].clips[secondIndex].timelineStart = ProjectTime(seconds: 6)
+        let gapController = ProjectController(document: ProjectDocument(project: projectWithGap))
+        gapController.activeTimelineTrackID = trackID
+        #expect(gapController.editorClip(at: ProjectTime(seconds: 4))?.id == secondID)
+    }
+
     @Test func videoTransitionGraphNormalizesBothInputsForXfade() {
         let graph = FFmpegTimelineEffectRenderer.videoTransitionGraph(
             leadingStart: 2,

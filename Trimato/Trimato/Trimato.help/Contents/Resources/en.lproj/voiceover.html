@@ -15,7 +15,7 @@
     <p>The project workspace contains Project, Editor, Timeline, and Inspector groups.</p>
     <ul>
         <li>Use Project to import, organize, open, place, and relink source clips.</li>
-        <li>Use Editor for playback, project In and Out points, edit-point navigation, and blading.</li>
+        <li>Use Editor for playback, project In and Out points, edit-point navigation, blading, transitions, and opening the clip at the playhead.</li>
         <li>Use Timeline to choose one track, then review, open, move, and delete its clips and transitions in order.</li>
         <li>Use Inspector to read information about the selected item.</li>
     </ul>
@@ -26,10 +26,15 @@
         <li>Use Space, J, K, L, the Arrow keys, or the playback buttons.</li>
         <li>Use Command-Arrow keys to move among project edit points.</li>
         <li>Press Command-B to blade the clip beneath the playhead.</li>
+        <li>Press C to open Clip Editor for the active-track clip at or immediately after the playhead.</li>
+        <li>Press Command-T, F, or X to add transitions without leaving Editor.</li>
     </ol>
 
     <h2>Work with timeline tracks</h2>
-    <p>Choose a track with the Track picker or Command-Option-Up Arrow and Command-Option-Down Arrow. Interact with Timeline clips to move through that track in order. Focusing a clip or transition selects it and updates Inspector. Activate a clip to open Clip Editor, or activate a transition to edit it.</p>
+    <p>Choose a track with the Track picker or Command-Option-Up Arrow and Command-Option-Down Arrow. Interact with the native Timeline clips list to move through that track in chronological order. The playhead clip is identified as Current clip, and an edit point identifies the incoming clip. Focusing a clip or transition selects it and updates Inspector. Activate a clip to open Clip Editor, or activate a transition to edit it.</p>
+
+    <h2>Copy and move timeline clips</h2>
+    <p>Focus a clip and press Command-C. Focus the destination clip and press Command-V to paste a copy after it, or press Command-Option-V to move the copied clip after it. These commands work only while VoiceOver focus identifies a Timeline clip. Elsewhere, macOS retains its standard Copy and Paste behavior.</p>
 
     <h2>Check export progress</h2>
     <ol>

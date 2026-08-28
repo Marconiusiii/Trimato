@@ -12,6 +12,7 @@ enum ProjectTimelineError: LocalizedError, Equatable {
     case audioOnlyCutaway
     case trackNotFound
     case protectedPrimaryTrack
+    case incompatibleTrackKind
     case transitionNotAvailable(String)
 
     var errorDescription: String? {
@@ -27,6 +28,7 @@ enum ProjectTimelineError: LocalizedError, Equatable {
         case .audioOnlyCutaway: "Insert on Top requires a clip with video. Add this audio clip to the primary timeline instead."
         case .trackNotFound: "The selected track is no longer available."
         case .protectedPrimaryTrack: "The primary track cannot be deleted."
+        case .incompatibleTrackKind: "Copy or move video clips to video tracks and audio clips to audio tracks."
         case .transitionNotAvailable(let message): message
         }
     }
@@ -266,6 +268,7 @@ extension TrimatoProject {
         guard let trackIndex = tracks.firstIndex(where: { track in track.clips.contains { $0.id == id } }) else {
             throw ProjectTimelineError.clipNotFound
         }
+        disconnectLinkedClip(id)
         var ordered = tracks[trackIndex].sortedClips
         guard let source = ordered.firstIndex(where: { $0.id == id }) else { throw ProjectTimelineError.clipNotFound }
         let clip = ordered.remove(at: source)
@@ -276,13 +279,123 @@ extension TrimatoProject {
             cursor = cursor + ordered[index].duration
         }
         tracks[trackIndex].clips = ordered
+        removeInvalidBetweenTransitions(on: [tracks[trackIndex].id])
+    }
+
+    @discardableResult
+    mutating func duplicateTrackClip(id sourceID: UUID, after targetID: UUID) throws -> UUID {
+        ensureTrackModel()
+        guard let sourceTrackIndex = tracks.firstIndex(where: { $0.clips.contains { $0.id == sourceID } }),
+              let source = tracks[sourceTrackIndex].clips.first(where: { $0.id == sourceID }),
+              let targetTrackIndex = tracks.firstIndex(where: { $0.clips.contains { $0.id == targetID } }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        guard tracks[sourceTrackIndex].kind == tracks[targetTrackIndex].kind else {
+            throw ProjectTimelineError.incompatibleTrackKind
+        }
+
+        var copied = source
+        copied.id = UUID()
+        copied.linkedClipID = nil
+        copied.timelineStart = .zero
+        copied.customName = uniqueCopiedClipName(for: source)
+
+        var destinationClips = tracks[targetTrackIndex].sortedClips
+        guard let targetIndex = destinationClips.firstIndex(where: { $0.id == targetID }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        destinationClips.insert(copied, at: targetIndex + 1)
+        tracks[targetTrackIndex].clips = magnetized(destinationClips)
+        removeInvalidBetweenTransitions(on: [tracks[targetTrackIndex].id])
+        return copied.id
+    }
+
+    mutating func moveTrackClip(id sourceID: UUID, after targetID: UUID) throws {
+        ensureTrackModel()
+        guard let sourceTrackIndex = tracks.firstIndex(where: { $0.clips.contains { $0.id == sourceID } }),
+              let targetTrackIndex = tracks.firstIndex(where: { $0.clips.contains { $0.id == targetID } }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        guard tracks[sourceTrackIndex].kind == tracks[targetTrackIndex].kind else {
+            throw ProjectTimelineError.incompatibleTrackKind
+        }
+        guard sourceID != targetID else { return }
+
+        disconnectLinkedClip(sourceID)
+        var sourceClips = tracks[sourceTrackIndex].sortedClips
+        guard let sourceIndex = sourceClips.firstIndex(where: { $0.id == sourceID }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        let moving = sourceClips.remove(at: sourceIndex)
+
+        if sourceTrackIndex == targetTrackIndex {
+            guard let targetIndex = sourceClips.firstIndex(where: { $0.id == targetID }) else {
+                throw ProjectTimelineError.clipNotFound
+            }
+            sourceClips.insert(moving, at: targetIndex + 1)
+            tracks[sourceTrackIndex].clips = magnetized(sourceClips)
+        } else {
+            var destinationClips = tracks[targetTrackIndex].sortedClips
+            guard let targetIndex = destinationClips.firstIndex(where: { $0.id == targetID }) else {
+                throw ProjectTimelineError.clipNotFound
+            }
+            destinationClips.insert(moving, at: targetIndex + 1)
+            tracks[sourceTrackIndex].clips = magnetized(sourceClips)
+            tracks[targetTrackIndex].clips = magnetized(destinationClips)
+        }
+
+        let affectedTrackIDs = Set([tracks[sourceTrackIndex].id, tracks[targetTrackIndex].id])
         transitions.removeAll { transition in
-            guard transition.trackID == tracks[trackIndex].id, transition.edge == .between else { return false }
-            guard let leading = transition.leadingClipID, let trailing = transition.trailingClipID,
+            transition.leadingClipID == sourceID || transition.trailingClipID == sourceID
+        }
+        removeInvalidBetweenTransitions(on: affectedTrackIDs)
+    }
+
+    private func magnetized(_ clips: [TimelineClip]) -> [TimelineClip] {
+        var result = clips
+        var cursor = ProjectTime.zero
+        for index in result.indices {
+            result[index].timelineStart = cursor
+            cursor = cursor + result[index].duration
+        }
+        return result
+    }
+
+    private mutating func disconnectLinkedClip(_ id: UUID) {
+        guard let linkedID = timelineClip(id: id)?.linkedClipID else { return }
+        for trackIndex in tracks.indices {
+            for clipIndex in tracks[trackIndex].clips.indices {
+                if tracks[trackIndex].clips[clipIndex].id == id ||
+                    tracks[trackIndex].clips[clipIndex].id == linkedID {
+                    tracks[trackIndex].clips[clipIndex].linkedClipID = nil
+                }
+            }
+        }
+    }
+
+    private mutating func removeInvalidBetweenTransitions(on trackIDs: Set<UUID>) {
+        let affectedTracks = Dictionary(uniqueKeysWithValues: tracks
+            .filter { trackIDs.contains($0.id) }
+            .map { ($0.id, $0) })
+        transitions.removeAll { transition in
+            guard trackIDs.contains(transition.trackID), transition.edge == .between,
+                  let track = affectedTracks[transition.trackID] else { return false }
+            let ordered = track.sortedClips
+            guard let leading = transition.leadingClipID,
+                  let trailing = transition.trailingClipID,
                   let leadingIndex = ordered.firstIndex(where: { $0.id == leading }),
                   let trailingIndex = ordered.firstIndex(where: { $0.id == trailing }) else { return true }
             return trailingIndex != leadingIndex + 1
         }
+    }
+
+    private func uniqueCopiedClipName(for clip: TimelineClip) -> String {
+        let base = "\(clip.displayName) Copy"
+        let used = Set(tracks.flatMap(\.clips).map { $0.displayName.lowercased() })
+        guard used.contains(base.lowercased()) else { return base }
+        var ordinal = 2
+        while used.contains("\(base) \(ordinal)".lowercased()) { ordinal += 1 }
+        return "\(base) \(ordinal)"
     }
 
     mutating func addTransition(_ transition: TimelineTransition) throws {

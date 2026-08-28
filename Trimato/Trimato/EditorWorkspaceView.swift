@@ -86,7 +86,7 @@ struct EditorWorkspaceView: View {
                     cancel: controller.cancelExport
                 )
             }
-            .sheet(item: $controller.transitionRequest, onDismiss: transitionSheetDidDismiss) { request in
+            .sheet(item: $controller.transitionRequest) { request in
                 transitionSheet(for: request)
             }
             .alert(item: $controller.presentedError) { error in
@@ -113,6 +113,7 @@ struct EditorWorkspaceView: View {
                 MacEditorPane("Editor") {
                     ProjectViewerView(
                         controller: controller,
+                        openClipEditor: clipEditorWindows.open,
                         workspacePaneLinks: workspacePaneLinks
                     )
                 }
@@ -165,37 +166,21 @@ struct EditorWorkspaceView: View {
                 project: controller.project,
                 request: request,
                 add: { transitions in
-                    try addQuickTransitions(transitions)
+                    try await addTransitions(transitions)
                 },
                 finished: dismissQuickTransition
             )
         }
     }
 
-    private func addTransitions(_ transitions: [TimelineTransition]) {
+    private func addTransitions(_ transitions: [TimelineTransition]) async throws {
         let returnsToEditor = controller.transitionRequestReturnsToEditor
-        if returnsToEditor { controller.beginApplyingTransitions(transitions) }
-        do {
+        if returnsToEditor {
+            try await controller.applyTransitionsFromEditor(transitions)
+        } else {
             try controller.addTransitions(transitions, selectAddedTransition: !returnsToEditor)
-            controller.transitionRequest = nil
-        } catch {
-            if returnsToEditor { controller.finishApplyingTransition() }
-            controller.presentedError = ProjectPresentedError(
-                title: "Transition Could Not Be Added",
-                message: error.localizedDescription
-            )
         }
-    }
-
-    private func addQuickTransitions(_ transitions: [TimelineTransition]) throws {
-        let returnsToEditor = controller.transitionRequestReturnsToEditor
-        if returnsToEditor { controller.beginApplyingTransitions(transitions) }
-        do {
-            try controller.addTransitions(transitions, selectAddedTransition: false)
-        } catch {
-            if returnsToEditor { controller.finishApplyingTransition() }
-            throw error
-        }
+        controller.transitionRequest = nil
     }
 
     private func dismissStandardTransition() {
@@ -204,15 +189,6 @@ struct EditorWorkspaceView: View {
 
     private func dismissQuickTransition() {
         controller.transitionRequest = nil
-    }
-
-    private func transitionSheetDidDismiss() {
-        guard controller.transitionRequestReturnsToEditor else { return }
-        if controller.applyingTransitionName != nil {
-            controller.requestTransitionProgressFocus()
-        } else {
-            controller.requestEditorFocusRestore()
-        }
     }
 
     private func requestEditorFocus() {
@@ -224,11 +200,11 @@ struct EditorWorkspaceView: View {
 
 private struct ProjectViewerView: View {
     @ObservedObject var controller: ProjectController
+    let openClipEditor: (EditorSelection) -> Void
     let workspacePaneLinks: Namespace.ID
     @StateObject private var viewModel = ProjectPlayerViewModel()
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
     @AccessibilityFocusState private var playPauseFocused: Bool
-    @AccessibilityFocusState private var applyingTransitionFocused: Bool
     @State private var pendingPlayFocus = false
 
     var body: some View {
@@ -273,9 +249,16 @@ private struct ProjectViewerView: View {
                 guard let controller, let viewModel else { return }
                 controller.requestQuickTransition(at: viewModel.currentTime, mode: .quickFade)
             }
+            viewModel.onOpenClipAtPlayhead { [weak controller, weak viewModel] in
+                guard let controller, let viewModel,
+                      let selection = controller.editorClipSelection(at: viewModel.currentTime) else { return }
+                openClipEditor(selection)
+            }
             prepare()
         }
-        .onChange(of: controller.project) { _ in prepare() }
+        .onChange(of: controller.project) { project in
+            if !controller.consumePreparedTransitionPreview(for: project) { prepare() }
+        }
         .onChange(of: controller.timelinePlayhead) { time in
             guard abs(viewModel.currentTime.seconds - time.seconds) > 0.02 else { return }
             viewModel.seek(to: time)
@@ -285,9 +268,6 @@ private struct ProjectViewerView: View {
         }
         .onChange(of: controller.editorFocusRestoreRequest) { _ in
             restorePlayPauseFocus()
-        }
-        .onChange(of: controller.transitionProgressFocusRequest) {
-            focusApplyingTransition()
         }
         .onChange(of: viewModel.isPreparing) { isPreparing in
             preparationChanged(isPreparing)
@@ -324,28 +304,11 @@ private struct ProjectViewerView: View {
         }
     }
 
-    private func focusApplyingTransition() {
-        playPauseFocused = false
-        applyingTransitionFocused = false
-        DispatchQueue.main.async {
-            if controller.applyingTransitionName != nil {
-                applyingTransitionFocused = true
-            }
-        }
-    }
-
     private func preparationChanged(_ isPreparing: Bool) {
-        if isPreparing {
-            if controller.applyingTransitionName != nil {
-                playPauseFocused = false
-            }
-            return
-        }
+        if isPreparing { return }
         Task { @MainActor in
             await Task.yield()
-            let finishedTransition = controller.applyingTransitionName != nil
-            if finishedTransition { controller.finishApplyingTransition() }
-            if (finishedTransition || pendingPlayFocus),
+            if pendingPlayFocus,
                viewModel.presentedPreviewFailure == nil,
                viewModel.canControlPlayback {
                 restorePlayPauseFocus()
@@ -392,15 +355,9 @@ private struct ProjectViewerView: View {
                 Text("Add a clip to the project timeline")
                     .foregroundStyle(.secondary)
             } else if viewModel.isPreparing {
-                if let transitionName = controller.applyingTransitionName {
-                    ProgressView("Applying \(transitionName)…")
-                        .padding()
-                        .accessibilityFocused($applyingTransitionFocused)
-                } else {
-                    ProgressView("Preparing Project Preview")
-                        .padding()
-                        .accessibilityHidden(true)
-                }
+                ProgressView("Preparing Project Preview")
+                    .padding()
+                    .accessibilityHidden(true)
             } else if viewModel.errorMessage != nil {
                 VStack(spacing: 12) {
                     Text("Project preview unavailable")
@@ -450,7 +407,8 @@ private struct ProjectViewerView: View {
             }
             .buttonStyle(.plain)
             .disabled(!viewModel.canControlPlayback)
-            .accessibilityLabel(viewModel.accessibilityTimecodeLabel)
+            .accessibilityLabel("Project timecode")
+            .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
             .accessibilityIdentifier("trimato.editor.timecode")
 

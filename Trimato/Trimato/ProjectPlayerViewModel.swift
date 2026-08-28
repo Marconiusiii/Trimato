@@ -57,12 +57,18 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8]
     private var arrowHolding = false
+    private var scrubTask: Task<Void, Never>?
+    private var stepEndTask: Task<Void, Never>?
+    private var frameStepPosition: ProjectTime?
+    private var isScrubbing = false
+    private var isSteppingFrames = false
     private var keyEventMonitor: Any?
     private var keyboardCommandsAreActive: (() -> Bool)?
     private var bladeAtPlayhead: (() -> Void)?
     private var standardTransition: (() -> Void)?
     private var quickCrossTransition: (() -> Void)?
     private var quickFade: (() -> Void)?
+    private var openClipAtPlayhead: (() -> Void)?
     private var currentPreviewFailure: ProjectPreviewFailure?
 
     init() {
@@ -73,7 +79,9 @@ final class ProjectPlayerViewModel: ObservableObject {
                 guard let self else { return }
                 self.isPlaying = rate != 0
                 self.playbackRate = rate
-                if rate == 0 { self.refreshAccessibilityTimecode() }
+                if rate == 0, !self.isScrubbing, !self.isSteppingFrames {
+                    self.refreshAccessibilityTimecode()
+                }
             }
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
@@ -88,6 +96,8 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     deinit {
         buildTask?.cancel()
+        scrubTask?.cancel()
+        stepEndTask?.cancel()
         for url in temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let keyEventMonitor { NSEvent.removeMonitor(keyEventMonitor) }
@@ -113,6 +123,10 @@ final class ProjectPlayerViewModel: ObservableObject {
         quickFade = handler
     }
 
+    func onOpenClipAtPlayhead(_ handler: @escaping () -> Void) {
+        openClipAtPlayhead = handler
+    }
+
     func dismissPreviewFailure() {
         presentedPreviewFailure = nil
     }
@@ -127,6 +141,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         initialTime: ProjectTime = .zero
     ) {
         buildTask?.cancel()
+        cancelFrameStepping()
         let preparationID = UUID()
         self.preparationID = preparationID
         player.pause()
@@ -217,8 +232,64 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
+    func prepareTransitionPreview(
+        project: TrimatoProject,
+        mediaURLs: [UUID: URL],
+        initialTime: ProjectTime
+    ) async throws {
+        buildTask?.cancel()
+        cancelFrameStepping()
+        let requestID = UUID()
+        preparationID = requestID
+        player.pause()
+        isPreparing = true
+        errorMessage = nil
+        currentPreviewFailure = nil
+        presentedPreviewFailure = nil
+
+        var pendingTemporaryMediaURLs: [URL] = []
+        do {
+            let result = try await ProjectCompositionBuilder.build(
+                project: project,
+                mediaURLs: mediaURLs,
+                purpose: .preview
+            )
+            pendingTemporaryMediaURLs = result.temporaryMediaURLs
+            try Task.checkCancellation()
+            guard preparationID == requestID else { throw CancellationError() }
+
+            let item = AVPlayerItem(asset: result.composition)
+            item.videoComposition = result.videoComposition
+            item.audioMix = result.audioMix
+            let duration = project.duration
+            let boundedInitialTime = min(max(initialTime, .zero), duration)
+            player.replaceCurrentItem(with: item)
+            await player.seek(
+                to: boundedInitialTime.cmTime,
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            )
+            try Task.checkCancellation()
+            guard preparationID == requestID else { throw CancellationError() }
+
+            removeTemporaryMedia()
+            temporaryMediaURLs = pendingTemporaryMediaURLs
+            pendingTemporaryMediaURLs.removeAll()
+            projectDuration = duration
+            projectFrameRate = max(project.format.frameRate ?? 30, 1)
+            editPoints = Self.editPoints(in: project)
+            updateDisplayedTime(boundedInitialTime)
+            isPreparing = false
+        } catch {
+            Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
+            if preparationID == requestID { isPreparing = false }
+            throw error
+        }
+    }
+
     func togglePlayback() {
         guard canControlPlayback else { return }
+        cancelFrameStepping()
         if isPlaying {
             stop()
         } else {
@@ -228,22 +299,19 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func seek(to time: ProjectTime) {
+        cancelFrameStepping()
         seekPrecisely(to: time)
     }
 
     func seek(toFraction fraction: Double) {
         guard projectDuration > .zero else { return }
+        cancelFrameStepping()
         seekPrecisely(to: ProjectTime(seconds: min(max(fraction, 0), 1) * projectDuration.seconds))
     }
 
     func toggleTimecodeDisplay() {
         showingFrames.toggle()
         refreshAccessibilityTimecode()
-    }
-
-    func copyTimecode() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(displayTimecode, forType: .string)
     }
 
     func markIn() {
@@ -271,15 +339,18 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func seekBackward() {
+        cancelFrameStepping()
         seekPrecisely(to: max(currentTime - ProjectTime(seconds: 10), .zero))
     }
 
     func seekForward() {
+        cancelFrameStepping()
         seekPrecisely(to: min(currentTime + ProjectTime(seconds: 10), projectDuration))
     }
 
     func pressJ() {
         guard canControlPlayback else { return }
+        cancelFrameStepping()
         jklIndex = jklIndex > 0 ? -1 : max(jklIndex - 1, -jklSpeeds.count)
         applyJKLRate()
     }
@@ -290,6 +361,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func pressL() {
         guard canControlPlayback else { return }
+        cancelFrameStepping()
         jklIndex = jklIndex < 0 ? 1 : min(jklIndex + 1, jklSpeeds.count)
         applyJKLRate()
     }
@@ -304,6 +376,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func arrowHeld(forward: Bool) {
         guard canControlPlayback else { return }
+        cancelFrameStepping()
         if !arrowHolding {
             arrowHolding = true
             jklIndex = forward ? 1 : -1
@@ -365,12 +438,29 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func stepFrame(forward: Bool) {
         guard canControlPlayback, !arrowHolding else { return }
-        stop()
-        let frameDuration = ProjectTime(seconds: 1 / projectFrameRate)
-        let destination = forward
-            ? min(currentTime + frameDuration, projectDuration)
-            : max(currentTime - frameDuration, .zero)
-        seekPrecisely(to: destination)
+        cancelScrub(preservingFrameStepPosition: true)
+        isSteppingFrames = true
+        scheduleStepEnd()
+        jklIndex = 0
+        player.pause()
+        let destination = Self.frameStepDestination(
+            current: frameStepPosition ?? currentTime,
+            duration: projectDuration,
+            frameRate: projectFrameRate,
+            forward: forward
+        )
+        frameStepPosition = destination
+        updateDisplayedTime(destination)
+        player.seek(
+            to: destination.cmTime,
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        ) { [weak self] finished in
+            guard finished else { return }
+            Task { @MainActor [weak self] in
+                self?.scheduleScrubAudio(returningTo: destination)
+            }
+        }
     }
 
     private func seekPrecisely(to time: ProjectTime) {
@@ -380,6 +470,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func navigate(to destination: ProjectTime) {
+        cancelFrameStepping()
         seekPrecisely(to: destination)
         announce(Self.navigationAnnouncement(
             destination: destination,
@@ -394,7 +485,58 @@ final class ProjectPlayerViewModel: ObservableObject {
         currentTime = time
         currentFrame = max(Int((time.seconds * projectFrameRate).rounded(.towardZero)), 0)
         displayTimecode = ProjectTimecodeFormatter.string(time)
-        if !isPlaying { refreshAccessibilityTimecode() }
+        if !isPlaying, !isScrubbing, !isSteppingFrames {
+            refreshAccessibilityTimecode()
+        }
+    }
+
+    private func scheduleScrubAudio(returningTo target: ProjectTime) {
+        guard frameStepPosition == target else { return }
+        isScrubbing = true
+        player.play()
+        scrubTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled, self.isScrubbing,
+                  self.frameStepPosition == target else { return }
+            self.isScrubbing = false
+            self.player.pause()
+            await self.player.seek(
+                to: target.cmTime,
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            )
+        }
+    }
+
+    private func cancelScrub(preservingFrameStepPosition: Bool = false) {
+        scrubTask?.cancel()
+        scrubTask = nil
+        if isScrubbing {
+            isScrubbing = false
+            player.pause()
+        }
+        if !preservingFrameStepPosition {
+            frameStepPosition = nil
+        }
+    }
+
+    private func cancelFrameStepping() {
+        stepEndTask?.cancel()
+        stepEndTask = nil
+        isSteppingFrames = false
+        cancelScrub()
+    }
+
+    private func scheduleStepEnd() {
+        stepEndTask?.cancel()
+        stepEndTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            self.isSteppingFrames = false
+            self.refreshAccessibilityTimecode()
+        }
     }
 
     private func refreshAccessibilityTimecode() {
@@ -438,6 +580,18 @@ final class ProjectPlayerViewModel: ObservableObject {
         components.append("\(seconds) second\(seconds == 1 ? "" : "s")")
         components.append("\(remainder) millisecond\(remainder == 1 ? "" : "s")")
         return components.joined(separator: ", ")
+    }
+
+    nonisolated static func frameStepDestination(
+        current: ProjectTime,
+        duration: ProjectTime,
+        frameRate: Double,
+        forward: Bool
+    ) -> ProjectTime {
+        let frameDuration = ProjectTime(seconds: 1 / max(frameRate, 1))
+        return forward
+            ? min(current + frameDuration, duration)
+            : max(current - frameDuration, .zero)
     }
 
     nonisolated static func validExportRange(
@@ -555,7 +709,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 }
                 guard !event.isARepeat, unmodified else { return event }
                 switch event.charactersIgnoringModifiers?.lowercased() {
-                case "c": self.copyTimecode(); return nil
+                case "c": self.openClipAtPlayhead?(); return nil
                 case "x": self.quickCrossTransition?(); return nil
                 case "f": self.quickFade?(); return nil
                 case "i": self.markIn(); return nil

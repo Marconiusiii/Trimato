@@ -29,7 +29,6 @@ final class ProjectController: ObservableObject {
     @Published var transitionRequest: TransitionRequest?
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
-    @Published private(set) var transitionProgressFocusRequest = 0
     @Published private(set) var applyingTransitionName: String?
     @Published var isImporting = false
     @Published var isShowingProjectSettings = false
@@ -37,12 +36,14 @@ final class ProjectController: ObservableObject {
     @Published private(set) var isExporting = false
     @Published private(set) var exportProgress: Double?
     @Published private(set) var isPresentingExportPanel = false
+    @Published private(set) var copiedTimelineClipID: UUID?
 
     private var cancellables: Set<AnyCancellable> = []
     private var accessedURLs: [URL] = []
     private var exportTask: Task<Void, Never>?
     private weak var projectSaveCoordinator: ProjectWindowSaveCoordinator?
     private weak var projectPlayer: ProjectPlayerViewModel?
+    private var projectWithPreparedTransitionPreview: TrimatoProject?
     private var closeProjectAction: (() -> Void)?
     private let cacheOwnerID = UUID()
 
@@ -359,12 +360,47 @@ final class ProjectController: ObservableObject {
         applyingTransitionName = primary?.displayName ?? "Transition"
     }
 
-    func requestTransitionProgressFocus() {
-        transitionProgressFocusRequest += 1
-    }
-
     func finishApplyingTransition() {
         applyingTransitionName = nil
+    }
+
+    func applyTransitionsFromEditor(_ additions: [TimelineTransition]) async throws {
+        guard !additions.isEmpty else { return }
+        let previous = project
+        var candidate = previous
+        for transition in additions { try candidate.addTransition(transition) }
+        guard let projectPlayer else {
+            throw ProjectTimelineError.transitionNotAvailable("The project preview is not ready.")
+        }
+
+        beginApplyingTransitions(additions)
+        do {
+            try await projectPlayer.prepareTransitionPreview(
+                project: candidate,
+                mediaURLs: resolvedMediaURLs(),
+                initialTime: timelinePlayhead
+            )
+            projectWithPreparedTransitionPreview = candidate
+            apply(
+                candidate,
+                undoingTo: previous,
+                actionName: additions.count == 1 ? "Add Transition" : "Add Transitions"
+            )
+            await Task.yield()
+            finishApplyingTransition()
+        } catch {
+            finishApplyingTransition()
+            throw error
+        }
+    }
+
+    func consumePreparedTransitionPreview(for project: TrimatoProject) -> Bool {
+        guard projectWithPreparedTransitionPreview == project else {
+            projectWithPreparedTransitionPreview = nil
+            return false
+        }
+        projectWithPreparedTransitionPreview = nil
+        return true
     }
 
     func updateTransition(_ transition: TimelineTransition) throws {
@@ -391,6 +427,65 @@ final class ProjectController: ObservableObject {
             cursor = end
         }
         return nil
+    }
+
+    func editorClip(at time: ProjectTime) -> TimelineClip? {
+        guard let track = activeTimelineTrack else { return nil }
+        let clips = track.sortedClips
+        if let incoming = clips.first(where: { $0.timelineStart == time }) { return incoming }
+        if let containing = clips.first(where: { time >= $0.timelineStart && time < $0.timelineEnd }) {
+            return containing
+        }
+        if let following = clips.first(where: { $0.timelineStart > time }) { return following }
+        return clips.last(where: { $0.timelineEnd == time })
+    }
+
+    func editorClipSelection(at time: ProjectTime) -> EditorSelection? {
+        guard let clip = editorClip(at: time) else {
+            announce("There is no clip at or after the playhead on the active track")
+            return nil
+        }
+        selection = .timelineClip(clip.id)
+        return .timelineClip(clip.id)
+    }
+
+    func copyTimelineClip(id: UUID) {
+        guard project.timelineClip(id: id) != nil else {
+            announce(ProjectTimelineError.clipNotFound.localizedDescription)
+            return
+        }
+        copiedTimelineClipID = id
+        announce("Clip copied")
+    }
+
+    func pasteCopiedTimelineClip(after targetID: UUID) {
+        guard let copiedTimelineClipID else {
+            announce("Copy a Timeline clip first")
+            return
+        }
+        do {
+            try mutateProjectThrowing(actionName: "Paste Clip") {
+                _ = try $0.duplicateTrackClip(id: copiedTimelineClipID, after: targetID)
+            }
+            announce("Clip pasted")
+        } catch {
+            announce(error.localizedDescription)
+        }
+    }
+
+    func moveCopiedTimelineClip(after targetID: UUID) {
+        guard let copiedTimelineClipID else {
+            announce("Copy a Timeline clip first")
+            return
+        }
+        do {
+            try mutateProjectThrowing(actionName: "Move Timeline Clip") {
+                try $0.moveTrackClip(id: copiedTimelineClipID, after: targetID)
+            }
+            announce("Clip moved")
+        } catch {
+            announce(error.localizedDescription)
+        }
     }
 
     func resolveURL(for asset: MediaAssetRecord) -> URL? {

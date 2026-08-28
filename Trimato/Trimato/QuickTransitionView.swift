@@ -3,7 +3,7 @@ import SwiftUI
 struct QuickTransitionView: View {
     let project: TrimatoProject
     let request: TransitionRequest
-    let add: ([TimelineTransition]) throws -> Void
+    let add: ([TimelineTransition]) async throws -> Void
     let finished: () -> Void
 
     @State private var addIntro = true
@@ -13,8 +13,26 @@ struct QuickTransitionView: View {
     @State private var validationMessage: String?
     @State private var isSubmitting = false
     @AccessibilityFocusState private var validationMessageFocused: Bool
+    @AccessibilityFocusState private var progressFocused: Bool
 
     var body: some View {
+        Group {
+            if isSubmitting {
+                VStack(spacing: 16) {
+                    ProgressView("Applying \(transitionName)…")
+                        .accessibilityFocused($progressFocused)
+                }
+                .padding(32)
+                .frame(width: 430)
+                .frame(minHeight: 180)
+            } else {
+                form
+            }
+        }
+        .interactiveDismissDisabled(isSubmitting)
+    }
+
+    private var form: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
                 .font(.headline)
@@ -50,6 +68,11 @@ struct QuickTransitionView: View {
         }
         .padding(20)
         .frame(width: 430)
+    }
+
+    private var transitionName: String {
+        if request.mode == .quickFade { return "Fade" }
+        return track?.kind == .audio ? "Cross Fade" : "Cross Dissolve"
     }
 
     private var track: TimelineTrack? { project.track(id: request.trackID) }
@@ -140,12 +163,17 @@ struct QuickTransitionView: View {
 
     private func submit(_ transitions: [TimelineTransition]) {
         isSubmitting = true
-        do {
-            try add(transitions)
-            finished()
-        } catch {
-            isSubmitting = false
-            showValidation("Transition could not be added. \(error.localizedDescription)")
+        Task { @MainActor in
+            await Task.yield()
+            progressFocused = true
+            do {
+                try await add(transitions)
+                finished()
+            } catch {
+                progressFocused = false
+                isSubmitting = false
+                showValidation("Transition could not be added. \(error.localizedDescription)")
+            }
         }
     }
 

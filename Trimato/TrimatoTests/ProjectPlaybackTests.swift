@@ -54,6 +54,29 @@ struct ProjectPlaybackTests {
         #expect(label == "Frame 45")
     }
 
+    @Test func frameSteppingUsesTheProjectRateAndStopsAtProjectBoundaries() {
+        let duration = ProjectTime(seconds: 10)
+
+        #expect(ProjectPlayerViewModel.frameStepDestination(
+            current: ProjectTime(seconds: 1),
+            duration: duration,
+            frameRate: 25,
+            forward: true
+        ) == ProjectTime(seconds: 1.04))
+        #expect(ProjectPlayerViewModel.frameStepDestination(
+            current: .zero,
+            duration: duration,
+            frameRate: 25,
+            forward: false
+        ) == .zero)
+        #expect(ProjectPlayerViewModel.frameStepDestination(
+            current: duration,
+            duration: duration,
+            frameRate: 25,
+            forward: true
+        ) == duration)
+    }
+
     @Test func validProjectMarkersCreateAnExportRange() {
         let range = ProjectPlayerViewModel.validExportRange(
             inMarker: ProjectTime(seconds: 2),
@@ -89,7 +112,7 @@ struct ProjectPlaybackTests {
         #expect(!controller.canExportProject)
     }
 
-    @Test @MainActor func transitionApplicationUsesThePrimaryVideoNameAndSeparateProgressFocus() {
+    @Test @MainActor func transitionApplicationUsesThePrimaryVideoName() {
         let controller = ProjectController(document: ProjectDocument())
         let audio = TimelineTransition(
             trackID: UUID(),
@@ -110,10 +133,6 @@ struct ProjectPlaybackTests {
 
         controller.beginApplyingTransitions([audio, video])
         #expect(controller.applyingTransitionName == "Cross Dissolve")
-
-        controller.requestTransitionProgressFocus()
-        #expect(controller.transitionProgressFocusRequest == 1)
-        #expect(controller.editorFocusRestoreRequest == 0)
 
         controller.finishApplyingTransition()
         #expect(controller.applyingTransitionName == nil)

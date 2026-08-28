@@ -10,7 +10,7 @@
 <header><p><a href="index.html">Trimato Help</a></p></header>
 <main>
     <h1>Build and edit the project timeline</h1>
-    <p>The Track picker chooses which magnetic track appears in the single Timeline clips list. Clips and transitions appear in playback order.</p>
+    <p>The Track picker chooses which magnetic track appears in the native Timeline clips list. Clips and transitions appear once each in playback order. Use Timeline clips to review and arrange the project, Clip Editor to change clip timing, Transition Editor to change transition timing, and Editor for playback.</p>
 
     <h2>Choose and manage a track</h2>
     <p>Use the Track picker or press Command-Option-Up Arrow and Command-Option-Down Arrow to change tracks. Track Actions adds, renames, moves, or deletes user-created video and audio tracks. Primary tracks cannot be deleted.</p>
@@ -43,6 +43,10 @@
         <li>Press Control-Enter, use VoiceOver’s VO-Shift-M command, or open Selected Element Actions.</li>
         <li>Choose an available action for the focused clip or transition.</li>
     </ol>
+    <p>Press Command-C on a focused clip, move to a destination clip, then press Command-V to paste a copy after it. Press Command-Option-V instead to move the copied clip after the destination. Video clips move among video tracks and audio clips move among audio tracks. Copying a clip does not copy its transitions.</p>
+
+    <h2>Open the current clip from Editor</h2>
+    <p>Press C while focus is in Editor to open Clip Editor for the active-track clip at the playhead. At an edit point, Trimato opens the incoming clip. In a gap, it opens the next clip. The same clip is identified as Current clip in Timeline clips.</p>
 
     <h2>Rename a timeline item</h2>
     <ol>
@@ -75,7 +79,7 @@
         <li>Choose Intro, Outro, or both. In a video context, choose Fade Audio when the clip’s audio should fade too.</li>
         <li>Enter the duration in seconds, then apply the fade.</li>
     </ol>
-    <p>After applying or canceling, VoiceOver focus returns to the Editor’s Play or Pause button.</p>
+    <p>While Trimato prepares the updated preview, the sheet presents and focuses Applying Fade. The sheet closes only after the player is ready, then macOS restores the Editor control that preceded the sheet.</p>
 
     <h3>Use Quick Cross Dissolve or Quick Cross Fade</h3>
     <ol>
@@ -85,7 +89,7 @@
         <li>In a video context, choose Crossfade Audio when the clips’ audio should cross fade too.</li>
         <li>Enter the duration in seconds, then apply the transition.</li>
     </ol>
-    <p>After applying or canceling, VoiceOver focus returns to the Editor’s Play or Pause button.</p>
+    <p>While Trimato prepares the updated preview, the sheet presents and focuses the transition progress. The sheet closes only after the player is ready, then macOS restores the Editor control that preceded the sheet.</p>
 
     <h3>Transition types</h3>
     <dl>

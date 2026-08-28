@@ -2,6 +2,53 @@ import Testing
 @testable import Trimato
 
 struct ProjectTimelineOperationsTests {
+    @Test func copyingAClipDuplicatesItAfterTheTargetWithoutCopyingTransitions() throws {
+        let source = fixtureAsset(name: "Interview", duration: 12)
+        var project = TrimatoProject()
+        project.media = [source]
+        let trackID = project.createTrack(kind: .video, name: "Main Video")
+        let firstID = try project.append(
+            asset: source,
+            segments: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 3)))],
+            toTrack: trackID
+        )
+        let secondID = try project.append(
+            asset: source,
+            segments: [SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: 3), duration: ProjectTime(seconds: 4)))],
+            toTrack: trackID
+        )
+
+        let copiedID = try project.duplicateTrackClip(id: firstID, after: secondID)
+        let clips = try #require(project.track(id: trackID)?.sortedClips)
+
+        #expect(clips.map(\.id) == [firstID, secondID, copiedID])
+        #expect(clips.map(\.timelineStart) == [.zero, ProjectTime(seconds: 3), ProjectTime(seconds: 7)])
+        #expect(project.timelineClip(id: copiedID)?.linkedClipID == nil)
+        #expect(project.transitions.isEmpty)
+    }
+
+    @Test func moveCopiedClipAfterTargetSupportsCompatibleTracksAndKeepsThemMagnetic() throws {
+        var audio = fixtureAsset(name: "Music", duration: 20)
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [audio]
+        let sourceTrackID = project.createTrack(kind: .audio, name: "Music")
+        let destinationTrackID = project.createTrack(kind: .audio, name: "Effects")
+        let movingID = try project.append(asset: audio, segments: [
+            SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 2)))
+        ], toTrack: sourceTrackID)
+        let targetID = try project.append(asset: audio, segments: [
+            SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: 2), duration: ProjectTime(seconds: 3)))
+        ], toTrack: destinationTrackID)
+
+        try project.moveTrackClip(id: movingID, after: targetID)
+
+        #expect(project.track(id: sourceTrackID)?.clips.isEmpty == true)
+        #expect(project.track(id: destinationTrackID)?.sortedClips.map(\.id) == [targetID, movingID])
+        #expect(project.timelineClip(id: movingID)?.timelineStart == ProjectTime(seconds: 3))
+    }
+
     @Test func insertAtPlayheadSplitsAndPreservesBothSides() throws {
         let interview = fixtureAsset(name: "Interview", duration: 30)
         let cutaway = fixtureAsset(name: "Cutaway", duration: 5)

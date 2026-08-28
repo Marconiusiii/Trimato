@@ -479,13 +479,6 @@ final class VideoPlayerViewModel: ObservableObject {
         accessibilityTimecodeLabel = buildAccessibilityLabel()
     }
 
-    func copyTimecode() {
-        let timecode = Self.formatTimecode(effectivePlayheadTime)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(timecode, forType: .string)
-        announce("Copied timecode (timecode)")
-    }
-
     func markIn() {
         guard hasMedia, NSApp.modalWindow == nil else { return }
         let time = effectivePlayheadTime
@@ -1154,7 +1147,6 @@ final class VideoPlayerViewModel: ObservableObject {
                 // Letter shortcuts — ignore key repeat.
                 if !event.isARepeat, unmodified {
                     switch event.charactersIgnoringModifiers?.lowercased() {
-                    case "c": self.copyTimecode(); return nil
                     case "i": self.markIn(); return nil
                     case "o": self.markOut(); return nil
                     case "j": self.pressJ(); return nil
