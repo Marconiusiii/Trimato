@@ -478,10 +478,18 @@ struct MultiTrackTimelineTests {
             leadingClipID: secondID,
             trailingClipID: thirdID
         )
+        let finalFadeOut = TimelineTransition(
+            trackID: track.id,
+            edge: .outro,
+            kind: .video(.fade),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: thirdID,
+            trailingClipID: nil
+        )
 
         let elements = TimelineElementSequence.elements(
             track: track,
-            transitions: [secondTransition, firstTransition]
+            transitions: [finalFadeOut, secondTransition, firstTransition]
         )
 
         #expect(elements.map(\.id) == [
@@ -490,23 +498,13 @@ struct MultiTrackTimelineTests {
             "clip-\(secondID.uuidString)",
             "transition-\(secondTransition.id.uuidString)",
             "clip-\(thirdID.uuidString)",
+            "transition-\(finalFadeOut.id.uuidString)",
         ])
         #expect(TimelineElementSequence.contextDescription(for: firstTransition, in: project) ==
             "Interview A to Interview B")
-
-        let rowsWithoutTransitions = TimelineElementSequence.rows(track: track, transitions: [])
-        let rowsWithTransitions = TimelineElementSequence.rows(
-            track: track,
-            transitions: [secondTransition, firstTransition]
-        )
-        #expect(rowsWithTransitions.map(\.id) == rowsWithoutTransitions.map(\.id))
-        #expect(rowsWithTransitions[0].transitionsBeforeClip.isEmpty)
-        #expect(rowsWithTransitions[0].transitionsAfterClip.isEmpty)
-        #expect(rowsWithTransitions[1].transitionsBeforeClip.map(\.id) == [firstTransition.id])
-        #expect(rowsWithTransitions[2].transitionsBeforeClip.map(\.id) == [secondTransition.id])
     }
 
-    @Test @MainActor func committedCrossDissolvePublishesAfterTimelineContainsItsRow() throws {
+    @Test @MainActor func committedCrossDissolvePublishesAfterTimelineContainsItsElement() throws {
         let asset = fixtureAsset(name: "Interview", duration: 12)
         var project = TrimatoProject(name: "Live cross dissolve")
         project.media = [asset]
@@ -542,7 +540,7 @@ struct MultiTrackTimelineTests {
         _ = subscription
     }
 
-    @Test func stableTimelineRowsKeepIntroAndOutroFadesInSourceOrder() throws {
+    @Test func timelineElementsKeepIntroAndOutroFadesSeparateInSourceOrder() throws {
         let asset = fixtureAsset(name: "Interview", duration: 10)
         var project = TrimatoProject(name: "Fades")
         project.media = [asset]
@@ -566,13 +564,14 @@ struct MultiTrackTimelineTests {
             trailingClipID: nil
         )
 
-        let rows = TimelineElementSequence.rows(track: track, transitions: [outro, intro])
+        let elements = TimelineElementSequence.elements(track: track, transitions: [outro, intro])
 
-        #expect(rows.map(\.id) == [firstID, secondID])
-        #expect(rows[0].transitionsBeforeClip.map(\.id) == [intro.id])
-        #expect(rows[0].transitionsAfterClip.isEmpty)
-        #expect(rows[1].transitionsBeforeClip.isEmpty)
-        #expect(rows[1].transitionsAfterClip.map(\.id) == [outro.id])
+        #expect(elements.map(\.id) == [
+            "transition-\(intro.id.uuidString)",
+            "clip-\(firstID.uuidString)",
+            "clip-\(secondID.uuidString)",
+            "transition-\(outro.id.uuidString)",
+        ])
     }
 
     @Test @MainActor func reopenedProjectsSelectPrimaryVideoAndRecoverTransitionOwnership() throws {

@@ -116,10 +116,10 @@ struct ProjectTimelineView: View {
     private var timelineContent: some View {
         if controller.project.tracks.isEmpty {
             emptyMessage("No clips in the project timeline")
-        } else if timelineRows.isEmpty {
+        } else if timelineElements.isEmpty {
             emptyMessage("No clips on this track")
         } else {
-            accessibleTimelineList
+            accessibleTimelineElements
             .background(
                 TimelineContextMenuKeyBridge(
                     focusedElement: focusedElement,
@@ -138,40 +138,30 @@ struct ProjectTimelineView: View {
     }
 
     @ViewBuilder
-    private var accessibleTimelineList: some View {
+    private var accessibleTimelineElements: some View {
         if #available(macOS 26.0, *), let currentSelection {
-            timelineList
+            timelineScrollView
                 .accessibilityDefaultFocus($focusedElement, currentSelection)
         } else {
-            timelineList
+            timelineScrollView
         }
     }
 
-    private var timelineList: some View {
-        List {
-            ForEach(timelineRows) { row in
-                VStack(spacing: 8) {
-                    ForEach(row.transitionsBeforeClip) { transition in
-                        transitionButton(transition)
-                    }
-                    clipButton(row.clip)
-                    ForEach(row.transitionsAfterClip) { transition in
+    private var timelineScrollView: some View {
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(timelineElements) { element in
+                    switch element.content {
+                    case .clip(let clip):
+                        clipButton(clip)
+                    case .transition(let transition):
                         transitionButton(transition)
                     }
                 }
             }
+            .padding(8)
         }
-        .listStyle(.plain)
-        .accessibilityLabel(timelineAccessibilityLabel)
-        .background {
-            TimelineTableAccessibilityLabelBridge(label: timelineAccessibilityLabel)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
-    }
-
-    private var timelineAccessibilityLabel: String {
-        "Timeline clips, \(controller.activeTimelineTrack?.name ?? "current track")"
+        .accessibilityIdentifier("trimato.timeline.clips")
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -181,10 +171,10 @@ struct ProjectTimelineView: View {
             .padding()
     }
 
-    private var timelineRows: [TimelineListRow] {
+    private var timelineElements: [TimelineListElement] {
         _ = controller.timelineContentRevision
         guard let track = controller.activeTimelineTrack else { return [] }
-        return TimelineElementSequence.rows(
+        return TimelineElementSequence.elements(
             track: track,
             transitions: TimelineElementSequence.transitions(
                 for: track,
@@ -433,69 +423,6 @@ struct ProjectTimelineView: View {
     }
 }
 
-private struct TimelineTableAccessibilityLabelBridge: NSViewRepresentable {
-    let label: String
-
-    func makeNSView(context: Context) -> TimelineTableLabelView {
-        let view = TimelineTableLabelView()
-        view.setAccessibilityElement(false)
-        return view
-    }
-
-    func updateNSView(_ nsView: TimelineTableLabelView, context: Context) {
-        nsView.timelineLabel = label
-        nsView.applyLabelWhenReady()
-    }
-}
-
-private final class TimelineTableLabelView: NSView {
-    var timelineLabel = ""
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyLabelWhenReady()
-    }
-
-    func applyLabelWhenReady() {
-        DispatchQueue.main.async { [weak self] in
-            self?.applyLabel()
-        }
-    }
-
-    private func applyLabel() {
-        guard !timelineLabel.isEmpty,
-              let contentView = window?.contentView else { return }
-
-        let labelFrame = convert(bounds, to: nil)
-        let table = Self.tables(in: contentView)
-            .filter { !$0.isHidden }
-            .max { first, second in
-                Self.intersectionArea(first.convert(first.bounds, to: nil), labelFrame)
-                    < Self.intersectionArea(second.convert(second.bounds, to: nil), labelFrame)
-            }
-
-        guard let table,
-              Self.intersectionArea(table.convert(table.bounds, to: nil), labelFrame) > 0 else { return }
-        table.setAccessibilityLabel(timelineLabel)
-    }
-
-    private static func tables(in view: NSView) -> [NSTableView] {
-        var result: [NSTableView] = []
-        if let table = view as? NSTableView {
-            result.append(table)
-        }
-        for subview in view.subviews {
-            result.append(contentsOf: tables(in: subview))
-        }
-        return result
-    }
-
-    private static func intersectionArea(_ first: NSRect, _ second: NSRect) -> CGFloat {
-        let intersection = first.intersection(second)
-        return intersection.isNull ? 0 : intersection.width * intersection.height
-    }
-}
-
 private struct AddTrackView: View {
     let add: (TimelineTrackKind, String) -> Void
     let cancel: () -> Void
@@ -565,14 +492,6 @@ struct TimelineListElement: Identifiable, Equatable {
 
 extension TimelineListElement.Content: Equatable {}
 
-struct TimelineListRow: Identifiable, Equatable {
-    let clip: TimelineClip
-    let transitionsBeforeClip: [TimelineTransition]
-    let transitionsAfterClip: [TimelineTransition]
-
-    var id: UUID { clip.id }
-}
-
 enum TimelineElementSequence {
     static func transitions(
         for track: TimelineTrack,
@@ -634,45 +553,6 @@ enum TimelineElementSequence {
             result.append(TimelineListElement(content: .transition(transition)))
         }
         return result
-    }
-
-    static func rows(
-        track: TimelineTrack,
-        transitions: [TimelineTransition]
-    ) -> [TimelineListRow] {
-        let clips = track.sortedClips
-        guard !clips.isEmpty else { return [] }
-        let clipIDs = Set(clips.map(\.id))
-        let orderedTransitions = transitions.sorted { $0.id.uuidString < $1.id.uuidString }
-        var transitionsBeforeClip: [UUID: [TimelineTransition]] = [:]
-        var transitionsAfterClip: [UUID: [TimelineTransition]] = [:]
-        var unattachedTransitions: [TimelineTransition] = []
-
-        for transition in orderedTransitions {
-            if (transition.edge == .intro || transition.edge == .between),
-               let trailingID = transition.trailingClipID,
-               clipIDs.contains(trailingID) {
-                transitionsBeforeClip[trailingID, default: []].append(transition)
-            } else if let leadingID = transition.leadingClipID,
-                      clipIDs.contains(leadingID) {
-                transitionsAfterClip[leadingID, default: []].append(transition)
-            } else {
-                unattachedTransitions.append(transition)
-            }
-        }
-
-        let lastClipID = clips.last?.id
-        return clips.map { clip in
-            var after = transitionsAfterClip[clip.id, default: []]
-            if clip.id == lastClipID {
-                after.append(contentsOf: unattachedTransitions)
-            }
-            return TimelineListRow(
-                clip: clip,
-                transitionsBeforeClip: transitionsBeforeClip[clip.id, default: []],
-                transitionsAfterClip: after
-            )
-        }
     }
 }
 
