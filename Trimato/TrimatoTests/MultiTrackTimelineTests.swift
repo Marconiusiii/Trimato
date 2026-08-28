@@ -230,10 +230,42 @@ struct MultiTrackTimelineTests {
         controller.selectAdjacentTrack(1)
 
         #expect(controller.activeTimelineTrackID == secondTrackID)
-        #expect(controller.timelineListFocusRestoreRequest == 1)
-        #expect(controller.timelineFocusRestoreRequest == 0)
+        #expect(controller.timelineListFocusRestoreRequest == 0)
+        #expect(controller.timelineFocusRestoreRequest == 1)
         #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
         #expect(TimelineAccessibility.clipsListLabel(trackName: "Music") == "Timeline Clips, Music track")
+    }
+
+    @Test func musicClipTrimsToTheSharedProjectPlayheadAndMovesLaterMusicEarlier() throws {
+        var music = fixtureAsset(name: "Music", duration: 70)
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [music]
+        let trackID = project.createTrack(kind: .audio, name: "Musica")
+        let firstID = try project.append(asset: music, segments: [segment(0, 60)], toTrack: trackID)
+        let secondID = try project.append(asset: music, segments: [segment(60, 5)], toTrack: trackID)
+        let videoEnd = ProjectTime(seconds: 14.408)
+
+        try project.trimTrackClipEnd(id: firstID, at: videoEnd)
+
+        #expect(project.timelineClip(id: firstID)?.duration == videoEnd)
+        #expect(project.timelineClip(id: secondID)?.timelineStart == videoEnd)
+        #expect(project.timelineClip(id: firstID)?.segments.first?.sourceRange.start == .zero)
+    }
+
+    @Test func timelineTrimRequiresThePlayheadInsideTheFocusedClip() throws {
+        var music = fixtureAsset(name: "Music", duration: 60)
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [music]
+        let trackID = project.createTrack(kind: .audio, name: "Musica")
+        let clipID = try project.append(asset: music, toTrack: trackID)
+
+        #expect(throws: ProjectTimelineError.cannotTrimAtPlayhead) {
+            try project.trimTrackClipEnd(id: clipID, at: ProjectTime(seconds: 60))
+        }
     }
 
     @Test @MainActor func keyboardTrackSwitchRequestsTheTimelineListForAnEmptyTrack() throws {

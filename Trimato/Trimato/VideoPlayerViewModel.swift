@@ -556,7 +556,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func stepForward() {
-        guard hasVideo, !arrowHolding else { return }
+        guard hasMedia, !arrowHolding else { return }
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         scheduleStepEnd()
@@ -566,7 +566,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func stepBackward() {
-        guard hasVideo, !arrowHolding else { return }
+        guard hasMedia, !arrowHolding else { return }
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         scheduleStepEnd()

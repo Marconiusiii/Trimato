@@ -253,7 +253,10 @@ struct ProjectCreationView: View {
                 .accessibilityFocused($headingFocused)
 
             Form {
-                TextField("Project Name", text: $name)
+                LabeledContent("Project Name") {
+                    TextField("Project name", text: $name)
+                        .labelsHidden()
+                }
 
                 Picker("Project Format", selection: $mode) {
                     Text("Automatic from First Clip").tag(ProjectFormatMode.automatic)
@@ -271,8 +274,14 @@ struct ProjectCreationView: View {
                     .accessibilityFocused($focusedPicker, equals: .resolution)
 
                     if resolutionChoice == .custom {
-                        TextField("Width", value: customWidthBinding, format: .number)
-                        TextField("Height", value: customHeightBinding, format: .number)
+                        LabeledContent("Width") {
+                            TextField("Width", value: customWidthBinding, format: .number)
+                                .labelsHidden()
+                        }
+                        LabeledContent("Height") {
+                            TextField("Height", value: customHeightBinding, format: .number)
+                                .labelsHidden()
+                        }
                         Toggle("Lock aspect ratio", isOn: aspectRatioLockBinding)
                             .toggleStyle(.checkbox)
                     }
@@ -286,7 +295,10 @@ struct ProjectCreationView: View {
                     .accessibilityFocused($focusedPicker, equals: .frameRate)
 
                     if frameRateChoice == .custom {
-                        TextField("Custom frame rate", value: $customFrameRate, format: .number)
+                        LabeledContent("Custom Frame Rate") {
+                            TextField("Custom frame rate", value: $customFrameRate, format: .number)
+                                .labelsHidden()
+                        }
                     }
 
                     Text("Choose a preset or enter custom even dimensions from 2 through 8,192 pixels and a custom frame rate from 1 through 240 fps.")
@@ -301,7 +313,10 @@ struct ProjectCreationView: View {
 
                 Toggle("Use Target Duration", isOn: $usesTargetDuration)
                 if usesTargetDuration {
-                    TextField("Target Duration in Seconds", value: $targetSeconds, format: .number)
+                    LabeledContent("Target Duration in Seconds") {
+                        TextField("Target duration in seconds", value: $targetSeconds, format: .number)
+                            .labelsHidden()
+                    }
                 }
             }
 

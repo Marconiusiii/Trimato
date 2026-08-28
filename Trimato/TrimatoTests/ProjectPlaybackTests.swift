@@ -36,13 +36,50 @@ struct ProjectPlaybackTests {
             )
         ]
 
-        let points = ProjectPlayerViewModel.editPoints(in: project)
+        let points = ProjectPlayerViewModel.editPoints(in: project).map(\.time)
 
         #expect(points == [0, 2, 5, 6, 10].map { ProjectTime(seconds: Double($0)) })
     }
 
     @Test func emptyProjectHasOnePlaybackBoundary() {
-        #expect(ProjectPlayerViewModel.editPoints(in: TrimatoProject()) == [.zero])
+        #expect(ProjectPlayerViewModel.editPoints(in: TrimatoProject()).map(\.time) == [.zero])
+    }
+
+    @Test func editNavigationRetainsVideoAndAudioBoundaryTypes() throws {
+        var video = fixtureAsset(name: "Picture", duration: 5)
+        video.hasAudio = false
+        var music = fixtureAsset(name: "Music", duration: 3)
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        var project = TrimatoProject(name: "Typed edit points")
+        project.media = [video, music]
+        _ = try project.append(asset: video)
+        let musicTrackID = project.createTrack(kind: .audio, name: "Music")
+        _ = try project.append(asset: music, toTrack: musicTrackID)
+
+        let points = ProjectPlayerViewModel.editPoints(in: project)
+
+        let sharedStart = try #require(points.first { $0.time == .zero })
+        #expect(sharedStart.spokenName == "Video and audio edit point")
+        let audioEnd = try #require(points.first { $0.time == ProjectTime(seconds: 3) })
+        #expect(audioEnd.spokenName == "Audio edit point")
+        let videoEnd = try #require(points.first { $0.time == ProjectTime(seconds: 5) })
+        #expect(videoEnd.spokenName == "Video edit point")
+    }
+
+    @Test func videoEndIgnoresLongerLayeredAudioTracks() throws {
+        let video = fixtureAsset(name: "Picture", duration: 14.408)
+        var music = fixtureAsset(name: "Music", duration: 59.647)
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [video, music]
+        _ = try project.append(asset: video)
+        let musicTrackID = project.createTrack(kind: .audio, name: "Musica")
+        _ = try project.append(asset: music, toTrack: musicTrackID)
+
+        #expect(ProjectPlayerViewModel.videoEnd(in: project) == ProjectTime(seconds: 14.408))
+        #expect(project.duration == ProjectTime(seconds: 59.647))
     }
 
     @Test func accessibilityTimecodeUsesSpokenTimeComponents() {
@@ -175,8 +212,13 @@ struct ProjectPlaybackTests {
             duration: duration,
             inMarker: inMarker,
             outMarker: outMarker,
-            frameRate: 30
-        ) == "Edit point, 5 seconds")
+            frameRate: 30,
+            editPoint: ProjectEditPoint(
+                time: ProjectTime(seconds: 5),
+                hasVideo: true,
+                hasAudio: true
+            )
+        ) == "Video and audio edit point, 5 seconds")
         #expect(ProjectPlayerViewModel.navigationAnnouncement(
             destination: outMarker,
             duration: duration,
@@ -191,6 +233,23 @@ struct ProjectPlaybackTests {
             outMarker: outMarker,
             frameRate: 30
         ) == "End, 10 seconds")
+    }
+
+    @Test func projectPreviewFailuresRetainTheUnderlyingMediaReason() {
+        let underlying = NSError(
+            domain: "AVFoundationErrorDomain",
+            code: -12780,
+            userInfo: [NSLocalizedDescriptionKey: "An unknown media error occurred (-12780)"]
+        )
+        let outer = NSError(
+            domain: "AVFoundationErrorDomain",
+            code: -11800,
+            userInfo: [NSUnderlyingErrorKey: underlying]
+        )
+
+        let message = ProjectPlayerViewModel.previewFailureMessage(for: outer)
+
+        #expect(message.contains("An unknown media error occurred (-12780)"))
     }
 
     @Test @MainActor func playheadResolutionFindsOnlyTheClipWhoseInteriorContainsTheTime() {
@@ -363,6 +422,50 @@ struct ProjectPlaybackTests {
         #expect(viewModel.errorMessage == nil)
         #expect(viewModel.player.currentItem != nil)
         #expect(abs(viewModel.player.currentTime().seconds - requestedTime.seconds) < 0.01)
+    }
+
+    @Test func trimmedM4AWithGainBuildsAnAdditionalAudioTrackPreview() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let musicURL = directory.appendingPathComponent("music.m4a")
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+            "-t", "1", "-c:a", "aac", musicURL.path,
+        ])
+
+        let segment = SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 0.1),
+            duration: ProjectTime(seconds: 0.7)
+        ))
+        var music = fixtureAsset(name: "Music", duration: 1)
+        music.originalPath = musicURL.path
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        music.frameRate = nil
+        var project = TrimatoProject(name: "M4A preview")
+        project.media = [music]
+        let trackID = project.createTrack(kind: .audio, name: "Music")
+        let clipID = try project.append(asset: music, segments: [segment], toTrack: trackID)
+        try project.updateAudioSettings(
+            clipID: clipID,
+            settings: AudioClipSettings(gainDecibels: -9)
+        )
+
+        let result = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: [music.id: musicURL],
+            purpose: .preview
+        )
+        defer { result.temporaryMediaURLs.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        #expect(result.temporaryMediaURLs.count == 1)
+        let audioTracks = try await result.composition.loadTracks(withMediaType: .audio)
+        #expect(audioTracks.count == 1)
+        #expect(abs((try await result.composition.load(.duration)).seconds - 0.7) < 0.02)
     }
 
     @Test @MainActor func crossDissolvePreviewRendersSourcesWithDifferentFrameRates() async throws {

@@ -13,9 +13,8 @@ final class ClipPlacementCommandContext: ObservableObject {
     let controller: ProjectController
     let editSelection: EditorSelection
     @Published private(set) var segments: [SourceSegment]
-    @Published private(set) var focusRequest = 0
     @Published private(set) var isKeyWindow = false
-    @Published var updateErrorMessage: String?
+    @Published var presentedError: ProjectPresentedError?
     @Published var trackPlacementAction: PlacementAction?
     private var draft: ClipEditorDraft
     private let baselineAudioSettings: AudioClipSettings?
@@ -83,26 +82,38 @@ final class ClipPlacementCommandContext: ObservableObject {
 
     @discardableResult
     func place(_ placement: PlacementAction, onTrack trackID: UUID?) -> UUID? {
-        guard !segments.isEmpty else { return nil }
-        let placedID: UUID?
-        if let trackID {
-            placedID = controller.place(
+        guard !segments.isEmpty else {
+            presentPlacementError(
                 placement,
-                editing: editSelection,
-                segments: segments,
-                onTrack: trackID
+                trackID: trackID,
+                message: ProjectTimelineError.emptyIncomingClip.localizedDescription
             )
-        } else {
-            placedID = controller.place(placement, editing: editSelection, segments: segments)
+            return nil
         }
-        if let placedID, let audioSettings, !audioSettings.isNeutral {
-            do {
-                try controller.updateAudioSettings(clipID: placedID, settings: audioSettings)
-            } catch {
-                updateErrorMessage = error.localizedDescription
+        do {
+            let placedID: UUID
+            if let trackID {
+                placedID = try controller.placeThrowing(
+                    placement,
+                    editing: editSelection,
+                    segments: segments,
+                    onTrack: trackID
+                )
+            } else {
+                placedID = try controller.placeThrowing(
+                    placement,
+                    editing: editSelection,
+                    segments: segments
+                )
             }
+            if let audioSettings, !audioSettings.isNeutral {
+                try controller.updateAudioSettings(clipID: placedID, settings: audioSettings)
+            }
+            return placedID
+        } catch {
+            presentPlacementError(placement, trackID: trackID, message: error.localizedDescription)
+            return nil
         }
-        return placedID
     }
 
     func requestTrackPlacement(_ placement: PlacementAction) {
@@ -111,10 +122,42 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     @discardableResult
+    func createTrackAndPlace(
+        _ placement: PlacementAction,
+        kind: TimelineTrackKind,
+        name: String
+    ) -> UUID? {
+        guard !segments.isEmpty else {
+            presentPlacementError(
+                placement,
+                trackID: nil,
+                message: ProjectTimelineError.emptyIncomingClip.localizedDescription
+            )
+            return nil
+        }
+        do {
+            return try controller.createTrackAndPlaceThrowing(
+                placement,
+                editing: editSelection,
+                segments: segments,
+                trackKind: kind,
+                trackName: name,
+                audioSettings: audioSettings
+            ).clipID
+        } catch {
+            presentPlacementError(placement, trackID: nil, message: error.localizedDescription)
+            return nil
+        }
+    }
+
+    @discardableResult
     func performUpdate() -> Bool {
         guard isTimelineEntry else { return false }
         guard !segments.isEmpty else {
-            updateErrorMessage = "Set a valid In and Out selection before updating the timeline clip."
+            presentedError = ProjectPresentedError(
+                title: "Clip Could Not Be Updated",
+                message: "Set a valid In and Out selection before updating the timeline clip."
+            )
             return false
         }
         do {
@@ -126,7 +169,10 @@ final class ClipPlacementCommandContext: ObservableObject {
             draft.commit()
             return true
         } catch {
-            updateErrorMessage = error.localizedDescription
+            presentedError = ProjectPresentedError(
+                title: "Clip Could Not Be Updated",
+                message: error.localizedDescription
+            )
             return false
         }
     }
@@ -135,12 +181,21 @@ final class ClipPlacementCommandContext: ObservableObject {
         audioSettings = .neutral
     }
 
-    func requestAccessibilityFocus() {
-        focusRequest += 1
-    }
-
     func setKeyWindow(_ isKeyWindow: Bool) {
         self.isKeyWindow = isKeyWindow
+    }
+
+    private func presentPlacementError(
+        _ placement: PlacementAction,
+        trackID: UUID?,
+        message: String
+    ) {
+        let trackName = trackID.flatMap { controller.project.track(id: $0)?.name }
+        let destination = trackName.map { " Destination track: \($0)." } ?? ""
+        presentedError = ProjectPresentedError(
+            title: placement.failureTitle,
+            message: message + destination
+        )
     }
 }
 
@@ -254,7 +309,6 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
     func showAndFocus() {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
-        commandContext.requestAccessibilityFocus()
     }
 
     func requestClose(completion: @escaping (Bool) -> Void) {
@@ -335,16 +389,31 @@ private struct ClipEditorWindowView: View {
         )
         .focusedObject(controller)
         .focusedObject(commandContext)
-        .alert("Clip Could Not Be Updated", isPresented: Binding(
-            get: { commandContext.updateErrorMessage != nil },
-            set: { presented in
-                if !presented { commandContext.updateErrorMessage = nil }
+        .alert(item: Binding(
+            get: {
+                commandContext.trackPlacementAction == nil ? commandContext.presentedError : nil
+            },
+            set: { value in
+                if value == nil { commandContext.presentedError = nil }
             }
-        )) {
-            Button("OK") { commandContext.updateErrorMessage = nil }
-        } message: {
-            Text(commandContext.updateErrorMessage ?? "The timeline clip could not be updated.")
+        )) { error in
+            Alert(
+                title: Text(error.title),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
         }
         .frame(minWidth: 900, minHeight: 760)
+    }
+}
+
+private extension PlacementAction {
+    var failureTitle: String {
+        switch self {
+        case .append: "Clip Could Not Be Appended to Track"
+        case .insert: "Clip Could Not Be Inserted on Track"
+        case .replaceRemainder: "Clip Could Not Be Added to Track"
+        case .cutawaySourceAudio, .cutawayPrimaryAudio: "Clip Could Not Be Added to Timeline"
+        }
     }
 }

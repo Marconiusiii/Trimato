@@ -459,6 +459,10 @@ private struct ProjectViewerView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Go to end")
                     .accessibilityIdentifier("trimato.editor.go-to-end")
+                Button { viewModel.goToVideoEnd() } label: { Image(systemName: "film.stack") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Go to end of video")
+                    .accessibilityIdentifier("trimato.editor.go-to-video-end")
             }
             .font(.title2)
             .foregroundStyle(EditorTheme.accent)

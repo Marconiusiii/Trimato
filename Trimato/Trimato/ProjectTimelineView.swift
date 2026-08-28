@@ -36,6 +36,7 @@ struct ProjectTimelineView: View {
     @State private var transitionFocusReturn: TimelineElementSelection?
     @State private var clipPendingDeletion: TimelineClip?
     @State private var errorMessage: String?
+    @State private var errorTitle = "Timeline Change Failed"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -127,7 +128,7 @@ struct ProjectTimelineView: View {
                     do {
                         try controller.updateTransition(updated)
                         editingTransition = nil
-                    } catch { errorMessage = error.localizedDescription }
+                    } catch { presentTimelineError(error) }
                 },
                 delete: {
                     transitionFocusReturn = fallbackFocusAfterDeleting(transition)
@@ -137,7 +138,7 @@ struct ProjectTimelineView: View {
                 cancel: { editingTransition = nil }
             )
         }
-        .alert("Timeline Change Failed", isPresented: Binding(
+        .alert(errorTitle, isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -169,7 +170,8 @@ struct ProjectTimelineView: View {
                     deleteTransition: deleteTimelineTransition,
                     copyClip: controller.copyTimelineClip,
                     pasteClipAfter: controller.pasteCopiedTimelineClip,
-                    moveClipAfter: controller.moveCopiedTimelineClip
+                    moveClipAfter: controller.moveCopiedTimelineClip,
+                    trimClipEnd: trimTimelineClipEnd
                 )
                 .frame(width: 0, height: 0)
             )
@@ -353,6 +355,16 @@ struct ProjectTimelineView: View {
         TimelineElementSequence.contextDescription(for: transition, in: controller.project)
     }
 
+    private func trimTimelineClipEnd(_ id: UUID) {
+        do {
+            try controller.trimTimelineClipEnd(id: id)
+            restoreTimelineElementFocus(to: .clip(id))
+        } catch {
+            errorTitle = "Clip Could Not Be Trimmed"
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func fallbackFocusAfterDeleting(_ transition: TimelineTransition) -> TimelineElementSelection? {
         if let trailingID = transition.trailingClipID,
            controller.project.timelineClip(id: trailingID) != nil {
@@ -489,7 +501,7 @@ struct ProjectTimelineView: View {
                     do {
                         try controller.renameTimelineEntry(controller.selection, to: renamedClipName)
                         isRenamingClip = false
-                    } catch { errorMessage = error.localizedDescription }
+                    } catch { presentTimelineError(error) }
                 }
                 .keyboardShortcut(.defaultAction)
             }
@@ -511,7 +523,7 @@ struct ProjectTimelineView: View {
                     do {
                         try controller.renameActiveTrack(to: trackName)
                         isRenamingTrack = false
-                    } catch { errorMessage = error.localizedDescription }
+                    } catch { presentTimelineError(error) }
                 }
                 .keyboardShortcut(.defaultAction)
             }
@@ -544,11 +556,24 @@ struct ProjectTimelineView: View {
     }
 
     private func append(_ asset: MediaAssetRecord, to track: TimelineTrack?) {
-        guard let track,
-              let clipID = controller.place(.append, editing: .asset(asset.id), segments: asset.sourceEdit, onTrack: track.id) else {
-            return
+        guard let track else { return }
+        do {
+            let clipID = try controller.placeThrowing(
+                .append,
+                editing: .asset(asset.id),
+                segments: asset.sourceEdit,
+                onTrack: track.id
+            )
+            controller.requestTimelineFocusRestore(to: .clip(clipID))
+        } catch {
+            errorTitle = "Clip Could Not Be Appended to Track"
+            errorMessage = error.localizedDescription + " Destination track: \(track.name)."
         }
-        controller.requestTimelineFocusRestore(to: .clip(clipID))
+    }
+
+    private func presentTimelineError(_ error: Error) {
+        errorTitle = "Timeline Change Failed"
+        errorMessage = error.localizedDescription
     }
 
     private func restoreTrackPickerFocus() {
@@ -589,17 +614,16 @@ private struct AddTrackView: View {
             Text("Add Track")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Form {
-                Picker("Track Type", selection: trackKindBinding) {
-                    ForEach(TimelineTrackKind.allCases) { kind in
-                        Text(kind.title).tag(kind)
-                    }
+            Picker("Track Type", selection: trackKindBinding) {
+                ForEach(TimelineTrackKind.allCases) { kind in
+                    Text(kind.title).tag(kind)
                 }
-                .accessibilityFocused($trackTypeFocused)
-                TextField("Track Name", text: $trackName)
             }
-            .formStyle(.grouped)
-            .frame(height: 130)
+            .accessibilityFocused($trackTypeFocused)
+            LabeledContent("Track Name") {
+                TextField("Track name", text: $trackName)
+                    .labelsHidden()
+            }
             HStack {
                 Button("Cancel", role: .cancel, action: cancel)
                 Button("Add Track") { add(trackKind, trackName) }

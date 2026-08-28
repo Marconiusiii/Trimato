@@ -294,12 +294,26 @@ final class ProjectController: ObservableObject {
         }
     }
 
+    func trimTimelineClipEnd(id: UUID) throws {
+        try mutateProjectThrowing(actionName: "Trim Timeline Clip End") {
+            try $0.trimTrackClipEnd(id: id, at: timelinePlayhead)
+        }
+        selection = .timelineClip(id)
+        announce("Clip end trimmed to project playhead")
+    }
+
     func selectAdjacentTrack(_ offset: Int) {
         guard !project.tracks.isEmpty else { return }
         let current = activeTimelineTrackID.flatMap { id in project.tracks.firstIndex { $0.id == id } } ?? 0
         let destination = min(max(current + offset, 0), project.tracks.count - 1)
         activeTimelineTrackID = project.tracks[destination].id
-        requestTimelineListFocusRestore()
+        let track = project.tracks[destination]
+        announce("\(track.name) track")
+        if let clip = editorClip(at: timelinePlayhead) {
+            requestTimelineFocusRestore(to: .clip(clip.id))
+        } else {
+            requestTimelineListFocusRestore()
+        }
     }
 
     func addTrack(kind: TimelineTrackKind, name: String?) {
@@ -859,28 +873,8 @@ final class ProjectController: ObservableObject {
         editing editSelection: EditorSelection,
         segments: [SourceSegment]? = nil
     ) -> UUID? {
-        guard let asset = asset(for: editSelection) else { return nil }
         do {
-            var selectedID: UUID?
-            try mutateProjectThrowing(actionName: placement.undoName) { project in
-                switch placement {
-                case .append:
-                    selectedID = try project.append(asset: asset, segments: segments)
-                case .insert:
-                    selectedID = try project.insert(asset: asset, segments: segments, at: timelinePlayhead)
-                case .replaceRemainder:
-                    selectedID = try project.replaceClipRemainder(with: asset, segments: segments, at: timelinePlayhead)
-                case .cutawaySourceAudio:
-                    selectedID = try project.addCutaway(asset: asset, segments: segments, at: timelinePlayhead, audioMode: .sourceAudio)
-                case .cutawayPrimaryAudio:
-                    selectedID = try project.addCutaway(asset: asset, segments: segments, at: timelinePlayhead, audioMode: .primaryAudio)
-                }
-            }
-            if let selectedID {
-                selection = placement.isCutaway ? .cutaway(selectedID) : .timelineClip(selectedID)
-            }
-            announce(placement.confirmation)
-            return selectedID
+            return try placeThrowing(placement, editing: editSelection, segments: segments)
         } catch {
             announce(error.localizedDescription)
             return nil
@@ -894,31 +888,142 @@ final class ProjectController: ObservableObject {
         segments: [SourceSegment]?,
         onTrack trackID: UUID
     ) -> UUID? {
-        guard let asset = asset(for: editSelection) else { return nil }
         do {
-            var selectedID: UUID?
-            try mutateProjectThrowing(actionName: placement.undoName) { project in
-                switch placement {
-                case .append:
-                    selectedID = try project.append(asset: asset, segments: segments, toTrack: trackID)
-                case .insert:
-                    selectedID = try project.insert(asset: asset, segments: segments, at: timelinePlayhead, onTrack: trackID)
-                case .replaceRemainder:
-                    selectedID = try project.replaceRemainder(with: asset, segments: segments, at: timelinePlayhead, onTrack: trackID)
-                case .cutawaySourceAudio, .cutawayPrimaryAudio:
-                    return
-                }
-            }
-            if let selectedID {
-                activeTimelineTrackID = trackID
-                selection = .timelineClip(selectedID)
-            }
-            announce(placement.confirmation)
-            return selectedID
+            return try placeThrowing(
+                placement,
+                editing: editSelection,
+                segments: segments,
+                onTrack: trackID
+            )
         } catch {
             announce(error.localizedDescription)
             return nil
         }
+    }
+
+    @discardableResult
+    func placeThrowing(
+        _ placement: PlacementAction,
+        editing editSelection: EditorSelection,
+        segments: [SourceSegment]? = nil
+    ) throws -> UUID {
+        guard let asset = asset(for: editSelection) else {
+            throw ProjectTimelineError.sourceAssetNotFound
+        }
+        var selectedID: UUID?
+        try mutateProjectThrowing(actionName: placement.undoName) { project in
+            switch placement {
+            case .append:
+                selectedID = try project.append(asset: asset, segments: segments)
+            case .insert:
+                selectedID = try project.insert(asset: asset, segments: segments, at: timelinePlayhead)
+            case .replaceRemainder:
+                selectedID = try project.replaceClipRemainder(with: asset, segments: segments, at: timelinePlayhead)
+            case .cutawaySourceAudio:
+                selectedID = try project.addCutaway(asset: asset, segments: segments, at: timelinePlayhead, audioMode: .sourceAudio)
+            case .cutawayPrimaryAudio:
+                selectedID = try project.addCutaway(asset: asset, segments: segments, at: timelinePlayhead, audioMode: .primaryAudio)
+            }
+        }
+        guard let selectedID else { throw ProjectTimelineError.unsupportedPlacement }
+        selection = placement.isCutaway ? .cutaway(selectedID) : .timelineClip(selectedID)
+        announce(placement.confirmation)
+        return selectedID
+    }
+
+    @discardableResult
+    func placeThrowing(
+        _ placement: PlacementAction,
+        editing editSelection: EditorSelection,
+        segments: [SourceSegment]?,
+        onTrack trackID: UUID
+    ) throws -> UUID {
+        guard let asset = asset(for: editSelection) else {
+            throw ProjectTimelineError.sourceAssetNotFound
+        }
+        var selectedID: UUID?
+        try mutateProjectThrowing(actionName: placement.undoName) { project in
+            switch placement {
+            case .append:
+                selectedID = try project.append(asset: asset, segments: segments, toTrack: trackID)
+            case .insert:
+                selectedID = try project.insert(asset: asset, segments: segments, at: timelinePlayhead, onTrack: trackID)
+            case .replaceRemainder:
+                selectedID = try project.replaceRemainder(with: asset, segments: segments, at: timelinePlayhead, onTrack: trackID)
+            case .cutawaySourceAudio, .cutawayPrimaryAudio:
+                throw ProjectTimelineError.unsupportedPlacement
+            }
+        }
+        guard let selectedID else { throw ProjectTimelineError.unsupportedPlacement }
+        activeTimelineTrackID = trackID
+        selection = .timelineClip(selectedID)
+        announce(placement.confirmation)
+        return selectedID
+    }
+
+    @discardableResult
+    func createTrackAndPlaceThrowing(
+        _ placement: PlacementAction,
+        editing editSelection: EditorSelection,
+        segments: [SourceSegment],
+        trackKind: TimelineTrackKind,
+        trackName requestedTrackName: String,
+        audioSettings: AudioClipSettings?
+    ) throws -> (trackID: UUID, clipID: UUID) {
+        guard let asset = asset(for: editSelection) else {
+            throw ProjectTimelineError.sourceAssetNotFound
+        }
+        guard !segments.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
+        guard (trackKind == .video && asset.hasVideo) ||
+                (trackKind == .audio && asset.hasAudio) else {
+            throw ProjectTimelineError.incompatibleTrackKind
+        }
+
+        let trackName = requestedTrackName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trackName.isEmpty else { throw ProjectTimelineError.invalidName }
+
+        var createdTrackID: UUID?
+        var placedClipID: UUID?
+        try mutateProjectThrowing(actionName: "Create \(trackKind.title) Track and \(placement.undoName)") { project in
+            let trackID = project.createTrack(kind: trackKind)
+            try project.renameTrack(id: trackID, to: trackName)
+
+            let clipID: UUID
+            switch placement {
+            case .append:
+                clipID = try project.append(asset: asset, segments: segments, toTrack: trackID)
+            case .insert:
+                clipID = try project.insert(
+                    asset: asset,
+                    segments: segments,
+                    at: timelinePlayhead,
+                    onTrack: trackID
+                )
+            case .replaceRemainder:
+                clipID = try project.replaceRemainder(
+                    with: asset,
+                    segments: segments,
+                    at: timelinePlayhead,
+                    onTrack: trackID
+                )
+            case .cutawaySourceAudio, .cutawayPrimaryAudio:
+                throw ProjectTimelineError.unsupportedPlacement
+            }
+
+            if trackKind == .audio, let audioSettings, !audioSettings.isNeutral {
+                try project.updateAudioSettings(clipID: clipID, settings: audioSettings)
+            }
+            createdTrackID = trackID
+            placedClipID = clipID
+        }
+
+        guard let trackID = createdTrackID, let clipID = placedClipID else {
+            throw ProjectTimelineError.unsupportedPlacement
+        }
+        activeTimelineTrackID = trackID
+        selection = .timelineClip(clipID)
+        announce("\(placement.confirmation) to \(trackName)")
+        return (trackID, clipID)
     }
 
     func asset(for editSelection: EditorSelection) -> MediaAssetRecord? {

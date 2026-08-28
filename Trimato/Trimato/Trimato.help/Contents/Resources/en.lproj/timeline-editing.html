@@ -45,6 +45,15 @@
     </ol>
     <p>Press Command-C on a focused clip, move to a destination clip, then press Command-V to paste a copy after it. Press Command-Option-V instead to move the copied clip after the destination. Video clips move among video tracks and audio clips move among audio tracks. Copying a clip does not copy its transitions.</p>
 
+    <h2>Trim a layered audio clip to the video ending</h2>
+    <ol>
+        <li>In Editor, activate Go to End of Video or navigate to the required video edit point.</li>
+        <li>Use Command-Option-Up Arrow or Command-Option-Down Arrow to select the audio track.</li>
+        <li>Focus the long audio clip in Timeline clips.</li>
+        <li>Press Command-] or choose Trim End to Project Playhead from its context menu.</li>
+    </ol>
+    <p>The clip keeps its material before the shared project playhead. Later clips on that audio track move earlier by the removed duration. The operation can be undone.</p>
+
     <h2>Open the current clip from Editor</h2>
     <p>Press C while focus is in Editor to open Clip Editor for the active-track clip at the playhead. At an edit point, Trimato opens the incoming clip. In a gap, it opens the next clip. The same clip is identified as Current clip in Timeline clips.</p>
 

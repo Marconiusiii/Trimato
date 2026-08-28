@@ -39,7 +39,10 @@ struct TransitionEditorView: View {
             }
 
             Form {
-                TextField("Transition Name", text: $transitionName)
+                LabeledContent("Transition Name") {
+                    TextField("Transition name", text: $transitionName)
+                        .labelsHidden()
+                }
                 transitionPicker
                 TransitionDurationField(text: $durationText)
             }

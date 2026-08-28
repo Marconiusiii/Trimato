@@ -24,6 +24,8 @@ enum ProjectCompositionError: LocalizedError {
     case missingVideo(String)
     case cannotCreateTrack
     case unresolvedFormat
+    case audioProcessingFailed(clip: String, track: String, detail: String)
+    case audioInsertionFailed(clip: String, track: String, detail: String)
 
     var errorDescription: String? {
         switch self {
@@ -32,7 +34,39 @@ enum ProjectCompositionError: LocalizedError {
         case .missingVideo(let name): "\(name) does not contain a usable video track."
         case .cannotCreateTrack: "Trimato could not create the project media tracks."
         case .unresolvedFormat: "Add a clip or choose custom project dimensions before previewing."
+        case .audioProcessingFailed(let clip, let track, let detail):
+            "Trimato could not process \(clip) on the \(track) track for project playback. \(detail)"
+        case .audioInsertionFailed(let clip, let track, let detail):
+            "Trimato processed \(clip), but could not add its audio to the \(track) track for project playback. \(detail)"
         }
+    }
+
+    static func failureDetail(for error: Error) -> String {
+        if let commandError = error as? FFmpegCommandError,
+           let diagnostic = ProjectTransitionRenderError.diagnosticSummary(for: commandError) {
+            return diagnostic
+        }
+        let nsError = error as NSError
+        if let reason = nsError.localizedFailureReason, isUseful(reason) {
+            return reason
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            if let reason = underlying.localizedFailureReason, isUseful(reason) {
+                return reason
+            }
+            if isUseful(underlying.localizedDescription) {
+                return underlying.localizedDescription
+            }
+        }
+        if isUseful(nsError.localizedDescription) {
+            return nsError.localizedDescription
+        }
+        return "The media framework reported \(nsError.domain) error \(nsError.code)."
+    }
+
+    private static func isUseful(_ message: String) -> Bool {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !normalized.isEmpty && !normalized.contains("operation could not be completed")
     }
 }
 
@@ -167,23 +201,46 @@ enum ProjectCompositionBuilder {
                 $0.id == clip.id || $0.linkedClipID == clip.id
             })
             var processedAudio: AVAssetTrack?
+            var processedAudioAsset: AVURLAsset?
             if let primaryAudioClip, !primaryAudioClip.audioSettings.isNeutral,
                let sourceURL = mediaURLs[clip.assetID] {
-                let renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
-                    sourceURL: sourceURL,
-                    segments: clip.segments,
-                    settings: primaryAudioClip.audioSettings,
-                    progress: progressReporter?.beginJob()
-                )
+                let renderedURL: URL
+                do {
+                    renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
+                        sourceURL: sourceURL,
+                        segments: clip.segments,
+                        settings: primaryAudioClip.audioSettings,
+                        progress: progressReporter?.beginJob()
+                    )
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    throw ProjectCompositionError.audioProcessingFailed(
+                        clip: primaryAudioClip.displayName,
+                        track: "Primary Audio",
+                        detail: ProjectCompositionError.failureDetail(for: error)
+                    )
+                }
                 progressReporter?.completeJob()
                 temporaryMediaURLs.append(renderedURL)
-                processedAudio = try await AVURLAsset(url: renderedURL).loadTracks(withMediaType: .audio).first
+                let retainedAsset = AVURLAsset(url: renderedURL)
+                processedAudioAsset = retainedAsset
+                processedAudio = try await retainedAsset.loadTracks(withMediaType: .audio).first
                 if primaryAudio == nil {
                     primaryAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
                 }
                 if let processedAudio, let primaryAudio {
                     let range = try await processedAudio.load(.timeRange)
-                    try primaryAudio.insertTimeRange(range, of: processedAudio, at: cursor.cmTime)
+                    do {
+                        try primaryAudio.insertTimeRange(range, of: processedAudio, at: cursor.cmTime)
+                    } catch {
+                        throw ProjectCompositionError.audioInsertionFailed(
+                            clip: primaryAudioClip.displayName,
+                            track: "Primary Audio",
+                            detail: ProjectCompositionError.failureDetail(for: error)
+                        )
+                    }
+                    withExtendedLifetime(processedAudioAsset) {}
                 }
             }
             guard video != nil || audio != nil else {
@@ -336,24 +393,47 @@ enum ProjectCompositionBuilder {
                         temporaryMediaURLs: &temporaryMediaURLs
                     )
                     var source = try await asset.loadTracks(withMediaType: .audio).first
+                    var renderedAudioAsset: AVURLAsset?
                     var usesRenderedAudio = false
                     if !clip.audioSettings.isNeutral, let sourceURL = mediaURLs[clip.assetID] {
-                        let renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
-                            sourceURL: sourceURL,
-                            segments: clip.segments,
-                            settings: clip.audioSettings,
-                            progress: progressReporter?.beginJob()
-                        )
+                        let renderedURL: URL
+                        do {
+                            renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
+                                sourceURL: sourceURL,
+                                segments: clip.segments,
+                                settings: clip.audioSettings,
+                                progress: progressReporter?.beginJob()
+                            )
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            throw ProjectCompositionError.audioProcessingFailed(
+                                clip: clip.displayName,
+                                track: timelineTrack.name,
+                                detail: ProjectCompositionError.failureDetail(for: error)
+                            )
+                        }
                         progressReporter?.completeJob()
                         temporaryMediaURLs.append(renderedURL)
-                        source = try await AVURLAsset(url: renderedURL).loadTracks(withMediaType: .audio).first
+                        let retainedAsset = AVURLAsset(url: renderedURL)
+                        renderedAudioAsset = retainedAsset
+                        source = try await retainedAsset.loadTracks(withMediaType: .audio).first
                         usesRenderedAudio = true
                     }
                     guard let source else { continue }
                     var destination = clip.timelineStart
                     if usesRenderedAudio {
                         let range = try await source.load(.timeRange)
-                        try compositionTrack.insertTimeRange(range, of: source, at: destination.cmTime)
+                        do {
+                            try compositionTrack.insertTimeRange(range, of: source, at: destination.cmTime)
+                        } catch {
+                            throw ProjectCompositionError.audioInsertionFailed(
+                                clip: clip.displayName,
+                                track: timelineTrack.name,
+                                detail: ProjectCompositionError.failureDetail(for: error)
+                            )
+                        }
+                        withExtendedLifetime(renderedAudioAsset) {}
                         continue
                     }
                     for segment in clip.segments {
@@ -361,7 +441,19 @@ enum ProjectCompositionBuilder {
                         let portion = CMTimeRangeGetIntersection(segment.sourceRange.cmTimeRange, otherRange: available)
                         if portion.isValid, !portion.isEmpty {
                             let offset = CMTimeSubtract(portion.start, segment.sourceRange.start.cmTime)
-                            try compositionTrack.insertTimeRange(portion, of: source, at: CMTimeAdd(destination.cmTime, offset))
+                            do {
+                                try compositionTrack.insertTimeRange(
+                                    portion,
+                                    of: source,
+                                    at: CMTimeAdd(destination.cmTime, offset)
+                                )
+                            } catch {
+                                throw ProjectCompositionError.audioInsertionFailed(
+                                    clip: clip.displayName,
+                                    track: timelineTrack.name,
+                                    detail: ProjectCompositionError.failureDetail(for: error)
+                                )
+                            }
                         }
                         destination = destination + segment.duration
                     }

@@ -105,6 +105,10 @@ struct TrimatoApp: App {
                     else { viewModel?.goToEnd() }
                 }
                 .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
+                Button("Go to End of Video") {
+                    projectPlayer?.goToVideoEnd()
+                }
+                .disabled(projectPlayer?.canControlPlayback != true)
             }
             CommandMenu("Markers") {
                 Button("Mark In (I)") {

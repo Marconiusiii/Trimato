@@ -10,6 +10,19 @@ struct ProjectPreviewFailure: Identifiable, Equatable {
     let transitionID: UUID?
 }
 
+nonisolated struct ProjectEditPoint: Equatable, Sendable {
+    let time: ProjectTime
+    var hasVideo: Bool
+    var hasAudio: Bool
+
+    var spokenName: String {
+        if hasVideo, hasAudio { return "Video and audio edit point" }
+        if hasVideo { return "Video edit point" }
+        if hasAudio { return "Audio edit point" }
+        return "Edit point"
+    }
+}
+
 private nonisolated enum ProjectPreviewPreparationError: LocalizedError {
     case timedOut(String)
 
@@ -102,8 +115,9 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var timeObserver: Any?
     private var temporaryMediaURLs: [URL] = []
     private var projectDuration = ProjectTime.zero
+    private var videoEndTime = ProjectTime.zero
     private var projectFrameRate = 30.0
-    private var editPoints: [ProjectTime] = []
+    private var editPoints: [ProjectEditPoint] = []
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8]
     private var arrowHolding = false
@@ -198,6 +212,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         jklIndex = 0
         arrowHolding = false
         projectDuration = project.duration
+        videoEndTime = Self.videoEnd(in: project)
         projectFrameRate = max(project.format.frameRate ?? 30, 1)
         let boundedInitialTime = min(max(initialTime, .zero), projectDuration)
         updateDisplayedTime(boundedInitialTime)
@@ -260,26 +275,33 @@ final class ProjectPlayerViewModel: ObservableObject {
                 if self.preparationID == preparationID {
                     player.replaceCurrentItem(with: nil)
                     isPreparing = false
-                    errorMessage = error.localizedDescription
                     let failure: ProjectPreviewFailure
                     if let transitionError = error as? ProjectTransitionRenderError {
                         failure = ProjectPreviewFailure(
-                            title: "Project Preview Failed",
+                            title: "Project Preview Could Not Be Updated",
                             message: transitionError.localizedDescription,
                             transitionID: transitionError.transitionID
                         )
                     } else {
                         failure = ProjectPreviewFailure(
-                            title: "Project Preview Failed",
-                            message: error.localizedDescription,
+                            title: "Project Preview Could Not Be Updated",
+                            message: Self.previewFailureMessage(for: error),
                             transitionID: nil
                         )
                     }
+                    errorMessage = failure.message
                     currentPreviewFailure = failure
                     presentedPreviewFailure = failure
                 }
             }
         }
+    }
+
+    nonisolated static func previewFailureMessage(for error: Error) -> String {
+        if error is ProjectCompositionError {
+            return error.localizedDescription
+        }
+        return "Trimato could not rebuild project playback. \(ProjectCompositionError.failureDetail(for: error))"
     }
 
     func prepareTransitionPreview(
@@ -354,6 +376,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             temporaryMediaURLs = pendingTemporaryMediaURLs
             pendingTemporaryMediaURLs.removeAll()
             projectDuration = duration
+            videoEndTime = Self.videoEnd(in: project)
             projectFrameRate = max(project.format.frameRate ?? 30, 1)
             editPoints = Self.editPoints(in: project)
             updateDisplayedTime(boundedInitialTime)
@@ -561,6 +584,10 @@ final class ProjectPlayerViewModel: ObservableObject {
         navigate(to: projectDuration)
     }
 
+    func goToVideoEnd() {
+        navigate(to: videoEndTime)
+    }
+
     private func removeTemporaryMedia() {
         Self.removeTemporaryMedia(at: temporaryMediaURLs)
         temporaryMediaURLs.removeAll()
@@ -585,7 +612,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private var timelinePoints: [ProjectTime] {
-        var points = Set(editPoints)
+        var points = Set(editPoints.map(\.time))
         if let inMarker { points.insert(inMarker) }
         if let outMarker { points.insert(outMarker) }
         return points.sorted()
@@ -632,7 +659,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             duration: projectDuration,
             inMarker: inMarker,
             outMarker: outMarker,
-            frameRate: projectFrameRate
+            frameRate: projectFrameRate,
+            editPoint: editPoints.first { $0.time == destination }
         ))
     }
 
@@ -770,7 +798,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         duration: ProjectTime,
         inMarker: ProjectTime?,
         outMarker: ProjectTime?,
-        frameRate: Double
+        frameRate: Double,
+        editPoint: ProjectEditPoint? = nil
     ) -> String {
         let pointName: String
         if destination == .zero {
@@ -782,7 +811,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         } else if destination == outMarker {
             pointName = "Out"
         } else {
-            pointName = "Edit point"
+            pointName = editPoint?.spokenName ?? "Edit point"
         }
         var timeLabel = accessibilityTimeLabel(
             time: destination,
@@ -796,24 +825,57 @@ final class ProjectPlayerViewModel: ObservableObject {
         return "\(pointName), \(timeLabel)"
     }
 
-    nonisolated static func editPoints(in project: TrimatoProject) -> [ProjectTime] {
-        var points: Set<ProjectTime> = [.zero, project.duration]
+    nonisolated static func editPoints(in project: TrimatoProject) -> [ProjectEditPoint] {
+        var points: [ProjectTime: ProjectEditPoint] = [:]
+        points[.zero] = ProjectEditPoint(time: .zero, hasVideo: false, hasAudio: false)
+        points[project.duration] = ProjectEditPoint(
+            time: project.duration,
+            hasVideo: false,
+            hasAudio: false
+        )
+
+        func add(_ time: ProjectTime, kind: TimelineTrackKind) {
+            var point = points[time] ?? ProjectEditPoint(
+                time: time,
+                hasVideo: false,
+                hasAudio: false
+            )
+            if kind == .video {
+                point.hasVideo = true
+            } else {
+                point.hasAudio = true
+            }
+            points[time] = point
+        }
+
         var cursor = ProjectTime.zero
         for clip in project.primaryTimeline {
+            add(cursor, kind: .video)
             cursor = cursor + clip.duration
-            points.insert(cursor)
+            add(cursor, kind: .video)
         }
         for track in project.tracks {
             for clip in track.clips {
-                points.insert(clip.timelineStart)
-                points.insert(clip.timelineEnd)
+                add(clip.timelineStart, kind: track.kind)
+                add(clip.timelineEnd, kind: track.kind)
             }
         }
         for cutaway in project.cutaways {
-            points.insert(cutaway.start)
-            points.insert(cutaway.end)
+            add(cutaway.start, kind: .video)
+            add(cutaway.end, kind: .video)
+            if cutaway.audioMode == .sourceAudio {
+                add(cutaway.start, kind: .audio)
+                add(cutaway.end, kind: .audio)
+            }
         }
-        return points.sorted()
+        return points.values.sorted { $0.time < $1.time }
+    }
+
+    nonisolated static func videoEnd(in project: TrimatoProject) -> ProjectTime {
+        project.tracks
+            .filter { $0.kind == .video }
+            .map(\.end)
+            .max() ?? .zero
     }
 
     private func setupKeyEventMonitor() {

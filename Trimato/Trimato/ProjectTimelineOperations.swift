@@ -13,6 +13,9 @@ enum ProjectTimelineError: LocalizedError, Equatable {
     case trackNotFound
     case protectedPrimaryTrack
     case incompatibleTrackKind
+    case sourceAssetNotFound
+    case unsupportedPlacement
+    case cannotTrimAtPlayhead
     case transitionNotAvailable(String)
 
     var errorDescription: String? {
@@ -29,6 +32,9 @@ enum ProjectTimelineError: LocalizedError, Equatable {
         case .trackNotFound: "The selected track is no longer available."
         case .protectedPrimaryTrack: "The primary track cannot be deleted."
         case .incompatibleTrackKind: "Copy or move video clips to video tracks and audio clips to audio tracks."
+        case .sourceAssetNotFound: "The source clip is no longer available in this project. Reopen it from Project Sources and try again."
+        case .unsupportedPlacement: "This placement is not available for the selected track."
+        case .cannotTrimAtPlayhead: "Move the project playhead inside the focused timeline clip before trimming its end."
         case .transitionNotAvailable(let message): message
         }
     }
@@ -104,6 +110,10 @@ extension TrimatoProject {
         guard let index = tracks.firstIndex(where: { $0.id == trackID }) else {
             throw ProjectTimelineError.trackNotFound
         }
+        guard (tracks[index].kind == .video && asset.hasVideo) ||
+                (tracks[index].kind == .audio && asset.hasAudio) else {
+            throw ProjectTimelineError.incompatibleTrackKind
+        }
         var clip = try makeTimelineClip(asset: asset, segments: segments)
         clip.timelineStart = tracks[index].end
         if tracks[index].kind == .audio, asset.hasVideo { clip.name = "\(clip.displayName) Audio" }
@@ -122,6 +132,10 @@ extension TrimatoProject {
         ensureTrackModel()
         guard let trackIndex = tracks.firstIndex(where: { $0.id == trackID }) else {
             throw ProjectTimelineError.trackNotFound
+        }
+        guard (tracks[trackIndex].kind == .video && asset.hasVideo) ||
+                (tracks[trackIndex].kind == .audio && asset.hasAudio) else {
+            throw ProjectTimelineError.incompatibleTrackKind
         }
         guard playhead >= .zero, playhead <= duration else { throw ProjectTimelineError.invalidPlayhead }
         var incoming = try makeTimelineClip(asset: asset, segments: segments)
@@ -165,6 +179,10 @@ extension TrimatoProject {
         ensureTrackModel()
         guard let trackIndex = tracks.firstIndex(where: { $0.id == trackID }) else {
             throw ProjectTimelineError.trackNotFound
+        }
+        guard (tracks[trackIndex].kind == .video && asset.hasVideo) ||
+                (tracks[trackIndex].kind == .audio && asset.hasAudio) else {
+            throw ProjectTimelineError.incompatibleTrackKind
         }
         guard playhead >= .zero, playhead <= duration else { throw ProjectTimelineError.invalidPlayhead }
         var incoming = try makeTimelineClip(asset: asset, segments: segments)
@@ -220,6 +238,39 @@ extension TrimatoProject {
         for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= oldEnd {
             tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart + difference
         }
+    }
+
+    mutating func trimTrackClipEnd(id: UUID, at playhead: ProjectTime) throws {
+        ensureTrackModel()
+        guard let trackIndex = tracks.firstIndex(where: { track in track.clips.contains { $0.id == id } }),
+              let clipIndex = tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        let clip = tracks[trackIndex].clips[clipIndex]
+        guard playhead > clip.timelineStart, playhead < clip.timelineEnd else {
+            throw ProjectTimelineError.cannotTrimAtPlayhead
+        }
+
+        let retainedDuration = playhead - clip.timelineStart
+        var remaining = retainedDuration
+        var retainedSegments: [SourceSegment] = []
+        for segment in clip.segments where remaining.isPositive {
+            let duration = min(segment.duration, remaining)
+            retainedSegments.append(SourceSegment(sourceRange: ProjectTimeRange(
+                start: segment.sourceRange.start,
+                duration: duration
+            )))
+            remaining = remaining - duration
+        }
+        guard !retainedSegments.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
+
+        let oldEnd = clip.timelineEnd
+        let removedDuration = clip.duration - retainedDuration
+        tracks[trackIndex].clips[clipIndex].segments = retainedSegments
+        for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= oldEnd {
+            tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart - removedDuration
+        }
+        removeInvalidBetweenTransitions(on: [tracks[trackIndex].id])
     }
 
     mutating func renameTrackClip(id: UUID, to requestedName: String) throws {

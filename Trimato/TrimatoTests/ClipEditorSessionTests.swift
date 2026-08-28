@@ -93,6 +93,100 @@ struct ClipEditorSessionTests {
         #expect(controller.project.timelineClip(id: clipID)?.audioSettings.gainDecibels == 3)
     }
 
+    @Test @MainActor func creatingANamedTrackAndAppendingIsOneAtomicProjectChange() throws {
+        let originalSegment = SourceSegment(sourceRange: ProjectTimeRange(
+            start: .zero,
+            duration: ProjectTime(seconds: 4)
+        ))
+        let trimmedSegment = SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 0.5),
+            duration: ProjectTime(seconds: 2.5)
+        ))
+        let asset = MediaAssetRecord(
+            name: "Music",
+            originalPath: "/tmp/music.m4a",
+            bookmarkData: nil,
+            duration: ProjectTime(seconds: 4),
+            naturalWidth: nil,
+            naturalHeight: nil,
+            frameRate: nil,
+            hasAudio: true,
+            sourceEdit: [originalSegment]
+        )
+        var project = TrimatoProject()
+        project.media = [asset]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(
+            controller: controller,
+            editSelection: .asset(asset.id),
+            segments: [trimmedSegment]
+        )
+        context.audioSettings = AudioClipSettings(gainDecibels: -9)
+        let initialRevision = controller.timelineContentRevision
+
+        let clipID = try #require(context.createTrackAndPlace(
+            .append,
+            kind: .audio,
+            name: "Music Bed"
+        ))
+
+        let track = try #require(controller.project.tracks.first { $0.name == "Music Bed" })
+        #expect(track.kind == .audio)
+        #expect(track.clips.map(\.id) == [clipID])
+        #expect(track.clips.first?.segments == [trimmedSegment])
+        #expect(track.clips.first?.audioSettings.gainDecibels == -9)
+        #expect(controller.timelineContentRevision == initialRevision + 1)
+    }
+
+    @Test @MainActor func failedNamedTrackPlacementLeavesNoEmptyTrack() {
+        let segment = SourceSegment(sourceRange: ProjectTimeRange(
+            start: .zero,
+            duration: ProjectTime(seconds: 2)
+        ))
+        let asset = MediaAssetRecord(
+            name: "Music",
+            originalPath: "/tmp/music.m4a",
+            bookmarkData: nil,
+            duration: ProjectTime(seconds: 2),
+            naturalWidth: nil,
+            naturalHeight: nil,
+            frameRate: nil,
+            hasAudio: true,
+            sourceEdit: [segment]
+        )
+        var project = TrimatoProject()
+        project.media = [asset]
+        _ = project.createTrack(kind: .audio, name: "Music Bed")
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(
+            controller: controller,
+            editSelection: .asset(asset.id),
+            segments: [segment]
+        )
+        let initialTrackCount = controller.project.tracks.count
+
+        #expect(context.createTrackAndPlace(.append, kind: .audio, name: "Music Bed") == nil)
+        #expect(controller.project.tracks.count == initialTrackCount)
+        #expect(context.presentedError?.message.contains("not already used") == true)
+    }
+
+    @Test @MainActor func failedTrackPlacementProducesANamedDetailedDialog() {
+        let segment = SourceSegment(sourceRange: ProjectTimeRange(
+            start: .zero,
+            duration: ProjectTime(seconds: 4)
+        ))
+        let controller = ProjectController(document: ProjectDocument())
+        let context = ClipPlacementCommandContext(
+            controller: controller,
+            editSelection: .asset(UUID()),
+            segments: [segment]
+        )
+
+        #expect(context.place(.append, onTrack: UUID()) == nil)
+        #expect(context.presentedError?.title == "Clip Could Not Be Appended to Track")
+        #expect(context.presentedError?.message.contains("source clip is no longer available") == true)
+    }
+
     @Test func oneSourceRangeOpensTheFullSourceWithSavedMarkers() {
         let segment = SourceSegment(sourceRange: ProjectTimeRange(
             start: ProjectTime(seconds: 1),

@@ -61,8 +61,7 @@ struct StandaloneClipEditorView: View {
             ContentView(
                 viewModel: viewModel,
                 allowsFileOpening: false,
-                editorHeading: editorName,
-                accessibilityFocusRequest: 1
+                editorHeading: editorName
             )
 
             Divider()

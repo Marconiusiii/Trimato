@@ -17,7 +17,6 @@ struct SourceClipEditorView: View {
     @State private var loadedAssetID: UUID?
     @State private var preparationTask: Task<Void, Never>?
     @State private var cacheOwnerID = UUID()
-    @State private var selectedTrackID: UUID?
     @State private var placementFocusReturn: PlacementAction?
     @State private var audioPreviewTask: Task<Void, Never>?
     @State private var audioPreviewProgress: Double?
@@ -33,8 +32,7 @@ struct SourceClipEditorView: View {
                 ContentView(
                     viewModel: viewModel,
                     allowsFileOpening: false,
-                    editorHeading: ClipEditorMediaKind.name(hasVideo: asset.hasVideo),
-                    accessibilityFocusRequest: commandContext.focusRequest
+                    editorHeading: ClipEditorMediaKind.name(hasVideo: asset.hasVideo)
                 )
 
                 if commandContext.audioSettings != nil {
@@ -80,42 +78,22 @@ struct SourceClipEditorView: View {
             scheduleAudioPreview(for: settings)
         }
         .sheet(item: $commandContext.trackPlacementAction, onDismiss: restorePlacementControlFocus) { action in
-            VStack(alignment: .leading, spacing: 16) {
-                Text(action.title)
-                    .font(.headline)
-                    .accessibilityAddTraits(.isHeader)
-                Form {
-                    Picker("Track", selection: $selectedTrackID) {
-                        ForEach(compatibleTracks) { track in
-                            Text(track.name).tag(Optional(track.id))
-                        }
-                    }
-                    Section("Create a Track") {
-                        Button("New Audio Track") { createAndPlace(kind: .audio, action: action) }
-                            .disabled(!asset.hasAudio)
-                        Button("New Video Track") { createAndPlace(kind: .video, action: action) }
-                            .disabled(!asset.hasVideo)
-                    }
-                }
-                .formStyle(.grouped)
-                .frame(height: 190)
-                HStack {
-                    Button("Cancel", role: .cancel) { commandContext.trackPlacementAction = nil }
-                    Button("Place") {
-                        guard let selectedTrackID else { return }
-                        commandContext.place(action, onTrack: selectedTrackID)
-                        commandContext.trackPlacementAction = nil
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(selectedTrackID == nil)
-                }
-            }
-            .padding(20)
-            .frame(width: 420)
-            .onAppear {
-                placementFocusReturn = action
-                selectedTrackID = compatibleTracks.first?.id
-            }
+            AddToTrackView(
+                commandContext: commandContext,
+                action: action,
+                tracks: compatibleTracks,
+                canCreateAudioTrack: asset.hasAudio,
+                canCreateVideoTrack: asset.hasVideo,
+                addToTrack: { trackID in
+                    guard commandContext.place(action, onTrack: trackID) != nil else { return }
+                    commandContext.trackPlacementAction = nil
+                },
+                createTrackAndAdd: { kind, name in
+                    createAndPlace(kind: kind, name: name, action: action)
+                },
+                cancel: { commandContext.trackPlacementAction = nil }
+            )
+            .onAppear { placementFocusReturn = action }
         }
         .onDisappear {
             preparationTask?.cancel()
@@ -217,10 +195,12 @@ struct SourceClipEditorView: View {
         }
     }
 
-    private func createAndPlace(kind: TimelineTrackKind, action: PlacementAction) {
-        controller.addTrack(kind: kind, name: nil)
-        guard let trackID = controller.activeTimelineTrackID else { return }
-        commandContext.place(action, onTrack: trackID)
+    private func createAndPlace(
+        kind: TimelineTrackKind,
+        name: String,
+        action: PlacementAction
+    ) {
+        guard commandContext.createTrackAndPlace(action, kind: kind, name: name) != nil else { return }
         commandContext.trackPlacementAction = nil
     }
 
@@ -288,6 +268,114 @@ struct SourceClipEditorView: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             focusedPlacementControl = target
+        }
+    }
+}
+
+private struct AddToTrackView: View {
+    @ObservedObject var commandContext: ClipPlacementCommandContext
+    let action: PlacementAction
+    let tracks: [TimelineTrack]
+    let canCreateAudioTrack: Bool
+    let canCreateVideoTrack: Bool
+    let addToTrack: (UUID) -> Void
+    let createTrackAndAdd: (TimelineTrackKind, String) -> Void
+    let cancel: () -> Void
+
+    @State private var selectedTrackID: UUID?
+    @State private var newTrackName = ""
+    @AccessibilityFocusState private var trackPickerFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Add to Track")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+
+            Picker("Track", selection: trackBinding) {
+                ForEach(tracks) { track in
+                    Text(track.name).tag(Optional(track.id))
+                }
+            }
+            .accessibilityFocused($trackPickerFocused)
+
+            Button(action.selectedTrackButtonTitle) {
+                guard let selectedTrackID else { return }
+                addToTrack(selectedTrackID)
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(selectedTrackID == nil)
+
+            Divider()
+
+            LabeledContent("New Track Name") {
+                TextField("New Track Name", text: $newTrackName)
+                    .labelsHidden()
+            }
+
+            HStack {
+                Button("Create Audio Track and \(action.newTrackButtonTitle)") {
+                    createTrackAndAdd(.audio, newTrackName)
+                }
+                    .disabled(!canCreateAudioTrack)
+                Button("Create Video Track and \(action.newTrackButtonTitle)") {
+                    createTrackAndAdd(.video, newTrackName)
+                }
+                    .disabled(!canCreateVideoTrack)
+            }
+            .disabled(newTrackName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Button("Cancel", role: .cancel, action: cancel)
+        }
+        .padding(20)
+        .frame(width: 420)
+        .onAppear { selectedTrackID = tracks.first?.id }
+        .alert(item: $commandContext.presentedError) { error in
+            Alert(
+                title: Text(error.title),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+
+    private var trackBinding: Binding<UUID?> {
+        Binding(
+            get: { selectedTrackID },
+            set: { newValue in
+                selectedTrackID = newValue
+                restoreTrackPickerFocus()
+            }
+        )
+    }
+
+    private func restoreTrackPickerFocus() {
+        trackPickerFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            trackPickerFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            trackPickerFocused = true
+        }
+    }
+}
+
+private extension PlacementAction {
+    var selectedTrackButtonTitle: String {
+        switch self {
+        case .append: "Append to Selected Track"
+        case .insert: "Insert on Selected Track"
+        case .replaceRemainder: "Insert and Overwrite on Selected Track"
+        case .cutawaySourceAudio, .cutawayPrimaryAudio: "Add to Selected Track"
+        }
+    }
+
+    var newTrackButtonTitle: String {
+        switch self {
+        case .append: "Append"
+        case .insert: "Insert"
+        case .replaceRemainder: "Insert and Overwrite"
+        case .cutawaySourceAudio, .cutawayPrimaryAudio: "Add"
         }
     }
 }

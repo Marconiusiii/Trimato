@@ -5,20 +5,15 @@ struct ContentView: View {
     @ObservedObject private var viewModel: VideoPlayerViewModel
     private let allowsFileOpening: Bool
     private let editorHeading: String?
-    private let accessibilityFocusRequest: Int
-    @AccessibilityFocusState private var clipPlayheadFocused: Bool
-    @State private var pendingPlaybackFocus = false
 
     init(
         viewModel: VideoPlayerViewModel,
         allowsFileOpening: Bool = true,
-        editorHeading: String? = nil,
-        accessibilityFocusRequest: Int = 0
+        editorHeading: String? = nil
     ) {
         self.viewModel = viewModel
         self.allowsFileOpening = allowsFileOpening
         self.editorHeading = editorHeading
-        self.accessibilityFocusRequest = accessibilityFocusRequest
     }
 
     var body: some View {
@@ -113,19 +108,6 @@ struct ContentView: View {
         } message: {
             Text(viewModel.exportErrorMessage ?? "Trimato could not create the selected file.")
         }
-        .onAppear {
-            if accessibilityFocusRequest > 0 {
-                requestPlaybackControlFocus()
-            }
-        }
-        .onChange(of: accessibilityFocusRequest) {
-            requestPlaybackControlFocus()
-        }
-        .onChange(of: viewModel.hasMedia) {
-            if viewModel.hasMedia, pendingPlaybackFocus {
-                requestPlaybackControlFocus()
-            }
-        }
         .onDisappear {
             viewModel.closeMedia()
         }
@@ -187,20 +169,18 @@ struct ContentView: View {
 
     private var controlsArea: some View {
         VStack(spacing: 10) {
-            if viewModel.duration > 0 {
-                Slider(
-                    value: Binding(
-                        get: { viewModel.duration > 0 ? viewModel.currentTime / viewModel.duration : 0 },
-                        set: { viewModel.seek(to: $0) }
-                    ),
-                    in: 0...1,
-                    step: viewModel.playbackFractionStep
-                )
-                .accessibilityLabel("Clip playhead")
-                .accessibilityValue(viewModel.accessibilityTimecodeLabel)
-                .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.playhead)
-                .accessibilityFocused($clipPlayheadFocused)
-            }
+            Slider(
+                value: Binding(
+                    get: { viewModel.duration > 0 ? viewModel.currentTime / viewModel.duration : 0 },
+                    set: { viewModel.seek(to: $0) }
+                ),
+                in: 0...1,
+                step: viewModel.playbackFractionStep
+            )
+            .disabled(viewModel.duration <= 0)
+            .accessibilityLabel("Clip playhead")
+            .accessibilityValue(viewModel.accessibilityTimecodeLabel)
+            .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.playhead)
 
             playbackControls
             markerControls
@@ -268,7 +248,7 @@ struct ContentView: View {
                 .accessibilityHint(
                     viewModel.hasVideo
                         ? (viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
-                        : "Current playback time. Frame display is unavailable for audio-only media"
+                        : "Current playback time"
                 )
 
                 speedBadge
@@ -278,7 +258,7 @@ struct ContentView: View {
                         Image(systemName: "backward.frame.fill").font(.title2)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!viewModel.hasVideo)
+                    .disabled(!viewModel.hasMedia)
                     .accessibilityLabel("Step backward one frame")
 
                     Button { viewModel.seekBackward() } label: {
@@ -308,7 +288,7 @@ struct ContentView: View {
                         Image(systemName: "forward.frame.fill").font(.title2)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!viewModel.hasVideo)
+                    .disabled(!viewModel.hasMedia)
                     .accessibilityLabel("Step forward one frame")
                 }
                 .foregroundStyle(EditorTheme.accent)
@@ -323,21 +303,6 @@ struct ContentView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Playback")
         .accessibilityIdentifier("trimato.clip-editor.playback")
-    }
-
-    private func requestPlaybackControlFocus() {
-        pendingPlaybackFocus = true
-        guard viewModel.hasMedia else { return }
-        clipPlayheadFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            guard viewModel.hasMedia else { return }
-            clipPlayheadFocused = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            guard viewModel.hasMedia else { return }
-            clipPlayheadFocused = true
-            pendingPlaybackFocus = false
-        }
     }
 
     @ViewBuilder

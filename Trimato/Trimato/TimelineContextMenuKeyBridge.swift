@@ -53,6 +53,7 @@ struct TimelineContextMenuKeyBridge: NSViewRepresentable {
     let copyClip: (UUID) -> Void
     let pasteClipAfter: (UUID) -> Void
     let moveClipAfter: (UUID) -> Void
+    let trimClipEnd: (UUID) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -131,6 +132,10 @@ struct TimelineContextMenuKeyBridge: NSViewRepresentable {
                     parent.moveClipAfter(id)
                     return nil
                 }
+                if modifiers == .command, character == "]" {
+                    DispatchQueue.main.async { [parent] in parent.trimClipEnd(id) }
+                    return nil
+                }
             }
 
             let keyboardCommand = TimelineKeyboardCommand.resolve(
@@ -206,6 +211,7 @@ struct TimelineContextMenuKeyBridge: NSViewRepresentable {
                 menu.addItem(item("Copy Clip", tag: 6, keyEquivalent: "c", modifiers: .command))
                 menu.addItem(item("Paste Clip After", tag: 7, keyEquivalent: "v", modifiers: .command))
                 menu.addItem(item("Move Copied Clip After", tag: 8, keyEquivalent: "v", modifiers: [.command, .option]))
+                menu.addItem(item("Trim End to Project Playhead", tag: 9, keyEquivalent: "]", modifiers: .command))
                 menu.addItem(.separator())
                 menu.addItem(item("Delete from Timeline", tag: 3))
             case .transition:
@@ -247,6 +253,8 @@ struct TimelineContextMenuKeyBridge: NSViewRepresentable {
                 parent.pasteClipAfter(id)
             case (8, .clip(let id)):
                 parent.moveClipAfter(id)
+            case (9, .clip(let id)):
+                parent.trimClipEnd(id)
             default:
                 break
             }
