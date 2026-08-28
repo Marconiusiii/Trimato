@@ -30,6 +30,7 @@ final class ProjectController: ObservableObject {
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
     @Published private(set) var applyingTransitionName: String?
+    @Published private(set) var applyingTransitionProgress: Double?
     @Published var isImporting = false
     @Published var isShowingProjectSettings = false
     @Published var presentedError: ProjectPresentedError?
@@ -358,10 +359,12 @@ final class ProjectController: ObservableObject {
             return false
         } ?? transitions.first
         applyingTransitionName = primary?.displayName ?? "Transition"
+        applyingTransitionProgress = 0
     }
 
     func finishApplyingTransition() {
         applyingTransitionName = nil
+        applyingTransitionProgress = nil
     }
 
     func applyTransitionsFromEditor(_ additions: [TimelineTransition]) async throws {
@@ -378,7 +381,13 @@ final class ProjectController: ObservableObject {
             try await projectPlayer.prepareTransitionPreview(
                 project: candidate,
                 mediaURLs: resolvedMediaURLs(),
-                initialTime: timelinePlayhead
+                initialTime: timelinePlayhead,
+                progress: { [weak self] progress in
+                    self?.applyingTransitionProgress = max(
+                        self?.applyingTransitionProgress ?? 0,
+                        min(max(progress, 0), 1)
+                    )
+                }
             )
             projectWithPreparedTransitionPreview = candidate
             apply(
@@ -386,7 +395,7 @@ final class ProjectController: ObservableObject {
                 undoingTo: previous,
                 actionName: additions.count == 1 ? "Add Transition" : "Add Transitions"
             )
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(150))
             finishApplyingTransition()
         } catch {
             finishApplyingTransition()

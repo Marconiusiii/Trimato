@@ -3,6 +3,7 @@ import SwiftUI
 struct AddTransitionView: View {
     let project: TrimatoProject
     let request: TransitionRequest
+    let progress: Double
     let add: ([TimelineTransition]) async throws -> Void
     let cancel: () -> Void
 
@@ -26,8 +27,15 @@ struct AddTransitionView: View {
         Group {
             if isSubmitting {
                 VStack(spacing: 16) {
-                    ProgressView("Applying \(applicationName)…")
+                    ProgressView(value: boundedProgress, total: 1) {
+                        Text("Applying \(applicationName)…")
+                    }
+                        .accessibilityLabel("Applying \(applicationName)")
+                        .accessibilityValue(TransitionProgressAccessibility.value(progress))
                         .accessibilityFocused($progressFocused)
+                        .onChange(of: TransitionProgressAccessibility.milestone(progress)) { _, milestone in
+                            TransitionProgressAccessibility.announce(milestone)
+                        }
                 }
                 .padding(32)
                 .frame(width: 440)
@@ -75,6 +83,8 @@ struct AddTransitionView: View {
         if addOutro, !addIntro { return outroTransitionName }
         return "Transitions"
     }
+
+    private var boundedProgress: Double { min(max(progress, 0), 1) }
 
     private var introTransitionName: String {
         track?.kind == .video ? introVideoType.title : introAudioType.title

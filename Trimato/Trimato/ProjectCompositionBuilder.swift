@@ -61,6 +61,46 @@ struct ProjectTransitionRenderError: LocalizedError {
     }
 }
 
+@MainActor
+private final class ProjectCompositionProgressReporter {
+    private let jobCount: Int
+    private let progress: @MainActor @Sendable (Double) -> Void
+    private var completedJobs = 0
+    private var lastProgress = 0.0
+
+    init(jobCount: Int, progress: @escaping @MainActor @Sendable (Double) -> Void) {
+        self.jobCount = max(jobCount, 1)
+        self.progress = progress
+        progress(0)
+    }
+
+    func beginJob() -> @MainActor @Sendable (Double) -> Void {
+        let completedAtStart = completedJobs
+        return { [weak self] value in
+            guard let self else { return }
+            let bounded = min(max(value, 0), 1)
+            let aggregate = ((Double(completedAtStart) + bounded) / Double(self.jobCount)) * 0.9
+            self.report(aggregate)
+        }
+    }
+
+    func completeJob() {
+        completedJobs = min(completedJobs + 1, jobCount)
+        report((Double(completedJobs) / Double(jobCount)) * 0.9)
+    }
+
+    func finishComposition() {
+        report(0.9)
+    }
+
+    private func report(_ value: Double) {
+        let monotonic = min(max(value, lastProgress), 0.9)
+        guard monotonic > lastProgress || monotonic == 0 else { return }
+        lastProgress = monotonic
+        progress(monotonic)
+    }
+}
+
 enum ProjectCompositionBuilder {
     nonisolated static func mediaSelection(
         for record: MediaAssetRecord,
@@ -74,7 +114,8 @@ enum ProjectCompositionBuilder {
     static func build(
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
-        purpose: ProjectCompositionPurpose = .preview
+        purpose: ProjectCompositionPurpose = .preview,
+        progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> ProjectCompositionResult {
         guard project.tracks.contains(where: { !$0.clips.isEmpty }) else { throw ProjectCompositionError.emptyTimeline }
         let composition = AVMutableComposition()
@@ -91,6 +132,12 @@ enum ProjectCompositionBuilder {
                   width > 0, height > 0 else { return nil }
             return CGSize(width: width, height: height)
         }()
+        let progressReporter = progress.map {
+            ProjectCompositionProgressReporter(
+                jobCount: renderJobCount(project: project, hasRenderSize: renderSize != nil),
+                progress: $0
+            )
+        }
         var assets: [UUID: AVURLAsset] = [:]
         var temporaryMediaURLs: [URL] = []
         var shouldPreserveTemporaryMedia = false
@@ -124,8 +171,10 @@ enum ProjectCompositionBuilder {
                 let renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
                     sourceURL: sourceURL,
                     segments: clip.segments,
-                    settings: primaryAudioClip.audioSettings
+                    settings: primaryAudioClip.audioSettings,
+                    progress: progressReporter?.beginJob()
                 )
+                progressReporter?.completeJob()
                 temporaryMediaURLs.append(renderedURL)
                 processedAudio = try await AVURLAsset(url: renderedURL).loadTracks(withMediaType: .audio).first
                 if primaryAudio == nil {
@@ -291,8 +340,10 @@ enum ProjectCompositionBuilder {
                         let renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
                             sourceURL: sourceURL,
                             segments: clip.segments,
-                            settings: clip.audioSettings
+                            settings: clip.audioSettings,
+                            progress: progressReporter?.beginJob()
                         )
+                        progressReporter?.completeJob()
                         temporaryMediaURLs.append(renderedURL)
                         source = try await AVURLAsset(url: renderedURL).loadTracks(withMediaType: .audio).first
                         usesRenderedAudio = true
@@ -337,8 +388,10 @@ enum ProjectCompositionBuilder {
                     leadingClip: leading,
                     trailingClip: trailing,
                     type: type,
-                    duration: transition.duration
+                    duration: transition.duration,
+                    progress: progressReporter?.beginJob()
                 )
+                progressReporter?.completeJob()
             } catch {
                 throw ProjectTransitionRenderError(
                     transitionID: transition.id,
@@ -385,8 +438,10 @@ enum ProjectCompositionBuilder {
                         duration: transition.duration,
                         width: width,
                         height: height,
-                        frameRate: max(project.format.frameRate ?? 30, 1)
+                        frameRate: max(project.format.frameRate ?? 30, 1),
+                        progress: progressReporter?.beginJob()
                     )
+                    progressReporter?.completeJob()
                 } catch {
                     throw ProjectTransitionRenderError(
                         transitionID: transition.id,
@@ -513,8 +568,32 @@ enum ProjectCompositionBuilder {
             audioMix: audioMix,
             temporaryMediaURLs: temporaryMediaURLs
         )
+        progressReporter?.finishComposition()
         shouldPreserveTemporaryMedia = true
         return result
+    }
+
+    private static func renderJobCount(project: TrimatoProject, hasRenderSize: Bool) -> Int {
+        let primaryAudio = project.tracks.first(where: { $0.role == .primaryAudio })
+        let adjustedPrimaryClips = project.primaryTimeline.filter { videoClip in
+            primaryAudio?.clips.first(where: {
+                $0.id == videoClip.id || $0.linkedClipID == videoClip.id
+            })?.audioSettings.isNeutral == false
+        }.count
+        let adjustedAdditionalAudioClips = project.tracks
+            .filter { $0.role == .additional && $0.kind == .audio }
+            .flatMap(\.clips)
+            .filter { !$0.audioSettings.isNeutral }
+            .count
+        let audioTransitions = project.transitions.filter {
+            guard $0.edge == .between, case .audio(let type) = $0.kind else { return false }
+            return type != .fade
+        }.count
+        let videoTransitions = hasRenderSize ? project.transitions.filter {
+            guard $0.edge == .between, case .video(let type) = $0.kind else { return false }
+            return type != .fade
+        }.count : 0
+        return adjustedPrimaryClips + adjustedAdditionalAudioClips + audioTransitions + videoTransitions
     }
 
     private static func requireAsset(_ id: UUID, in project: TrimatoProject) throws -> MediaAssetRecord {
@@ -723,8 +802,11 @@ enum ProjectCompositionBuilder {
                 trailing.timelineStart - ProjectTime(seconds: transition.duration.seconds / 2),
                 .zero
             )
-            parameters.setVolume(0, at: start.cmTime)
-            parameters.setVolume(1, at: (start + transition.duration).cmTime)
+            parameters.setVolumeRamp(
+                fromStartVolume: 0,
+                toEndVolume: 0,
+                timeRange: ProjectTimeRange(start: start, duration: transition.duration).cmTimeRange
+            )
         }
     }
 }

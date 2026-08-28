@@ -133,9 +133,11 @@ struct ProjectPlaybackTests {
 
         controller.beginApplyingTransitions([audio, video])
         #expect(controller.applyingTransitionName == "Cross Dissolve")
+        #expect(controller.applyingTransitionProgress == 0)
 
         controller.finishApplyingTransition()
         #expect(controller.applyingTransitionName == nil)
+        #expect(controller.applyingTransitionProgress == nil)
     }
 
     @Test func projectNavigationAnnouncementsIdentifyTheDestinationConcisely() {

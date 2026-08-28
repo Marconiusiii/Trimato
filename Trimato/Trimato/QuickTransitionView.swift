@@ -1,8 +1,10 @@
+import AppKit
 import SwiftUI
 
 struct QuickTransitionView: View {
     let project: TrimatoProject
     let request: TransitionRequest
+    let progress: Double
     let add: ([TimelineTransition]) async throws -> Void
     let finished: () -> Void
 
@@ -19,8 +21,15 @@ struct QuickTransitionView: View {
         Group {
             if isSubmitting {
                 VStack(spacing: 16) {
-                    ProgressView("Applying \(transitionName)…")
+                    ProgressView(value: boundedProgress, total: 1) {
+                        Text("Applying \(transitionName)…")
+                    }
+                        .accessibilityLabel("Applying \(transitionName)")
+                        .accessibilityValue(TransitionProgressAccessibility.value(progress))
                         .accessibilityFocused($progressFocused)
+                        .onChange(of: TransitionProgressAccessibility.milestone(progress)) { _, milestone in
+                            TransitionProgressAccessibility.announce(milestone)
+                        }
                 }
                 .padding(32)
                 .frame(width: 430)
@@ -74,6 +83,8 @@ struct QuickTransitionView: View {
         if request.mode == .quickFade { return "Fade" }
         return track?.kind == .audio ? "Cross Fade" : "Cross Dissolve"
     }
+
+    private var boundedProgress: Double { min(max(progress, 0), 1) }
 
     private var track: TimelineTrack? { project.track(id: request.trackID) }
     private var clip: TimelineClip? { project.timelineClip(id: request.clipID) }
@@ -198,6 +209,30 @@ struct QuickTransitionView: View {
             duration: duration,
             leadingClipID: edge == .outro ? clip.id : nil,
             trailingClipID: edge == .intro ? clip.id : nil
+        )
+    }
+}
+
+enum TransitionProgressAccessibility {
+    nonisolated static func milestone(_ progress: Double) -> Int {
+        let bounded = min(max(progress, 0), 1)
+        return min(Int(bounded * 10) * 10, 100)
+    }
+
+    nonisolated static func value(_ progress: Double) -> String {
+        "\(milestone(progress)) percent"
+    }
+
+    @MainActor
+    static func announce(_ milestone: Int) {
+        guard milestone > 0, let application = NSApp else { return }
+        NSAccessibility.post(
+            element: application,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: "\(milestone) percent",
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
         )
     }
 }

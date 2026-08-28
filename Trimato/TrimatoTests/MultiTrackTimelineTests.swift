@@ -115,6 +115,9 @@ struct MultiTrackTimelineTests {
         )
 
         #expect(crossFade.contains("[a0][a1]acrossfade=d=1:o=1:c1=qsin:c2=qsin[outa]"))
+        #expect(crossFade.components(separatedBy: "aresample=48000").count == 3)
+        #expect(crossFade.components(separatedBy: "channel_layouts=stereo").count == 3)
+        #expect(crossFade.components(separatedBy: "asetpts=N/SR/TB").count == 3)
         #expect(!crossFade.contains("concat="))
         #expect(fadeOutIn.contains("afade=t=out"))
         #expect(fadeOutIn.contains("afade=t=in"))
@@ -149,18 +152,22 @@ struct MultiTrackTimelineTests {
             name: "Incoming",
             segments: [segment(3, 3)]
         )
+        var progressValues: [Double] = []
         let renderedURL = try await FFmpegTimelineEffectRenderer.renderAudioTransition(
             leadingURL: leadingURL,
             trailingURL: trailingURL,
             leadingClip: leadingClip,
             trailingClip: trailingClip,
             type: .crossFade,
-            duration: ProjectTime(seconds: 3)
+            duration: ProjectTime(seconds: 3),
+            progress: { progressValues.append($0) }
         )
         defer { try? FileManager.default.removeItem(at: renderedURL) }
 
         let report = try await FFmpegMediaProbe.inspect(url: renderedURL)
         #expect(abs(report.duration - 3) < 0.02)
+        #expect(progressValues.last == 1)
+        #expect(zip(progressValues, progressValues.dropFirst()).allSatisfy { $0 <= $1 })
 
         let earlyLeft = try await meanVolume(
             url: renderedURL, channel: 0, start: 0.15, duration: 0.2
@@ -185,6 +192,110 @@ struct MultiTrackTimelineTests {
         #expect(middleLeft > -12)
         #expect(middleRight > -12)
         #expect(lateRight > lateLeft + 10)
+    }
+
+    @Test @MainActor func completedTimelineMixDoesNotDoubleIncomingAudioDuringCrossFade() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let leadingURL = directory.appendingPathComponent("leading.wav")
+        let trailingURL = directory.appendingPathComponent("trailing.wav")
+        try await makeStereoFixture(expression: "sin(2*PI*440*t)|0", outputURL: leadingURL)
+        try await makeStereoFixture(expression: "0|sin(2*PI*660*t)", outputURL: trailingURL)
+
+        for usesLinkedPrimaryTrack in [true, false] {
+            var leadingAsset = fixtureAsset(name: "Outgoing", duration: 6)
+            var trailingAsset = fixtureAsset(name: "Incoming", duration: 6)
+            if !usesLinkedPrimaryTrack {
+                leadingAsset.naturalWidth = nil
+                leadingAsset.naturalHeight = nil
+                trailingAsset.naturalWidth = nil
+                trailingAsset.naturalHeight = nil
+            }
+            var project = TrimatoProject(name: "Cross fade mix")
+            project.media = [leadingAsset, trailingAsset]
+            let trackID: UUID
+            let leadingID: UUID
+            let trailingID: UUID
+            if usesLinkedPrimaryTrack {
+                let leadingVideoID = try project.append(asset: leadingAsset, segments: [segment(1.5, 3)])
+                let trailingVideoID = try project.append(asset: trailingAsset, segments: [segment(1.5, 3)])
+                let videoTrack = try #require(project.tracks.first { $0.role == .primaryVideo })
+                let leadingVideo = try #require(videoTrack.clips.first { $0.id == leadingVideoID })
+                let trailingVideo = try #require(videoTrack.clips.first { $0.id == trailingVideoID })
+                let audioTrack = try #require(project.tracks.first { $0.role == .primaryAudio })
+                trackID = audioTrack.id
+                leadingID = try #require(leadingVideo.linkedClipID)
+                trailingID = try #require(trailingVideo.linkedClipID)
+            } else {
+                trackID = project.createTrack(kind: .audio, name: "Music")
+                leadingID = try project.append(
+                    asset: leadingAsset,
+                    segments: [segment(1.5, 3)],
+                    toTrack: trackID
+                )
+                trailingID = try project.append(
+                    asset: trailingAsset,
+                    segments: [segment(1.5, 3)],
+                    toTrack: trackID
+                )
+            }
+            try project.addTransition(TimelineTransition(
+                trackID: trackID,
+                edge: .between,
+                kind: .audio(.crossFade),
+                duration: ProjectTime(seconds: 2),
+                leadingClipID: leadingID,
+                trailingClipID: trailingID
+            ))
+
+            var buildProgress: [Double] = []
+            let result = try await ProjectCompositionBuilder.build(
+                project: project,
+                mediaURLs: [leadingAsset.id: leadingURL, trailingAsset.id: trailingURL],
+                progress: { buildProgress.append($0) }
+            )
+            defer { result.temporaryMediaURLs.forEach { try? FileManager.default.removeItem(at: $0) } }
+            let outputURL = directory.appendingPathComponent(
+                usesLinkedPrimaryTrack ? "primary-mix.wav" : "additional-mix.wav"
+            )
+            try await AudioOnlyExporter.export(
+                asset: result.composition,
+                audioMix: result.audioMix,
+                timeRange: nil,
+                format: .wav,
+                to: outputURL,
+                progress: { _ in }
+            )
+
+            let renderedTransitionURL = try #require(result.temporaryMediaURLs.first)
+            let mixedIncoming = try await meanVolume(url: outputURL, channel: 1, start: 3.45, duration: 0.1)
+            let renderedIncoming = try await meanVolume(
+                url: renderedTransitionURL,
+                channel: 1,
+                start: 1.45,
+                duration: 0.1
+            )
+            let middleOutgoing = try await meanVolume(url: outputURL, channel: 0, start: 2.95, duration: 0.1)
+            let middleIncoming = try await meanVolume(url: outputURL, channel: 1, start: 2.95, duration: 0.1)
+            let afterLeft = try await meanVolume(url: outputURL, channel: 0, start: 4.5, duration: 0.1)
+            let afterRight = try await meanVolume(url: outputURL, channel: 1, start: 4.5, duration: 0.1)
+
+            #expect(abs(mixedIncoming - renderedIncoming) < 1)
+            #expect(middleOutgoing > -12)
+            #expect(middleIncoming > -12)
+            #expect(afterRight > afterLeft + 20)
+            #expect(buildProgress.last == 0.9)
+            #expect(zip(buildProgress, buildProgress.dropFirst()).allSatisfy { $0 <= $1 })
+        }
+    }
+
+    @Test func transitionProgressUsesSpokenTenPercentMilestones() {
+        #expect(TransitionProgressAccessibility.value(0) == "0 percent")
+        #expect(TransitionProgressAccessibility.value(0.349) == "30 percent")
+        #expect(TransitionProgressAccessibility.value(1) == "100 percent")
     }
 
     @Test func timelineElementsPlaceCrossTransitionsBetweenTheirClips() throws {

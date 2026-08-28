@@ -4,7 +4,8 @@ enum FFmpegTimelineEffectRenderer {
     static func renderAudio(
         sourceURL: URL,
         segments: [SourceSegment],
-        settings: AudioClipSettings
+        settings: AudioClipSettings,
+        progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TrimatoTimelineEffects", isDirectory: true)
@@ -24,12 +25,13 @@ enum FFmpegTimelineEffectRenderer {
             "-hide_banner", "-nostdin", "-y", "-i", sourceURL.path,
             "-filter_complex", chains.joined(separator: ";"),
             "-map", "[outa]", "-vn", "-sn", "-dn",
-            "-c:a", "pcm_s16le", outputURL.path,
+            "-c:a", "pcm_s16le", "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {
             _ = try await FFmpegRunner.run(
                 tool: .ffmpeg,
                 arguments: arguments,
+                progress: progress,
                 expectedDuration: usable.reduce(0) { $0 + $1.duration.seconds }
             )
             return outputURL
@@ -48,7 +50,8 @@ enum FFmpegTimelineEffectRenderer {
         duration: ProjectTime,
         width: Int,
         height: Int,
-        frameRate: Double
+        frameRate: Double,
+        progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         guard let leadingEnd = leadingClip.segments.last?.sourceRange.end,
               let trailingStart = trailingClip.segments.first?.sourceRange.start else {
@@ -87,10 +90,15 @@ enum FFmpegTimelineEffectRenderer {
             "-i", leadingURL.path, "-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outv]", "-an", "-sn", "-dn",
             "-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le",
-            outputURL.path,
+            "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {
-            _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: arguments, expectedDuration: duration.seconds)
+            _ = try await FFmpegRunner.run(
+                tool: .ffmpeg,
+                arguments: arguments,
+                progress: progress,
+                expectedDuration: duration.seconds
+            )
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
@@ -104,7 +112,8 @@ enum FFmpegTimelineEffectRenderer {
         leadingClip: TimelineClip,
         trailingClip: TimelineClip,
         type: AudioTransitionType,
-        duration: ProjectTime
+        duration: ProjectTime,
+        progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         guard let leadingEnd = leadingClip.segments.last?.sourceRange.end,
               let trailingStart = trailingClip.segments.first?.sourceRange.start else {
@@ -137,10 +146,15 @@ enum FFmpegTimelineEffectRenderer {
             "-hide_banner", "-nostdin", "-y",
             "-i", leadingURL.path, "-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outa]", "-vn", "-sn", "-dn",
-            "-c:a", "pcm_s16le", outputURL.path,
+            "-c:a", "pcm_s16le", "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {
-            _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: arguments, expectedDuration: duration.seconds)
+            _ = try await FFmpegRunner.run(
+                tool: .ffmpeg,
+                arguments: arguments,
+                progress: progress,
+                expectedDuration: duration.seconds
+            )
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
@@ -194,9 +208,13 @@ enum FFmpegTimelineEffectRenderer {
         let leadingEffects = audioFilter(for: leadingSettings).map { ",\($0)" } ?? ""
         let trailingEffects = audioFilter(for: trailingSettings).map { ",\($0)" } ?? ""
         return "[0:a:0]atrim=start=\(number(leadingStart)):duration=\(number(duration))," +
-            "asetpts=PTS-STARTPTS\(leadingEffects)[a0];" +
+            "asetpts=PTS-STARTPTS,aresample=48000:async=0:first_pts=0," +
+            "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo" +
+            "\(leadingEffects),asetpts=N/SR/TB[a0];" +
             "[1:a:0]atrim=start=\(number(trailingStart)):duration=\(number(duration))," +
-            "asetpts=PTS-STARTPTS\(trailingEffects)[a1];" +
+            "asetpts=PTS-STARTPTS,aresample=48000:async=0:first_pts=0," +
+            "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo" +
+            "\(trailingEffects),asetpts=N/SR/TB[a1];" +
             "[a0][a1]acrossfade=d=\(number(duration)):o=1:c1=qsin:c2=qsin[outa]"
     }
 
@@ -211,9 +229,13 @@ enum FFmpegTimelineEffectRenderer {
         let leadingEffects = audioFilter(for: leadingSettings).map { ",\($0)" } ?? ""
         let trailingEffects = audioFilter(for: trailingSettings).map { ",\($0)" } ?? ""
         return "[0:a:0]atrim=start=\(number(leadingStart)):duration=\(number(half))," +
-            "asetpts=PTS-STARTPTS\(leadingEffects),afade=t=out:st=0:d=\(number(half))[a0];" +
+            "asetpts=PTS-STARTPTS,aresample=48000:async=0:first_pts=0," +
+            "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo" +
+            "\(leadingEffects),asetpts=N/SR/TB,afade=t=out:st=0:d=\(number(half))[a0];" +
             "[1:a:0]atrim=start=\(number(trailingStart)):duration=\(number(half))," +
-            "asetpts=PTS-STARTPTS\(trailingEffects),afade=t=in:st=0:d=\(number(half))[a1];" +
+            "asetpts=PTS-STARTPTS,aresample=48000:async=0:first_pts=0," +
+            "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo" +
+            "\(trailingEffects),asetpts=N/SR/TB,afade=t=in:st=0:d=\(number(half))[a1];" +
             "[a0][a1]concat=n=2:v=0:a=1[outa]"
     }
 

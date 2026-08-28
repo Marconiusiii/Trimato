@@ -235,7 +235,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     func prepareTransitionPreview(
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
-        initialTime: ProjectTime
+        initialTime: ProjectTime,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
         buildTask?.cancel()
         cancelFrameStepping()
@@ -252,7 +253,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             let result = try await ProjectCompositionBuilder.build(
                 project: project,
                 mediaURLs: mediaURLs,
-                purpose: .preview
+                purpose: .preview,
+                progress: progress
             )
             pendingTemporaryMediaURLs = result.temporaryMediaURLs
             try Task.checkCancellation()
@@ -264,6 +266,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             let duration = project.duration
             let boundedInitialTime = min(max(initialTime, .zero), duration)
             player.replaceCurrentItem(with: item)
+            progress(0.95)
             await player.seek(
                 to: boundedInitialTime.cmTime,
                 toleranceBefore: .zero,
@@ -280,6 +283,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             editPoints = Self.editPoints(in: project)
             updateDisplayedTime(boundedInitialTime)
             isPreparing = false
+            progress(1)
         } catch {
             Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
             if preparationID == requestID { isPreparing = false }

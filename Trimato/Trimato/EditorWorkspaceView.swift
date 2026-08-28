@@ -158,6 +158,7 @@ struct EditorWorkspaceView: View {
             AddTransitionView(
                 project: controller.project,
                 request: request,
+                progress: controller.applyingTransitionProgress ?? 0,
                 add: addTransitions,
                 cancel: dismissStandardTransition
             )
@@ -165,6 +166,7 @@ struct EditorWorkspaceView: View {
             QuickTransitionView(
                 project: controller.project,
                 request: request,
+                progress: controller.applyingTransitionProgress ?? 0,
                 add: { transitions in
                     try await addTransitions(transitions)
                 },
