@@ -518,23 +518,14 @@ enum ProjectCompositionBuilder {
             var parameters: [AVMutableAudioMixInputParameters] = []
             if let primaryAudio {
                 let primaryParameters = AVMutableAudioMixInputParameters(track: primaryAudio)
-                primaryParameters.setVolume(1, at: .zero)
-                for cutaway in sourceAudioCutaways {
-                    primaryParameters.setVolume(0, at: cutaway.start.cmTime)
-                    primaryParameters.setVolume(1, at: cutaway.end.cmTime)
-                }
                 if let primaryTrack = project.tracks.first(where: { $0.role == .primaryAudio }) {
-                    for clip in primaryTrack.clips {
-                        applyAudioTransitions(
-                            project.transitions.filter { $0.trackID == primaryTrack.id },
-                            clip: clip,
-                            volume: 1,
-                            parameters: primaryParameters
-                        )
-                    }
-                    muteBaseAudioDuringBetweenTransitions(
-                        project.transitions.filter { $0.trackID == primaryTrack.id },
+                    applyBaseAudioEnvelope(
+                        duration: project.duration,
+                        transitions: project.transitions.filter { $0.trackID == primaryTrack.id },
                         on: primaryTrack,
+                        mutedRanges: sourceAudioCutaways.map {
+                            ProjectTimeRange(start: $0.start, duration: $0.duration)
+                        },
                         parameters: primaryParameters
                     )
                 }
@@ -551,28 +542,17 @@ enum ProjectCompositionBuilder {
             }
             for item in additionalAudioTracks {
                 let input = AVMutableAudioMixInputParameters(track: item.track)
-                input.setVolume(0, at: .zero)
-                for clip in item.source.sortedClips {
-                    let volume: Float = 1
-                    input.setVolume(volume, at: clip.timelineStart.cmTime)
-                    input.setVolume(0, at: clip.timelineEnd.cmTime)
-                    applyAudioTransitions(
-                        project.transitions.filter { $0.trackID == item.source.id },
-                        clip: clip,
-                        volume: volume,
-                        parameters: input
-                    )
-                }
-                muteBaseAudioDuringBetweenTransitions(
-                    project.transitions.filter { $0.trackID == item.source.id },
+                applyBaseAudioEnvelope(
+                    duration: project.duration,
+                    transitions: project.transitions.filter { $0.trackID == item.source.id },
                     on: item.source,
+                    mutedRanges: [],
                     parameters: input
                 )
                 parameters.append(input)
             }
             for item in transitionAudioTracks {
                 let input = AVMutableAudioMixInputParameters(track: item.track)
-                input.setVolume(1, at: item.range.start.cmTime)
                 parameters.append(input)
             }
             let mix = AVMutableAudioMix()
@@ -799,50 +779,97 @@ enum ProjectCompositionBuilder {
         }
     }
 
-    private static func applyAudioTransitions(
-        _ transitions: [TimelineTransition],
-        clip: TimelineClip,
-        volume: Float,
+    private static func applyBaseAudioEnvelope(
+        duration: ProjectTime,
+        transitions: [TimelineTransition],
+        on track: TimelineTrack,
+        mutedRanges: [ProjectTimeRange],
         parameters: AVMutableAudioMixInputParameters
     ) {
-        for transition in transitions {
-            let range: ProjectTimeRange?
-            if transition.edge == .intro, transition.trailingClipID == clip.id {
-                range = ProjectTimeRange(start: clip.timelineStart, duration: transition.duration)
-            } else if transition.edge == .outro, transition.leadingClipID == clip.id {
-                range = ProjectTimeRange(start: clip.timelineEnd - transition.duration, duration: transition.duration)
-            } else {
-                range = nil
+        guard duration.isPositive else { return }
+        let fadeRules = audioFadeRules(transitions, on: track)
+        let betweenMutes = betweenTransitionMuteRanges(transitions, on: track)
+        let allMutes = mutedRanges + betweenMutes
+        var boundaries = [ProjectTime.zero, duration]
+        boundaries.append(contentsOf: fadeRules.flatMap { [$0.range.start, $0.range.end] })
+        boundaries.append(contentsOf: allMutes.flatMap { [$0.start, $0.end] })
+        boundaries = Array(Set(boundaries.filter { $0 >= .zero && $0 <= duration })).sorted()
+
+        for (start, end) in zip(boundaries, boundaries.dropFirst()) where end > start {
+            let range = ProjectTimeRange(start: start, duration: end - start)
+            let isMuted = allMutes.contains { start >= $0.start && end <= $0.end }
+            let activeFadeRules = fadeRules.filter {
+                start >= $0.range.start && end <= $0.range.end
             }
-            guard let range else { continue }
-            let fadesIn = transition.trailingClipID == clip.id
+            let startVolume = isMuted ? 0 : fadeVolume(at: start, rules: activeFadeRules)
+            let endVolume = isMuted ? 0 : fadeVolume(at: end, rules: activeFadeRules)
             parameters.setVolumeRamp(
-                fromStartVolume: fadesIn ? 0 : volume,
-                toEndVolume: fadesIn ? volume : 0,
+                fromStartVolume: startVolume,
+                toEndVolume: endVolume,
                 timeRange: range.cmTimeRange
             )
         }
     }
 
-    private static func muteBaseAudioDuringBetweenTransitions(
+    private struct AudioFadeRule {
+        let range: ProjectTimeRange
+        let startVolume: Float
+        let endVolume: Float
+    }
+
+    private static func audioFadeRules(
         _ transitions: [TimelineTransition],
-        on track: TimelineTrack,
-        parameters: AVMutableAudioMixInputParameters
-    ) {
-        for transition in transitions where transition.edge == .between {
-            guard case .audio(let type) = transition.kind, type != .fade,
+        on track: TimelineTrack
+    ) -> [AudioFadeRule] {
+        transitions.compactMap { transition in
+            guard case .audio(.fade) = transition.kind else { return nil }
+            if transition.edge == .intro,
+               let trailingID = transition.trailingClipID,
+               let clip = track.clips.first(where: { $0.id == trailingID }) {
+                return AudioFadeRule(
+                    range: ProjectTimeRange(start: clip.timelineStart, duration: transition.duration),
+                    startVolume: 0,
+                    endVolume: 1
+                )
+            }
+            if transition.edge == .outro,
+               let leadingID = transition.leadingClipID,
+               let clip = track.clips.first(where: { $0.id == leadingID }) {
+                return AudioFadeRule(
+                    range: ProjectTimeRange(start: clip.timelineEnd - transition.duration, duration: transition.duration),
+                    startVolume: 1,
+                    endVolume: 0
+                )
+            }
+            return nil
+        }
+    }
+
+    private static func betweenTransitionMuteRanges(
+        _ transitions: [TimelineTransition],
+        on track: TimelineTrack
+    ) -> [ProjectTimeRange] {
+        transitions.compactMap { transition in
+            guard transition.edge == .between,
+                  case .audio(let type) = transition.kind,
+                  type != .fade,
                   let trailingID = transition.trailingClipID,
-                  let trailing = track.clips.first(where: { $0.id == trailingID }) else { continue }
+                  let trailing = track.clips.first(where: { $0.id == trailingID }) else { return nil }
             let start = max(
                 trailing.timelineStart - ProjectTime(seconds: transition.duration.seconds / 2),
                 .zero
             )
-            parameters.setVolumeRamp(
-                fromStartVolume: 0,
-                toEndVolume: 0,
-                timeRange: ProjectTimeRange(start: start, duration: transition.duration).cmTimeRange
-            )
-            parameters.setVolume(1, at: (start + transition.duration).cmTime)
+            return ProjectTimeRange(start: start, duration: transition.duration)
+        }
+    }
+
+    private static func fadeVolume(at time: ProjectTime, rules: [AudioFadeRule]) -> Float {
+        rules.reduce(Float(1)) { volume, rule in
+            guard time >= rule.range.start, time <= rule.range.end else { return volume }
+            let elapsed = (time - rule.range.start).seconds
+            let fraction = min(max(elapsed / rule.range.duration.seconds, 0), 1)
+            let value = rule.startVolume + Float(fraction) * (rule.endVolume - rule.startVolume)
+            return min(volume, value)
         }
     }
 }

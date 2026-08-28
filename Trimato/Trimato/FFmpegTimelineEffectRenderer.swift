@@ -151,7 +151,8 @@ enum FFmpegTimelineEffectRenderer {
                 duration: duration.seconds,
                 leadingSettings: leadingClip.audioSettings,
                 trailingSettings: trailingClip.audioSettings,
-                format: audioFormat
+                format: audioFormat,
+                curve: .linear
             )
         }
         let directory = FileManager.default.temporaryDirectory
@@ -223,18 +224,29 @@ enum FFmpegTimelineEffectRenderer {
         duration: Double,
         leadingSettings: AudioClipSettings,
         trailingSettings: AudioClipSettings,
-        format: AudioTransitionFormat = .unspecified
+        format: AudioTransitionFormat = .unspecified,
+        curve: AudioCrossFadeCurve = .linear
     ) -> String {
         let leadingEffects = audioFilter(for: leadingSettings).map { ",\($0)" } ?? ""
         let trailingEffects = audioFilter(for: trailingSettings).map { ",\($0)" } ?? ""
-        return "[0:a:0]atrim=start=\(number(leadingStart)):duration=\(number(duration))," +
-            "asetpts=PTS-STARTPTS\(format.filterSuffix)" +
+        let leadingWindow = audioTransitionWindow(
+            start: leadingStart,
+            duration: duration,
+            format: format
+        )
+        let trailingWindow = audioTransitionWindow(
+            start: trailingStart,
+            duration: duration,
+            format: format
+        )
+        let exactOutput = exactAudioLengthFilter(duration: duration, sampleRate: format.sampleRate)
+        return "[0:a:0]\(leadingWindow)" +
             "\(leadingEffects)[a0];" +
-            "[1:a:0]atrim=start=\(number(trailingStart)):duration=\(number(duration))," +
-            "asetpts=PTS-STARTPTS\(format.filterSuffix)" +
+            "[1:a:0]\(trailingWindow)" +
             "\(trailingEffects)[a1];" +
-            "[a0][a1]acrossfade=d=\(number(duration)):o=1:c1=qsin:c2=qsin," +
-            "atrim=duration=\(number(duration)),asetpts=PTS-STARTPTS[outa]"
+            "[a0][a1]acrossfade=d=\(number(duration)):o=1:" +
+            "c1=\(curve.ffmpegName):c2=\(curve.ffmpegName)," +
+            "\(exactOutput),asetpts=PTS-STARTPTS[outa]"
     }
 
     static func audioFadeOutInGraph(
@@ -303,8 +315,37 @@ enum FFmpegTimelineEffectRenderer {
         case .video(let type):
             return "xfade=transition=\(videoTransitionName(type) ?? "fade"):duration=\(number(duration.seconds)):offset=\(number(offset.seconds))"
         case .audio:
-            return "acrossfade=d=\(number(duration.seconds)):o=1:c1=qsin:c2=qsin"
+            return "acrossfade=d=\(number(duration.seconds)):o=1:c1=tri:c2=tri"
         }
+    }
+
+    private static func audioTransitionWindow(
+        start: Double,
+        duration: Double,
+        format: AudioTransitionFormat
+    ) -> String {
+        guard let sampleRate = format.sampleRate else {
+            return "atrim=start=\(number(start)):duration=\(number(duration))," +
+                "asetpts=PTS-STARTPTS\(format.filterSuffix)"
+        }
+        let startSample = sampleCount(seconds: start, sampleRate: sampleRate)
+        let durationSamples = max(sampleCount(seconds: duration, sampleRate: sampleRate), 1)
+        let endSample = startSample + durationSamples
+        return "aresample=\(sampleRate):async=1:first_pts=0" +
+            format.constraintsSuffix +
+            ",atrim=start_sample=\(startSample):end_sample=\(endSample)," +
+            "asetpts=PTS-STARTPTS,apad=whole_len=\(durationSamples)," +
+            "atrim=end_sample=\(durationSamples),asetpts=PTS-STARTPTS"
+    }
+
+    private static func exactAudioLengthFilter(duration: Double, sampleRate: Int?) -> String {
+        guard let sampleRate else { return "atrim=duration=\(number(duration))" }
+        let durationSamples = max(sampleCount(seconds: duration, sampleRate: sampleRate), 1)
+        return "apad=whole_len=\(durationSamples),atrim=end_sample=\(durationSamples)"
+    }
+
+    private static func sampleCount(seconds: Double, sampleRate: Int) -> Int64 {
+        Int64((max(seconds, 0) * Double(sampleRate)).rounded(.toNearestOrAwayFromZero))
     }
 
     static func frameRateExpression(_ frameRate: Double) -> String {
@@ -318,6 +359,18 @@ enum FFmpegTimelineEffectRenderer {
     private static func number(_ value: Double) -> String {
         String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), value)
             .replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
+    }
+}
+
+enum AudioCrossFadeCurve: Equatable {
+    case linear
+    case equalPower
+
+    var ffmpegName: String {
+        switch self {
+        case .linear: "tri"
+        case .equalPower: "qsin"
+        }
     }
 }
 
@@ -364,6 +417,17 @@ struct AudioTransitionFormat: Equatable {
             filters.append("aformat=\(constraints.joined(separator: ":"))")
         }
         return filters.isEmpty ? "" : "," + filters.joined(separator: ",")
+    }
+
+    var constraintsSuffix: String {
+        var constraints: [String] = []
+        if let sampleRate {
+            constraints.append("sample_rates=\(sampleRate)")
+        }
+        if let channelLayout {
+            constraints.append("channel_layouts=\(channelLayout)")
+        }
+        return constraints.isEmpty ? "" : ",aformat=\(constraints.joined(separator: ":"))"
     }
 
     private static func validSampleRate(_ value: String?) -> Int? {

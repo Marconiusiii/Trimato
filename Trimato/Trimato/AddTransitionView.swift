@@ -50,12 +50,10 @@ struct AddTransitionView: View {
         }
         .interactiveDismissDisabled(isSubmitting)
         .onDisappear { submissionTask?.cancel() }
-        .alert(item: $presentedError) { error in
-            Alert(
-                title: Text(error.title),
-                message: Text(error.message),
-                dismissButton: .default(Text("OK"))
-            )
+        .alert(presentedError?.title ?? "Transition error", isPresented: errorIsPresented) {
+            Button("OK") { presentedError = nil }
+        } message: {
+            Text(presentedError?.message ?? "Trimato could not apply the transition.")
         }
     }
 
@@ -91,6 +89,15 @@ struct AddTransitionView: View {
     }
 
     private var boundedProgress: Double { min(max(progress, 0), 1) }
+
+    private var errorIsPresented: Binding<Bool> {
+        Binding(
+            get: { presentedError != nil },
+            set: { presented in
+                if !presented { presentedError = nil }
+            }
+        )
+    }
 
     private var introTransitionName: String {
         track?.kind == .video ? introVideoType.title : introAudioType.title

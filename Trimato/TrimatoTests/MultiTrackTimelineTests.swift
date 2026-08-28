@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Testing
 @testable import Trimato
@@ -115,10 +116,21 @@ struct MultiTrackTimelineTests {
             trailingSettings: AudioClipSettings()
         )
 
-        #expect(crossFade.contains("[a0][a1]acrossfade=d=1:o=1:c1=qsin:c2=qsin"))
-        #expect(crossFade.contains("atrim=duration=1"))
-        #expect(crossFade.components(separatedBy: "aresample=44100").count == 3)
+        let equalPower = FFmpegTimelineEffectRenderer.audioCrossFadeGraph(
+            leadingStart: 1,
+            trailingStart: 2,
+            duration: 1,
+            leadingSettings: AudioClipSettings(),
+            trailingSettings: AudioClipSettings(),
+            format: AudioTransitionFormat(sampleRate: 44_100, channelLayout: "mono"),
+            curve: .equalPower
+        )
+
+        #expect(crossFade.contains("[a0][a1]acrossfade=d=1:o=1:c1=tri:c2=tri"))
+        #expect(equalPower.contains("[a0][a1]acrossfade=d=1:o=1:c1=qsin:c2=qsin"))
+        #expect(crossFade.components(separatedBy: "aresample=44100:async=1:first_pts=0").count == 3)
         #expect(crossFade.components(separatedBy: "channel_layouts=mono").count == 3)
+        #expect(crossFade.components(separatedBy: "atrim=end_sample=44100").count == 4)
         #expect(!crossFade.contains("sample_rates=48000"))
         #expect(!crossFade.contains("channel_layouts=stereo"))
         #expect(!crossFade.contains("asetpts=N/SR/TB"))
@@ -223,6 +235,60 @@ struct MultiTrackTimelineTests {
         #expect(middleLeft > -12)
         #expect(middleRight > -12)
         #expect(lateRight > lateLeft + 10)
+    }
+
+    @Test @MainActor func delayedAACCrossFadeKeepsTheExactRequestedSamples() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let leadingURL = directory.appendingPathComponent("leading.mov")
+        let trailingURL = directory.appendingPathComponent("trailing.mov")
+        try await makeDelayedAACFixture(
+            expression: "sin(2*PI*440*t)|0",
+            delay: 0,
+            outputURL: leadingURL
+        )
+        try await makeDelayedAACFixture(
+            expression: "0|sin(2*PI*660*t)",
+            delay: 0.3,
+            outputURL: trailingURL
+        )
+
+        let leadingClip = TimelineClip(
+            assetID: UUID(),
+            name: "Outgoing",
+            segments: [segment(2, 2)]
+        )
+        let trailingClip = TimelineClip(
+            assetID: UUID(),
+            name: "Incoming",
+            segments: [segment(2, 2)]
+        )
+        let renderedURL = try await FFmpegTimelineEffectRenderer.renderAudioTransition(
+            leadingURL: leadingURL,
+            trailingURL: trailingURL,
+            leadingClip: leadingClip,
+            trailingClip: trailingClip,
+            type: .crossFade,
+            duration: ProjectTime(seconds: 3)
+        )
+        defer { try? FileManager.default.removeItem(at: renderedURL) }
+
+        let renderedAsset = AVURLAsset(url: renderedURL)
+        let audioTrack = try #require(await renderedAsset.loadTracks(withMediaType: .audio).first)
+        let timeRange = try await audioTrack.load(.timeRange)
+        #expect(timeRange.start == .zero)
+        #expect(timeRange.duration == CMTime(value: 144_000, timescale: 48_000))
+
+        let middleLeft = try await meanVolume(
+            url: renderedURL, channel: 0, start: 1.4, duration: 0.2
+        )
+        let middleRight = try await meanVolume(
+            url: renderedURL, channel: 1, start: 1.4, duration: 0.2
+        )
+        #expect(abs(middleLeft - middleRight) < 1)
     }
 
     @Test @MainActor func renderedCrossDissolveUsesStableRateAndExactDuration() async throws {
@@ -531,6 +597,19 @@ private func makeStereoFixture(expression: String, outputURL: URL) async throws 
         "-hide_banner", "-nostdin", "-y",
         "-f", "lavfi", "-i", "aevalsrc=\(expression):s=48000:d=6",
         "-c:a", "pcm_s16le", outputURL.path,
+    ])
+}
+
+private func makeDelayedAACFixture(
+    expression: String,
+    delay: Double,
+    outputURL: URL
+) async throws {
+    _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+        "-hide_banner", "-nostdin", "-y",
+        "-itsoffset", String(delay),
+        "-f", "lavfi", "-i", "aevalsrc=\(expression):s=48000:d=6",
+        "-c:a", "aac", "-b:a", "192k", outputURL.path,
     ])
 }
 
