@@ -86,7 +86,7 @@ struct EditorWorkspaceView: View {
                     cancel: controller.cancelExport
                 )
             }
-            .sheet(item: $controller.transitionRequest) { request in
+            .sheet(item: $controller.transitionRequest, onDismiss: transitionSheetDidDismiss) { request in
                 transitionSheet(for: request)
             }
             .alert(item: $controller.presentedError) { error in
@@ -155,7 +155,7 @@ struct EditorWorkspaceView: View {
                 project: controller.project,
                 request: request,
                 add: addTransitions,
-                cancel: { controller.transitionRequest = nil }
+                cancel: dismissStandardTransition
             )
         } else {
             QuickTransitionView(
@@ -170,8 +170,9 @@ struct EditorWorkspaceView: View {
     }
 
     private func addTransitions(_ transitions: [TimelineTransition]) {
+        let returnsToEditor = controller.transitionRequestReturnsToEditor
         do {
-            try controller.addTransitions(transitions)
+            try controller.addTransitions(transitions, selectAddedTransition: !returnsToEditor)
             controller.transitionRequest = nil
         } catch {
             controller.presentedError = ProjectPresentedError(
@@ -181,13 +182,18 @@ struct EditorWorkspaceView: View {
         }
     }
 
-    private func dismissQuickTransition() {
+    private func dismissStandardTransition() {
         controller.transitionRequest = nil
-        restoreEditorFocusAfterSheetDismissal()
     }
 
-    private func restoreEditorFocusAfterSheetDismissal() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+    private func dismissQuickTransition() {
+        controller.transitionRequest = nil
+    }
+
+    private func transitionSheetDidDismiss() {
+        guard controller.transitionRequestReturnsToEditor else { return }
+        Task { @MainActor in
+            await Task.yield()
             controller.requestEditorFocusRestore()
         }
     }
@@ -233,6 +239,10 @@ private struct ProjectViewerView: View {
             }
             viewModel.onBladeAtPlayhead { [weak controller] in
                 controller?.splitClipAtPlayhead()
+            }
+            viewModel.onStandardTransition { [weak controller, weak viewModel] in
+                guard let controller, let viewModel else { return }
+                controller.requestTransition(at: viewModel.currentTime)
             }
             viewModel.onQuickCrossTransition { [weak controller, weak viewModel] in
                 guard let controller, let viewModel else { return }

@@ -226,6 +226,24 @@ struct ProjectPlaybackTests {
         #expect(controller.transitionRequest?.clipID == controller.project.tracks.first?.sortedClips.first?.id)
     }
 
+    @Test @MainActor func standardTransitionRequestUsesTheEditorPlayheadAtAnEditPoint() throws {
+        let first = fixtureAsset(name: "Interview", duration: 5)
+        let second = fixtureAsset(name: "Closing", duration: 5)
+        var project = TrimatoProject(name: "Editor transition")
+        project.media = [first, second]
+        let firstID = try project.append(asset: first)
+        _ = try project.append(asset: second)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.selection = .project
+
+        controller.requestTransition(at: ProjectTime(seconds: 5))
+
+        #expect(controller.selection == .project)
+        #expect(controller.transitionRequest?.mode == .standard)
+        #expect(controller.transitionRequest?.clipID == firstID)
+        #expect(controller.transitionRequestReturnsToEditor)
+    }
+
     @Test @MainActor func quickTransitionAdditionDoesNotSelectTheTimelineTransition() throws {
         let asset = fixtureAsset(name: "Interview", duration: 5)
         var project = TrimatoProject(name: "Quick fade")
@@ -353,7 +371,19 @@ struct ProjectPlaybackTests {
         defer { result.temporaryMediaURLs.forEach { try? FileManager.default.removeItem(at: $0) } }
 
         #expect(result.videoComposition != nil)
-        #expect(!result.temporaryMediaURLs.isEmpty)
+        #expect(result.temporaryMediaURLs.count >= 2)
+        let audioTracks = try await result.composition.loadTracks(withMediaType: .audio)
+        #expect(audioTracks.count >= 2)
+        var hasOverlappingTransitionTrack = false
+        for track in audioTracks {
+            for segment in try await track.load(.segments) where !segment.isEmpty {
+                let range = segment.timeMapping.target
+                if abs(range.start.seconds - 0.75) < 0.02 && abs(range.duration.seconds - 0.5) < 0.02 {
+                    hasOverlappingTransitionTrack = true
+                }
+            }
+        }
+        #expect(hasOverlappingTransitionTrack)
     }
 
     @Test @MainActor func emptyProjectSupersedesEarlierPreviewPreparation() async throws {

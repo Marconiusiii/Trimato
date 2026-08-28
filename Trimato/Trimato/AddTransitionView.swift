@@ -56,7 +56,7 @@ struct AddTransitionView: View {
                 if track?.kind == .video {
                     labeledVideoPicker(edge: edge, selection: videoTypeBinding(edge), values: videoTypes(for: edge))
                     if hasLinkedAudio && !isWipe(videoTypeBinding(edge).wrappedValue) {
-                        Toggle(videoTypeBinding(edge).wrappedValue == .fade ? "Fade Audio" : "Crossfade Audio", isOn: audioInclusionBinding(edge))
+                        Toggle(audioToggleLabel(for: videoTypeBinding(edge).wrappedValue), isOn: audioInclusionBinding(edge))
                     }
                 } else {
                     labeledAudioPicker(edge: edge, selection: audioTypeBinding(edge), values: audioTypes(for: edge))
@@ -190,7 +190,7 @@ struct AddTransitionView: View {
         guard let track, let clip, let clipIndex else { return [] }
         let videoType = videoTypeBinding(edge).wrappedValue
         let audioType = audioTypeBinding(edge).wrappedValue
-        let isBetween = track.kind == .video ? videoType != .fade : audioType == .crossFade
+        let isBetween = track.kind == .video ? videoType != .fade : audioType != .fade
         let neighboring = isBetween ? neighborIDs(edge: edge, clips: track.sortedClips, index: clipIndex) : nil
         let transition = TimelineTransition(
             trackID: track.id,
@@ -209,7 +209,7 @@ struct AddTransitionView: View {
             result.append(TimelineTransition(
                 trackID: audioTrack.id,
                 edge: isBetween ? .between : edge,
-                kind: .audio(isBetween ? .crossFade : .fade),
+                kind: .audio(linkedAudioType(for: videoType, isBetween: isBetween)),
                 duration: duration,
                 leadingClipID: audioNeighbor?.leading ?? (edge == .outro ? linkedID : nil),
                 trailingClipID: audioNeighbor?.trailing ?? (edge == .intro ? linkedID : nil)
@@ -226,6 +226,18 @@ struct AddTransitionView: View {
 
     private func isWipe(_ type: VideoTransitionType) -> Bool {
         type == .wipeLeft || type == .wipeRight || type == .wipeUp || type == .wipeDown
+    }
+
+    private func audioToggleLabel(for type: VideoTransitionType) -> String {
+        type == .crossDissolve ? "Crossfade Audio" : "Fade Audio"
+    }
+
+    private func linkedAudioType(
+        for videoType: VideoTransitionType,
+        isBetween: Bool
+    ) -> AudioTransitionType {
+        guard isBetween else { return .fade }
+        return videoType == .fadeOutIn ? .fadeOutIn : .crossFade
     }
 }
 

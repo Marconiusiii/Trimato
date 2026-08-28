@@ -2,6 +2,7 @@ import Foundation
 
 nonisolated enum VideoTransitionType: String, Codable, CaseIterable, Identifiable, Sendable {
     case fade
+    case fadeOutIn
     case crossDissolve
     case wipeLeft
     case wipeRight
@@ -13,6 +14,7 @@ nonisolated enum VideoTransitionType: String, Codable, CaseIterable, Identifiabl
     var title: String {
         switch self {
         case .fade: "Fade"
+        case .fadeOutIn: "Fade Out/Fade In"
         case .crossDissolve: "Cross Dissolve"
         case .wipeLeft: "Wipe Left"
         case .wipeRight: "Wipe Right"
@@ -24,10 +26,17 @@ nonisolated enum VideoTransitionType: String, Codable, CaseIterable, Identifiabl
 
 nonisolated enum AudioTransitionType: String, Codable, CaseIterable, Identifiable, Sendable {
     case fade
+    case fadeOutIn
     case crossFade
 
     var id: String { rawValue }
-    var title: String { self == .fade ? "Fade" : "Cross Fade" }
+    var title: String {
+        switch self {
+        case .fade: "Fade"
+        case .fadeOutIn: "Fade Out/Fade In"
+        case .crossFade: "Cross Fade"
+        }
+    }
 }
 
 nonisolated enum TimelineTransitionKind: Codable, Equatable, Hashable, Sendable {
@@ -60,6 +69,7 @@ nonisolated struct TimelineTransition: Codable, Equatable, Hashable, Identifiabl
             return type.title
         }
     }
+
 }
 
 nonisolated struct TransitionRequest: Identifiable, Equatable, Sendable {

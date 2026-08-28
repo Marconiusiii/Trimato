@@ -175,7 +175,7 @@ struct TrimatoApp: App {
                     .disabled(projectController?.project.primaryTimeline.isEmpty != false)
                 Button("Add Transition…") { projectController?.requestTransitionForSelection() }
                     .keyboardShortcut("t", modifiers: .command)
-                    .disabled(projectController?.selectedTimelineClip == nil)
+                    .disabled(projectController?.project.tracks.contains(where: { !$0.clips.isEmpty }) != true)
                 Divider()
                 Button("Previous Track") { projectController?.selectAdjacentTrack(-1) }
                     .keyboardShortcut(.upArrow, modifiers: [.command, .option])

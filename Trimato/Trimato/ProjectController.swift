@@ -27,6 +27,7 @@ final class ProjectController: ObservableObject {
     @Published var timelinePlayhead = ProjectTime.zero
     @Published var activeTimelineTrackID: UUID?
     @Published var transitionRequest: TransitionRequest?
+    @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
     @Published var isImporting = false
     @Published var isShowingProjectSettings = false
@@ -326,16 +327,22 @@ final class ProjectController: ObservableObject {
             return
         }
         activeTimelineTrackID = track.id
+        transitionRequestReturnsToEditor = false
         transitionRequest = TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode)
     }
 
-    func requestQuickTransition(at time: ProjectTime, mode: TransitionRequest.Mode) {
+    func requestTransition(at time: ProjectTime, mode: TransitionRequest.Mode = .standard) {
         guard let track = activeTimelineTrack,
               let clip = track.sortedClips.first(where: { time >= $0.timelineStart && time <= $0.timelineEnd }) else {
             announce("Move the playhead to a clip first")
             return
         }
+        transitionRequestReturnsToEditor = true
         transitionRequest = TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode)
+    }
+
+    func requestQuickTransition(at time: ProjectTime, mode: TransitionRequest.Mode) {
+        requestTransition(at: time, mode: mode)
     }
 
     func requestEditorFocusRestore() {

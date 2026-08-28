@@ -60,6 +60,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var keyEventMonitor: Any?
     private var keyboardCommandsAreActive: (() -> Bool)?
     private var bladeAtPlayhead: (() -> Void)?
+    private var standardTransition: (() -> Void)?
     private var quickCrossTransition: (() -> Void)?
     private var quickFade: (() -> Void)?
     private var currentPreviewFailure: ProjectPreviewFailure?
@@ -98,6 +99,10 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func onBladeAtPlayhead(_ handler: @escaping () -> Void) {
         bladeAtPlayhead = handler
+    }
+
+    func onStandardTransition(_ handler: @escaping () -> Void) {
+        standardTransition = handler
     }
 
     func onQuickCrossTransition(_ handler: @escaping () -> Void) {
@@ -525,6 +530,10 @@ final class ProjectPlayerViewModel: ObservableObject {
                     }
                     if event.charactersIgnoringModifiers?.lowercased() == "b" {
                         if !event.isARepeat { self.bladeAtPlayhead?() }
+                        return nil
+                    }
+                    if event.charactersIgnoringModifiers?.lowercased() == "t" {
+                        if !event.isARepeat { self.standardTransition?() }
                         return nil
                     }
                 }

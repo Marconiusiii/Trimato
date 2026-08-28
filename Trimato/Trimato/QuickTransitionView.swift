@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct QuickTransitionView: View {
-    @Environment(\.dismiss) private var dismiss
-
     let project: TrimatoProject
     let request: TransitionRequest
     let add: ([TimelineTransition]) throws -> Void
@@ -44,7 +42,7 @@ struct QuickTransitionView: View {
             }
 
             HStack {
-                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Cancel", role: .cancel, action: finished)
                 Button(applyTitle, action: apply)
                     .keyboardShortcut(.defaultAction)
                     .disabled(isSubmitting || (request.mode == .quickFade && !addIntro && !addOutro))
@@ -52,7 +50,6 @@ struct QuickTransitionView: View {
         }
         .padding(20)
         .frame(width: 430)
-        .onDisappear(perform: finished)
     }
 
     private var track: TimelineTrack? { project.track(id: request.trackID) }
@@ -145,7 +142,7 @@ struct QuickTransitionView: View {
         isSubmitting = true
         do {
             try add(transitions)
-            dismiss()
+            finished()
         } catch {
             isSubmitting = false
             showValidation("Transition could not be added. \(error.localizedDescription)")

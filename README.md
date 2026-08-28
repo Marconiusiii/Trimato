@@ -73,7 +73,7 @@ Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not 
 - Command-Shift-I: Import media into the current project.
 - Command-E: Export the current project when the project workspace is active.
 - Command-B: Split the selected timeline clip at the project playhead.
-- Command-T: Open Add Transition for the focused timeline clip.
+- Command-T: Open Add Transition for the clip at the Editor playhead or the focused Timeline clips item.
 - Control-Enter: Open Selected Element Actions for the focused Timeline clips item.
 - Option-Command-Up Arrow: Move to the previous timeline track.
 - Option-Command-Down Arrow: Move to the next timeline track.
@@ -109,20 +109,21 @@ Every primary clip and cutaway has a distinct displayed timeline name. Repeated 
 
 VoiceOver focus in Timeline clips identifies the current clip or transition for timeline commands and loads the same item into Inspector. Change the Track picker, or press Option-Command-Up Arrow and Option-Command-Down Arrow, to move between tracks without turning the complete project into one long list.
 
-Press Command-T on a focused clip to add an Intro transition, an Outro transition, or both. In the Editor, press F to open Quick Fade for the clip at the playhead. Press X at an edit between clips to open Quick Cross Dissolve on a video track or Quick Cross Fade on an audio track. Duration is entered in seconds and accepts fractional values such as `1.25`. Video transition sheets can also apply a linked audio fade or cross fade when audio is available.
+Press Command-T in the Editor to add a transition at the playhead, or press it on a focused Timeline clips item. In the Editor, press F to open Quick Fade for the clip at the playhead. Press X at an edit between clips to open Quick Cross Dissolve on a video track or Quick Cross Fade on an audio track. Duration is entered in seconds and accepts fractional values such as `1.25`. Video transition sheets can also apply a linked audio fade or cross fade when audio is available.
 
 - Fade In: Gradually changes the selected video from black to the clip.
 - Fade Out: Gradually changes the selected video from the clip to black.
 - Audio Fade In: Gradually raises the clip audio from silence.
 - Audio Fade Out: Gradually lowers the clip audio to silence.
-- Cross Dissolve: Blends the outgoing and incoming video across their shared edit.
+- Cross Dissolve: Fades the incoming picture over the outgoing picture across their shared edit. Crossfade Audio blends both clips' audio at the same time.
 - Cross Fade: Lowers the outgoing audio while raising the incoming audio across their shared edit.
+- Fade Out/Fade In: Fades the outgoing video through black into the incoming video, or fades outgoing audio through silence into incoming audio, without overlapping the two sources.
 - Wipe Left: Replaces the outgoing picture with the incoming picture using an edge that moves left.
 - Wipe Right: Replaces the outgoing picture with the incoming picture using an edge that moves right.
 - Wipe Up: Replaces the outgoing picture with the incoming picture using an edge that moves upward.
 - Wipe Down: Replaces the outgoing picture with the incoming picture using an edge that moves downward.
 
-Wipes affect video only. Fade Audio and Crossfade Audio add the corresponding audio transition when a video clip has audio. A transition appears as its own Timeline clips element and can be reopened, changed, or deleted without changing the source edit.
+Wipes affect video only. Crossfade Audio blends the outgoing and incoming audio during a Cross Dissolve. Fade Audio adds the matching fade behavior. A transition appears as its own Timeline clips element and can be reopened, changed, or deleted without changing the source edit.
 
 ## Export formats
 

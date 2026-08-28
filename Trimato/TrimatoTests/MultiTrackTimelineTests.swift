@@ -88,11 +88,79 @@ struct MultiTrackTimelineTests {
 
     @Test func transitionDurationAcceptsFractionalSecondsAndKeepsSpokenUnit() throws {
         #expect(TransitionDurationInput.defaultText == "1.0")
+        #expect(TransitionDurationInput.accessibilityLabel == "Duration in Seconds")
         #expect(TransitionDurationInput.parse("1.25") == ProjectTime(seconds: 1.25))
         #expect(TransitionDurationInput.parse("0") == nil)
         #expect(TransitionDurationInput.parse("seconds") == nil)
         #expect(TransitionDurationInput.string(for: ProjectTime(seconds: 1)) == "1.0")
         #expect(TransitionDurationInput.string(for: ProjectTime(seconds: 1.25)) == "1.25")
+        #expect(TransitionDurationInput.accessibilityValue(for: "2.0") == "2.0 seconds")
+        #expect(TransitionDurationInput.accessibilityValue(for: "") == "No value")
+    }
+
+    @Test func audioCrossFadeGraphBlendsWhileFadeOutInRemainsSequential() {
+        let crossFade = FFmpegTimelineEffectRenderer.audioCrossFadeGraph(
+            leadingStart: 1,
+            trailingStart: 2,
+            duration: 1,
+            leadingSettings: AudioClipSettings(),
+            trailingSettings: AudioClipSettings()
+        )
+        let fadeOutIn = FFmpegTimelineEffectRenderer.audioFadeOutInGraph(
+            leadingStart: 1,
+            trailingStart: 2,
+            duration: 1,
+            leadingSettings: AudioClipSettings(),
+            trailingSettings: AudioClipSettings()
+        )
+
+        #expect(crossFade.contains("[a0][a1]acrossfade=d=1:c1=tri:c2=tri[outa]"))
+        #expect(!crossFade.contains("concat="))
+        #expect(fadeOutIn.contains("afade=t=out"))
+        #expect(fadeOutIn.contains("afade=t=in"))
+        #expect(fadeOutIn.contains("concat=n=2:v=0:a=1[outa]"))
+        #expect(!fadeOutIn.contains("acrossfade="))
+    }
+
+    @Test func timelineElementsPlaceCrossTransitionsBetweenTheirClips() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 15)
+        var project = TrimatoProject(name: "Three clips")
+        project.media = [asset]
+        let firstID = try project.append(asset: asset, segments: [segment(0, 5)])
+        let secondID = try project.append(asset: asset, segments: [segment(5, 5)])
+        let thirdID = try project.append(asset: asset, segments: [segment(10, 5)])
+        let track = try #require(project.tracks.first { $0.kind == .video })
+        let firstTransition = TimelineTransition(
+            trackID: track.id,
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: firstID,
+            trailingClipID: secondID
+        )
+        let secondTransition = TimelineTransition(
+            trackID: track.id,
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: secondID,
+            trailingClipID: thirdID
+        )
+
+        let elements = TimelineElementSequence.elements(
+            track: track,
+            transitions: [secondTransition, firstTransition]
+        )
+
+        #expect(elements.map(\.id) == [
+            "clip-\(firstID.uuidString)",
+            "transition-\(firstTransition.id.uuidString)",
+            "clip-\(secondID.uuidString)",
+            "transition-\(secondTransition.id.uuidString)",
+            "clip-\(thirdID.uuidString)",
+        ])
+        #expect(TimelineElementSequence.contextDescription(for: firstTransition, in: project) ==
+            "Interview A to Interview B")
     }
 
     @Test func videoTransitionGraphNormalizesBothInputsForXfade() {

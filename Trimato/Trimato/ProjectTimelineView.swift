@@ -4,13 +4,15 @@ struct ProjectTimelineView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
 
-    @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
     @State private var renamedClipName = ""
     @State private var isRenamingClip = false
     @State private var isRenamingTrack = false
     @State private var trackName = ""
     @State private var isAddingTrack = false
     @State private var editingTransition: TimelineTransition?
+    @State private var transitionFocusReturn: TimelineElementSelection?
+    @State private var timelineFocusRequest: TimelineElementSelection?
+    @State private var timelineFocusRequestID = 0
     @State private var errorMessage: String?
 
     var body: some View {
@@ -56,11 +58,11 @@ struct ProjectTimelineView: View {
             .padding(8)
             .background(.bar)
         }
-        .onAppear { reconcileActiveTrack() }
-        .onChange(of: controller.project.tracks.map(\.id)) { _ in reconcileActiveTrack() }
-        .onChange(of: focusedElement) { element in
-            guard let element else { return }
-            controller.focusTimelineElement(element)
+        .onAppear {
+            reconcileActiveTrack()
+        }
+        .onChange(of: controller.project.tracks.map(\.id)) {
+            reconcileActiveTrack()
         }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
@@ -73,9 +75,10 @@ struct ProjectTimelineView: View {
                 cancel: { isAddingTrack = false }
             )
         }
-        .sheet(item: $editingTransition) { transition in
+        .sheet(item: $editingTransition, onDismiss: restoreTimelineElementFocus) { transition in
             TransitionEditorView(
                 transition: transition,
+                contextDescription: transitionContextDescription(transition),
                 update: { updated in
                     do {
                         try controller.updateTransition(updated)
@@ -83,6 +86,7 @@ struct ProjectTimelineView: View {
                     } catch { errorMessage = error.localizedDescription }
                 },
                 delete: {
+                    transitionFocusReturn = fallbackFocusAfterDeleting(transition)
                     controller.deleteTransition(id: transition.id)
                     editingTransition = nil
                 },
@@ -124,16 +128,18 @@ struct ProjectTimelineView: View {
     }
 
     private var timelineAccessibilityContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(timelineElements) { element in
-                switch element.content {
-                case .clip(let clip): clipButton(clip)
-                case .transition(let transition): transitionButton(transition)
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Timeline clips")
+        TimelineAccessibilityView(
+            elements: timelineElements,
+            selection: controller.selection,
+            focusRequest: timelineFocusRequest,
+            focusRequestID: timelineFocusRequestID,
+            focus: controller.focusTimelineElement,
+            activate: activateTimelineElement,
+            renameClip: beginRenamingClip,
+            deleteClip: deleteTimelineClip,
+            editTransition: editTransition,
+            deleteTransition: controller.deleteTransition
+        )
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -145,27 +151,10 @@ struct ProjectTimelineView: View {
 
     private var timelineElements: [TimelineListElement] {
         guard let track = controller.activeTimelineTrack else { return [] }
-        var result = track.sortedClips.map {
-            TimelineListElement(content: .clip($0), time: $0.timelineStart, order: 1)
-        }
-        for transition in controller.project.transitions where transition.trackID == track.id {
-            let position: ProjectTime
-            if let trailingID = transition.trailingClipID,
-               let trailing = track.clips.first(where: { $0.id == trailingID }) {
-                position = trailing.timelineStart
-            } else if let leadingID = transition.leadingClipID,
-                      let leading = track.clips.first(where: { $0.id == leadingID }) {
-                position = transition.edge == .outro ? leading.timelineEnd : leading.timelineStart
-            } else {
-                position = .zero
-            }
-            let order = transition.edge == .intro ? 0 : 2
-            result.append(TimelineListElement(content: .transition(transition), time: position, order: order))
-        }
-        return result.sorted {
-            if $0.time == $1.time { return $0.order < $1.order }
-            return $0.time < $1.time
-        }
+        return TimelineElementSequence.elements(
+            track: track,
+            transitions: controller.project.transitions.filter { $0.trackID == track.id }
+        )
     }
 
     private var activeTrackBinding: Binding<UUID?> {
@@ -194,14 +183,13 @@ struct ProjectTimelineView: View {
         .background(selectionBackground(.timelineClip(clip.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.separator))
         .accessibilityLabel(clip.displayName)
-        .accessibilityFocused($focusedElement, equals: .clip(clip.id))
         .contextMenu { clipActions(clip) }
     }
 
     private func transitionButton(_ transition: TimelineTransition) -> some View {
         Button {
             controller.selection = .transition(transition.id)
-            editingTransition = transition
+            beginEditingTransition(transition)
         } label: {
             Text(transition.displayName)
                 .lineLimit(2)
@@ -213,9 +201,8 @@ struct ProjectTimelineView: View {
         .background(selectionBackground(.transition(transition.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.accent.opacity(0.75)))
         .accessibilityLabel(transition.displayName)
-        .accessibilityFocused($focusedElement, equals: .transition(transition.id))
         .contextMenu {
-            Button("Edit Transition…") { editingTransition = transition }
+            Button("Edit Transition…") { beginEditingTransition(transition) }
             Button("Delete Transition", role: .destructive) {
                 controller.deleteTransition(id: transition.id)
             }
@@ -235,11 +222,67 @@ struct ProjectTimelineView: View {
         if let clip = controller.selectedTimelineClip {
             clipActions(clip)
         } else if let transition = controller.selectedTransition {
-            Button("Edit Transition…") { editingTransition = transition }
+            Button("Edit Transition…") { beginEditingTransition(transition) }
             Button("Delete Transition", role: .destructive) {
                 controller.deleteTransition(id: transition.id)
             }
         }
+    }
+
+    private func beginEditingTransition(_ transition: TimelineTransition) {
+        transitionFocusReturn = .transition(transition.id)
+        editingTransition = transition
+    }
+
+    private func transitionContextDescription(_ transition: TimelineTransition) -> String? {
+        TimelineElementSequence.contextDescription(for: transition, in: controller.project)
+    }
+
+    private func fallbackFocusAfterDeleting(_ transition: TimelineTransition) -> TimelineElementSelection? {
+        if let trailingID = transition.trailingClipID,
+           controller.project.timelineClip(id: trailingID) != nil {
+            return .clip(trailingID)
+        }
+        if let leadingID = transition.leadingClipID,
+           controller.project.timelineClip(id: leadingID) != nil {
+            return .clip(leadingID)
+        }
+        return nil
+    }
+
+    private func restoreTimelineElementFocus() {
+        guard let target = transitionFocusReturn else { return }
+        transitionFocusReturn = nil
+        timelineFocusRequest = target
+        timelineFocusRequestID += 1
+    }
+
+    private func activateTimelineElement(_ selection: TimelineElementSelection) {
+        switch selection {
+        case .clip(let id):
+            controller.selection = .timelineClip(id)
+            openClipEditor(.timelineClip(id))
+        case .transition(let id):
+            editTransition(id)
+        }
+    }
+
+    private func editTransition(_ id: UUID) {
+        guard let transition = controller.project.transition(id: id) else { return }
+        controller.selection = .transition(id)
+        beginEditingTransition(transition)
+    }
+
+    private func beginRenamingClip(_ id: UUID) {
+        guard let clip = controller.project.timelineClip(id: id) else { return }
+        controller.selection = .timelineClip(id)
+        renamedClipName = clip.displayName
+        isRenamingClip = true
+    }
+
+    private func deleteTimelineClip(_ id: UUID) {
+        controller.selection = .timelineClip(id)
+        controller.deleteSelection()
     }
 
     @ViewBuilder
@@ -363,21 +406,66 @@ private struct AddTrackView: View {
     }
 }
 
-private struct TimelineListElement: Identifiable {
+struct TimelineListElement: Identifiable, Equatable {
     enum Content {
         case clip(TimelineClip)
         case transition(TimelineTransition)
     }
 
     let content: Content
-    let time: ProjectTime
-    let order: Int
 
     var id: String {
         switch content {
         case .clip(let clip): "clip-\(clip.id.uuidString)"
         case .transition(let transition): "transition-\(transition.id.uuidString)"
         }
+    }
+}
+
+extension TimelineListElement.Content: Equatable {}
+
+enum TimelineElementSequence {
+    static func contextDescription(
+        for transition: TimelineTransition,
+        in project: TrimatoProject
+    ) -> String? {
+        guard transition.edge == .between,
+              let leadingID = transition.leadingClipID,
+              let trailingID = transition.trailingClipID,
+              let leading = project.timelineClip(id: leadingID),
+              let trailing = project.timelineClip(id: trailingID) else { return nil }
+        return "\(leading.displayName) to \(trailing.displayName)"
+    }
+
+    static func elements(
+        track: TimelineTrack,
+        transitions: [TimelineTransition]
+    ) -> [TimelineListElement] {
+        let orderedTransitions = transitions.sorted { $0.id.uuidString < $1.id.uuidString }
+        var includedTransitionIDs: Set<UUID> = []
+        var result: [TimelineListElement] = []
+
+        for clip in track.sortedClips {
+            for transition in orderedTransitions where
+                transition.trailingClipID == clip.id &&
+                (transition.edge == .intro || transition.edge == .between) {
+                result.append(TimelineListElement(content: .transition(transition)))
+                includedTransitionIDs.insert(transition.id)
+            }
+
+            result.append(TimelineListElement(content: .clip(clip)))
+
+            for transition in orderedTransitions where
+                transition.leadingClipID == clip.id && transition.edge == .outro {
+                result.append(TimelineListElement(content: .transition(transition)))
+                includedTransitionIDs.insert(transition.id)
+            }
+        }
+
+        for transition in orderedTransitions where !includedTransitionIDs.contains(transition.id) {
+            result.append(TimelineListElement(content: .transition(transition)))
+        }
+        return result
     }
 }
 

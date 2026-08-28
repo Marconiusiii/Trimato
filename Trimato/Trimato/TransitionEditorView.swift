@@ -4,19 +4,23 @@ struct TransitionEditorView: View {
     @State private var draft: TimelineTransition
     @State private var durationText: String
     @State private var validationMessage: String?
+    @State private var pickerFocusTask: Task<Void, Never>?
     @AccessibilityFocusState private var typePickerFocused: Bool
+    let contextDescription: String?
     let update: (TimelineTransition) -> Void
     let delete: () -> Void
     let cancel: () -> Void
 
     init(
         transition: TimelineTransition,
+        contextDescription: String? = nil,
         update: @escaping (TimelineTransition) -> Void,
         delete: @escaping () -> Void,
         cancel: @escaping () -> Void
     ) {
         _draft = State(initialValue: transition)
         _durationText = State(initialValue: TransitionDurationInput.string(for: transition.duration))
+        self.contextDescription = contextDescription
         self.update = update
         self.delete = delete
         self.cancel = cancel
@@ -27,6 +31,10 @@ struct TransitionEditorView: View {
             Text("Transition Editor")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
+
+            if let contextDescription {
+                Text(contextDescription)
+            }
 
             transitionPicker
 
@@ -47,6 +55,9 @@ struct TransitionEditorView: View {
         }
         .padding(20)
         .frame(width: 430)
+        .onDisappear {
+            pickerFocusTask?.cancel()
+        }
     }
 
     @ViewBuilder
@@ -96,11 +107,14 @@ struct TransitionEditorView: View {
     }
 
     private func restoreTypePickerFocus() {
+        pickerFocusTask?.cancel()
         typePickerFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        pickerFocusTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard !Task.isCancelled else { return }
             typePickerFocused = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
             typePickerFocused = true
         }
     }
@@ -110,7 +124,7 @@ struct TransitionEditorView: View {
     }
 
     private var audioTypes: [AudioTransitionType] {
-        draft.edge == .between ? [.crossFade] : [.fade]
+        draft.edge == .between ? [.crossFade, .fadeOutIn] : [.fade]
     }
 
     private func applyUpdate() {

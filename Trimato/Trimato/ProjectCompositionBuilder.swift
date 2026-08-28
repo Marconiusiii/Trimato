@@ -84,6 +84,7 @@ enum ProjectCompositionBuilder {
         var cutawayAudio: AVMutableCompositionTrack?
         var additionalVideoTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)])] = []
         var additionalAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
+        var transitionAudioTracks: [(track: AVMutableCompositionTrack, range: ProjectTimeRange)] = []
 
         let renderSize: CGSize? = {
             guard let width = project.format.width, let height = project.format.height,
@@ -317,6 +318,50 @@ enum ProjectCompositionBuilder {
             }
         }
 
+        for transition in project.transitions {
+            guard transition.edge == .between,
+                  case .audio(let type) = transition.kind,
+                  type != .fade,
+                  let track = project.track(id: transition.trackID),
+                  let leadingID = transition.leadingClipID,
+                  let trailingID = transition.trailingClipID,
+                  let leading = track.clips.first(where: { $0.id == leadingID }),
+                  let trailing = track.clips.first(where: { $0.id == trailingID }),
+                  let leadingURL = mediaURLs[leading.assetID],
+                  let trailingURL = mediaURLs[trailing.assetID] else { continue }
+            let renderedURL: URL
+            do {
+                renderedURL = try await FFmpegTimelineEffectRenderer.renderAudioTransition(
+                    leadingURL: leadingURL,
+                    trailingURL: trailingURL,
+                    leadingClip: leading,
+                    trailingClip: trailing,
+                    type: type,
+                    duration: transition.duration
+                )
+            } catch {
+                throw ProjectTransitionRenderError(
+                    transitionID: transition.id,
+                    transitionName: transition.displayName,
+                    diagnostics: ProjectTransitionRenderError.diagnosticSummary(for: error)
+                )
+            }
+            temporaryMediaURLs.append(renderedURL)
+            let renderedAsset = AVURLAsset(url: renderedURL)
+            guard let source = try await renderedAsset.loadTracks(withMediaType: .audio).first,
+                  let transitionTrack = composition.addMutableTrack(
+                    withMediaType: .audio,
+                    preferredTrackID: kCMPersistentTrackID_Invalid
+                  ) else { throw ProjectCompositionError.cannotCreateTrack }
+            let sourceRange = try await source.load(.timeRange)
+            let start = max(trailing.timelineStart - ProjectTime(seconds: transition.duration.seconds / 2), .zero)
+            try transitionTrack.insertTimeRange(sourceRange, of: source, at: start.cmTime)
+            transitionAudioTracks.append((
+                transitionTrack,
+                ProjectTimeRange(start: start, duration: transition.duration)
+            ))
+        }
+
         if let renderSize, let width = project.format.width, let height = project.format.height {
             for transition in project.transitions {
                 guard transition.edge == .between,
@@ -394,7 +439,7 @@ enum ProjectCompositionBuilder {
 
         let sourceAudioCutaways = project.cutaways.filter { $0.audioMode == .sourceAudio }
         let audioMix: AVMutableAudioMix?
-        if primaryAudio == nil && cutawayAudio == nil && additionalAudioTracks.isEmpty {
+        if primaryAudio == nil && cutawayAudio == nil && additionalAudioTracks.isEmpty && transitionAudioTracks.isEmpty {
             audioMix = nil
         } else {
             var parameters: [AVMutableAudioMixInputParameters] = []
@@ -414,6 +459,11 @@ enum ProjectCompositionBuilder {
                             parameters: primaryParameters
                         )
                     }
+                    muteBaseAudioDuringBetweenTransitions(
+                        project.transitions.filter { $0.trackID == primaryTrack.id },
+                        on: primaryTrack,
+                        parameters: primaryParameters
+                    )
                 }
                 parameters.append(primaryParameters)
             }
@@ -440,6 +490,16 @@ enum ProjectCompositionBuilder {
                         parameters: input
                     )
                 }
+                muteBaseAudioDuringBetweenTransitions(
+                    project.transitions.filter { $0.trackID == item.source.id },
+                    on: item.source,
+                    parameters: input
+                )
+                parameters.append(input)
+            }
+            for item in transitionAudioTracks {
+                let input = AVMutableAudioMixInputParameters(track: item.track)
+                input.setVolume(1, at: item.range.start.cmTime)
                 parameters.append(input)
             }
             let mix = AVMutableAudioMix()
@@ -637,10 +697,6 @@ enum ProjectCompositionBuilder {
                 range = ProjectTimeRange(start: clip.timelineStart, duration: transition.duration)
             } else if transition.edge == .outro, transition.leadingClipID == clip.id {
                 range = ProjectTimeRange(start: clip.timelineEnd - transition.duration, duration: transition.duration)
-            } else if transition.edge == .between, transition.leadingClipID == clip.id {
-                range = ProjectTimeRange(start: clip.timelineEnd - transition.duration, duration: transition.duration)
-            } else if transition.edge == .between, transition.trailingClipID == clip.id {
-                range = ProjectTimeRange(start: clip.timelineStart, duration: transition.duration)
             } else {
                 range = nil
             }
@@ -651,6 +707,24 @@ enum ProjectCompositionBuilder {
                 toEndVolume: fadesIn ? volume : 0,
                 timeRange: range.cmTimeRange
             )
+        }
+    }
+
+    private static func muteBaseAudioDuringBetweenTransitions(
+        _ transitions: [TimelineTransition],
+        on track: TimelineTrack,
+        parameters: AVMutableAudioMixInputParameters
+    ) {
+        for transition in transitions where transition.edge == .between {
+            guard case .audio(let type) = transition.kind, type != .fade,
+                  let trailingID = transition.trailingClipID,
+                  let trailing = track.clips.first(where: { $0.id == trailingID }) else { continue }
+            let start = max(
+                trailing.timelineStart - ProjectTime(seconds: transition.duration.seconds / 2),
+                .zero
+            )
+            parameters.setVolume(0, at: start.cmTime)
+            parameters.setVolume(1, at: (start + transition.duration).cmTime)
         }
     }
 }
