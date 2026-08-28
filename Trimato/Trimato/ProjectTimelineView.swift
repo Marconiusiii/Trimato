@@ -180,7 +180,10 @@ struct ProjectTimelineView: View {
         guard let track = controller.activeTimelineTrack else { return [] }
         return TimelineElementSequence.elements(
             track: track,
-            transitions: controller.project.transitions.filter { $0.trackID == track.id }
+            transitions: TimelineElementSequence.transitions(
+                for: track,
+                in: controller.project
+            )
         )
     }
 
@@ -190,7 +193,10 @@ struct ProjectTimelineView: View {
 
     private var activeTrackBinding: Binding<UUID?> {
         Binding(
-            get: { controller.activeTimelineTrackID ?? controller.project.tracks.first?.id },
+            get: {
+                controller.activeTimelineTrackID ??
+                    ProjectController.preferredTimelineTrackID(in: controller.project)
+            },
             set: { controller.activeTimelineTrackID = $0 }
         )
     }
@@ -264,14 +270,21 @@ struct ProjectTimelineView: View {
     }
 
     private var hasSelectedElement: Bool {
-        controller.selectedTimelineClip != nil || controller.selectedTransition != nil
+        controller.selectedTimelineClip != nil || selectedTimelineTransition != nil
+    }
+
+    private var selectedTimelineTransition: TimelineTransition? {
+        guard let selected = controller.selectedTransition,
+              let track = controller.activeTimelineTrack else { return nil }
+        return TimelineElementSequence.transitions(for: track, in: controller.project)
+            .first { $0.id == selected.id }
     }
 
     @ViewBuilder
     private var selectedElementActions: some View {
         if let clip = controller.selectedTimelineClip {
             clipActions(clip)
-        } else if let transition = controller.selectedTransition {
+        } else if let transition = selectedTimelineTransition {
             Button("Edit Transition…") { beginEditingTransition(transition) }
             Button("Delete Transition", role: .destructive) {
                 controller.deleteTransition(id: transition.id)
@@ -400,7 +413,7 @@ struct ProjectTimelineView: View {
     private func reconcileActiveTrack() {
         if let id = controller.activeTimelineTrackID,
            controller.project.tracks.contains(where: { $0.id == id }) { return }
-        controller.activeTimelineTrackID = controller.project.tracks.first?.id
+        controller.activeTimelineTrackID = ProjectController.preferredTimelineTrackID(in: controller.project)
     }
 
     private func beginRenameTrack() {
@@ -547,6 +560,25 @@ struct TimelineListElement: Identifiable, Equatable {
 extension TimelineListElement.Content: Equatable {}
 
 enum TimelineElementSequence {
+    static func transitions(
+        for track: TimelineTrack,
+        in project: TrimatoProject
+    ) -> [TimelineTransition] {
+        let clipIDs = Set(track.clips.map(\.id))
+        return project.transitions.compactMap { transition in
+            let referencedIDs = [transition.leadingClipID, transition.trailingClipID].compactMap { $0 }
+            if !referencedIDs.isEmpty, referencedIDs.allSatisfy(clipIDs.contains) {
+                var resolved = transition
+                resolved.trackID = track.id
+                return resolved
+            }
+            if referencedIDs.contains(where: { project.timelineClip(id: $0) != nil }) {
+                return nil
+            }
+            return transition.trackID == track.id ? transition : nil
+        }
+    }
+
     static func contextDescription(
         for transition: TimelineTransition,
         in project: TrimatoProject

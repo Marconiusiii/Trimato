@@ -39,6 +39,20 @@ struct ProjectDocumentTests {
         #expect(decoded.name == "Legacy Project")
     }
 
+    @Test func reopenedAutomaticProjectsNormalizeUnstableSavedFrameRates() throws {
+        var project = TrimatoProject(name: "Variable frame rate project")
+        project.format = ProjectFormat(
+            mode: .automatic,
+            width: 1_536,
+            height: 2_048,
+            frameRate: 30.004427
+        )
+        let manifest = try ProjectDocument.manifestData(for: project)
+        let decoded = try JSONDecoder().decode(TrimatoProject.self, from: manifest)
+
+        #expect(decoded.format.frameRate == 30)
+    }
+
     @Test func trimatoTypeUsesTheProjectExtensionAndPackageSemantics() {
         #expect(UTType.trimatoProject.preferredFilenameExtension == "trimato")
         #expect(UTType.trimatoProject.conforms(to: .package))

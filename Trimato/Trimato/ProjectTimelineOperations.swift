@@ -469,7 +469,7 @@ extension TrimatoProject {
               let height = asset.naturalHeight else { return }
         format.width = width
         format.height = height
-        format.frameRate = asset.frameRate ?? 30
+        format.frameRate = ProjectFormat.stableFrameRate(asset.frameRate ?? 30)
     }
 
     mutating func append(asset: MediaAssetRecord, segments: [SourceSegment]? = nil) throws -> UUID {
@@ -833,7 +833,7 @@ extension TrimatoProject {
               let width = asset.naturalWidth, let height = asset.naturalHeight else { return }
         format.width = width
         format.height = height
-        format.frameRate = asset.frameRate ?? 30
+        format.frameRate = ProjectFormat.stableFrameRate(asset.frameRate ?? 30)
     }
 
     private func makeTimelineClip(asset: MediaAssetRecord, segments: [SourceSegment]?) throws -> TimelineClip {

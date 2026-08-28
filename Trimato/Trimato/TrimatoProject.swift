@@ -25,6 +25,28 @@ nonisolated struct ProjectFormat: Codable, Equatable, Sendable {
         guard let width, let height, let frameRate else { return false }
         return width > 0 && height > 0 && frameRate > 0
     }
+
+    static let standardFrameRates: [Double] = [
+        24_000.0 / 1_001.0,
+        24,
+        25,
+        30_000.0 / 1_001.0,
+        30,
+        50,
+        60_000.0 / 1_001.0,
+        60,
+        120,
+    ]
+
+    static func stableFrameRate(_ frameRate: Double) -> Double {
+        guard frameRate.isFinite, frameRate > 0 else { return 30 }
+        if let standard = standardFrameRates.min(by: {
+            abs($0 - frameRate) < abs($1 - frameRate)
+        }), abs(standard - frameRate) <= 0.05 {
+            return standard
+        }
+        return (frameRate * 1_000).rounded() / 1_000
+    }
 }
 
 nonisolated struct SourceSegment: Codable, Hashable, Identifiable, Sendable {
@@ -238,6 +260,9 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Untitled Project"
         format = try container.decodeIfPresent(ProjectFormat.self, forKey: .format) ?? ProjectFormat()
+        if format.mode == .automatic, let frameRate = format.frameRate {
+            format.frameRate = ProjectFormat.stableFrameRate(frameRate)
+        }
         targetDuration = try container.decodeIfPresent(ProjectTime.self, forKey: .targetDuration)
         folders = try container.decodeIfPresent([ProjectFolder].self, forKey: .folders) ?? []
         media = try container.decodeIfPresent([MediaAssetRecord].self, forKey: .media) ?? []

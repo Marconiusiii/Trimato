@@ -14,6 +14,7 @@ struct QuickTransitionView: View {
     @State private var durationText = TransitionDurationInput.defaultText
     @State private var validationMessage: String?
     @State private var isSubmitting = false
+    @State private var submissionTask: Task<Void, Never>?
     @AccessibilityFocusState private var validationMessageFocused: Bool
     @AccessibilityFocusState private var progressFocused: Bool
 
@@ -30,6 +31,10 @@ struct QuickTransitionView: View {
                         .onChange(of: TransitionProgressAccessibility.milestone(progress)) { _, milestone in
                             TransitionProgressAccessibility.announce(milestone, transitionName: transitionName)
                         }
+                    Button("Cancel", role: .cancel) {
+                        submissionTask?.cancel()
+                    }
+                    .keyboardShortcut(.cancelAction)
                 }
                 .padding(32)
                 .frame(width: 430)
@@ -39,6 +44,7 @@ struct QuickTransitionView: View {
             }
         }
         .interactiveDismissDisabled(isSubmitting)
+        .onDisappear { submissionTask?.cancel() }
     }
 
     private var form: some View {
@@ -174,13 +180,20 @@ struct QuickTransitionView: View {
 
     private func submit(_ transitions: [TimelineTransition]) {
         isSubmitting = true
-        Task { @MainActor in
+        submissionTask = Task { @MainActor in
             await Task.yield()
             progressFocused = true
             do {
                 try await add(transitions)
+                submissionTask = nil
+                finished()
+            } catch is CancellationError {
+                submissionTask = nil
+                progressFocused = false
+                isSubmitting = false
                 finished()
             } catch {
+                submissionTask = nil
                 progressFocused = false
                 isSubmitting = false
                 showValidation("Transition could not be added. \(error.localizedDescription)")

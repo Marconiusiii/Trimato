@@ -55,7 +55,7 @@ final class ProjectController: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         updateCacheProtection(for: document.project)
-        activeTimelineTrackID = document.project.tracks.first?.id
+        activeTimelineTrackID = Self.preferredTimelineTrackID(in: document.project)
     }
 
     deinit {
@@ -269,6 +269,19 @@ final class ProjectController: ObservableObject {
         return project.track(id: activeTimelineTrackID)
     }
 
+    static func preferredTimelineTrackID(in project: TrimatoProject) -> UUID? {
+        if let primaryVideo = project.tracks.first(where: { $0.role == .primaryVideo }) {
+            return primaryVideo.id
+        }
+        if let primaryAudio = project.tracks.first(where: { $0.role == .primaryAudio }) {
+            return primaryAudio.id
+        }
+        if let transitionTrack = project.transitions.compactMap({ project.track(id: $0.trackID) }).first {
+            return transitionTrack.id
+        }
+        return project.tracks.first?.id
+    }
+
     func focusTimelineElement(_ element: TimelineElementSelection) {
         switch element {
         case .clip(let id): selection = .timelineClip(id)
@@ -309,7 +322,7 @@ final class ProjectController: ObservableObject {
         guard let activeTimelineTrackID else { return }
         do {
             try mutateProjectThrowing(actionName: "Delete Track") { try $0.removeTrack(id: activeTimelineTrackID) }
-            self.activeTimelineTrackID = project.tracks.first?.id
+            self.activeTimelineTrackID = Self.preferredTimelineTrackID(in: project)
             selection = .project
         } catch { announce(error.localizedDescription) }
     }

@@ -132,6 +132,7 @@ enum ProjectCompositionBuilder {
                   width > 0, height > 0 else { return nil }
             return CGSize(width: width, height: height)
         }()
+        let projectFrameRate = ProjectFormat.stableFrameRate(project.format.frameRate ?? 30)
         let progressReporter = progress.map {
             ProjectCompositionProgressReporter(
                 jobCount: renderJobCount(project: project, hasRenderSize: renderSize != nil),
@@ -407,7 +408,11 @@ enum ProjectCompositionBuilder {
                     withMediaType: .audio,
                     preferredTrackID: kCMPersistentTrackID_Invalid
                   ) else { throw ProjectCompositionError.cannotCreateTrack }
-            let sourceRange = try await source.load(.timeRange)
+            let sourceRange = try await transitionSourceRange(
+                for: source,
+                requestedDuration: transition.duration,
+                mediaDescription: "audio"
+            )
             let start = max(trailing.timelineStart - ProjectTime(seconds: transition.duration.seconds / 2), .zero)
             try transitionTrack.insertTimeRange(sourceRange, of: source, at: start.cmTime)
             transitionAudioTracks.append((
@@ -439,7 +444,7 @@ enum ProjectCompositionBuilder {
                         duration: transition.duration,
                         width: width,
                         height: height,
-                        frameRate: max(project.format.frameRate ?? 30, 1),
+                        frameRate: projectFrameRate,
                         progress: progressReporter?.beginJob()
                     )
                     progressReporter?.completeJob()
@@ -457,7 +462,19 @@ enum ProjectCompositionBuilder {
                         withMediaType: .video,
                         preferredTrackID: kCMPersistentTrackID_Invalid
                       ) else { throw ProjectCompositionError.cannotCreateTrack }
-                let sourceRange = try await source.load(.timeRange)
+                let renderedFrameRate = Double(try await source.load(.nominalFrameRate))
+                guard abs(renderedFrameRate - projectFrameRate) <= 0.001 else {
+                    throw ProjectTransitionRenderError(
+                        transitionID: transition.id,
+                        transitionName: transition.displayName,
+                        diagnostics: "The rendered frame rate did not match the project frame rate."
+                    )
+                }
+                let sourceRange = try await transitionSourceRange(
+                    for: source,
+                    requestedDuration: transition.duration,
+                    mediaDescription: "video"
+                )
                 let start = max(trailing.timelineStart - ProjectTime(seconds: transition.duration.seconds / 2), .zero)
                 try transitionTrack.insertTimeRange(sourceRange, of: source, at: start.cmTime)
                 additionalVideoTracks.append((transitionTrack, [(
@@ -474,7 +491,7 @@ enum ProjectCompositionBuilder {
             let composition = AVMutableVideoComposition()
             composition.renderSize = renderSize
             composition.frameDuration = CMTime(
-                seconds: 1 / max(project.format.frameRate ?? 30, 1),
+                seconds: 1 / projectFrameRate,
                 preferredTimescale: ProjectTime.defaultTimescale
             )
             composition.instructions = makeVideoInstructions(
@@ -572,6 +589,23 @@ enum ProjectCompositionBuilder {
         progressReporter?.finishComposition()
         shouldPreserveTemporaryMedia = true
         return result
+    }
+
+    private static func transitionSourceRange(
+        for track: AVAssetTrack,
+        requestedDuration: ProjectTime,
+        mediaDescription: String
+    ) async throws -> CMTimeRange {
+        let available = try await track.load(.timeRange)
+        let requested = requestedDuration.cmTime
+        guard available.isValid,
+              !available.isEmpty,
+              CMTimeCompare(available.duration, requested) >= 0 else {
+            throw ProjectTimelineError.transitionNotAvailable(
+                "The rendered \(mediaDescription) transition was shorter than the requested duration."
+            )
+        }
+        return CMTimeRange(start: available.start, duration: requested)
     }
 
     private static func renderJobCount(project: TrimatoProject, hasRenderSize: Bool) -> Int {

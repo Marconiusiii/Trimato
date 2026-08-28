@@ -417,7 +417,7 @@ private struct ProjectViewerView: View {
     }
 
     private var moveAndEditGroup: some View {
-        GroupBox("Move and Edit") {
+        GroupBox {
             HStack(spacing: 20) {
                 Button { viewModel.goToStart() } label: { Image(systemName: "backward.end.fill") }
                     .buttonStyle(.plain)
@@ -444,14 +444,18 @@ private struct ProjectViewerView: View {
             .font(.title2)
             .foregroundStyle(EditorTheme.accent)
             .padding(.top, 4)
+        } label: {
+            Text("Move and Edit").accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .disabled(!viewModel.canControlPlayback)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Move and Edit")
         .accessibilityIdentifier("trimato.editor.move-and-edit")
     }
 
     private var markersGroup: some View {
-        GroupBox("Markers") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Button("Mark In") { viewModel.markIn() }
@@ -472,14 +476,18 @@ private struct ProjectViewerView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 4)
+        } label: {
+            Text("Markers").accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .disabled(!viewModel.canControlPlayback)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Markers")
         .accessibilityIdentifier("trimato.editor.markers")
     }
 
     private var playbackGroup: some View {
-        GroupBox("Playback") {
+        GroupBox {
             VStack(spacing: 8) {
                 Button { viewModel.toggleTimecodeDisplay() } label: {
                     VStack(spacing: 2) {
@@ -551,9 +559,13 @@ private struct ProjectViewerView: View {
                 .foregroundStyle(EditorTheme.accent)
             }
             .padding(.top, 4)
+        } label: {
+            Text("Playback").accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .disabled(!viewModel.canControlPlayback)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Playback")
         .accessibilityIdentifier("trimato.editor.playback")
     }
 }

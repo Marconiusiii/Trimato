@@ -115,7 +115,8 @@ struct MultiTrackTimelineTests {
             trailingSettings: AudioClipSettings()
         )
 
-        #expect(crossFade.contains("[a0][a1]acrossfade=d=1:o=1:c1=qsin:c2=qsin[outa]"))
+        #expect(crossFade.contains("[a0][a1]acrossfade=d=1:o=1:c1=qsin:c2=qsin"))
+        #expect(crossFade.contains("atrim=duration=1"))
         #expect(crossFade.components(separatedBy: "aresample=44100").count == 3)
         #expect(crossFade.components(separatedBy: "channel_layouts=mono").count == 3)
         #expect(!crossFade.contains("sample_rates=48000"))
@@ -124,7 +125,7 @@ struct MultiTrackTimelineTests {
         #expect(!crossFade.contains("concat="))
         #expect(fadeOutIn.contains("afade=t=out"))
         #expect(fadeOutIn.contains("afade=t=in"))
-        #expect(fadeOutIn.contains("concat=n=2:v=0:a=1[outa]"))
+        #expect(fadeOutIn.contains("concat=n=2:v=0:a=1"))
         #expect(!fadeOutIn.contains("acrossfade="))
     }
 
@@ -222,6 +223,47 @@ struct MultiTrackTimelineTests {
         #expect(middleLeft > -12)
         #expect(middleRight > -12)
         #expect(lateRight > lateLeft + 10)
+    }
+
+    @Test @MainActor func renderedCrossDissolveUsesStableRateAndExactDuration() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let leadingURL = directory.appendingPathComponent("leading.mov")
+        let trailingURL = directory.appendingPathComponent("trailing.mov")
+        try await makeVideoFixture(color: "red", outputURL: leadingURL)
+        try await makeVideoFixture(color: "blue", outputURL: trailingURL)
+        let leadingClip = TimelineClip(
+            assetID: UUID(),
+            name: "Outgoing",
+            segments: [segment(1.5, 3)]
+        )
+        let trailingClip = TimelineClip(
+            assetID: UUID(),
+            name: "Incoming",
+            segments: [segment(1.5, 3)]
+        )
+
+        let renderedURL = try await FFmpegTimelineEffectRenderer.renderVideoTransition(
+            leadingURL: leadingURL,
+            trailingURL: trailingURL,
+            leadingClip: leadingClip,
+            trailingClip: trailingClip,
+            type: .crossDissolve,
+            duration: ProjectTime(seconds: 2),
+            width: 320,
+            height: 240,
+            frameRate: 30.004427
+        )
+        defer { try? FileManager.default.removeItem(at: renderedURL) }
+        let report = try await FFmpegMediaProbe.inspect(url: renderedURL)
+
+        #expect(abs(report.duration - 2) < 0.001)
+        #expect(report.frameRate == 30)
+        #expect(report.videoStream?.width == 320)
+        #expect(report.videoStream?.height == 240)
     }
 
     @Test @MainActor func completedTimelineMixDoesNotDoubleIncomingAudioDuringCrossFade() async throws {
@@ -373,6 +415,42 @@ struct MultiTrackTimelineTests {
             "Interview A to Interview B")
     }
 
+    @Test @MainActor func reopenedProjectsSelectPrimaryVideoAndRecoverTransitionOwnership() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 12)
+        var project = TrimatoProject(name: "Saved transitions")
+        project.media = [asset]
+        let leadingID = try project.append(asset: asset, segments: [segment(1, 3)])
+        let trailingID = try project.append(asset: asset, segments: [segment(6, 3)])
+        let videoTrack = try #require(project.tracks.first { $0.role == .primaryVideo })
+        let audioTrack = try #require(project.tracks.first { $0.role == .primaryAudio })
+        project.transitions = [TimelineTransition(
+            trackID: UUID(),
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: leadingID,
+            trailingClipID: trailingID
+        )]
+        project.tracks = [audioTrack, videoTrack]
+
+        let data = try ProjectDocument.manifestData(for: project)
+        let decoded = try JSONDecoder().decode(TrimatoProject.self, from: data)
+        let controller = ProjectController(document: ProjectDocument(project: decoded))
+        let reopenedVideoTrack = try #require(decoded.tracks.first { $0.role == .primaryVideo })
+        let transitions = TimelineElementSequence.transitions(for: reopenedVideoTrack, in: decoded)
+        let restoredTransition = try #require(transitions.first)
+        let elements = TimelineElementSequence.elements(track: reopenedVideoTrack, transitions: transitions)
+
+        #expect(controller.activeTimelineTrackID == reopenedVideoTrack.id)
+        #expect(transitions.count == 1)
+        #expect(restoredTransition.trackID == reopenedVideoTrack.id)
+        #expect(elements.map(\.id) == [
+            "clip-\(leadingID.uuidString)",
+            "transition-\(restoredTransition.id.uuidString)",
+            "clip-\(trailingID.uuidString)",
+        ])
+    }
+
     @Test @MainActor func editorClipLookupPrefersIncomingThenContainingThenFollowing() throws {
         let asset = fixtureAsset(name: "Interview", duration: 12)
         var project = TrimatoProject(name: "Editor lookup")
@@ -408,11 +486,13 @@ struct MultiTrackTimelineTests {
             frameRate: 29.97
         )
 
-        #expect(graph.components(separatedBy: "fps=29.97").count == 3)
+        #expect(graph.components(separatedBy: "fps=30000/1001").count == 3)
         #expect(graph.components(separatedBy: "settb=AVTB").count == 3)
         #expect(graph.components(separatedBy: "setsar=1").count == 3)
         #expect(graph.components(separatedBy: "format=yuv444p").count == 3)
         #expect(graph.contains("xfade=transition=fade:duration=1.25:offset=0"))
+        #expect(graph.contains("trim=duration=1.25"))
+        #expect(FFmpegTimelineEffectRenderer.frameRateExpression(30.004427) == "30")
     }
 
     @Test func transitionRenderErrorUsesUsefulFFmpegDiagnostic() {
@@ -438,6 +518,15 @@ private func makeStereoFixture(expression: String, outputURL: URL) async throws 
         "-hide_banner", "-nostdin", "-y",
         "-f", "lavfi", "-i", "aevalsrc=\(expression):s=48000:d=6",
         "-c:a", "pcm_s16le", outputURL.path,
+    ])
+}
+
+private func makeVideoFixture(color: String, outputURL: URL) async throws {
+    _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+        "-hide_banner", "-nostdin", "-y",
+        "-f", "lavfi", "-i", "color=c=\(color):s=320x240:r=30004427/1000000:d=6",
+        "-c:v", "prores_ks", "-profile:v", "1", "-pix_fmt", "yuv422p10le",
+        "-video_track_timescale", "60000", outputURL.path,
     ])
 }
 

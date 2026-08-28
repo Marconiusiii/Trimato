@@ -90,6 +90,7 @@ enum FFmpegTimelineEffectRenderer {
             "-i", leadingURL.path, "-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outv]", "-an", "-sn", "-dn",
             "-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le",
+            "-video_track_timescale", "60000", "-t", number(duration.seconds),
             "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {
@@ -161,7 +162,8 @@ enum FFmpegTimelineEffectRenderer {
             "-hide_banner", "-nostdin", "-y",
             "-i", leadingURL.path, "-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outa]", "-vn", "-sn", "-dn",
-            "-c:a", "pcm_s16le", "-progress", "pipe:1", "-nostats", outputURL.path,
+            "-c:a", "pcm_s16le", "-t", number(duration.seconds),
+            "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {
             _ = try await FFmpegRunner.run(
@@ -186,12 +188,13 @@ enum FFmpegTimelineEffectRenderer {
         height: Int,
         frameRate: Double
     ) -> String {
-        let normalized = "fps=\(number(frameRate)),settb=AVTB,setpts=PTS-STARTPTS," +
+        let normalized = "fps=\(frameRateExpression(frameRate)),settb=AVTB,setpts=PTS-STARTPTS," +
             "scale=\(width):\(height):force_original_aspect_ratio=decrease," +
             "pad=\(width):\(height):(ow-iw)/2:(oh-ih)/2:black,setsar=1,format=yuv444p"
         return "[0:v:0]trim=start=\(number(leadingStart)):duration=\(number(duration)),\(normalized)[v0];" +
             "[1:v:0]trim=start=\(number(trailingStart)):duration=\(number(duration)),\(normalized)[v1];" +
-            "[v0][v1]xfade=transition=\(type):duration=\(number(duration)):offset=0[outv]"
+            "[v0][v1]xfade=transition=\(type):duration=\(number(duration)):offset=0," +
+            "trim=duration=\(number(duration)),setpts=PTS-STARTPTS[outv]"
     }
 
     static func videoFadeOutInGraph(
@@ -203,14 +206,15 @@ enum FFmpegTimelineEffectRenderer {
         frameRate: Double
     ) -> String {
         let half = duration / 2
-        let normalized = "fps=\(number(frameRate)),settb=AVTB,setpts=PTS-STARTPTS," +
+        let normalized = "fps=\(frameRateExpression(frameRate)),settb=AVTB,setpts=PTS-STARTPTS," +
             "scale=\(width):\(height):force_original_aspect_ratio=decrease," +
             "pad=\(width):\(height):(ow-iw)/2:(oh-ih)/2:black,setsar=1,format=yuv444p"
         return "[0:v:0]trim=start=\(number(leadingStart)):duration=\(number(half)),\(normalized)," +
             "fade=t=out:st=0:d=\(number(half))[v0];" +
             "[1:v:0]trim=start=\(number(trailingStart)):duration=\(number(half)),\(normalized)," +
             "fade=t=in:st=0:d=\(number(half))[v1];" +
-            "[v0][v1]concat=n=2:v=1:a=0[outv]"
+            "[v0][v1]concat=n=2:v=1:a=0,trim=duration=\(number(duration))," +
+            "setpts=PTS-STARTPTS[outv]"
     }
 
     static func audioCrossFadeGraph(
@@ -229,7 +233,8 @@ enum FFmpegTimelineEffectRenderer {
             "[1:a:0]atrim=start=\(number(trailingStart)):duration=\(number(duration))," +
             "asetpts=PTS-STARTPTS\(format.filterSuffix)" +
             "\(trailingEffects)[a1];" +
-            "[a0][a1]acrossfade=d=\(number(duration)):o=1:c1=qsin:c2=qsin[outa]"
+            "[a0][a1]acrossfade=d=\(number(duration)):o=1:c1=qsin:c2=qsin," +
+            "atrim=duration=\(number(duration)),asetpts=PTS-STARTPTS[outa]"
     }
 
     static func audioFadeOutInGraph(
@@ -249,7 +254,8 @@ enum FFmpegTimelineEffectRenderer {
             "[1:a:0]atrim=start=\(number(trailingStart)):duration=\(number(half))," +
             "asetpts=PTS-STARTPTS\(format.filterSuffix)" +
             "\(trailingEffects),afade=t=in:st=0:d=\(number(half))[a1];" +
-            "[a0][a1]concat=n=2:v=0:a=1[outa]"
+            "[a0][a1]concat=n=2:v=0:a=1,atrim=duration=\(number(duration))," +
+            "asetpts=PTS-STARTPTS[outa]"
     }
 
     static func audioFilter(for settings: AudioClipSettings) -> String? {
@@ -299,6 +305,14 @@ enum FFmpegTimelineEffectRenderer {
         case .audio:
             return "acrossfade=d=\(number(duration.seconds)):o=1:c1=qsin:c2=qsin"
         }
+    }
+
+    static func frameRateExpression(_ frameRate: Double) -> String {
+        let stable = ProjectFormat.stableFrameRate(frameRate)
+        if abs(stable - (24_000.0 / 1_001.0)) < 0.000_001 { return "24000/1001" }
+        if abs(stable - (30_000.0 / 1_001.0)) < 0.000_001 { return "30000/1001" }
+        if abs(stable - (60_000.0 / 1_001.0)) < 0.000_001 { return "60000/1001" }
+        return number(stable)
     }
 
     private static func number(_ value: Double) -> String {

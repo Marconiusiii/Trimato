@@ -227,7 +227,20 @@ struct ProjectTimelineOperationsTests {
         #expect(project.format.mode == .automatic)
         #expect(project.format.width == 1_080)
         #expect(project.format.height == 1_920)
-        #expect(project.format.frameRate == 29.97)
+        #expect(project.format.frameRate == 30_000.0 / 1_001.0)
+    }
+
+    @Test func automaticFormatNormalizesUnstableSourceFrameRates() throws {
+        var source = fixtureAsset(name: "Variable frame rate", duration: 5)
+        source.frameRate = 30.004427
+        var project = TrimatoProject()
+        project.media = [source]
+
+        _ = try project.append(asset: source)
+
+        #expect(project.format.frameRate == 30)
+        #expect(ProjectFormat.stableFrameRate(29.971) == 30_000.0 / 1_001.0)
+        #expect(ProjectFormat.stableFrameRate(48.1234) == 48.123)
     }
 
     @Test func automaticFormatRemainsUnresolvedWithoutATimelineClip() {

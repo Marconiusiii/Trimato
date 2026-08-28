@@ -10,6 +10,53 @@ struct ProjectPreviewFailure: Identifiable, Equatable {
     let transitionID: UUID?
 }
 
+private nonisolated enum ProjectPreviewPreparationError: LocalizedError {
+    case timedOut(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .timedOut(let operation):
+            "The transition render finished, but \(operation) did not complete in time. The project was not changed."
+        }
+    }
+}
+
+private nonisolated final class ProjectPreviewOperationWaiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var result: Result<Void, Error>?
+
+    func value() async throws {
+        try Task.checkCancellation()
+        try await withCheckedThrowingContinuation { continuation in
+            lock.lock()
+            if let result {
+                lock.unlock()
+                continuation.resume(with: result)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func succeed() { resolve(.success(())) }
+    func fail(_ error: Error) { resolve(.failure(error)) }
+
+    private func resolve(_ result: Result<Void, Error>) {
+        lock.lock()
+        guard self.result == nil else {
+            lock.unlock()
+            return
+        }
+        self.result = result
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
+    }
+}
+
 @MainActor
 final class ProjectPlayerViewModel: ObservableObject {
     let player = AVPlayer()
@@ -252,6 +299,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         presentedPreviewFailure = nil
 
         var pendingTemporaryMediaURLs: [URL] = []
+        let previousPlayerItem = player.currentItem
+        var replacedPlayerItem = false
         do {
             let result = try await ProjectCompositionBuilder.build(
                 project: project,
@@ -271,7 +320,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             let stagedPlayer = AVPlayer(playerItem: item)
             stagedPlayer.automaticallyWaitsToMinimizeStalling = false
             try await waitUntilReadyToPlay(item)
-            await stagedPlayer.seek(
+            try await seekForTransitionPreview(
+                player: stagedPlayer,
                 to: boundedInitialTime.cmTime,
                 toleranceBefore: .zero,
                 toleranceAfter: .zero
@@ -283,8 +333,10 @@ final class ProjectPlayerViewModel: ObservableObject {
             }
             stagedPlayer.replaceCurrentItem(with: nil)
             player.replaceCurrentItem(with: item)
+            replacedPlayerItem = true
             progress(0.95)
-            await player.seek(
+            try await seekForTransitionPreview(
+                player: player,
                 to: boundedInitialTime.cmTime,
                 toleranceBefore: .zero,
                 toleranceAfter: .zero
@@ -302,6 +354,9 @@ final class ProjectPlayerViewModel: ObservableObject {
             isPreparing = false
             progress(1)
         } catch {
+            if replacedPlayerItem {
+                player.replaceCurrentItem(with: previousPlayerItem)
+            }
             Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
             if preparationID == requestID { isPreparing = false }
             throw error
@@ -315,24 +370,59 @@ final class ProjectPlayerViewModel: ObservableObject {
                 "The transition preview could not be prepared for playback."
             )
         }
-        try await withCheckedThrowingContinuation { continuation in
-            var observation: NSKeyValueObservation?
-            observation = item.observe(\.status, options: [.initial, .new]) { item, _ in
-                switch item.status {
-                case .readyToPlay:
-                    observation?.invalidate()
-                    continuation.resume()
-                case .failed:
-                    observation?.invalidate()
-                    continuation.resume(throwing: item.error ?? ProjectTimelineError.transitionNotAvailable(
-                        "The transition preview could not be prepared for playback."
-                    ))
-                case .unknown:
-                    break
-                @unknown default:
-                    break
-                }
+        let waiter = ProjectPreviewOperationWaiter()
+        let observation = item.observe(\.status, options: [.initial, .new]) { item, _ in
+            switch item.status {
+            case .readyToPlay:
+                waiter.succeed()
+            case .failed:
+                waiter.fail(item.error ?? ProjectTimelineError.transitionNotAvailable(
+                    "The transition preview could not be prepared for playback."
+                ))
+            case .unknown:
+                break
+            @unknown default:
+                break
             }
+        }
+        defer { observation.invalidate() }
+        try await waitForTransitionPreviewOperation(waiter, operation: "the project preview")
+    }
+
+    private func seekForTransitionPreview(
+        player: AVPlayer,
+        to time: CMTime,
+        toleranceBefore: CMTime,
+        toleranceAfter: CMTime
+    ) async throws {
+        let waiter = ProjectPreviewOperationWaiter()
+        player.seek(
+            to: time,
+            toleranceBefore: toleranceBefore,
+            toleranceAfter: toleranceAfter
+        ) { finished in
+            if finished {
+                waiter.succeed()
+            } else {
+                waiter.fail(CancellationError())
+            }
+        }
+        try await waitForTransitionPreviewOperation(waiter, operation: "positioning the project playhead")
+    }
+
+    private func waitForTransitionPreviewOperation(
+        _ waiter: ProjectPreviewOperationWaiter,
+        operation: String
+    ) async throws {
+        let timeout = Task {
+            try await Task.sleep(for: .seconds(15))
+            waiter.fail(ProjectPreviewPreparationError.timedOut(operation))
+        }
+        defer { timeout.cancel() }
+        try await withTaskCancellationHandler {
+            try await waiter.value()
+        } onCancel: {
+            waiter.fail(CancellationError())
         }
     }
 
