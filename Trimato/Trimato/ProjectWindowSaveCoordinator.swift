@@ -4,6 +4,12 @@ import SwiftUI
 
 @MainActor
 final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
+    nonisolated enum NativeChangeAction: Equatable {
+        case markChanged
+        case clear
+        case none
+    }
+
     private let projectDocument: ProjectDocument
     private weak var window: NSWindow?
     private weak var nativeDocument: NSDocument?
@@ -12,6 +18,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private var windowBecameKeyObserver: NSObjectProtocol?
     private var windowWillCloseObserver: NSObjectProtocol?
     private var applicationWillTerminateObserver: NSObjectProtocol?
+    private var unsavedChangesSubscription: AnyCancellable?
     private var windowBecameKeyHandler: (() -> Void)?
     private var undoManagerHandler: ((UndoManager) -> Void)?
     private var lastProjectWindowWillCloseHandler: (() -> Void)?
@@ -27,6 +34,11 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.isApplicationTerminating = true }
         }
+        unsavedChangesSubscription = projectDocument.unsavedChangesDidChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] hasUnsavedChanges in
+                self?.synchronizeNativeDocumentChangeState(hasUnsavedChanges)
+            }
     }
 
     deinit {
@@ -61,9 +73,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         if let undoManager = nativeDocument?.undoManager ?? window.undoManager {
             undoManagerHandler?(undoManager)
         }
-        if projectDocument.hasUnsavedChanges {
-            nativeDocument?.updateChangeCount(.changeDone)
-        }
+        synchronizeNativeDocumentChangeState(projectDocument.hasUnsavedChanges)
         windowBecameKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -172,6 +182,30 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         alert.informativeText = "Trimato could not access the native project document. The project will remain open so your changes are not lost."
         alert.addButton(withTitle: "OK")
         alert.beginSheetModal(for: window)
+    }
+
+    private func synchronizeNativeDocumentChangeState(_ hasUnsavedChanges: Bool) {
+        guard let nativeDocument else { return }
+        switch Self.nativeChangeAction(
+            hasUnsavedChanges: hasUnsavedChanges,
+            isDocumentEdited: nativeDocument.isDocumentEdited
+        ) {
+        case .markChanged:
+            nativeDocument.updateChangeCount(.changeDone)
+        case .clear:
+            nativeDocument.updateChangeCount(.changeCleared)
+        case .none:
+            break
+        }
+    }
+
+    nonisolated static func nativeChangeAction(
+        hasUnsavedChanges: Bool,
+        isDocumentEdited: Bool
+    ) -> NativeChangeAction {
+        if hasUnsavedChanges, !isDocumentEdited { return .markChanged }
+        if !hasUnsavedChanges, isDocumentEdited { return .clear }
+        return .none
     }
 
     private func projectWindowWillClose() {

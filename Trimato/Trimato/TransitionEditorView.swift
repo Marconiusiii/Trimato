@@ -38,16 +38,13 @@ struct TransitionEditorView: View {
                 Text(contextDescription)
             }
 
-            TextField("Transition Name", text: $transitionName)
-
-            transitionPicker
-
-            TransitionDurationField(text: $durationText)
-
-            if let validationMessage {
-                Text(validationMessage)
-                    .foregroundStyle(.red)
+            Form {
+                TextField("Transition Name", text: $transitionName)
+                transitionPicker
+                TransitionDurationField(text: $durationText)
             }
+            .formStyle(.grouped)
+            .frame(height: 170)
 
             HStack {
                 Button("Delete Transition", role: .destructive, action: delete)
@@ -61,6 +58,14 @@ struct TransitionEditorView: View {
         .frame(width: 430)
         .onDisappear {
             pickerFocusTask?.cancel()
+        }
+        .alert("Transition Could Not Be Updated", isPresented: Binding(
+            get: { validationMessage != nil },
+            set: { if !$0 { validationMessage = nil } }
+        )) {
+            Button("OK") { validationMessage = nil }
+        } message: {
+            Text(validationMessage ?? "The transition could not be updated.")
         }
     }
 

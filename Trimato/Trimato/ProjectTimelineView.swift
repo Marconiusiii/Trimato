@@ -7,6 +7,7 @@ struct ProjectTimelineView: View {
     let workspacePaneLinks: Namespace.ID
 
     @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
+    @AccessibilityFocusState private var trackPickerFocused: Bool
     @State private var renamedClipName = ""
     @State private var isRenamingClip = false
     @State private var isRenamingTrack = false
@@ -34,10 +35,17 @@ struct ProjectTimelineView: View {
                     }
                 }
                 .disabled(controller.project.tracks.isEmpty)
+                .accessibilityFocused($trackPickerFocused)
                 Menu("Track Actions") {
                     Button("Add Track…") { beginAddTrack() }
                     Button("Rename Track…") { beginRenameTrack() }
                         .disabled(controller.activeTimelineTrack == nil)
+                    Menu("Append Imported Clip") {
+                        ForEach(compatibleAssetsForActiveTrack) { asset in
+                            Button(asset.name) { append(asset, to: controller.activeTimelineTrack) }
+                        }
+                    }
+                    .disabled(compatibleAssetsForActiveTrack.isEmpty)
                     Divider()
                     Button("Move Track Up") { controller.moveActiveTrack(by: -1) }
                         .disabled(controller.activeTimelineTrack == nil)
@@ -70,16 +78,16 @@ struct ProjectTimelineView: View {
             guard let element else { return }
             controller.focusTimelineElement(element)
         }
-        .onChange(of: controller.activeTimelineTrackID) {
-            focusedElement = nil
-        }
         .onChange(of: controller.timelineFocusRestoreRequest) {
             guard let target = controller.timelineFocusRestoreTarget else { return }
             restoreTimelineElementFocus(to: target)
         }
+        .onChange(of: controller.timelineTrackPickerFocusRestoreRequest) {
+            restoreTrackPickerFocus()
+        }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
-        .sheet(isPresented: $isAddingTrack) {
+        .sheet(isPresented: $isAddingTrack, onDismiss: restoreTrackPickerFocus) {
             AddTrackView(
                 add: { kind, name in
                     controller.addTrack(kind: kind, name: name)
@@ -152,19 +160,17 @@ struct ProjectTimelineView: View {
     }
 
     private var timelineScrollView: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(timelineElements) { element in
-                    switch element.content {
-                    case .clip(let clip):
-                        clipButton(clip)
-                    case .transition(let transition):
-                        transitionButton(transition)
-                    }
+        List {
+            ForEach(timelineElements) { element in
+                switch element.content {
+                case .clip(let clip):
+                    clipButton(clip)
+                case .transition(let transition):
+                    transitionButton(transition)
                 }
             }
-            .padding(8)
         }
+        .listStyle(.inset)
         .accessibilityLabel("Timeline Clips")
         .accessibilityIdentifier("trimato.timeline.clips")
     }
@@ -198,7 +204,10 @@ struct ProjectTimelineView: View {
                 controller.activeTimelineTrackID ??
                     ProjectController.preferredTimelineTrackID(in: controller.project)
             },
-            set: { controller.activeTimelineTrackID = $0 }
+            set: { trackID in
+                controller.activeTimelineTrackID = trackID
+                restoreFocusAfterTrackChange()
+            }
         )
     }
 
@@ -321,6 +330,7 @@ struct ProjectTimelineView: View {
 
     private func restoreTimelineElementFocus(to target: TimelineElementSelection) {
         focusedElement = nil
+        trackPickerFocused = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             focusedElement = target
         }
@@ -388,7 +398,10 @@ struct ProjectTimelineView: View {
     private var renameClipSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Rename Timeline Clip").font(.headline).accessibilityAddTraits(.isHeader)
-            TextField("Clip Name", text: $renamedClipName)
+            LabeledContent("Clip Name") {
+                TextField("Clip Name", text: $renamedClipName)
+                    .labelsHidden()
+            }
             HStack {
                 Button("Cancel", role: .cancel) { isRenamingClip = false }
                 Button("Rename") {
@@ -407,7 +420,10 @@ struct ProjectTimelineView: View {
     private var renameTrackSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Rename Track").font(.headline).accessibilityAddTraits(.isHeader)
-            TextField("Track Name", text: $trackName)
+            LabeledContent("Track Name") {
+                TextField("Track Name", text: $trackName)
+                    .labelsHidden()
+            }
             HStack {
                 Button("Cancel", role: .cancel) { isRenamingTrack = false }
                 Button("Rename") {
@@ -438,6 +454,40 @@ struct ProjectTimelineView: View {
     private func beginAddTrack() {
         isAddingTrack = true
     }
+
+    private var compatibleAssetsForActiveTrack: [MediaAssetRecord] {
+        guard let track = controller.activeTimelineTrack else { return [] }
+        return controller.project.media.filter { asset in
+            (track.kind == .video && asset.hasVideo) || (track.kind == .audio && asset.hasAudio)
+        }
+    }
+
+    private func append(_ asset: MediaAssetRecord, to track: TimelineTrack?) {
+        guard let track,
+              let clipID = controller.place(.append, editing: .asset(asset.id), segments: asset.sourceEdit, onTrack: track.id) else {
+            return
+        }
+        controller.requestTimelineFocusRestore(to: .clip(clipID))
+    }
+
+    private func restoreFocusAfterTrackChange() {
+        if let clip = controller.editorClip(at: controller.timelinePlayhead) {
+            restoreTimelineElementFocus(to: .clip(clip.id))
+        } else {
+            restoreTrackPickerFocus()
+        }
+    }
+
+    private func restoreTrackPickerFocus() {
+        focusedElement = nil
+        trackPickerFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            trackPickerFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            trackPickerFocused = true
+        }
+    }
 }
 
 private struct AddTrackView: View {
@@ -453,13 +503,17 @@ private struct AddTrackView: View {
             Text("Add Track")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Picker("Track Type", selection: trackKindBinding) {
-                ForEach(TimelineTrackKind.allCases) { kind in
-                    Text(kind.title).tag(kind)
+            Form {
+                Picker("Track Type", selection: trackKindBinding) {
+                    ForEach(TimelineTrackKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
                 }
+                .accessibilityFocused($trackTypeFocused)
+                TextField("Track Name", text: $trackName)
             }
-            .accessibilityFocused($trackTypeFocused)
-            TextField("Track Name", text: $trackName)
+            .formStyle(.grouped)
+            .frame(height: 130)
             HStack {
                 Button("Cancel", role: .cancel, action: cancel)
                 Button("Add Track") { add(trackKind, trackName) }

@@ -139,6 +139,19 @@ struct ProjectBrowserView: View {
                         controller.place(placement, editing: .asset(id), segments: asset.sourceEdit)
                     }
                 }
+                if let asset = controller.project.asset(id: id) {
+                    Divider()
+                    ForEach(trackPlacementActions) { placement in
+                        Menu("\(placement.title) to Track") {
+                            ForEach(compatibleTracks(for: asset)) { track in
+                                Button(track.name) {
+                                    place(asset, action: placement, on: track)
+                                }
+                            }
+                        }
+                        .disabled(compatibleTracks(for: asset).isEmpty)
+                    }
+                }
                 Divider()
                 Menu("Move Clip") {
                     Button("Project Root") { controller.moveAsset(id, toFolder: nil) }
@@ -168,7 +181,10 @@ struct ProjectBrowserView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
                 .font(.headline)
-            TextField("Folder Name", text: fieldValue)
+            LabeledContent("Folder Name") {
+                TextField("Folder Name", text: fieldValue)
+                    .labelsHidden()
+            }
             HStack {
                 Button("Cancel", role: .cancel, action: cancel)
                 Button(actionTitle, action: action)
@@ -183,5 +199,25 @@ struct ProjectBrowserView: View {
         guard let folder = controller.project.folders.first(where: { $0.id == id }) else { return }
         folderBeingRenamed = folder
         renamedFolderName = folder.name
+    }
+
+    private var trackPlacementActions: [PlacementAction] {
+        [.append, .insert, .replaceRemainder]
+    }
+
+    private func compatibleTracks(for asset: MediaAssetRecord) -> [TimelineTrack] {
+        controller.project.tracks.filter { track in
+            (track.kind == .video && asset.hasVideo) || (track.kind == .audio && asset.hasAudio)
+        }
+    }
+
+    private func place(_ asset: MediaAssetRecord, action: PlacementAction, on track: TimelineTrack) {
+        guard let clipID = controller.place(
+            action,
+            editing: .asset(asset.id),
+            segments: asset.sourceEdit,
+            onTrack: track.id
+        ) else { return }
+        controller.requestTimelineFocusRestore(to: .clip(clipID))
     }
 }

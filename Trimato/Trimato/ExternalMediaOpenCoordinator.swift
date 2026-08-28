@@ -13,6 +13,13 @@ nonisolated enum ExternalMediaOpenRoute: Equatable, Sendable {
 final class ExternalMediaOpenCoordinator: ObservableObject {
     static let shared = ExternalMediaOpenCoordinator()
 
+    static let mediaExternalEventConditions: Set<String> = Set([
+        "mov", "mp4", "m4v", "avi", "mpg", "mpeg", "3gp", "3g2",
+        "mkv", "webm", "ts", "mts", "m2ts", "vob", "wmv", "flv",
+        "mp3", "m4a", "aac", "wav", "aif", "aiff", "flac", "ogg",
+        "opus", "caf", "ac3",
+    ].map { ".\($0)" })
+
     @Published private(set) var activeProjectController: ProjectController?
 
     private struct ProjectRegistration {
@@ -107,12 +114,17 @@ struct ExternalMediaOpenHandler: ViewModifier {
     @Environment(\.openWindow) private var openWindow
 
     func body(content: Content) -> some View {
-        content.onOpenURL { url in
-            ExternalMediaOpenCoordinator.shared.handle(
-                url,
-                openStandalone: { openWindow(value: $0) }
+        content
+            .handlesExternalEvents(
+                preferring: ExternalMediaOpenCoordinator.mediaExternalEventConditions,
+                allowing: ExternalMediaOpenCoordinator.mediaExternalEventConditions
             )
-        }
+            .onOpenURL { url in
+                ExternalMediaOpenCoordinator.shared.handle(
+                    url,
+                    openStandalone: { openWindow(value: $0) }
+                )
+            }
     }
 }
 

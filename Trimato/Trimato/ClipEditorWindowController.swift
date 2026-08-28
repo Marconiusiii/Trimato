@@ -220,6 +220,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
     func showAndFocus() {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        commandContext.requestAccessibilityFocus()
     }
 
     func requestClose(completion: @escaping (Bool) -> Void) {
@@ -233,7 +234,6 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
 
     func windowDidBecomeKey(_ notification: Notification) {
         commandContext.setKeyWindow(true)
-        commandContext.requestAccessibilityFocus()
         ExternalMediaOpenCoordinator.shared.activate(controller: commandContext.controller)
     }
 
@@ -290,7 +290,6 @@ private struct ClipEditorWindowView: View {
     let editSelection: EditorSelection
     let initialSegments: [SourceSegment]
     @ObservedObject var commandContext: ClipPlacementCommandContext
-    @AccessibilityFocusState private var editorGroupFocused: Bool
 
     var body: some View {
         MacEditorPane("Clip Editor") {
@@ -302,15 +301,8 @@ private struct ClipEditorWindowView: View {
                 commandContext: commandContext
             )
         }
-        .accessibilityFocused($editorGroupFocused)
         .focusedObject(controller)
         .focusedObject(commandContext)
-        .onAppear {
-            editorGroupFocused = true
-        }
-        .onChange(of: commandContext.focusRequest) { _ in
-            editorGroupFocused = true
-        }
         .alert("Clip Could Not Be Updated", isPresented: Binding(
             get: { commandContext.updateErrorMessage != nil },
             set: { presented in

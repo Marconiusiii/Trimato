@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 nonisolated enum TransitionDurationInput {
@@ -33,54 +32,6 @@ struct TransitionDurationField: View {
     @Binding var text: String
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text("Duration")
-                .accessibilityHidden(true)
-            TransitionDurationTextField(text: $text)
-            Text("seconds")
-                .accessibilityHidden(true)
-        }
-    }
-}
-
-private struct TransitionDurationTextField: NSViewRepresentable {
-    @Binding var text: String
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
-    }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: text)
-        field.delegate = context.coordinator
-        field.setAccessibilityLabel(TransitionDurationInput.accessibilityLabel)
-        updateAccessibilityValueDescription(for: field)
-        return field
-    }
-
-    func updateNSView(_ field: NSTextField, context: Context) {
-        context.coordinator.text = $text
-        if field.currentEditor() == nil, field.stringValue != text {
-            field.stringValue = text
-        }
-        updateAccessibilityValueDescription(for: field)
-    }
-
-    private func updateAccessibilityValueDescription(for field: NSTextField) {
-        field.setAccessibilityValueDescription(TransitionDurationInput.accessibilityValue(for: field.stringValue))
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var text: Binding<String>
-
-        init(text: Binding<String>) {
-            self.text = text
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            text.wrappedValue = field.stringValue
-            field.setAccessibilityValueDescription(TransitionDurationInput.accessibilityValue(for: field.stringValue))
-        }
+        TextField(TransitionDurationInput.accessibilityLabel, text: $text)
     }
 }

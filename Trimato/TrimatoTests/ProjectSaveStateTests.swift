@@ -32,6 +32,25 @@ struct ProjectSaveStateTests {
         ))
     }
 
+    @Test func nativeDocumentChangeStateFollowsTheExplicitProjectBaseline() {
+        #expect(ProjectWindowSaveCoordinator.nativeChangeAction(
+            hasUnsavedChanges: true,
+            isDocumentEdited: false
+        ) == .markChanged)
+        #expect(ProjectWindowSaveCoordinator.nativeChangeAction(
+            hasUnsavedChanges: false,
+            isDocumentEdited: true
+        ) == .clear)
+        #expect(ProjectWindowSaveCoordinator.nativeChangeAction(
+            hasUnsavedChanges: true,
+            isDocumentEdited: true
+        ) == .none)
+        #expect(ProjectWindowSaveCoordinator.nativeChangeAction(
+            hasUnsavedChanges: false,
+            isDocumentEdited: false
+        ) == .none)
+    }
+
     @Test func newDocumentStartsCleanAndBecomesDirtyAfterAProjectChange() {
         let document = ProjectDocument(project: TrimatoProject(name: "Initial"))
 

@@ -57,20 +57,24 @@ struct QuickTransitionView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
-            if request.mode == .quickCross {
-                Text(crossDescription)
-            } else {
-                Text(clip?.displayName ?? "Timeline clip")
-                    .foregroundStyle(.secondary)
-                Toggle("Intro", isOn: $addIntro)
-                Toggle("Outro", isOn: $addOutro)
-            }
+            Form {
+                if request.mode == .quickCross {
+                    Text(crossDescription)
+                } else {
+                    Text(clip?.displayName ?? "Timeline clip")
+                        .foregroundStyle(.secondary)
+                    Toggle("Intro", isOn: $addIntro)
+                    Toggle("Outro", isOn: $addOutro)
+                }
 
-            if showsAudioToggle {
-                Toggle(request.mode == .quickFade ? "Fade Audio" : "Crossfade Audio", isOn: $includeAudio)
-            }
+                if showsAudioToggle {
+                    Toggle(request.mode == .quickFade ? "Fade Audio" : "Crossfade Audio", isOn: $includeAudio)
+                }
 
-            TransitionDurationField(text: $durationText)
+                TransitionDurationField(text: $durationText)
+            }
+            .formStyle(.grouped)
+            .frame(height: request.mode == .quickFade ? 210 : 170)
 
             HStack {
                 Button("Cancel", role: .cancel, action: finished)

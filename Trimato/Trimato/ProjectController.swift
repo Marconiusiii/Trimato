@@ -30,6 +30,7 @@ final class ProjectController: ObservableObject {
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
     @Published private(set) var timelineFocusRestoreRequest = 0
+    @Published private(set) var timelineTrackPickerFocusRestoreRequest = 0
     @Published private(set) var timelineContentRevision = 0
     @Published private(set) var applyingTransitionName: String?
     @Published private(set) var applyingTransitionProgress: Double?
@@ -297,6 +298,11 @@ final class ProjectController: ObservableObject {
         let current = activeTimelineTrackID.flatMap { id in project.tracks.firstIndex { $0.id == id } } ?? 0
         let destination = min(max(current + offset, 0), project.tracks.count - 1)
         activeTimelineTrackID = project.tracks[destination].id
+        if let clip = editorClip(at: timelinePlayhead) {
+            requestTimelineFocusRestore(to: .clip(clip.id))
+        } else {
+            requestTimelineTrackPickerFocusRestore()
+        }
     }
 
     func addTrack(kind: TimelineTrackKind, name: String?) {
@@ -378,6 +384,10 @@ final class ProjectController: ObservableObject {
     func requestTimelineFocusRestore(to element: TimelineElementSelection) {
         timelineFocusRestoreTarget = element
         timelineFocusRestoreRequest += 1
+    }
+
+    func requestTimelineTrackPickerFocusRestore() {
+        timelineTrackPickerFocusRestoreRequest += 1
     }
 
     func beginApplyingTransitions(_ transitions: [TimelineTransition]) {
@@ -617,9 +627,10 @@ final class ProjectController: ObservableObject {
     func importFiles(into folderID: UUID? = nil) {
         guard !isImporting, NSApp.modalWindow == nil else { return }
         let panel = NSOpenPanel()
-        panel.title = "Import Media Files"
+        panel.title = "Import Media"
         panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
         panel.allowedContentTypes = [.movie, .audio, .data]
         guard panel.runModal() == .OK else { return }
 
@@ -630,24 +641,69 @@ final class ProjectController: ObservableObject {
         guard !isImporting, !urls.isEmpty else { return }
         isImporting = true
         Task { @MainActor in
-            var imported: [MediaAssetRecord] = []
+            struct ImportGroup {
+                var folderName: String?
+                var assets: [MediaAssetRecord]
+            }
+            var groups: [ImportGroup] = []
             var failures: [(name: String, message: String)] = []
-            var importPaths = Set(project.media.map(\.originalPath))
-            let newURLs = urls.filter { importPaths.insert($0.path).inserted }
-            for url in newURLs {
+            var importPaths = Set(project.media.map {
+                URL(fileURLWithPath: $0.originalPath).standardizedFileURL.path
+            })
+            for selectedURL in urls {
+                let scoped = selectedURL.startAccessingSecurityScopedResource()
+                defer { if scoped { selectedURL.stopAccessingSecurityScopedResource() } }
                 do {
-                    imported.append(try await ProjectImportCoordinator.importAsset(at: url))
+                    let isDirectory = try selectedURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+                    let candidates = try ProjectImportCoordinator.importableMediaURLs(in: selectedURL)
+                    guard !candidates.isEmpty else {
+                        failures.append((selectedURL.lastPathComponent, "No supported audio or video files were found."))
+                        continue
+                    }
+                    var assets: [MediaAssetRecord] = []
+                    for candidate in candidates {
+                        let standardizedPath = candidate.standardizedFileURL.path
+                        guard importPaths.insert(standardizedPath).inserted else { continue }
+                        do {
+                            assets.append(try await ProjectImportCoordinator.importAsset(at: candidate))
+                        } catch {
+                            failures.append((candidate.lastPathComponent, error.localizedDescription))
+                        }
+                    }
+                    if !assets.isEmpty {
+                        groups.append(ImportGroup(
+                            folderName: isDirectory && folderID == nil
+                                ? selectedURL.lastPathComponent
+                                : nil,
+                            assets: assets
+                        ))
+                    }
                 } catch {
-                    failures.append((url.lastPathComponent, error.localizedDescription))
+                    failures.append((selectedURL.lastPathComponent, error.localizedDescription))
                 }
             }
-            let additions = imported
+            let additions = groups.flatMap(\.assets)
             if !additions.isEmpty {
                 mutateProject(actionName: "Import Media") { project in
-                    project.media.append(contentsOf: additions)
-                    if let folderID,
-                       let folderIndex = project.folders.firstIndex(where: { $0.id == folderID }) {
-                        project.folders[folderIndex].assetIDs.append(contentsOf: additions.map(\.id))
+                    var existingNames = Set(project.folders.map { $0.name.lowercased() })
+                    for group in groups {
+                        project.media.append(contentsOf: group.assets)
+                        if let folderID,
+                           let folderIndex = project.folders.firstIndex(where: { $0.id == folderID }) {
+                            project.folders[folderIndex].assetIDs.append(contentsOf: group.assets.map(\.id))
+                        } else if let requestedName = group.folderName {
+                            var folderName = requestedName
+                            var suffix = 2
+                            while existingNames.contains(folderName.lowercased()) {
+                                folderName = "\(requestedName) \(suffix)"
+                                suffix += 1
+                            }
+                            existingNames.insert(folderName.lowercased())
+                            project.folders.append(ProjectFolder(
+                                name: folderName,
+                                assetIDs: group.assets.map(\.id)
+                            ))
+                        }
                     }
                 }
             }
@@ -658,10 +714,10 @@ final class ProjectController: ObservableObject {
             if !failures.isEmpty {
                 let details = failures.map { "\($0.name): \($0.message)" }.joined(separator: "\n")
                 presentedError = ProjectPresentedError(
-                    title: failures.count == newURLs.count ? "Import Failed" : "Some Clips Could Not Be Imported",
+                    title: additions.isEmpty ? "Import Failed" : "Some Clips Could Not Be Imported",
                     message: details
                 )
-                announce(failures.count == newURLs.count ? "Import failed" : "Some clips could not be imported")
+                announce(additions.isEmpty ? "Import failed" : "Some clips could not be imported")
             }
         }
     }
@@ -796,12 +852,13 @@ final class ProjectController: ObservableObject {
         announce("Timeline clip renamed")
     }
 
+    @discardableResult
     func place(
         _ placement: PlacementAction,
         editing editSelection: EditorSelection,
         segments: [SourceSegment]? = nil
-    ) {
-        guard let asset = asset(for: editSelection) else { return }
+    ) -> UUID? {
+        guard let asset = asset(for: editSelection) else { return nil }
         do {
             var selectedID: UUID?
             try mutateProjectThrowing(actionName: placement.undoName) { project in
@@ -822,18 +879,21 @@ final class ProjectController: ObservableObject {
                 selection = placement.isCutaway ? .cutaway(selectedID) : .timelineClip(selectedID)
             }
             announce(placement.confirmation)
+            return selectedID
         } catch {
             announce(error.localizedDescription)
+            return nil
         }
     }
 
+    @discardableResult
     func place(
         _ placement: PlacementAction,
         editing editSelection: EditorSelection,
         segments: [SourceSegment]?,
         onTrack trackID: UUID
-    ) {
-        guard let asset = asset(for: editSelection) else { return }
+    ) -> UUID? {
+        guard let asset = asset(for: editSelection) else { return nil }
         do {
             var selectedID: UUID?
             try mutateProjectThrowing(actionName: placement.undoName) { project in
@@ -853,7 +913,11 @@ final class ProjectController: ObservableObject {
                 selection = .timelineClip(selectedID)
             }
             announce(placement.confirmation)
-        } catch { announce(error.localizedDescription) }
+            return selectedID
+        } catch {
+            announce(error.localizedDescription)
+            return nil
+        }
     }
 
     func asset(for editSelection: EditorSelection) -> MediaAssetRecord? {

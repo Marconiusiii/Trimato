@@ -3,10 +3,38 @@ import Foundation
 import UniformTypeIdentifiers
 
 enum ProjectImportCoordinator {
+    private static let explicitlySupportedExtensions: Set<String> = [
+        "mkv", "webm", "ts", "mts", "m2ts", "vob", "wmv", "flv",
+    ]
+
     struct PlaybackPreparation: Sendable {
         var mode: ProjectMediaPlaybackMode
         var cacheKey: UUID?
         var fingerprint: SourceMediaFingerprint
+    }
+
+    static func importableMediaURLs(in selectedURL: URL) throws -> [URL] {
+        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey])
+        guard values.isDirectory == true else {
+            return isSupportedMedia(selectedURL) ? [selectedURL] : []
+        }
+
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isHiddenKey, .contentTypeKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: selectedURL,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+
+        var urls: [URL] = []
+        for case let url as URL in enumerator {
+            let resourceValues = try url.resourceValues(forKeys: Set(keys))
+            guard resourceValues.isRegularFile == true,
+                  resourceValues.isHidden != true,
+                  isSupportedMedia(url, contentType: resourceValues.contentType) else { continue }
+            urls.append(url)
+        }
+        return urls.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
     static func importAsset(at url: URL) async throws -> MediaAssetRecord {
@@ -170,5 +198,11 @@ enum ProjectImportCoordinator {
         }
         guard FileManager.default.fileExists(atPath: asset.originalPath) else { return nil }
         return URL(fileURLWithPath: asset.originalPath)
+    }
+
+    private static func isSupportedMedia(_ url: URL, contentType: UTType? = nil) -> Bool {
+        if explicitlySupportedExtensions.contains(url.pathExtension.lowercased()) { return true }
+        let type = contentType ?? UTType(filenameExtension: url.pathExtension)
+        return type?.conforms(to: .movie) == true || type?.conforms(to: .audio) == true
     }
 }

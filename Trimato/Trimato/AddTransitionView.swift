@@ -65,11 +65,15 @@ struct AddTransitionView: View {
             Text(clip?.displayName ?? "Timeline clip")
                 .foregroundStyle(.secondary)
 
-            Toggle("Intro", isOn: $addIntro)
-            if addIntro { transitionControls(edge: .intro) }
+            Form {
+                Toggle("Intro", isOn: $addIntro)
+                if addIntro { transitionControls(edge: .intro) }
 
-            Toggle("Outro", isOn: $addOutro)
-            if addOutro { transitionControls(edge: .outro) }
+                Toggle("Outro", isOn: $addOutro)
+                if addOutro { transitionControls(edge: .outro) }
+            }
+            .formStyle(.grouped)
+            .frame(height: transitionFormHeight)
 
             HStack {
                 Button("Cancel", role: .cancel, action: cancel)
@@ -86,6 +90,12 @@ struct AddTransitionView: View {
         if addIntro, !addOutro { return introTransitionName }
         if addOutro, !addIntro { return outroTransitionName }
         return "Transitions"
+    }
+
+    private var transitionFormHeight: CGFloat {
+        if addIntro && addOutro { return 380 }
+        if addIntro || addOutro { return 250 }
+        return 100
     }
 
     private var boundedProgress: Double { min(max(progress, 0), 1) }
@@ -109,8 +119,7 @@ struct AddTransitionView: View {
 
     @ViewBuilder
     private func transitionControls(edge: TimelineTransitionEdge) -> some View {
-        GroupBox(edge == .intro ? "Intro transition" : "Outro transition") {
-            VStack(alignment: .leading, spacing: 12) {
+        Section(edge == .intro ? "Intro transition" : "Outro transition") {
                 if track?.kind == .video {
                     labeledVideoPicker(edge: edge, selection: videoTypeBinding(edge), values: videoTypes(for: edge))
                     if hasLinkedAudio && !isWipe(videoTypeBinding(edge).wrappedValue) {
@@ -120,8 +129,6 @@ struct AddTransitionView: View {
                     labeledAudioPicker(edge: edge, selection: audioTypeBinding(edge), values: audioTypes(for: edge))
                 }
                 TransitionDurationField(text: durationBinding(edge))
-            }
-            .padding(.top, 4)
         }
     }
 

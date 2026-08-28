@@ -34,6 +34,15 @@ struct ExternalMediaOpenRoutingTests {
         #expect(ExternalMediaOpenCoordinator.route(for: url, hasActiveProject: false) == .ignore)
     }
 
+    @Test func externalEventConditionsCoverMediaWithoutClaimingProjectDocuments() {
+        let conditions = ExternalMediaOpenCoordinator.mediaExternalEventConditions
+
+        #expect(conditions.contains(".mov"))
+        #expect(conditions.contains(".m4a"))
+        #expect(conditions.contains(".mkv"))
+        #expect(!conditions.contains(".trimato"))
+    }
+
     @MainActor
     @Test func finderOpenUsesTheMostRecentlyActiveRegisteredProject() {
         let firstAsset = fixtureAsset(name: "First", duration: 5)

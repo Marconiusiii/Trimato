@@ -215,6 +215,44 @@ struct MultiTrackTimelineTests {
         #expect(controller.timelineFocusRestoreTarget == .transition(transitionID))
     }
 
+    @Test @MainActor func keyboardTrackSwitchRequestsTheClipAtTheSharedPlayhead() throws {
+        var audio = fixtureAsset(name: "Music", duration: 10)
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [audio]
+        let firstTrackID = project.createTrack(kind: .audio, name: "Dialogue")
+        let secondTrackID = project.createTrack(kind: .audio, name: "Music")
+        let clipID = try project.append(asset: audio, segments: [segment(0, 4)], toTrack: secondTrackID)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = firstTrackID
+
+        controller.selectAdjacentTrack(1)
+
+        #expect(controller.activeTimelineTrackID == secondTrackID)
+        #expect(controller.timelineFocusRestoreTarget == .clip(clipID))
+        #expect(controller.timelineFocusRestoreRequest == 1)
+    }
+
+    @Test @MainActor func keyboardTrackSwitchRequestsTheTrackPickerForAnEmptyTrack() throws {
+        var audio = fixtureAsset(name: "Dialogue", duration: 10)
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [audio]
+        let firstTrackID = project.createTrack(kind: .audio, name: "Dialogue")
+        let secondTrackID = project.createTrack(kind: .audio, name: "Music")
+        _ = try project.append(asset: audio, segments: [segment(0, 4)], toTrack: firstTrackID)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = firstTrackID
+
+        controller.selectAdjacentTrack(1)
+
+        #expect(controller.activeTimelineTrackID == secondTrackID)
+        #expect(controller.timelineTrackPickerFocusRestoreRequest == 1)
+        #expect(controller.timelineFocusRestoreRequest == 0)
+    }
+
     @Test func ffmpegFiltersUseAccessibleEditorValues() {
         let settings = AudioClipSettings(
             gainDecibels: 3,

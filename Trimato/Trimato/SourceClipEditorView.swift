@@ -12,6 +12,8 @@ struct SourceClipEditorView: View {
     @State private var preparationTask: Task<Void, Never>?
     @State private var cacheOwnerID = UUID()
     @State private var selectedTrackID: UUID?
+    @State private var placementFocusReturn: PlacementAction?
+    @AccessibilityFocusState private var focusedPlacementControl: PlacementAction?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -35,12 +37,15 @@ struct SourceClipEditorView: View {
                     Button(PlacementAction.append.title) { place(.append) }
                         .keyboardShortcut("e", modifiers: [])
                         .disabled(!commandContext.canPlace)
+                        .accessibilityFocused($focusedPlacementControl, equals: .append)
                     Button(PlacementAction.insert.title) { place(.insert) }
                         .keyboardShortcut("w", modifiers: [])
                         .disabled(!commandContext.canPlace)
+                        .accessibilityFocused($focusedPlacementControl, equals: .insert)
                     Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
                         .keyboardShortcut("d", modifiers: [])
                         .disabled(!commandContext.canPlace)
+                        .accessibilityFocused($focusedPlacementControl, equals: .replaceRemainder)
                     Menu("Insert on Top") {
                         Button("With Source Audio") { place(.cutawaySourceAudio) }
                             .keyboardShortcut("q", modifiers: [])
@@ -64,27 +69,35 @@ struct SourceClipEditorView: View {
                 commandContext?.isKeyWindow == true
             }
             loadIfNeeded()
+            restorePlacementControlFocus(to: .append)
         }
         .onChange(of: viewModel.placementSourceSegments) { segments in
             guard loadedAssetID == asset.id else { return }
             commandContext.setSegments(segments)
         }
-        .sheet(item: $commandContext.trackPlacementAction) { action in
+        .onChange(of: commandContext.focusRequest) {
+            restorePlacementControlFocus(to: .append)
+        }
+        .sheet(item: $commandContext.trackPlacementAction, onDismiss: restorePlacementControlFocus) { action in
             VStack(alignment: .leading, spacing: 16) {
                 Text(action.title)
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
-                Picker("Track", selection: $selectedTrackID) {
-                    ForEach(compatibleTracks) { track in
-                        Text(track.name).tag(Optional(track.id))
+                Form {
+                    Picker("Track", selection: $selectedTrackID) {
+                        ForEach(compatibleTracks) { track in
+                            Text(track.name).tag(Optional(track.id))
+                        }
+                    }
+                    Section("Create a Track") {
+                        Button("New Audio Track") { createAndPlace(kind: .audio, action: action) }
+                            .disabled(!asset.hasAudio)
+                        Button("New Video Track") { createAndPlace(kind: .video, action: action) }
+                            .disabled(!asset.hasVideo)
                     }
                 }
-                HStack {
-                    Button("New Audio Track") { createAndPlace(kind: .audio, action: action) }
-                        .disabled(!asset.hasAudio)
-                    Button("New Video Track") { createAndPlace(kind: .video, action: action) }
-                        .disabled(!asset.hasVideo)
-                }
+                .formStyle(.grouped)
+                .frame(height: 190)
                 HStack {
                     Button("Cancel", role: .cancel) { commandContext.trackPlacementAction = nil }
                     Button("Place") {
@@ -98,7 +111,10 @@ struct SourceClipEditorView: View {
             }
             .padding(20)
             .frame(width: 420)
-            .onAppear { selectedTrackID = compatibleTracks.first?.id }
+            .onAppear {
+                placementFocusReturn = action
+                selectedTrackID = compatibleTracks.first?.id
+            }
         }
         .onDisappear {
             preparationTask?.cancel()
@@ -163,6 +179,22 @@ struct SourceClipEditorView: View {
         controller.place(action, editing: editSelection, segments: commandContext.segments, onTrack: trackID)
         commandContext.trackPlacementAction = nil
     }
+
+    private func restorePlacementControlFocus() {
+        guard let target = placementFocusReturn else { return }
+        placementFocusReturn = nil
+        restorePlacementControlFocus(to: target)
+    }
+
+    private func restorePlacementControlFocus(to target: PlacementAction) {
+        focusedPlacementControl = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            focusedPlacementControl = target
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            focusedPlacementControl = target
+        }
+    }
 }
 
 private struct AudioClipControlsView: View {
@@ -202,9 +234,12 @@ private struct AudioClipControlsView: View {
     }
 
     private func valueField(_ label: String, value: Binding<Double>, suffix: String) -> some View {
-        HStack {
-            TextField(label, value: value, format: .number.precision(.fractionLength(0...1)))
-            Text(suffix).foregroundStyle(.secondary)
+        LabeledContent(label) {
+            HStack {
+                TextField(label, value: value, format: .number.precision(.fractionLength(0...1)))
+                    .labelsHidden()
+                Text(suffix).foregroundStyle(.secondary)
+            }
         }
     }
 }

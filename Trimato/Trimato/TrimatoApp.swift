@@ -200,9 +200,9 @@ struct TrimatoApp: App {
         WindowGroup("Clip Editor", for: URL.self) { $url in
             if let url {
                 StandaloneClipEditorView(url: url)
-                    .handlesTrimatoMediaOpening()
             }
         }
+        .handlesExternalEvents(matching: ExternalMediaOpenCoordinator.mediaExternalEventConditions)
         .defaultSize(width: 940, height: 760)
 
         Window("About Trimato", id: "about") {

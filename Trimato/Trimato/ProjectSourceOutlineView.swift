@@ -34,6 +34,12 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         outline.menuForSelectedRow = { [weak coordinator = context.coordinator] in
             coordinator?.contextMenuForSelectedRow()
         }
+        outline.canPasteFiles = { [weak coordinator = context.coordinator] in
+            coordinator?.pasteboardFileURLs().isEmpty == false
+        }
+        outline.pasteFiles = { [weak coordinator = context.coordinator] in
+            coordinator?.pasteFilesFromFinder()
+        }
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -200,6 +206,16 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                     editing: .asset(assetID),
                     segments: asset.sourceEdit
                 )
+            case .placeOnTrack(let assetID, let placement, let trackID):
+                selectSourceAsset(assetID)
+                guard let asset = parent.controller.project.asset(id: assetID),
+                      let clipID = parent.controller.place(
+                        placement,
+                        editing: .asset(assetID),
+                        segments: asset.sourceEdit,
+                        onTrack: trackID
+                      ) else { return }
+                parent.controller.requestTimelineFocusRestore(to: .clip(clipID))
             case .move(let assetID, let folderID):
                 selectSourceAsset(assetID)
                 parent.controller.moveAsset(assetID, toFolder: folderID)
@@ -247,6 +263,30 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                 for placement in PlacementAction.allCases {
                     menu.addItem(menuItem(placement.title, command: .place(assetID, placement)))
                 }
+                if let asset = parent.controller.project.asset(id: assetID) {
+                    menu.addItem(.separator())
+                    for placement in [PlacementAction.append, .insert, .replaceRemainder] {
+                        let trackItem = NSMenuItem(
+                            title: "\(placement.title) to Track",
+                            action: nil,
+                            keyEquivalent: ""
+                        )
+                        let trackMenu = NSMenu()
+                        let tracks = parent.controller.project.tracks.filter { track in
+                            (track.kind == .video && asset.hasVideo) ||
+                                (track.kind == .audio && asset.hasAudio)
+                        }
+                        for track in tracks {
+                            trackMenu.addItem(menuItem(
+                                track.name,
+                                command: .placeOnTrack(assetID, placement, track.id)
+                            ))
+                        }
+                        trackItem.submenu = trackMenu
+                        trackItem.isEnabled = !tracks.isEmpty
+                        menu.addItem(trackItem)
+                    }
+                }
                 menu.addItem(.separator())
 
                 let moveItem = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
@@ -273,6 +313,36 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                 return nil
             }
             return contextMenu(for: item.id)
+        }
+
+        func pasteboardFileURLs() -> [URL] {
+            let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+            return NSPasteboard.general.readObjects(
+                forClasses: [NSURL.self],
+                options: options
+            ) as? [URL] ?? []
+        }
+
+        func pasteFilesFromFinder() {
+            let urls = pasteboardFileURLs()
+            guard !urls.isEmpty else { return }
+            parent.controller.importFiles(at: urls, into: selectedDestinationFolderID())
+        }
+
+        private func selectedDestinationFolderID() -> UUID? {
+            guard let outlineView,
+                  outlineView.selectedRow >= 0,
+                  let item = outlineView.item(atRow: outlineView.selectedRow) as? ProjectSourceNode else {
+                return nil
+            }
+            switch item.id {
+            case .folder(let folderID):
+                return folderID
+            case .asset(let assetID):
+                return parent.controller.project.folders.first { $0.assetIDs.contains(assetID) }?.id
+            case .project, .timeline, .clips:
+                return nil
+            }
         }
 
         private func menuItem(
@@ -445,6 +515,19 @@ private extension NSUserInterfaceItemIdentifier {
 
 private final class ProjectSourceOutline: NSOutlineView {
     var menuForSelectedRow: (() -> NSMenu?)?
+    var canPasteFiles: (() -> Bool)?
+    var pasteFiles: (() -> Void)?
+
+    @IBAction func paste(_ sender: Any?) {
+        pasteFiles?()
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(paste(_:)) {
+            return canPasteFiles?() == true
+        }
+        return super.validateUserInterfaceItem(item)
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let location = convert(event.locationInWindow, from: nil)
@@ -484,6 +567,7 @@ private final class ProjectSourceLabel: NSTextField {
 private enum ProjectSourceMenuCommand {
     case open(UUID)
     case place(UUID, PlacementAction)
+    case placeOnTrack(UUID, PlacementAction, UUID)
     case move(UUID, UUID?)
     case relink(UUID)
     case importClips(UUID?)
