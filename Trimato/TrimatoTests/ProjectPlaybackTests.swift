@@ -102,6 +102,23 @@ struct ProjectPlaybackTests {
         #expect(label == "Frame 45")
     }
 
+    @Test func editNavigationCalloutReplacesTheCompetingPlainTimecodeValue() {
+        let callout = "Video edit point, 5 seconds"
+
+        #expect(ProjectPlayerViewModel.accessibilityTimeValue(
+            time: ProjectTime(seconds: 5),
+            showingFrames: false,
+            frameRate: 30,
+            navigationCallout: callout
+        ) == callout)
+        #expect(ProjectPlayerViewModel.accessibilityTimeValue(
+            time: ProjectTime(seconds: 5),
+            showingFrames: false,
+            frameRate: 30,
+            navigationCallout: nil
+        ) == "5 seconds, 0 milliseconds")
+    }
+
     @Test func frameSteppingUsesTheProjectRateAndStopsAtProjectBoundaries() {
         let duration = ProjectTime(seconds: 10)
 

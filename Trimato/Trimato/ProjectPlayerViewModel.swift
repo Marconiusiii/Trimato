@@ -123,6 +123,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var arrowHolding = false
     private var scrubTask: Task<Void, Never>?
     private var stepEndTask: Task<Void, Never>?
+    private var navigationAccessibilityCallout: String?
     private var frameStepPosition: ProjectTime?
     private var isScrubbing = false
     private var isSteppingFrames = false
@@ -467,6 +468,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func togglePlayback() {
         guard canControlPlayback else { return }
+        clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         if isPlaying {
             stop()
@@ -477,29 +479,34 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func seek(to time: ProjectTime) {
+        clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         seekPrecisely(to: time)
     }
 
     func seek(toFraction fraction: Double) {
         guard projectDuration > .zero else { return }
+        clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         seekPrecisely(to: ProjectTime(seconds: min(max(fraction, 0), 1) * projectDuration.seconds))
     }
 
     func toggleTimecodeDisplay() {
+        clearNavigationAccessibilityCallout()
         showingFrames.toggle()
         refreshAccessibilityTimecode()
     }
 
     func markIn() {
         guard canControlPlayback else { return }
+        clearNavigationAccessibilityCallout()
         inMarker = currentTime
         announce("In marked at \(Self.accessibilityTimeLabel(time: currentTime, showingFrames: false, frameRate: projectFrameRate))")
     }
 
     func markOut() {
         guard canControlPlayback else { return }
+        clearNavigationAccessibilityCallout()
         outMarker = currentTime
         announce("Out marked at \(Self.accessibilityTimeLabel(time: currentTime, showingFrames: false, frameRate: projectFrameRate))")
     }
@@ -517,17 +524,20 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func seekBackward() {
+        clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         seekPrecisely(to: max(currentTime - ProjectTime(seconds: 10), .zero))
     }
 
     func seekForward() {
+        clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         seekPrecisely(to: min(currentTime + ProjectTime(seconds: 10), projectDuration))
     }
 
     func pressJ() {
         guard canControlPlayback else { return }
+        clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         jklIndex = jklIndex > 0 ? -1 : max(jklIndex - 1, -jklSpeeds.count)
         applyJKLRate()
@@ -539,6 +549,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func pressL() {
         guard canControlPlayback else { return }
+        clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         jklIndex = jklIndex < 0 ? 1 : min(jklIndex + 1, jklSpeeds.count)
         applyJKLRate()
@@ -554,6 +565,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func arrowHeld(forward: Bool) {
         guard canControlPlayback else { return }
+        clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         if !arrowHolding {
             arrowHolding = true
@@ -620,6 +632,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func stepFrame(forward: Bool) {
         guard canControlPlayback, !arrowHolding else { return }
+        clearNavigationAccessibilityCallout()
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         scheduleStepEnd()
@@ -653,8 +666,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func navigate(to destination: ProjectTime) {
         cancelFrameStepping()
-        seekPrecisely(to: destination)
-        announce(Self.navigationAnnouncement(
+        setNavigationAccessibilityCallout(Self.navigationAnnouncement(
             destination: destination,
             duration: projectDuration,
             inMarker: inMarker,
@@ -662,6 +674,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             frameRate: projectFrameRate,
             editPoint: editPoints.first { $0.time == destination }
         ))
+        seekPrecisely(to: destination)
     }
 
     private func updateDisplayedTime(_ time: ProjectTime) {
@@ -723,11 +736,22 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func refreshAccessibilityTimecode() {
-        accessibilityTimecodeLabel = Self.accessibilityTimeLabel(
+        let value = Self.accessibilityTimeValue(
             time: currentTime,
             showingFrames: showingFrames,
-            frameRate: projectFrameRate
+            frameRate: projectFrameRate,
+            navigationCallout: navigationAccessibilityCallout
         )
+        guard accessibilityTimecodeLabel != value else { return }
+        accessibilityTimecodeLabel = value
+    }
+
+    private func setNavigationAccessibilityCallout(_ callout: String) {
+        navigationAccessibilityCallout = callout
+    }
+
+    private func clearNavigationAccessibilityCallout() {
+        navigationAccessibilityCallout = nil
     }
 
     private func announce(_ message: String) {
@@ -763,6 +787,19 @@ final class ProjectPlayerViewModel: ObservableObject {
         components.append("\(seconds) second\(seconds == 1 ? "" : "s")")
         components.append("\(remainder) millisecond\(remainder == 1 ? "" : "s")")
         return components.joined(separator: ", ")
+    }
+
+    nonisolated static func accessibilityTimeValue(
+        time: ProjectTime,
+        showingFrames: Bool,
+        frameRate: Double,
+        navigationCallout: String?
+    ) -> String {
+        navigationCallout ?? accessibilityTimeLabel(
+            time: time,
+            showingFrames: showingFrames,
+            frameRate: frameRate
+        )
     }
 
     nonisolated static func frameStepDestination(
