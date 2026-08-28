@@ -233,7 +233,7 @@ struct MultiTrackTimelineTests {
         #expect(controller.timelineListFocusRestoreRequest == 1)
         #expect(controller.timelineFocusRestoreRequest == 0)
         #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
-        #expect(TimelineAccessibility.clipsListValue(trackName: "Music") == "Music track")
+        #expect(TimelineAccessibility.clipsListLabel(trackName: "Music") == "Timeline Clips, Music track")
     }
 
     @Test @MainActor func keyboardTrackSwitchRequestsTheTimelineListForAnEmptyTrack() throws {
@@ -254,6 +254,96 @@ struct MultiTrackTimelineTests {
         #expect(controller.timelineListFocusRestoreRequest == 1)
         #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
         #expect(controller.timelineFocusRestoreRequest == 0)
+    }
+
+    @Test func timelineElementIdentifiersResolveTheActualFocusedControl() {
+        let clipID = UUID()
+        let transitionID = UUID()
+
+        #expect(TimelineElementAccessibilityIdentifier.selection(
+            from: TimelineElementAccessibilityIdentifier.clip(clipID)
+        ) == .clip(clipID))
+        #expect(TimelineElementAccessibilityIdentifier.selection(
+            from: TimelineElementAccessibilityIdentifier.transition(transitionID)
+        ) == .transition(transitionID))
+        #expect(TimelineElementAccessibilityIdentifier.selection(from: "trimato.timeline.clips") == nil)
+    }
+
+    @Test func timelineKeyboardCommandsRecognizeDeleteAndControlEnter() {
+        #expect(TimelineKeyboardCommand.resolve(
+            keyCode: 51,
+            controlOnly: false,
+            hasAnyModifiers: false
+        ) == .delete)
+        #expect(TimelineKeyboardCommand.resolve(
+            keyCode: 117,
+            controlOnly: false,
+            hasAnyModifiers: false
+        ) == .delete)
+        #expect(TimelineKeyboardCommand.resolve(
+            keyCode: 36,
+            controlOnly: true,
+            hasAnyModifiers: true
+        ) == .openContextMenu)
+        #expect(TimelineKeyboardCommand.resolve(
+            keyCode: 51,
+            controlOnly: false,
+            hasAnyModifiers: true
+        ) == .none)
+    }
+
+    @Test func clipDeletionConfirmationIsNamedAndExplainsUndo() {
+        #expect(TimelineClipDeletionConfirmation.title == "Delete Clip?")
+        #expect(TimelineClipDeletionConfirmation.message(clipName: "Interview") ==
+                "Remove Interview from the timeline? This can be undone.")
+    }
+
+    @Test func clipDeletionFocusChoosesTheNextThenPreviousElement() throws {
+        var audio = fixtureAsset(name: "Music", duration: 12)
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [audio]
+        let trackID = project.createTrack(kind: .audio, name: "Music")
+        let firstID = try project.append(asset: audio, segments: [segment(0, 4)], toTrack: trackID)
+        let middleID = try project.append(asset: audio, segments: [segment(4, 4)], toTrack: trackID)
+        let lastID = try project.append(asset: audio, segments: [segment(8, 4)], toTrack: trackID)
+        let track = try #require(project.track(id: trackID))
+        let elements = TimelineElementSequence.elements(track: track, transitions: [])
+
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(firstID, from: elements) == .clip(middleID))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(middleID, from: elements) == .clip(lastID))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(lastID, from: elements) == .clip(middleID))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(
+            firstID,
+            from: [TimelineListElement(content: .clip(try #require(project.timelineClip(id: firstID))))]
+        ) == nil)
+    }
+
+    @Test func clipDeletionFocusSkipsTransitionsRemovedWithTheClip() throws {
+        var audio = fixtureAsset(name: "Music", duration: 8)
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [audio]
+        let trackID = project.createTrack(kind: .audio, name: "Music")
+        let firstID = try project.append(asset: audio, segments: [segment(0, 4)], toTrack: trackID)
+        let secondID = try project.append(asset: audio, segments: [segment(4, 4)], toTrack: trackID)
+        let transition = TimelineTransition(
+            trackID: trackID,
+            edge: .between,
+            kind: .audio(.crossFade),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: firstID,
+            trailingClipID: secondID
+        )
+        let elements = [
+            TimelineListElement(content: .clip(try #require(project.timelineClip(id: firstID)))),
+            TimelineListElement(content: .transition(transition)),
+            TimelineListElement(content: .clip(try #require(project.timelineClip(id: secondID)))),
+        ]
+
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(firstID, from: elements) == .clip(secondID))
     }
 
     @Test func ffmpegFiltersUseAccessibleEditorValues() {

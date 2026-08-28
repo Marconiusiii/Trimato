@@ -2,9 +2,20 @@ import AppKit
 import SwiftUI
 
 nonisolated enum TimelineAccessibility {
-    static func clipsListValue(trackName: String?) -> String {
-        guard let trackName else { return "No track selected" }
-        return "\(trackName) track"
+    static func clipsListLabel(trackName: String?) -> String {
+        guard let trackName else { return "Timeline Clips" }
+        return "Timeline Clips, \(trackName) track"
+    }
+}
+
+nonisolated enum TimelineClipDeletionConfirmation {
+    static let title = "Delete Clip?"
+
+    static func message(clipName: String?) -> String {
+        guard let clipName else {
+            return "Remove this clip from the timeline? This can be undone."
+        }
+        return "Remove \(clipName) from the timeline? This can be undone."
     }
 }
 
@@ -23,6 +34,7 @@ struct ProjectTimelineView: View {
     @State private var isAddingTrack = false
     @State private var editingTransition: TimelineTransition?
     @State private var transitionFocusReturn: TimelineElementSelection?
+    @State private var clipPendingDeletion: TimelineClip?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -133,6 +145,12 @@ struct ProjectTimelineView: View {
         } message: {
             Text(errorMessage ?? "The timeline could not be updated.")
         }
+        .alert(TimelineClipDeletionConfirmation.title, isPresented: deleteClipConfirmationPresented) {
+            Button("Cancel", role: .cancel) { cancelClipDeletion() }
+            Button("Delete Clip", role: .destructive) { confirmClipDeletion() }
+        } message: {
+            Text(deleteClipConfirmationMessage)
+        }
     }
 
     @ViewBuilder
@@ -169,10 +187,13 @@ struct ProjectTimelineView: View {
     }
 
     private var timelineScrollView: some View {
-        List {
+        ScrollView {
+            LazyVStack(spacing: 8) {
             if timelineElements.isEmpty {
                 Text("No clips on this track")
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
             } else {
                 ForEach(timelineElements) { element in
                     switch element.content {
@@ -183,10 +204,10 @@ struct ProjectTimelineView: View {
                     }
                 }
             }
+            }
+            .padding(8)
         }
-        .listStyle(.inset)
-        .accessibilityLabel("Timeline Clips")
-        .accessibilityValue(timelineListAccessibilityValue)
+        .accessibilityLabel(timelineListAccessibilityLabel)
         .accessibilityIdentifier("trimato.timeline.clips")
         .accessibilityFocused($timelineListFocused)
     }
@@ -227,8 +248,8 @@ struct ProjectTimelineView: View {
         )
     }
 
-    private var timelineListAccessibilityValue: String {
-        TimelineAccessibility.clipsListValue(trackName: controller.activeTimelineTrack?.name)
+    private var timelineListAccessibilityLabel: String {
+        TimelineAccessibility.clipsListLabel(trackName: controller.activeTimelineTrack?.name)
     }
 
     private func clipButton(_ clip: TimelineClip) -> some View {
@@ -260,6 +281,7 @@ struct ProjectTimelineView: View {
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.separator))
         .accessibilityLabel(clip.displayName)
         .accessibilityValue(currentSelection == .clip(clip.id) ? "Current clip" : "")
+        .accessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(clip.id))
         .accessibilityFocused($focusedElement, equals: .clip(clip.id))
         .contextMenu { clipActions(clip) }
     }
@@ -285,6 +307,7 @@ struct ProjectTimelineView: View {
         .background(selectionBackground(.transition(transition.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.accent.opacity(0.75)))
         .accessibilityLabel(transition.displayName)
+        .accessibilityIdentifier(TimelineElementAccessibilityIdentifier.transition(transition.id))
         .accessibilityFocused($focusedElement, equals: .transition(transition.id))
         .contextMenu {
             Button("Edit Transition…") { beginEditingTransition(transition) }
@@ -383,8 +406,9 @@ struct ProjectTimelineView: View {
     }
 
     private func deleteTimelineClip(_ id: UUID) {
+        guard let clip = controller.project.timelineClip(id: id) else { return }
         controller.selection = .timelineClip(id)
-        controller.deleteSelection()
+        clipPendingDeletion = clip
     }
 
     private func deleteTimelineTransition(_ id: UUID) {
@@ -410,9 +434,46 @@ struct ProjectTimelineView: View {
         Button("Move Copied Clip After") { controller.moveCopiedTimelineClip(after: clip.id) }
         Divider()
         Button("Delete from Timeline", role: .destructive) {
-            controller.selection = .timelineClip(clip.id)
-            controller.deleteSelection()
+            deleteTimelineClip(clip.id)
         }
+    }
+
+    private var deleteClipConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { clipPendingDeletion != nil },
+            set: { presented in
+                if !presented, clipPendingDeletion != nil {
+                    cancelClipDeletion()
+                }
+            }
+        )
+    }
+
+    private var deleteClipConfirmationMessage: String {
+        TimelineClipDeletionConfirmation.message(clipName: clipPendingDeletion?.displayName)
+    }
+
+    private func cancelClipDeletion() {
+        guard let clip = clipPendingDeletion else { return }
+        clipPendingDeletion = nil
+        restoreTimelineElementFocus(to: .clip(clip.id))
+    }
+
+    private func confirmClipDeletion() {
+        guard let clip = clipPendingDeletion else { return }
+        let focusTarget = fallbackFocusAfterDeletingClip(clip.id)
+        clipPendingDeletion = nil
+        controller.selection = .timelineClip(clip.id)
+        controller.deleteSelection()
+        if let focusTarget {
+            restoreTimelineElementFocus(to: focusTarget)
+        } else {
+            restoreTimelineListFocus()
+        }
+    }
+
+    private func fallbackFocusAfterDeletingClip(_ id: UUID) -> TimelineElementSelection? {
+        TimelineElementSequence.focusTargetAfterDeletingClip(id, from: timelineElements)
     }
 
     private var renameClipSheet: some View {
@@ -589,6 +650,30 @@ struct TimelineListElement: Identifiable, Equatable {
 extension TimelineListElement.Content: Equatable {}
 
 enum TimelineElementSequence {
+    static func focusTargetAfterDeletingClip(
+        _ clipID: UUID,
+        from elements: [TimelineListElement]
+    ) -> TimelineElementSelection? {
+        guard let index = elements.firstIndex(where: {
+            if case .clip(let clip) = $0.content { return clip.id == clipID }
+            return false
+        }) else { return nil }
+        let remaining = elements.enumerated().compactMap { offset, element -> TimelineListElement? in
+            guard offset != index else { return nil }
+            if case .transition(let transition) = element.content,
+               transition.leadingClipID == clipID || transition.trailingClipID == clipID {
+                return nil
+            }
+            return element
+        }
+        guard !remaining.isEmpty else { return nil }
+        let targetIndex = min(index, remaining.count - 1)
+        switch remaining[targetIndex].content {
+        case .clip(let clip): return .clip(clip.id)
+        case .transition(let transition): return .transition(transition.id)
+        }
+    }
+
     static func transitions(
         for track: TimelineTrack,
         in project: TrimatoProject

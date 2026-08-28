@@ -4,6 +4,21 @@ import Testing
 
 @Suite("Clip editor sessions")
 struct ClipEditorSessionTests {
+    @Test func spaceRemainsAvailableToNativeClipEditorControls() {
+        #expect(ClipEditorKeyboardRouting.reservesSpace(
+            isEditableText: false,
+            accessibilityActions: ["AXPress"]
+        ))
+        #expect(ClipEditorKeyboardRouting.reservesSpace(
+            isEditableText: true,
+            accessibilityActions: []
+        ))
+        #expect(!ClipEditorKeyboardRouting.reservesSpace(
+            isEditableText: false,
+            accessibilityActions: ["AXIncrement", "AXDecrement"]
+        ))
+    }
+
     @Test func editorNamesDistinguishAudioFromVideo() {
         #expect(ClipEditorMediaKind.name(hasVideo: false) == "Audio Clip Editor")
         #expect(ClipEditorMediaKind.name(hasVideo: true) == "Video Clip Editor")

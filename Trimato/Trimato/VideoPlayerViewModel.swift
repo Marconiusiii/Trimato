@@ -19,6 +19,30 @@ enum AudioPreviewPlaybackError: LocalizedError {
     }
 }
 
+nonisolated enum ClipEditorKeyboardRouting {
+    static func reservesSpace(isEditableText: Bool, accessibilityActions: [String]) -> Bool {
+        isEditableText || accessibilityActions.contains("AXPress")
+    }
+
+    @MainActor
+    static func focusedControlReservesSpace(in window: NSWindow?) -> Bool {
+        let resolvedWindow = window ?? NSApp.keyWindow
+        let isEditableText = (resolvedWindow?.firstResponder as? NSTextView)?.isEditable == true
+        if isEditableText { return true }
+        if resolvedWindow?.firstResponder is NSControl { return true }
+        guard let focusedElement = NSApp.accessibilityFocusedUIElement as? NSObject else { return false }
+        let actionSelector = NSSelectorFromString("accessibilityActionNames")
+        guard focusedElement.responds(to: actionSelector) else { return false }
+        let rawActions: [String]
+        if let actions = focusedElement.value(forKey: "accessibilityActionNames") as? [NSAccessibility.Action] {
+            rawActions = actions.map(\.rawValue)
+        } else {
+            rawActions = focusedElement.value(forKey: "accessibilityActionNames") as? [String] ?? []
+        }
+        return reservesSpace(isEditableText: false, accessibilityActions: rawActions)
+    }
+}
+
 @MainActor
 enum StandaloneClipProjectBuilder {
     static func build(
@@ -1188,6 +1212,9 @@ final class VideoPlayerViewModel: ObservableObject {
                     return nil
                 case 49: // Space — toggle, ignore repeat
                     guard unmodified else { return event }
+                    guard !ClipEditorKeyboardRouting.focusedControlReservesSpace(in: event.window) else {
+                        return event
+                    }
                     if !event.isARepeat { self.togglePlayPause() }
                     return nil
                 case 123: // Left arrow
