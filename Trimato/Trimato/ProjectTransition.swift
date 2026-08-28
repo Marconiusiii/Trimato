@@ -84,3 +84,23 @@ nonisolated struct TransitionRequest: Identifiable, Equatable, Sendable {
     var clipID: UUID
     var mode: Mode
 }
+
+nonisolated struct TransitionPresentedError: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    let title: String
+    let message: String
+
+    static func invalidSettings(_ message: String) -> TransitionPresentedError {
+        TransitionPresentedError(title: "Check transition settings", message: message)
+    }
+
+    static func applicationFailed(
+        transitionName: String,
+        message: String
+    ) -> TransitionPresentedError {
+        TransitionPresentedError(
+            title: "\(transitionName) could not be applied",
+            message: message
+        )
+    }
+}

@@ -12,10 +12,9 @@ struct QuickTransitionView: View {
     @State private var addOutro = true
     @State private var includeAudio = true
     @State private var durationText = TransitionDurationInput.defaultText
-    @State private var validationMessage: String?
+    @State private var presentedError: TransitionPresentedError?
     @State private var isSubmitting = false
     @State private var submissionTask: Task<Void, Never>?
-    @AccessibilityFocusState private var validationMessageFocused: Bool
     @AccessibilityFocusState private var progressFocused: Bool
 
     var body: some View {
@@ -45,6 +44,13 @@ struct QuickTransitionView: View {
         }
         .interactiveDismissDisabled(isSubmitting)
         .onDisappear { submissionTask?.cancel() }
+        .alert(item: $presentedError) { error in
+            Alert(
+                title: Text(error.title),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
     private var form: some View {
@@ -67,12 +73,6 @@ struct QuickTransitionView: View {
             }
 
             TransitionDurationField(text: $durationText)
-
-            if let validationMessage {
-                Text(validationMessage)
-                    .foregroundStyle(.red)
-                    .accessibilityFocused($validationMessageFocused)
-            }
 
             HStack {
                 Button("Cancel", role: .cancel, action: finished)
@@ -196,17 +196,16 @@ struct QuickTransitionView: View {
                 submissionTask = nil
                 progressFocused = false
                 isSubmitting = false
-                showValidation("Transition could not be added. \(error.localizedDescription)")
+                presentedError = .applicationFailed(
+                    transitionName: transitionName,
+                    message: error.localizedDescription
+                )
             }
         }
     }
 
     private func showValidation(_ message: String) {
-        validationMessageFocused = false
-        validationMessage = message
-        DispatchQueue.main.async {
-            validationMessageFocused = true
-        }
+        presentedError = .invalidSettings(message)
     }
 
     private func fade(

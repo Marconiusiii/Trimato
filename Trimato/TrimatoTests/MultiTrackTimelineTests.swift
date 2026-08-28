@@ -374,6 +374,19 @@ struct MultiTrackTimelineTests {
         ) == "Applying Cross Fade, 40 percent")
     }
 
+    @Test func transitionFailuresUseSpecificNativeDialogContent() {
+        let validation = TransitionPresentedError.invalidSettings("Enter a valid duration.")
+        let application = TransitionPresentedError.applicationFailed(
+            transitionName: "Cross Dissolve",
+            message: "The preview could not be prepared."
+        )
+
+        #expect(validation.title == "Check transition settings")
+        #expect(validation.message == "Enter a valid duration.")
+        #expect(application.title == "Cross Dissolve could not be applied")
+        #expect(application.message == "The preview could not be prepared.")
+    }
+
     @Test func timelineElementsPlaceCrossTransitionsBetweenTheirClips() throws {
         let asset = fixtureAsset(name: "Interview", duration: 15)
         var project = TrimatoProject(name: "Three clips")

@@ -455,6 +455,40 @@ struct ProjectPlaybackTests {
             }
         }
         #expect(hasOverlappingTransitionTrack)
+
+        let viewModel = ProjectPlayerViewModel()
+        var progressValues: [Double] = []
+        try await viewModel.prepareTransitionPreview(
+            project: project,
+            mediaURLs: [leadingAsset.id: leadingURL, trailingAsset.id: trailingURL],
+            initialTime: ProjectTime(seconds: 0.75),
+            progress: { progressValues.append($0) }
+        )
+
+        #expect(viewModel.player.currentItem != nil)
+        #expect(!viewModel.isPreparing)
+        #expect(progressValues.last == 1)
+    }
+
+    @Test @MainActor func transitionPreviewUsesSeparatePlayerItemsForStagingAndCommit() {
+        let videoComposition = AVMutableVideoComposition()
+        videoComposition.renderSize = CGSize(width: 320, height: 180)
+        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+        let result = ProjectCompositionResult(
+            composition: AVMutableComposition(),
+            videoComposition: videoComposition,
+            audioMix: AVMutableAudioMix(),
+            temporaryMediaURLs: []
+        )
+
+        let stagedItem = ProjectPlayerViewModel.makeTransitionPreviewItem(from: result)
+        let committedItem = ProjectPlayerViewModel.makeTransitionPreviewItem(from: result)
+
+        #expect(stagedItem !== committedItem)
+        #expect(stagedItem.videoComposition != nil)
+        #expect(committedItem.videoComposition != nil)
+        #expect(stagedItem.audioMix != nil)
+        #expect(committedItem.audioMix != nil)
     }
 
     @Test @MainActor func emptyProjectSupersedesEarlierPreviewPreparation() async throws {

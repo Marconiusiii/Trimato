@@ -17,11 +17,10 @@ struct AddTransitionView: View {
     @State private var outroDuration = TransitionDurationInput.defaultText
     @State private var includeIntroAudio = false
     @State private var includeOutroAudio = false
-    @State private var validationMessage: String?
+    @State private var presentedError: TransitionPresentedError?
     @State private var isSubmitting = false
     @State private var submissionTask: Task<Void, Never>?
     @AccessibilityFocusState private var focusedPicker: TransitionPickerFocus?
-    @AccessibilityFocusState private var validationMessageFocused: Bool
     @AccessibilityFocusState private var progressFocused: Bool
 
     var body: some View {
@@ -51,6 +50,13 @@ struct AddTransitionView: View {
         }
         .interactiveDismissDisabled(isSubmitting)
         .onDisappear { submissionTask?.cancel() }
+        .alert(item: $presentedError) { error in
+            Alert(
+                title: Text(error.title),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
     private var form: some View {
@@ -66,12 +72,6 @@ struct AddTransitionView: View {
 
             Toggle("Outro", isOn: $addOutro)
             if addOutro { transitionControls(edge: .outro) }
-
-            if let validationMessage {
-                Text(validationMessage)
-                    .foregroundStyle(.red)
-                    .accessibilityFocused($validationMessageFocused)
-            }
 
             HStack {
                 Button("Cancel", role: .cancel, action: cancel)
@@ -251,15 +251,16 @@ struct AddTransitionView: View {
                 submissionTask = nil
                 progressFocused = false
                 isSubmitting = false
-                showValidation("Transition could not be added. \(error.localizedDescription)")
+                presentedError = .applicationFailed(
+                    transitionName: applicationName,
+                    message: error.localizedDescription
+                )
             }
         }
     }
 
     private func showValidation(_ message: String) {
-        validationMessageFocused = false
-        validationMessage = message
-        DispatchQueue.main.async { validationMessageFocused = true }
+        presentedError = .invalidSettings(message)
     }
 
     private func makeTransitions(edge: TimelineTransitionEdge, duration: ProjectTime) -> [TimelineTransition] {

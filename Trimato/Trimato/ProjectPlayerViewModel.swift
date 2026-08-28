@@ -301,6 +301,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         var pendingTemporaryMediaURLs: [URL] = []
         let previousPlayerItem = player.currentItem
         var replacedPlayerItem = false
+        var stagingPlayer: AVPlayer?
         do {
             let result = try await ProjectCompositionBuilder.build(
                 project: project,
@@ -312,28 +313,33 @@ final class ProjectPlayerViewModel: ObservableObject {
             try Task.checkCancellation()
             guard preparationID == requestID else { throw CancellationError() }
 
-            let item = AVPlayerItem(asset: result.composition)
-            item.videoComposition = result.videoComposition
-            item.audioMix = result.audioMix
+            let stagedItem = Self.makeTransitionPreviewItem(from: result)
             let duration = project.duration
             let boundedInitialTime = min(max(initialTime, .zero), duration)
-            let stagedPlayer = AVPlayer(playerItem: item)
+            let stagedPlayer = AVPlayer(playerItem: stagedItem)
+            stagingPlayer = stagedPlayer
             stagedPlayer.automaticallyWaitsToMinimizeStalling = false
-            try await waitUntilReadyToPlay(item)
+            try await waitUntilReadyToPlay(stagedItem)
             try await seekForTransitionPreview(
                 player: stagedPlayer,
                 to: boundedInitialTime.cmTime,
                 toleranceBefore: .zero,
                 toleranceAfter: .zero
             )
-            guard item.status == .readyToPlay else {
-                throw item.error ?? ProjectTimelineError.transitionNotAvailable(
+            guard stagedItem.status == .readyToPlay else {
+                throw stagedItem.error ?? ProjectTimelineError.transitionNotAvailable(
                     "The transition preview could not be prepared for playback."
                 )
             }
+            try Task.checkCancellation()
+            guard preparationID == requestID else { throw CancellationError() }
             stagedPlayer.replaceCurrentItem(with: nil)
-            player.replaceCurrentItem(with: item)
+            stagingPlayer = nil
+
+            let committedItem = Self.makeTransitionPreviewItem(from: result)
+            player.replaceCurrentItem(with: committedItem)
             replacedPlayerItem = true
+            try await waitUntilReadyToPlay(committedItem)
             progress(0.95)
             try await seekForTransitionPreview(
                 player: player,
@@ -354,6 +360,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             isPreparing = false
             progress(1)
         } catch {
+            stagingPlayer?.replaceCurrentItem(with: nil)
             if replacedPlayerItem {
                 player.replaceCurrentItem(with: previousPlayerItem)
             }
@@ -361,6 +368,15 @@ final class ProjectPlayerViewModel: ObservableObject {
             if preparationID == requestID { isPreparing = false }
             throw error
         }
+    }
+
+    static func makeTransitionPreviewItem(
+        from result: ProjectCompositionResult
+    ) -> AVPlayerItem {
+        let item = AVPlayerItem(asset: result.composition)
+        item.videoComposition = result.videoComposition
+        item.audioMix = result.audioMix
+        return item
     }
 
     private func waitUntilReadyToPlay(_ item: AVPlayerItem) async throws {
