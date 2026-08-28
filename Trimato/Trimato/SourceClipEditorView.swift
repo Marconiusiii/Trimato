@@ -25,39 +25,35 @@ struct SourceClipEditorView: View {
     @AccessibilityFocusState private var focusedPlacementControl: PlacementAction?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if controller.resolveURL(for: asset) == nil {
-                    Text("This media file is offline. Relink it before editing.")
-                        .padding()
-                } else {
-                    ClipEditorPane("Playback") {
-                        ContentView(
-                            viewModel: viewModel,
-                            allowsFileOpening: false,
-                            accessibilityFocusRequest: commandContext.focusRequest
-                        )
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            if controller.resolveURL(for: asset) == nil {
+                Text("This media file is offline. Relink it before editing.")
+                    .padding()
+            } else {
+                ContentView(
+                    viewModel: viewModel,
+                    allowsFileOpening: false,
+                    editorHeading: ClipEditorMediaKind.name(hasVideo: asset.hasVideo),
+                    accessibilityFocusRequest: commandContext.focusRequest
+                )
 
-                    if commandContext.audioSettings != nil {
-                        ClipEditorPane("Audio Filters") {
-                            AudioClipControlsView(commandContext: commandContext)
-                                .padding(12)
-                            if let audioPreviewProgress {
-                                ProgressView(value: audioPreviewProgress) {
-                                    Text("Updating Audio Preview")
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.bottom, 12)
-                            }
+                if commandContext.audioSettings != nil {
+                    AudioClipControlsView(commandContext: commandContext)
+                        .padding(.horizontal, 20)
+                    if let audioPreviewProgress {
+                        ProgressView(value: audioPreviewProgress) {
+                            Text("Updating Audio Preview")
                         }
-                    }
-
-                    ClipEditorPane("Clip Placement") {
-                        placementControls
-                            .padding(12)
+                        .padding(.horizontal, 20)
                     }
                 }
+
+                ClipExportControlsView(viewModel: viewModel)
+                    .padding(.horizontal, 20)
+
+                placementControls
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
             }
         }
         .onAppear {
@@ -300,32 +296,77 @@ private struct AudioClipControlsView: View {
     @ObservedObject var commandContext: ClipPlacementCommandContext
 
     var body: some View {
-        Form {
-            Section("Level") {
-                valueField("Gain", value: binding(\.gainDecibels), suffix: "dB")
-            }
-            Section("Equalizer") {
-                valueField("Low EQ", value: binding(\.lowGainDecibels), suffix: "dB")
-                valueField("Mid EQ", value: binding(\.midGainDecibels), suffix: "dB")
-                valueField("High EQ", value: binding(\.highGainDecibels), suffix: "dB")
-            }
-            Section("Filters") {
-                Toggle("High-pass filter", isOn: binding(\.highPassEnabled))
-                if commandContext.audioSettings?.highPassEnabled == true {
-                    valueField("High-pass frequency", value: binding(\.highPassFrequency), suffix: "Hz")
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 16) {
+                    audioSlider(
+                        "Gain",
+                        value: binding(\.gainDecibels),
+                        range: AudioClipControlSpecification.gainRange,
+                        step: AudioClipControlSpecification.decibelStep,
+                        identifier: "gain"
+                    )
+                    audioSlider(
+                        "Low EQ",
+                        value: binding(\.lowGainDecibels),
+                        range: AudioClipControlSpecification.equalizerRange,
+                        step: AudioClipControlSpecification.decibelStep,
+                        identifier: "low-eq"
+                    )
+                    audioSlider(
+                        "Mid EQ",
+                        value: binding(\.midGainDecibels),
+                        range: AudioClipControlSpecification.equalizerRange,
+                        step: AudioClipControlSpecification.decibelStep,
+                        identifier: "mid-eq"
+                    )
+                    audioSlider(
+                        "High EQ",
+                        value: binding(\.highGainDecibels),
+                        range: AudioClipControlSpecification.equalizerRange,
+                        step: AudioClipControlSpecification.decibelStep,
+                        identifier: "high-eq"
+                    )
                 }
-                Toggle("Low-pass filter", isOn: binding(\.lowPassEnabled))
-                if commandContext.audioSettings?.lowPassEnabled == true {
-                    valueField("Low-pass frequency", value: binding(\.lowPassFrequency), suffix: "Hz")
+
+                HStack(spacing: 18) {
+                    Toggle("Reduce low rumble", isOn: binding(\.highPassEnabled))
+                    Toggle("Reduce high-frequency hiss", isOn: binding(\.lowPassEnabled))
+                    Spacer()
+                    Button("Reset Audio") { commandContext.resetAudioSettings() }
+                        .disabled(commandContext.audioSettings?.isNeutral != false)
                 }
             }
-            Section {
-                Button("Reset Audio") { commandContext.resetAudioSettings() }
-                    .disabled(commandContext.audioSettings?.isNeutral != false)
-            }
+            .padding(.top, 4)
+        } label: {
+            Text("Audio Filters").accessibilityHidden(true)
         }
-        .formStyle(.grouped)
-        .frame(minHeight: 360)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Audio Filters")
+        .accessibilityIdentifier("trimato.clip-editor.audio-filters")
+    }
+
+    private func audioSlider(
+        _ label: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double,
+        identifier: String
+    ) -> some View {
+        HStack(spacing: 6) {
+            Slider(value: value, in: range, step: step) {
+                Text(label)
+            }
+            .accessibilityValue(AudioClipControlSpecification.spokenDecibels(value.wrappedValue))
+            .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.audioSlider(identifier))
+
+            Text(AudioClipControlSpecification.visibleDecibels(value.wrappedValue))
+                .monospacedDigit()
+                .frame(minWidth: 44, alignment: .trailing)
+                .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func binding<T>(_ keyPath: WritableKeyPath<AudioClipSettings, T>) -> Binding<T> {
@@ -338,40 +379,19 @@ private struct AudioClipControlsView: View {
             }
         )
     }
-
-    private func valueField(_ label: String, value: Binding<Double>, suffix: String) -> some View {
-        LabeledContent(label) {
-            HStack {
-                TextField(label, value: value, format: .number.precision(.fractionLength(0...1)))
-                    .labelsHidden()
-                Text(suffix).foregroundStyle(.secondary)
-            }
-        }
-    }
 }
 
-private struct ClipEditorPane<Content: View>: View {
-    let name: String
-    private let content: Content
+nonisolated enum AudioClipControlSpecification {
+    static let gainRange = -60.0...12.0
+    static let equalizerRange = -12.0...12.0
+    static let decibelStep = 1.0
 
-    init(_ name: String, @ViewBuilder content: () -> Content) {
-        self.name = name
-        self.content = content()
+    static func visibleDecibels(_ value: Double) -> String {
+        "\(Int(value.rounded())) dB"
     }
 
-    var body: some View {
-        MacEditorPane(name) {
-            VStack(spacing: 0) {
-                Text(name)
-                    .font(.headline)
-                    .accessibilityAddTraits(.isHeader)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(EditorTheme.controlSurface)
-                Divider()
-                content
-            }
-        }
+    static func spokenDecibels(_ value: Double) -> String {
+        let rounded = Int(value.rounded())
+        return "\(rounded) decibel\(abs(rounded) == 1 ? "" : "s")"
     }
 }

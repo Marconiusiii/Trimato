@@ -19,6 +19,37 @@ struct ClipEditorSessionTests {
         ))
     }
 
+    @Test func arrowKeysAdjustOnlyTheAudioFilterSliders() {
+        let adjustableActions = ["AXIncrement", "AXDecrement"]
+        #expect(ClipEditorKeyboardRouting.reservesArrowKeys(
+            accessibilityIdentifier: ClipEditorAccessibilityIdentifier.audioSlider("gain"),
+            accessibilityActions: adjustableActions
+        ))
+        #expect(!ClipEditorKeyboardRouting.reservesArrowKeys(
+            accessibilityIdentifier: ClipEditorAccessibilityIdentifier.playhead,
+            accessibilityActions: adjustableActions
+        ))
+        #expect(!ClipEditorKeyboardRouting.reservesArrowKeys(
+            accessibilityIdentifier: ClipEditorAccessibilityIdentifier.audioSlider("gain"),
+            accessibilityActions: ["AXPress"]
+        ))
+    }
+
+    @Test func clipPlayheadUsesFrameOrAudioTimeSteps() {
+        #expect(VideoPlayerViewModel.playbackFractionStep(duration: 10, frameRate: 25) == 0.004)
+        #expect(VideoPlayerViewModel.playbackFractionStep(duration: 10, frameRate: 0) == 0.01)
+        #expect(VideoPlayerViewModel.playbackFractionStep(duration: 0, frameRate: 25) == 1)
+    }
+
+    @Test func audioFilterSlidersUsePlainBoundedDecibelControls() {
+        #expect(AudioClipControlSpecification.gainRange == -60...12)
+        #expect(AudioClipControlSpecification.equalizerRange == -12...12)
+        #expect(AudioClipControlSpecification.decibelStep == 1)
+        #expect(AudioClipControlSpecification.visibleDecibels(-1) == "-1 dB")
+        #expect(AudioClipControlSpecification.spokenDecibels(1) == "1 decibel")
+        #expect(AudioClipControlSpecification.spokenDecibels(-2) == "-2 decibels")
+    }
+
     @Test func editorNamesDistinguishAudioFromVideo() {
         #expect(ClipEditorMediaKind.name(hasVideo: false) == "Audio Clip Editor")
         #expect(ClipEditorMediaKind.name(hasVideo: true) == "Video Clip Editor")

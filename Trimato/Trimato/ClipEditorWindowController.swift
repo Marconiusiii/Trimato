@@ -230,7 +230,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         self.commandContext = commandContext
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 940, height: 760),
+            contentRect: NSRect(x: 0, y: 0, width: 1080, height: 920),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -240,7 +240,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         window.collectionBehavior.insert(.participatesInCycle)
         window.isExcludedFromWindowsMenu = false
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 700, height: 600)
+        window.minSize = NSSize(width: 900, height: 760)
         window.center()
         super.init(window: window)
         window.delegate = self
@@ -326,15 +326,13 @@ private struct ClipEditorWindowView: View {
     @ObservedObject var commandContext: ClipPlacementCommandContext
 
     var body: some View {
-        MacEditorPane(ClipEditorMediaKind.name(hasVideo: asset.hasVideo)) {
-            SourceClipEditorView(
-                controller: controller,
-                asset: asset,
-                editSelection: editSelection,
-                initialSegments: initialSegments,
-                commandContext: commandContext
-            )
-        }
+        SourceClipEditorView(
+            controller: controller,
+            asset: asset,
+            editSelection: editSelection,
+            initialSegments: initialSegments,
+            commandContext: commandContext
+        )
         .focusedObject(controller)
         .focusedObject(commandContext)
         .alert("Clip Could Not Be Updated", isPresented: Binding(
@@ -347,6 +345,6 @@ private struct ClipEditorWindowView: View {
         } message: {
             Text(commandContext.updateErrorMessage ?? "The timeline clip could not be updated.")
         }
-        .frame(minWidth: 700, minHeight: 600)
+        .frame(minWidth: 900, minHeight: 760)
     }
 }

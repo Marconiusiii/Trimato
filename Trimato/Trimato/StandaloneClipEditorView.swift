@@ -57,34 +57,37 @@ struct StandaloneClipEditorView: View {
     }
 
     var body: some View {
-        MacEditorPane(editorName) {
-            VStack(spacing: 0) {
-                ContentView(
-                    viewModel: viewModel,
-                    allowsFileOpening: false,
-                    accessibilityFocusRequest: 1
-                )
+        VStack(spacing: 0) {
+            ContentView(
+                viewModel: viewModel,
+                allowsFileOpening: false,
+                editorHeading: editorName,
+                accessibilityFocusRequest: 1
+            )
 
-                Divider()
+            Divider()
 
-                HStack {
-                    Button("Create Project from Clip") {
-                        commandContext.createProject()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!commandContext.canCreateProject)
-
-                    if commandContext.isCreatingProject {
-                        ProgressView("Creating Project")
-                            .controlSize(.small)
-                    }
-
-                    Spacer()
-                }
+            ClipExportControlsView(viewModel: viewModel)
                 .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(EditorTheme.controlSurface)
+                .padding(.top, 12)
+
+            HStack {
+                Button("Create Project from Clip") {
+                    commandContext.createProject()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!commandContext.canCreateProject)
+
+                if commandContext.isCreatingProject {
+                    ProgressView("Creating Project")
+                        .controlSize(.small)
+                }
+
+                Spacer()
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(EditorTheme.controlSurface)
         }
         .focusedObject(viewModel)
         .focusedObject(commandContext)

@@ -20,6 +20,12 @@ enum AudioPreviewPlaybackError: LocalizedError {
 }
 
 nonisolated enum ClipEditorKeyboardRouting {
+    static func reservesArrowKeys(accessibilityIdentifier: String?, accessibilityActions: [String]) -> Bool {
+        ClipEditorAccessibilityIdentifier.isAudioSlider(accessibilityIdentifier) &&
+            accessibilityActions.contains("AXIncrement") &&
+            accessibilityActions.contains("AXDecrement")
+    }
+
     static func reservesSpace(isEditableText: Bool, accessibilityActions: [String]) -> Bool {
         isEditableText || accessibilityActions.contains("AXPress")
     }
@@ -29,17 +35,52 @@ nonisolated enum ClipEditorKeyboardRouting {
         let resolvedWindow = window ?? NSApp.keyWindow
         let isEditableText = (resolvedWindow?.firstResponder as? NSTextView)?.isEditable == true
         if isEditableText { return true }
-        if resolvedWindow?.firstResponder is NSControl { return true }
-        guard let focusedElement = NSApp.accessibilityFocusedUIElement as? NSObject else { return false }
+        return reservesSpace(
+            isEditableText: false,
+            accessibilityActions: focusedAccessibilityInfo().actions
+        )
+    }
+
+    @MainActor
+    static func focusedControlReservesArrowKeys() -> Bool {
+        let info = focusedAccessibilityInfo()
+        return reservesArrowKeys(
+            accessibilityIdentifier: info.identifier,
+            accessibilityActions: info.actions
+        )
+    }
+
+    @MainActor
+    private static func focusedAccessibilityInfo() -> (identifier: String?, actions: [String]) {
+        guard let focusedElement = NSApp.accessibilityFocusedUIElement as? NSObject else {
+            return (nil, [])
+        }
         let actionSelector = NSSelectorFromString("accessibilityActionNames")
-        guard focusedElement.responds(to: actionSelector) else { return false }
+        let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
+        let identifier = focusedElement.responds(to: identifierSelector)
+            ? focusedElement.value(forKey: "accessibilityIdentifier") as? String
+            : nil
+        guard focusedElement.responds(to: actionSelector) else { return (identifier, []) }
         let rawActions: [String]
         if let actions = focusedElement.value(forKey: "accessibilityActionNames") as? [NSAccessibility.Action] {
             rawActions = actions.map(\.rawValue)
         } else {
             rawActions = focusedElement.value(forKey: "accessibilityActionNames") as? [String] ?? []
         }
-        return reservesSpace(isEditableText: false, accessibilityActions: rawActions)
+        return (identifier, rawActions)
+    }
+}
+
+nonisolated enum ClipEditorAccessibilityIdentifier {
+    static let playhead = "trimato.clip-editor.playhead"
+    private static let audioSliderPrefix = "trimato.clip-editor.audio-slider."
+
+    static func audioSlider(_ name: String) -> String {
+        audioSliderPrefix + name
+    }
+
+    static func isAudioSlider(_ identifier: String?) -> Bool {
+        identifier?.hasPrefix(audioSliderPrefix) == true
     }
 }
 
@@ -177,6 +218,19 @@ final class VideoPlayerViewModel: ObservableObject {
     var inMarkerDisplay: String {
         guard let inMarker else { return "Not set" }
         return Self.formatTimecode(inMarker)
+    }
+
+    var playbackFractionStep: Double {
+        Self.playbackFractionStep(
+            duration: duration,
+            frameRate: Double(frameRate)
+        )
+    }
+
+    nonisolated static func playbackFractionStep(duration: Double, frameRate: Double) -> Double {
+        guard duration.isFinite, duration > 0 else { return 1 }
+        let timeStep = frameRate.isFinite && frameRate > 0 ? 1 / frameRate : 0.1
+        return min(max(timeStep / duration, 0.000_001), 1)
     }
 
     var outMarkerDisplay: String {
@@ -1219,11 +1273,13 @@ final class VideoPlayerViewModel: ObservableObject {
                     return nil
                 case 123: // Left arrow
                     guard unmodified else { return event }
+                    guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
                     if event.isARepeat { self.arrowHeld(forward: false) }
                     else               { self.stepBackward() }
                     return nil
                 case 124: // Right arrow
                     guard unmodified else { return event }
+                    guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
                     if event.isARepeat { self.arrowHeld(forward: true) }
                     else               { self.stepForward() }
                     return nil
@@ -1244,7 +1300,10 @@ final class VideoPlayerViewModel: ObservableObject {
 
             case .keyUp:
                 switch event.keyCode {
-                case 123, 124: self.arrowKeyUp(); return nil
+                case 123, 124:
+                    guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
+                    self.arrowKeyUp()
+                    return nil
                 default: return event
                 }
 

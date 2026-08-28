@@ -4,22 +4,34 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject private var viewModel: VideoPlayerViewModel
     private let allowsFileOpening: Bool
+    private let editorHeading: String?
     private let accessibilityFocusRequest: Int
-    @AccessibilityFocusState private var playButtonFocused: Bool
+    @AccessibilityFocusState private var clipPlayheadFocused: Bool
     @State private var pendingPlaybackFocus = false
 
     init(
         viewModel: VideoPlayerViewModel,
         allowsFileOpening: Bool = true,
+        editorHeading: String? = nil,
         accessibilityFocusRequest: Int = 0
     ) {
         self.viewModel = viewModel
         self.allowsFileOpening = allowsFileOpening
+        self.editorHeading = editorHeading
         self.accessibilityFocusRequest = accessibilityFocusRequest
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            if let editorHeading {
+                Text(editorHeading)
+                    .font(.title2)
+                    .accessibilityAddTraits(.isHeader)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(EditorTheme.controlSurface)
+            }
             videoArea
             controlsArea
         }
@@ -131,6 +143,7 @@ struct ContentView: View {
             if viewModel.hasMedia {
                 if viewModel.hasVideo {
                     VideoPlayerView(player: viewModel.player)
+                        .accessibilityHidden(true)
                 } else {
                     AudioWaveformView(
                         samples: viewModel.waveformSamples,
@@ -180,105 +193,17 @@ struct ContentView: View {
                         get: { viewModel.duration > 0 ? viewModel.currentTime / viewModel.duration : 0 },
                         set: { viewModel.seek(to: $0) }
                     ),
-                    in: 0...1
+                    in: 0...1,
+                    step: viewModel.playbackFractionStep
                 )
-                // Hidden from VoiceOver: SwiftUI posts NSAccessibilityValueChangedNotification
-                // every time the bound value updates (60×/sec during playback), causing VoiceOver
-                // to announce the percentage on every tick regardless of focus.
-                .accessibilityHidden(true)
+                .accessibilityLabel("Clip playhead")
+                .accessibilityValue(viewModel.accessibilityTimecodeLabel)
+                .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.playhead)
+                .accessibilityFocused($clipPlayheadFocused)
             }
 
-            // Timecode / frame toggle button.
-            //
-            // The spoken timecode is put in .accessibilityLabel (NSAccessibilityTitleAttribute).
-            // macOS VoiceOver does NOT auto-announce title-attribute changes the way it does
-            // value-attribute changes (.accessibilityValue triggers NSAccessibilityValueChangedNotification,
-            // causing an earcon per update). The label is read only when VoiceOver focuses this element.
-            Button { viewModel.toggleTimecodeDisplay() } label: {
-                VStack(spacing: 2) {
-                    Text(viewModel.showingFrames
-                         ? String(format: "%06d", viewModel.currentFrame)
-                         : viewModel.displayTimecode)
-                        .font(.system(.title, design: .monospaced).weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(EditorTheme.accent)
-                    Text(viewModel.showingFrames ? "FRAMES" : "TIMECODE")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityHidden(true)  // inner text hidden; button owns all AX content
-            }
-            .buttonStyle(.plain)
-            .disabled(!viewModel.hasMedia)
-            .accessibilityLabel(viewModel.accessibilityTimecodeLabel)
-            .accessibilityHint(
-                viewModel.hasVideo
-                    ? (viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
-                    : "Current playback time. Frame display is unavailable for audio-only media"
-            )
-
+            playbackControls
             markerControls
-
-            speedBadge
-
-            // Transport controls — all fully accessible to VoiceOver.
-            // Keyboard shortcuts (Space, arrows, J/K/L) go through NSEvent monitor and do NOT
-            // activate these buttons, so VoiceOver will not speak during keyboard interaction.
-            HStack(spacing: 20) {
-                Button { viewModel.stepBackward() } label: {
-                    Image(systemName: "backward.frame.fill").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.hasVideo)
-                .accessibilityLabel("Step backward one frame")
-
-                Button { viewModel.seekBackward() } label: {
-                    Image(systemName: "gobackward.10").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.hasMedia)
-                .accessibilityLabel("Skip back 10 seconds")
-
-                Button { viewModel.togglePlayPause() } label: {
-                    Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 30))
-                        .frame(width: 38)
-                }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.hasMedia)
-                .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
-                .accessibilityFocused($playButtonFocused)
-
-                Button { viewModel.seekForward() } label: {
-                    Image(systemName: "goforward.10").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.hasMedia)
-                .accessibilityLabel("Skip forward 10 seconds")
-
-                Button { viewModel.stepForward() } label: {
-                    Image(systemName: "forward.frame.fill").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.hasVideo)
-                .accessibilityLabel("Step forward one frame")
-            }
-            .foregroundStyle(EditorTheme.accent)
-            .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
-            .padding(.bottom, 8)
-
-            Button("Export Clip\u{2026}") {
-                viewModel.exportTrimmedClip()
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!viewModel.canExport)
-
-            if !viewModel.isExporting, let exportStatus = viewModel.exportStatus {
-                Text(exportStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -287,7 +212,7 @@ struct ContentView: View {
     }
 
     private var markerControls: some View {
-        GroupBox("In and Out Points") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Button("Mark In") { viewModel.markIn() }
@@ -309,22 +234,108 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 4)
+        } label: {
+            Text("Markers").accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Markers")
+        .accessibilityIdentifier("trimato.clip-editor.markers")
+    }
+
+    private var playbackControls: some View {
+        GroupBox {
+            VStack(spacing: 8) {
+                Button { viewModel.toggleTimecodeDisplay() } label: {
+                    VStack(spacing: 2) {
+                        Text(viewModel.showingFrames
+                             ? String(format: "%06d", viewModel.currentFrame)
+                             : viewModel.displayTimecode)
+                            .font(.system(.title, design: .monospaced).weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(EditorTheme.accent)
+                        Text(viewModel.showingFrames ? "FRAMES" : "TIMECODE")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+                }
+                .buttonStyle(.plain)
+                .disabled(!viewModel.hasMedia)
+                .accessibilityLabel(viewModel.accessibilityTimecodeLabel)
+                .accessibilityHint(
+                    viewModel.hasVideo
+                        ? (viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
+                        : "Current playback time. Frame display is unavailable for audio-only media"
+                )
+
+                speedBadge
+
+                HStack(spacing: 20) {
+                    Button { viewModel.stepBackward() } label: {
+                        Image(systemName: "backward.frame.fill").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!viewModel.hasVideo)
+                    .accessibilityLabel("Step backward one frame")
+
+                    Button { viewModel.seekBackward() } label: {
+                        Image(systemName: "gobackward.10").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!viewModel.hasMedia)
+                    .accessibilityLabel("Skip back 10 seconds")
+
+                    Button { viewModel.togglePlayPause() } label: {
+                        Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 30))
+                            .frame(width: 38)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!viewModel.hasMedia)
+                    .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
+
+                    Button { viewModel.seekForward() } label: {
+                        Image(systemName: "goforward.10").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!viewModel.hasMedia)
+                    .accessibilityLabel("Skip forward 10 seconds")
+
+                    Button { viewModel.stepForward() } label: {
+                        Image(systemName: "forward.frame.fill").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!viewModel.hasVideo)
+                    .accessibilityLabel("Step forward one frame")
+                }
+                .foregroundStyle(EditorTheme.accent)
+                .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
+                .padding(.bottom, 8)
+            }
+            .padding(.top, 4)
+        } label: {
+            Text("Playback").accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Playback")
+        .accessibilityIdentifier("trimato.clip-editor.playback")
     }
 
     private func requestPlaybackControlFocus() {
         pendingPlaybackFocus = true
         guard viewModel.hasMedia else { return }
-        playButtonFocused = false
+        clipPlayheadFocused = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             guard viewModel.hasMedia else { return }
-            playButtonFocused = true
+            clipPlayheadFocused = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             guard viewModel.hasMedia else { return }
-            playButtonFocused = true
+            clipPlayheadFocused = true
             pendingPlaybackFocus = false
         }
     }
@@ -342,5 +353,26 @@ struct ContentView: View {
                 .background(EditorTheme.raisedSurface, in: Capsule())
                 .accessibilityHidden(true)
         }
+    }
+}
+
+struct ClipExportControlsView: View {
+    @ObservedObject var viewModel: VideoPlayerViewModel
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Button("Export Clip\u{2026}") {
+                viewModel.exportTrimmedClip()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!viewModel.canExport)
+
+            if !viewModel.isExporting, let exportStatus = viewModel.exportStatus {
+                Text(exportStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }
