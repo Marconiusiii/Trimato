@@ -52,14 +52,23 @@ nonisolated enum TimelineTransitionEdge: String, Codable, Sendable {
 
 nonisolated struct TimelineTransition: Codable, Equatable, Hashable, Identifiable, Sendable {
     var id = UUID()
+    var bundleID: UUID?
     var trackID: UUID
     var edge: TimelineTransitionEdge
     var kind: TimelineTransitionKind
     var duration: ProjectTime
     var leadingClipID: UUID?
     var trailingClipID: UUID?
+    var customName: String?
 
     var displayName: String {
+        if let customName = normalizedCustomName {
+            return customName
+        }
+        return defaultDisplayName
+    }
+
+    var defaultDisplayName: String {
         switch kind {
         case .video(let type):
             if type == .fade { return edge == .intro ? "Fade In" : "Fade Out" }
@@ -70,6 +79,11 @@ nonisolated struct TimelineTransition: Codable, Equatable, Hashable, Identifiabl
         }
     }
 
+    var normalizedCustomName: String? {
+        guard let customName else { return nil }
+        let trimmed = customName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 nonisolated struct TransitionRequest: Identifiable, Equatable, Sendable {

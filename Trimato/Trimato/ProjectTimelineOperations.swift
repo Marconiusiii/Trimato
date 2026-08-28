@@ -415,6 +415,46 @@ extension TrimatoProject {
         transitions.append(transition)
     }
 
+    @discardableResult
+    mutating func addTransitionBatch(_ additions: [TimelineTransition]) throws -> [TimelineTransition] {
+        var candidate = self
+        let prepared = try candidate.addTransitionBatchUnchecked(additions)
+        self = candidate
+        return prepared
+    }
+
+    private mutating func addTransitionBatchUnchecked(
+        _ additions: [TimelineTransition]
+    ) throws -> [TimelineTransition] {
+        ensureTrackModel()
+        var prepared = additions
+        assignBundleIDs(to: &prepared)
+
+        for index in prepared.indices {
+            var transition = prepared[index]
+            if let existingIndex = transitions.firstIndex(where: {
+                $0.trackID == transition.trackID &&
+                    $0.leadingClipID == transition.leadingClipID &&
+                    $0.trailingClipID == transition.trailingClipID
+            }) {
+                let existing = transitions[existingIndex]
+                guard canAdoptLegacyTransition(existing, as: transition, within: prepared) else {
+                    throw ProjectTimelineError.transitionNotAvailable("A transition already exists at this edit.")
+                }
+                guard let track = track(id: transition.trackID) else {
+                    throw ProjectTimelineError.trackNotFound
+                }
+                try validateTransition(transition, on: track)
+                transition.id = existing.id
+                transitions[existingIndex] = transition
+                prepared[index] = transition
+            } else {
+                try addTransition(transition)
+            }
+        }
+        return prepared
+    }
+
     mutating func updateTransition(_ transition: TimelineTransition) throws {
         guard let index = transitions.firstIndex(where: { $0.id == transition.id }),
               let track = track(id: transition.trackID) else {
@@ -425,7 +465,102 @@ extension TrimatoProject {
     }
 
     mutating func removeTransition(id: UUID) {
-        transitions.removeAll { $0.id == id }
+        guard let transition = transitions.first(where: { $0.id == id }) else { return }
+        if let bundleID = transition.bundleID {
+            transitions.removeAll { $0.bundleID == bundleID }
+            return
+        }
+        let legacyCounterpartIDs = Set(transitions.compactMap { candidate -> UUID? in
+            guard candidate.id != transition.id,
+                  candidate.bundleID == nil,
+                  transition.normalizedCustomName == nil,
+                  candidate.normalizedCustomName == nil,
+                  transitionsCanShareBundle(transition, candidate) else { return nil }
+            return candidate.id
+        })
+        transitions.removeAll { $0.id == id || legacyCounterpartIDs.contains($0.id) }
+    }
+
+    private mutating func assignBundleIDs(to transitions: inout [TimelineTransition]) {
+        for videoIndex in transitions.indices {
+            guard case .video = transitions[videoIndex].kind else { continue }
+            for audioIndex in transitions.indices where audioIndex != videoIndex {
+                guard transitionsCanShareBundle(transitions[videoIndex], transitions[audioIndex]) else { continue }
+                let bundleID = transitions[videoIndex].bundleID ?? transitions[audioIndex].bundleID ?? UUID()
+                transitions[videoIndex].bundleID = bundleID
+                transitions[audioIndex].bundleID = bundleID
+                break
+            }
+        }
+    }
+
+    private func canAdoptLegacyTransition(
+        _ existing: TimelineTransition,
+        as replacement: TimelineTransition,
+        within additions: [TimelineTransition]
+    ) -> Bool {
+        guard existing.bundleID == nil,
+              existing.normalizedCustomName == nil,
+              existing.kind == replacement.kind,
+              existing.duration == replacement.duration,
+              let bundleID = replacement.bundleID else { return false }
+        return additions.contains { candidate in
+            candidate.id != replacement.id && candidate.bundleID == bundleID
+        }
+    }
+
+    private func transitionsCanShareBundle(
+        _ first: TimelineTransition,
+        _ second: TimelineTransition
+    ) -> Bool {
+        let video: TimelineTransition
+        let audio: TimelineTransition
+        switch (first.kind, second.kind) {
+        case (.video, .audio):
+            video = first
+            audio = second
+        case (.audio, .video):
+            video = second
+            audio = first
+        default:
+            return false
+        }
+        guard video.edge == audio.edge,
+              video.duration == audio.duration,
+              transitionKindsAreLinked(video.kind, audio.kind),
+              linkedClipIDs(video.leadingClipID, audio.leadingClipID),
+              linkedClipIDs(video.trailingClipID, audio.trailingClipID) else { return false }
+        return true
+    }
+
+    private func transitionKindsAreLinked(
+        _ videoKind: TimelineTransitionKind,
+        _ audioKind: TimelineTransitionKind
+    ) -> Bool {
+        guard case .video(let videoType) = videoKind,
+              case .audio(let audioType) = audioKind else { return false }
+        switch videoType {
+        case .fade:
+            return audioType == .fade
+        case .fadeOutIn:
+            return audioType == .fadeOutIn
+        case .crossDissolve:
+            return audioType == .crossFade
+        case .wipeLeft, .wipeRight, .wipeUp, .wipeDown:
+            return false
+        }
+    }
+
+    private func linkedClipIDs(_ videoClipID: UUID?, _ audioClipID: UUID?) -> Bool {
+        switch (videoClipID, audioClipID) {
+        case (nil, nil):
+            return true
+        case (.some(let videoClipID), .some(let audioClipID)):
+            return timelineClip(id: videoClipID)?.linkedClipID == audioClipID &&
+                timelineClip(id: audioClipID)?.linkedClipID == videoClipID
+        default:
+            return false
+        }
     }
 
     private func validateTransition(_ transition: TimelineTransition, on track: TimelineTrack) throws {

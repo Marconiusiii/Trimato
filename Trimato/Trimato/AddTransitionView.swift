@@ -131,20 +131,12 @@ struct AddTransitionView: View {
         selection: Binding<VideoTransitionType>,
         values: [VideoTransitionType]
     ) -> some View {
-        HStack(spacing: 8) {
-            Text("Type")
-                .accessibilityHidden(true)
-            Picker(selection: pickerBinding(selection, edge: edge)) {
-                ForEach(values) { value in
-                    Text(value.title).tag(value)
-                }
-            } label: {
-                Text("Type")
+        Picker("Transition Type", selection: pickerBinding(selection, edge: edge)) {
+            ForEach(values) { value in
+                Text(value.title).tag(value)
             }
-            .labelsHidden()
-            .accessibilityLabel("Type")
-            .accessibilityFocused($focusedPicker, equals: pickerFocus(for: edge))
         }
+        .accessibilityFocused($focusedPicker, equals: pickerFocus(for: edge))
     }
 
     private func labeledAudioPicker(
@@ -152,20 +144,12 @@ struct AddTransitionView: View {
         selection: Binding<AudioTransitionType>,
         values: [AudioTransitionType]
     ) -> some View {
-        HStack(spacing: 8) {
-            Text("Type")
-                .accessibilityHidden(true)
-            Picker(selection: pickerBinding(selection, edge: edge)) {
-                ForEach(values) { value in
-                    Text(value.title).tag(value)
-                }
-            } label: {
-                Text("Type")
+        Picker("Transition Type", selection: pickerBinding(selection, edge: edge)) {
+            ForEach(values) { value in
+                Text(value.title).tag(value)
             }
-            .labelsHidden()
-            .accessibilityLabel("Type")
-            .accessibilityFocused($focusedPicker, equals: pickerFocus(for: edge))
         }
+        .accessibilityFocused($focusedPicker, equals: pickerFocus(for: edge))
     }
 
     private func pickerBinding<Value>(_ binding: Binding<Value>, edge: TimelineTransitionEdge) -> Binding<Value> {

@@ -63,6 +63,158 @@ struct MultiTrackTimelineTests {
         #expect(project.timelineClip(id: secondID)?.timelineStart == ProjectTime(seconds: 5))
     }
 
+    @Test func linkedVideoAndAudioTransitionsShareADeletedBundle() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let leadingVideoID = try project.append(asset: asset, segments: [segment(2, 5)])
+        let trailingVideoID = try project.append(asset: asset, segments: [segment(10, 5)])
+        let videoTrack = try #require(project.tracks.first { $0.role == .primaryVideo })
+        let audioTrack = try #require(project.tracks.first { $0.role == .primaryAudio })
+        let leadingAudioID = try #require(project.timelineClip(id: leadingVideoID)?.linkedClipID)
+        let trailingAudioID = try #require(project.timelineClip(id: trailingVideoID)?.linkedClipID)
+        let video = TimelineTransition(
+            trackID: videoTrack.id,
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 2),
+            leadingClipID: leadingVideoID,
+            trailingClipID: trailingVideoID
+        )
+        let audio = TimelineTransition(
+            trackID: audioTrack.id,
+            edge: .between,
+            kind: .audio(.crossFade),
+            duration: ProjectTime(seconds: 2),
+            leadingClipID: leadingAudioID,
+            trailingClipID: trailingAudioID
+        )
+
+        let added = try project.addTransitionBatch([video, audio])
+
+        let bundleID = try #require(added.first?.bundleID)
+        #expect(added.allSatisfy { $0.bundleID == bundleID })
+        #expect(project.transitions.count == 2)
+
+        project.removeTransition(id: video.id)
+
+        #expect(project.transitions.isEmpty)
+    }
+
+    @Test func pairedAdditionAdoptsACompatibleOrphanedAudioTransition() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let leadingVideoID = try project.append(asset: asset, segments: [segment(2, 5)])
+        let trailingVideoID = try project.append(asset: asset, segments: [segment(10, 5)])
+        let videoTrack = try #require(project.tracks.first { $0.role == .primaryVideo })
+        let audioTrack = try #require(project.tracks.first { $0.role == .primaryAudio })
+        let leadingAudioID = try #require(project.timelineClip(id: leadingVideoID)?.linkedClipID)
+        let trailingAudioID = try #require(project.timelineClip(id: trailingVideoID)?.linkedClipID)
+        let orphanedAudio = TimelineTransition(
+            trackID: audioTrack.id,
+            edge: .between,
+            kind: .audio(.crossFade),
+            duration: ProjectTime(seconds: 2),
+            leadingClipID: leadingAudioID,
+            trailingClipID: trailingAudioID
+        )
+        try project.addTransition(orphanedAudio)
+        let video = TimelineTransition(
+            trackID: videoTrack.id,
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 2),
+            leadingClipID: leadingVideoID,
+            trailingClipID: trailingVideoID
+        )
+        let replacementAudio = TimelineTransition(
+            trackID: audioTrack.id,
+            edge: .between,
+            kind: .audio(.crossFade),
+            duration: ProjectTime(seconds: 2),
+            leadingClipID: leadingAudioID,
+            trailingClipID: trailingAudioID
+        )
+
+        let added = try project.addTransitionBatch([video, replacementAudio])
+
+        #expect(project.transitions.count == 2)
+        #expect(added[1].id == orphanedAudio.id)
+        #expect(added[0].bundleID != nil)
+        #expect(added[0].bundleID == added[1].bundleID)
+    }
+
+    @Test func aNamedAudioTransitionIsNotAdoptedAsALegacyOrphan() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let leadingVideoID = try project.append(asset: asset, segments: [segment(2, 5)])
+        let trailingVideoID = try project.append(asset: asset, segments: [segment(10, 5)])
+        let videoTrack = try #require(project.tracks.first { $0.role == .primaryVideo })
+        let audioTrack = try #require(project.tracks.first { $0.role == .primaryAudio })
+        let leadingAudioID = try #require(project.timelineClip(id: leadingVideoID)?.linkedClipID)
+        let trailingAudioID = try #require(project.timelineClip(id: trailingVideoID)?.linkedClipID)
+        let independentAudio = TimelineTransition(
+            trackID: audioTrack.id,
+            edge: .between,
+            kind: .audio(.crossFade),
+            duration: ProjectTime(seconds: 2),
+            leadingClipID: leadingAudioID,
+            trailingClipID: trailingAudioID,
+            customName: "Independent Audio Blend"
+        )
+        try project.addTransition(independentAudio)
+        let video = TimelineTransition(
+            trackID: videoTrack.id,
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 2),
+            leadingClipID: leadingVideoID,
+            trailingClipID: trailingVideoID
+        )
+        let audio = TimelineTransition(
+            trackID: audioTrack.id,
+            edge: .between,
+            kind: .audio(.crossFade),
+            duration: ProjectTime(seconds: 2),
+            leadingClipID: leadingAudioID,
+            trailingClipID: trailingAudioID
+        )
+
+        #expect(throws: ProjectTimelineError.transitionNotAvailable("A transition already exists at this edit.")) {
+            try project.addTransitionBatch([video, audio])
+        }
+        #expect(project.transitions == [independentAudio])
+    }
+
+    @Test func transitionDisplayNameUsesAnEditableNameWithATypeFallback() {
+        var transition = TimelineTransition(
+            trackID: UUID(),
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: UUID(),
+            trailingClipID: UUID()
+        )
+
+        #expect(transition.displayName == "Cross Dissolve")
+        transition.customName = "  First Interview Blend  "
+        #expect(transition.displayName == "First Interview Blend")
+        transition.customName = "   "
+        #expect(transition.displayName == "Cross Dissolve")
+    }
+
+    @Test @MainActor func timelineFocusRequestsRetainTheExactTransitionTarget() {
+        let controller = ProjectController(document: ProjectDocument())
+        let transitionID = UUID()
+
+        controller.requestTimelineFocusRestore(to: .transition(transitionID))
+
+        #expect(controller.timelineFocusRestoreRequest == 1)
+        #expect(controller.timelineFocusRestoreTarget == .transition(transitionID))
+    }
+
     @Test func ffmpegFiltersUseAccessibleEditorValues() {
         let settings = AudioClipSettings(
             gainDecibels: 3,

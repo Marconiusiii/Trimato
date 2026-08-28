@@ -73,6 +73,10 @@ struct ProjectTimelineView: View {
         .onChange(of: controller.activeTimelineTrackID) {
             focusedElement = nil
         }
+        .onChange(of: controller.timelineFocusRestoreRequest) {
+            guard let target = controller.timelineFocusRestoreTarget else { return }
+            restoreTimelineElementFocus(to: target)
+        }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
         .sheet(isPresented: $isAddingTrack) {
@@ -127,7 +131,7 @@ struct ProjectTimelineView: View {
                     renameClip: beginRenamingClip,
                     deleteClip: deleteTimelineClip,
                     editTransition: editTransition,
-                    deleteTransition: controller.deleteTransition,
+                    deleteTransition: deleteTimelineTransition,
                     copyClip: controller.copyTimelineClip,
                     pasteClipAfter: controller.pasteCopiedTimelineClip,
                     moveClipAfter: controller.moveCopiedTimelineClip
@@ -161,6 +165,7 @@ struct ProjectTimelineView: View {
             }
             .padding(8)
         }
+        .accessibilityLabel("Timeline Clips")
         .accessibilityIdentifier("trimato.timeline.clips")
     }
 
@@ -251,12 +256,11 @@ struct ProjectTimelineView: View {
         .background(selectionBackground(.transition(transition.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.accent.opacity(0.75)))
         .accessibilityLabel(transition.displayName)
-        .accessibilityValue(transitionContextDescription(transition) ?? "")
         .accessibilityFocused($focusedElement, equals: .transition(transition.id))
         .contextMenu {
             Button("Edit Transition…") { beginEditingTransition(transition) }
             Button("Delete Transition", role: .destructive) {
-                controller.deleteTransition(id: transition.id)
+                deleteTimelineTransition(transition.id)
             }
         }
     }
@@ -283,7 +287,7 @@ struct ProjectTimelineView: View {
         } else if let transition = selectedTimelineTransition {
             Button("Edit Transition…") { beginEditingTransition(transition) }
             Button("Delete Transition", role: .destructive) {
-                controller.deleteTransition(id: transition.id)
+                deleteTimelineTransition(transition.id)
             }
         }
     }
@@ -312,6 +316,10 @@ struct ProjectTimelineView: View {
     private func restoreTimelineElementFocus() {
         guard let target = transitionFocusReturn else { return }
         transitionFocusReturn = nil
+        restoreTimelineElementFocus(to: target)
+    }
+
+    private func restoreTimelineElementFocus(to target: TimelineElementSelection) {
         focusedElement = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             focusedElement = target
@@ -347,6 +355,15 @@ struct ProjectTimelineView: View {
     private func deleteTimelineClip(_ id: UUID) {
         controller.selection = .timelineClip(id)
         controller.deleteSelection()
+    }
+
+    private func deleteTimelineTransition(_ id: UUID) {
+        guard let transition = controller.project.transition(id: id) else { return }
+        let target = fallbackFocusAfterDeleting(transition)
+        controller.deleteTransition(id: id)
+        if let target {
+            restoreTimelineElementFocus(to: target)
+        }
     }
 
     @ViewBuilder

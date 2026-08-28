@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TransitionEditorView: View {
     @State private var draft: TimelineTransition
+    @State private var transitionName: String
     @State private var durationText: String
     @State private var validationMessage: String?
     @State private var pickerFocusTask: Task<Void, Never>?
@@ -19,6 +20,7 @@ struct TransitionEditorView: View {
         cancel: @escaping () -> Void
     ) {
         _draft = State(initialValue: transition)
+        _transitionName = State(initialValue: transition.displayName)
         _durationText = State(initialValue: TransitionDurationInput.string(for: transition.duration))
         self.contextDescription = contextDescription
         self.update = update
@@ -35,6 +37,8 @@ struct TransitionEditorView: View {
             if let contextDescription {
                 Text(contextDescription)
             }
+
+            TextField("Transition Name", text: $transitionName)
 
             transitionPicker
 
@@ -64,45 +68,35 @@ struct TransitionEditorView: View {
     private var transitionPicker: some View {
         switch draft.kind {
         case .video(let current):
-            HStack(spacing: 8) {
-                Text("Type").accessibilityHidden(true)
-                Picker(selection: Binding(
-                    get: { current },
-                    set: {
-                        draft.kind = .video($0)
-                        restoreTypePickerFocus()
-                    }
-                )) {
-                    ForEach(videoTypes) { type in
-                        Text(type.title).tag(type)
-                    }
-                } label: {
-                    Text("Type")
+            Picker("Transition Type", selection: Binding(
+                get: { current },
+                set: { newValue in
+                    let followsDefaultName = draft.normalizedCustomName == nil && transitionName == draft.defaultDisplayName
+                    draft.kind = .video(newValue)
+                    if followsDefaultName { transitionName = draft.defaultDisplayName }
+                    restoreTypePickerFocus()
                 }
-                .labelsHidden()
-                .accessibilityLabel("Type")
-                .accessibilityFocused($typePickerFocused)
+            )) {
+                ForEach(videoTypes) { type in
+                    Text(type.title).tag(type)
+                }
             }
+            .accessibilityFocused($typePickerFocused)
         case .audio(let current):
-            HStack(spacing: 8) {
-                Text("Type").accessibilityHidden(true)
-                Picker(selection: Binding(
-                    get: { current },
-                    set: {
-                        draft.kind = .audio($0)
-                        restoreTypePickerFocus()
-                    }
-                )) {
-                    ForEach(audioTypes) { type in
-                        Text(type.title).tag(type)
-                    }
-                } label: {
-                    Text("Type")
+            Picker("Transition Type", selection: Binding(
+                get: { current },
+                set: { newValue in
+                    let followsDefaultName = draft.normalizedCustomName == nil && transitionName == draft.defaultDisplayName
+                    draft.kind = .audio(newValue)
+                    if followsDefaultName { transitionName = draft.defaultDisplayName }
+                    restoreTypePickerFocus()
                 }
-                .labelsHidden()
-                .accessibilityLabel("Type")
-                .accessibilityFocused($typePickerFocused)
+            )) {
+                ForEach(audioTypes) { type in
+                    Text(type.title).tag(type)
+                }
             }
+            .accessibilityFocused($typePickerFocused)
         }
     }
 
@@ -133,6 +127,12 @@ struct TransitionEditorView: View {
             return
         }
         draft.duration = duration
+        let trimmedName = transitionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            validationMessage = "Enter a name for the transition."
+            return
+        }
+        draft.customName = trimmedName == draft.defaultDisplayName ? nil : trimmedName
         update(draft)
     }
 }

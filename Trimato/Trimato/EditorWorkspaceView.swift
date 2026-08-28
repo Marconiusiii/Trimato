@@ -8,6 +8,7 @@ struct EditorWorkspaceView: View {
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var hasRequestedInitialEditorFocus = false
     @State private var restoresEditorFocusAfterTransitionSheet = false
+    @State private var timelineFocusAfterTransitionSheet: TimelineElementSelection?
     @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
@@ -181,27 +182,45 @@ struct EditorWorkspaceView: View {
 
     private func addTransitions(_ transitions: [TimelineTransition]) async throws {
         let returnsToEditor = controller.transitionRequestReturnsToEditor
-        if returnsToEditor {
-            try await controller.applyTransitionsFromEditor(transitions)
-        } else {
-            try controller.addTransitions(transitions, selectAddedTransition: !returnsToEditor)
-        }
+        try await controller.applyTransitions(
+            transitions,
+            selectAddedTransition: !returnsToEditor
+        )
     }
 
     private func dismissStandardTransition() {
-        restoresEditorFocusAfterTransitionSheet = controller.transitionRequestReturnsToEditor
-        controller.transitionRequest = nil
+        dismissTransitionSheet()
     }
 
     private func dismissQuickTransition() {
+        dismissTransitionSheet()
+    }
+
+    private func dismissTransitionSheet() {
         restoresEditorFocusAfterTransitionSheet = controller.transitionRequestReturnsToEditor
+        if !controller.transitionRequestReturnsToEditor {
+            switch controller.selection {
+            case .transition(let id):
+                timelineFocusAfterTransitionSheet = .transition(id)
+            case .timelineClip(let id):
+                timelineFocusAfterTransitionSheet = .clip(id)
+            default:
+                if let clipID = controller.transitionRequest?.clipID {
+                    timelineFocusAfterTransitionSheet = .clip(clipID)
+                }
+            }
+        }
         controller.transitionRequest = nil
     }
 
     private func transitionSheetDismissed() {
-        guard restoresEditorFocusAfterTransitionSheet else { return }
-        restoresEditorFocusAfterTransitionSheet = false
-        controller.requestEditorFocusRestore()
+        if restoresEditorFocusAfterTransitionSheet {
+            restoresEditorFocusAfterTransitionSheet = false
+            controller.requestEditorFocusRestore()
+        } else if let target = timelineFocusAfterTransitionSheet {
+            timelineFocusAfterTransitionSheet = nil
+            controller.requestTimelineFocusRestore(to: target)
+        }
     }
 
     private func requestEditorFocus() {

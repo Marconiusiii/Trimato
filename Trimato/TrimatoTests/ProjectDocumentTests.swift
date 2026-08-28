@@ -125,4 +125,60 @@ struct ProjectDocumentTests {
         #expect(decoded.primaryTimeline.first?.customName == "Opening")
         #expect(decoded.primaryTimeline.first?.displayName == "Opening")
     }
+
+    @Test func transitionNamesAndBundleIdentityPersistInTheProjectManifest() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 12)
+        var project = TrimatoProject(name: "Named Transition")
+        project.media = [asset]
+        let leadingID = try project.append(asset: asset, segments: [SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 1),
+            duration: ProjectTime(seconds: 3)
+        ))])
+        let trailingID = try project.append(asset: asset, segments: [SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 7),
+            duration: ProjectTime(seconds: 3)
+        ))])
+        let track = try #require(project.tracks.first { $0.role == .primaryVideo })
+        let bundleID = UUID()
+        project.transitions = [TimelineTransition(
+            bundleID: bundleID,
+            trackID: track.id,
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: leadingID,
+            trailingClipID: trailingID,
+            customName: "Courtyard Blend"
+        )]
+
+        let data = try ProjectDocument.manifestData(for: project)
+        let decoded = try JSONDecoder().decode(TrimatoProject.self, from: data)
+        let transition = try #require(decoded.transitions.first)
+
+        #expect(transition.bundleID == bundleID)
+        #expect(transition.customName == "Courtyard Blend")
+        #expect(transition.displayName == "Courtyard Blend")
+    }
+
+    @Test func transitionsSavedBeforeNamesAndBundlesRemainReadable() throws {
+        let transition = TimelineTransition(
+            trackID: UUID(),
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: UUID(),
+            trailingClipID: UUID()
+        )
+        let encoded = try JSONEncoder().encode(transition)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "bundleID")
+        object.removeValue(forKey: "customName")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(TimelineTransition.self, from: legacyData)
+
+        #expect(decoded.bundleID == nil)
+        #expect(decoded.customName == nil)
+        #expect(decoded.displayName == "Cross Dissolve")
+    }
 }

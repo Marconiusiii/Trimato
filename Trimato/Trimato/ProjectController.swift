@@ -29,6 +29,7 @@ final class ProjectController: ObservableObject {
     @Published var transitionRequest: TransitionRequest?
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
+    @Published private(set) var timelineFocusRestoreRequest = 0
     @Published private(set) var timelineContentRevision = 0
     @Published private(set) var applyingTransitionName: String?
     @Published private(set) var applyingTransitionProgress: Double?
@@ -39,6 +40,7 @@ final class ProjectController: ObservableObject {
     @Published private(set) var exportProgress: Double?
     @Published private(set) var isPresentingExportPanel = false
     @Published private(set) var copiedTimelineClipID: UUID?
+    private(set) var timelineFocusRestoreTarget: TimelineElementSelection?
 
     private var cancellables: Set<AnyCancellable> = []
     private var accessedURLs: [URL] = []
@@ -335,11 +337,12 @@ final class ProjectController: ObservableObject {
 
     func addTransitions(_ additions: [TimelineTransition], selectAddedTransition: Bool = true) throws {
         guard !additions.isEmpty else { return }
+        var added: [TimelineTransition] = []
         try mutateProjectThrowing(actionName: additions.count == 1 ? "Add Transition" : "Add Transitions") { project in
-            for transition in additions { try project.addTransition(transition) }
+            added = try project.addTransitionBatch(additions)
         }
-        if selectAddedTransition {
-            selection = .transition(additions[0].id)
+        if selectAddedTransition, let transition = primaryTransition(in: added) {
+            selection = .transition(transition.id)
         }
     }
 
@@ -372,6 +375,11 @@ final class ProjectController: ObservableObject {
         editorFocusRestoreRequest += 1
     }
 
+    func requestTimelineFocusRestore(to element: TimelineElementSelection) {
+        timelineFocusRestoreTarget = element
+        timelineFocusRestoreRequest += 1
+    }
+
     func beginApplyingTransitions(_ transitions: [TimelineTransition]) {
         let primary = transitions.first { transition in
             if case .video = transition.kind { return true }
@@ -386,16 +394,19 @@ final class ProjectController: ObservableObject {
         applyingTransitionProgress = nil
     }
 
-    func applyTransitionsFromEditor(_ additions: [TimelineTransition]) async throws {
+    func applyTransitions(
+        _ additions: [TimelineTransition],
+        selectAddedTransition: Bool
+    ) async throws {
         guard !additions.isEmpty else { return }
         let previous = project
         var candidate = previous
-        for transition in additions { try candidate.addTransition(transition) }
+        let added = try candidate.addTransitionBatch(additions)
         guard let projectPlayer else {
             throw ProjectTimelineError.transitionNotAvailable("The project preview is not ready.")
         }
 
-        beginApplyingTransitions(additions)
+        beginApplyingTransitions(added)
         do {
             try await projectPlayer.prepareTransitionPreview(
                 project: candidate,
@@ -412,14 +423,28 @@ final class ProjectController: ObservableObject {
             apply(
                 candidate,
                 undoingTo: previous,
-                actionName: additions.count == 1 ? "Add Transition" : "Add Transitions"
+                actionName: added.count == 1 ? "Add Transition" : "Add Transitions"
             )
+            if selectAddedTransition, let transition = primaryTransition(in: added) {
+                selection = .transition(transition.id)
+            }
             try? await Task.sleep(for: .milliseconds(150))
             finishApplyingTransition()
         } catch {
             finishApplyingTransition()
             throw error
         }
+    }
+
+    func applyTransitionsFromEditor(_ additions: [TimelineTransition]) async throws {
+        try await applyTransitions(additions, selectAddedTransition: false)
+    }
+
+    private func primaryTransition(in transitions: [TimelineTransition]) -> TimelineTransition? {
+        transitions.first { transition in
+            if case .video = transition.kind { return true }
+            return false
+        } ?? transitions.first
     }
 
     func consumePreparedTransitionPreview(for project: TrimatoProject) -> Bool {
