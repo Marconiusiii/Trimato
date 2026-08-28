@@ -215,7 +215,7 @@ struct MultiTrackTimelineTests {
         #expect(controller.timelineFocusRestoreTarget == .transition(transitionID))
     }
 
-    @Test @MainActor func keyboardTrackSwitchRequestsTheClipAtTheSharedPlayhead() throws {
+    @Test @MainActor func keyboardTrackSwitchRequestsTheNamedTimelineList() throws {
         var audio = fixtureAsset(name: "Music", duration: 10)
         audio.naturalWidth = nil
         audio.naturalHeight = nil
@@ -223,18 +223,20 @@ struct MultiTrackTimelineTests {
         project.media = [audio]
         let firstTrackID = project.createTrack(kind: .audio, name: "Dialogue")
         let secondTrackID = project.createTrack(kind: .audio, name: "Music")
-        let clipID = try project.append(asset: audio, segments: [segment(0, 4)], toTrack: secondTrackID)
+        _ = try project.append(asset: audio, segments: [segment(0, 4)], toTrack: secondTrackID)
         let controller = ProjectController(document: ProjectDocument(project: project))
         controller.activeTimelineTrackID = firstTrackID
 
         controller.selectAdjacentTrack(1)
 
         #expect(controller.activeTimelineTrackID == secondTrackID)
-        #expect(controller.timelineFocusRestoreTarget == .clip(clipID))
-        #expect(controller.timelineFocusRestoreRequest == 1)
+        #expect(controller.timelineListFocusRestoreRequest == 1)
+        #expect(controller.timelineFocusRestoreRequest == 0)
+        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
+        #expect(TimelineAccessibility.clipsListValue(trackName: "Music") == "Music track")
     }
 
-    @Test @MainActor func keyboardTrackSwitchRequestsTheTrackPickerForAnEmptyTrack() throws {
+    @Test @MainActor func keyboardTrackSwitchRequestsTheTimelineListForAnEmptyTrack() throws {
         var audio = fixtureAsset(name: "Dialogue", duration: 10)
         audio.naturalWidth = nil
         audio.naturalHeight = nil
@@ -249,7 +251,8 @@ struct MultiTrackTimelineTests {
         controller.selectAdjacentTrack(1)
 
         #expect(controller.activeTimelineTrackID == secondTrackID)
-        #expect(controller.timelineTrackPickerFocusRestoreRequest == 1)
+        #expect(controller.timelineListFocusRestoreRequest == 1)
+        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
         #expect(controller.timelineFocusRestoreRequest == 0)
     }
 

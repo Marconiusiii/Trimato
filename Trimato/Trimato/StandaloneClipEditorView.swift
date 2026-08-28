@@ -57,9 +57,13 @@ struct StandaloneClipEditorView: View {
     }
 
     var body: some View {
-        MacEditorPane("Clip Editor") {
+        MacEditorPane(editorName) {
             VStack(spacing: 0) {
-                ContentView(viewModel: viewModel, allowsFileOpening: false)
+                ContentView(
+                    viewModel: viewModel,
+                    allowsFileOpening: false,
+                    accessibilityFocusRequest: 1
+                )
 
                 Divider()
 
@@ -84,7 +88,7 @@ struct StandaloneClipEditorView: View {
         }
         .focusedObject(viewModel)
         .focusedObject(commandContext)
-        .navigationTitle("\(url.deletingPathExtension().lastPathComponent) — Clip Editor")
+        .navigationTitle("\(url.deletingPathExtension().lastPathComponent) — \(editorName)")
         .frame(minWidth: 700, minHeight: 600)
         .background(StandaloneClipWindowBridge { editorWindow = $0 })
         .onAppear {
@@ -117,6 +121,11 @@ struct StandaloneClipEditorView: View {
                 commandContext.failCreatingProject(error)
             }
         }
+    }
+
+    private var editorName: String {
+        guard viewModel.hasMedia else { return "Clip Editor" }
+        return ClipEditorMediaKind.name(hasVideo: viewModel.hasVideo)
     }
 }
 

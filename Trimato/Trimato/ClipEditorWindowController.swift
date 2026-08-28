@@ -2,6 +2,12 @@ import AppKit
 import Combine
 import SwiftUI
 
+nonisolated enum ClipEditorMediaKind {
+    static func name(hasVideo: Bool) -> String {
+        hasVideo ? "Video Clip Editor" : "Audio Clip Editor"
+    }
+}
+
 @MainActor
 final class ClipPlacementCommandContext: ObservableObject {
     let controller: ProjectController
@@ -29,6 +35,9 @@ final class ClipPlacementCommandContext: ObservableObject {
             let settings = controller.project.timelineClip(id: id)?.audioSettings ?? .neutral
             baselineAudioSettings = settings
             audioSettings = settings
+        } else if let asset = controller.asset(for: editSelection), asset.hasAudio, !asset.hasVideo {
+            baselineAudioSettings = .neutral
+            audioSettings = .neutral
         } else {
             baselineAudioSettings = nil
             audioSettings = nil
@@ -69,7 +78,31 @@ final class ClipPlacementCommandContext: ObservableObject {
 
     func place(_ placement: PlacementAction) {
         guard canPlace else { return }
-        controller.place(placement, editing: editSelection, segments: segments)
+        _ = place(placement, onTrack: nil)
+    }
+
+    @discardableResult
+    func place(_ placement: PlacementAction, onTrack trackID: UUID?) -> UUID? {
+        guard !segments.isEmpty else { return nil }
+        let placedID: UUID?
+        if let trackID {
+            placedID = controller.place(
+                placement,
+                editing: editSelection,
+                segments: segments,
+                onTrack: trackID
+            )
+        } else {
+            placedID = controller.place(placement, editing: editSelection, segments: segments)
+        }
+        if let placedID, let audioSettings, !audioSettings.isNeutral {
+            do {
+                try controller.updateAudioSettings(clipID: placedID, settings: audioSettings)
+            } catch {
+                updateErrorMessage = error.localizedDescription
+            }
+        }
+        return placedID
     }
 
     func requestTrackPlacement(_ placement: PlacementAction) {
@@ -142,8 +175,9 @@ final class ClipEditorWindowCoordinator: ObservableObject {
             initialSegments: segments,
             commandContext: commandContext
         )
+        let editorName = ClipEditorMediaKind.name(hasVideo: asset.hasVideo)
         let windowController = ClipEditorWindowController(
-            title: "\(asset.name) — Clip Editor",
+            title: "\(asset.name) — \(editorName)",
             rootView: rootView,
             commandContext: commandContext
         )
@@ -292,7 +326,7 @@ private struct ClipEditorWindowView: View {
     @ObservedObject var commandContext: ClipPlacementCommandContext
 
     var body: some View {
-        MacEditorPane("Clip Editor") {
+        MacEditorPane(ClipEditorMediaKind.name(hasVideo: asset.hasVideo)) {
             SourceClipEditorView(
                 controller: controller,
                 asset: asset,

@@ -11,6 +11,14 @@ enum StandaloneProjectCreationError: LocalizedError {
     }
 }
 
+enum AudioPreviewPlaybackError: LocalizedError {
+    case unavailable
+
+    var errorDescription: String? {
+        "The processed audio preview could not be prepared for playback."
+    }
+}
+
 @MainActor
 enum StandaloneClipProjectBuilder {
     static func build(
@@ -80,6 +88,8 @@ final class VideoPlayerViewModel: ObservableObject {
     private var mediaDuration: CMTime = .zero
     private var mediaSource: MediaSource?
     private var editTimeline: ClipEditTimeline?
+    private var basePlaybackAsset: AVAsset?
+    private var activeAudioPreviewURL: URL?
     private var editedFrameTimestamps: [CMTime] = []
     private var proxyURL: URL?
     private var timeObserver: Any?
@@ -124,6 +134,7 @@ final class VideoPlayerViewModel: ObservableObject {
         waveformTask?.cancel()
         editTask?.cancel()
         editID = nil
+        removeActiveAudioPreview()
         ProxyMediaManager.removeProxy(at: proxyURL)
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let keyEventMonitor { NSEvent.removeMonitor(keyEventMonitor) }
@@ -162,6 +173,10 @@ final class VideoPlayerViewModel: ObservableObject {
 
     var canCreateProjectFromClip: Bool {
         hasMedia && !isLoadingMedia && !isExporting && !isApplyingEdit && !placementSourceSegments.isEmpty
+    }
+
+    var audioPreviewSegments: [SourceSegment] {
+        projectSourceSegments
     }
 
     func makeProjectFromCurrentClip() async throws -> TrimatoProject {
@@ -279,6 +294,8 @@ final class VideoPlayerViewModel: ObservableObject {
         jklIndex = 0
         ProxyMediaManager.removeProxy(at: proxyURL)
         proxyURL = nil
+        removeActiveAudioPreview()
+        basePlaybackAsset = nil
         mediaSource = nil
         editTimeline = nil
         editedFrameTimestamps = []
@@ -343,6 +360,7 @@ final class VideoPlayerViewModel: ObservableObject {
                         sourceRanges: timeline.sourceRanges
                     )
                 }
+                self.basePlaybackAsset = playbackAsset
                 self.player.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
                 self.mediaDuration = timeline.duration
                 self.duration = CMTimeGetSeconds(timeline.duration)
@@ -426,6 +444,8 @@ final class VideoPlayerViewModel: ObservableObject {
         player.replaceCurrentItem(with: nil)
         ProxyMediaManager.removeProxy(at: proxyURL)
         proxyURL = nil
+        removeActiveAudioPreview()
+        basePlaybackAsset = nil
         mediaSource = nil
         editTimeline = nil
         editedFrameTimestamps = []
@@ -436,6 +456,19 @@ final class VideoPlayerViewModel: ObservableObject {
         isPreparingWaveform = false
         hasMedia = false
         hasVideo = false
+    }
+
+    func applyAudioPreview(at url: URL) async throws {
+        let asset = AVURLAsset(url: url)
+        guard try await asset.loadTracks(withMediaType: .audio).first != nil else {
+            throw AudioPreviewPlaybackError.unavailable
+        }
+        replacePlaybackAsset(asset, previewURL: url)
+    }
+
+    func restoreUnprocessedAudioPreview() {
+        guard let basePlaybackAsset else { return }
+        replacePlaybackAsset(basePlaybackAsset, previewURL: nil)
     }
 
     func togglePlayPause() {
@@ -912,6 +945,29 @@ final class VideoPlayerViewModel: ObservableObject {
         player.rate = jklIndex > 0 ? speed : -speed
     }
 
+    private func replacePlaybackAsset(_ asset: AVAsset, previewURL: URL?) {
+        let position = player.currentTime()
+        let rate = player.rate
+        let previousPreviewURL = activeAudioPreviewURL
+        player.pause()
+        player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
+        activeAudioPreviewURL = previewURL
+        player.seek(to: position, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            guard finished, rate != 0 else { return }
+            self?.player.rate = rate
+        }
+        if previousPreviewURL != previewURL, let previousPreviewURL {
+            try? FileManager.default.removeItem(at: previousPreviewURL)
+        }
+    }
+
+    private func removeActiveAudioPreview() {
+        if let activeAudioPreviewURL {
+            try? FileManager.default.removeItem(at: activeAudioPreviewURL)
+        }
+        activeAudioPreviewURL = nil
+    }
+
     private func applyDeletion(
         _ range: CMTimeRange,
         targetTime: CMTime,
@@ -955,6 +1011,8 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.outMarker = nil
                 self.refreshPlacementSourceSegments()
                 self.refreshWaveformSamples()
+                self.removeActiveAudioPreview()
+                self.basePlaybackAsset = composition
                 self.player.replaceCurrentItem(with: AVPlayerItem(asset: composition))
                 let destination = CMTimeMinimum(targetTime, updatedTimeline.duration)
                 await self.player.seek(to: destination, toleranceBefore: .zero, toleranceAfter: .zero)

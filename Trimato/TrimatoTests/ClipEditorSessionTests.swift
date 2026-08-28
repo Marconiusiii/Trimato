@@ -4,6 +4,49 @@ import Testing
 
 @Suite("Clip editor sessions")
 struct ClipEditorSessionTests {
+    @Test func editorNamesDistinguishAudioFromVideo() {
+        #expect(ClipEditorMediaKind.name(hasVideo: false) == "Audio Clip Editor")
+        #expect(ClipEditorMediaKind.name(hasVideo: true) == "Video Clip Editor")
+    }
+
+    @Test func neutralAudioSettingsRestoreTheOriginalPreview() {
+        #expect(!AudioClipPreviewPlan.requiresRender(for: nil))
+        #expect(!AudioClipPreviewPlan.requiresRender(for: .neutral))
+        #expect(AudioClipPreviewPlan.requiresRender(for: AudioClipSettings(gainDecibels: 3)))
+    }
+
+    @Test @MainActor func sourceAudioFiltersAreCarriedIntoThePlacedTimelineClip() throws {
+        let segment = SourceSegment(sourceRange: ProjectTimeRange(
+            start: .zero,
+            duration: ProjectTime(seconds: 4)
+        ))
+        let asset = MediaAssetRecord(
+            name: "Music",
+            originalPath: "/tmp/music.wav",
+            bookmarkData: nil,
+            duration: ProjectTime(seconds: 4),
+            naturalWidth: nil,
+            naturalHeight: nil,
+            frameRate: nil,
+            hasAudio: true,
+            sourceEdit: [segment]
+        )
+        var project = TrimatoProject()
+        project.media = [asset]
+        let trackID = project.createTrack(kind: .audio, name: "Music")
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(
+            controller: controller,
+            editSelection: .asset(asset.id),
+            segments: [segment]
+        )
+        context.audioSettings = AudioClipSettings(gainDecibels: 3)
+
+        let clipID = try #require(context.place(.append, onTrack: trackID))
+
+        #expect(controller.project.timelineClip(id: clipID)?.audioSettings.gainDecibels == 3)
+    }
+
     @Test func oneSourceRangeOpensTheFullSourceWithSavedMarkers() {
         let segment = SourceSegment(sourceRange: ProjectTimeRange(
             start: ProjectTime(seconds: 1),

@@ -1,5 +1,11 @@
 import SwiftUI
 
+nonisolated enum AudioClipPreviewPlan {
+    static func requiresRender(for settings: AudioClipSettings?) -> Bool {
+        settings?.isNeutral == false
+    }
+}
+
 struct SourceClipEditorView: View {
     @ObservedObject var controller: ProjectController
     let asset: MediaAssetRecord
@@ -13,49 +19,45 @@ struct SourceClipEditorView: View {
     @State private var cacheOwnerID = UUID()
     @State private var selectedTrackID: UUID?
     @State private var placementFocusReturn: PlacementAction?
+    @State private var audioPreviewTask: Task<Void, Never>?
+    @State private var audioPreviewProgress: Double?
+    @State private var audioPreviewErrorMessage: String?
     @AccessibilityFocusState private var focusedPlacementControl: PlacementAction?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if controller.resolveURL(for: asset) == nil {
-                Text("This media file is offline. Relink it before editing.")
-            } else {
-                ContentView(viewModel: viewModel, allowsFileOpening: false)
-
-                if commandContext.audioSettings != nil {
-                    AudioClipControlsView(commandContext: commandContext)
-                        .padding(.horizontal, 10)
-                }
-
-                HStack {
-                    if commandContext.isTimelineEntry {
-                        Button("Update Clip") { commandContext.performUpdate() }
-                            .keyboardShortcut("u", modifiers: .command)
-                            .disabled(!commandContext.canUpdate)
-                        Divider()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if controller.resolveURL(for: asset) == nil {
+                    Text("This media file is offline. Relink it before editing.")
+                        .padding()
+                } else {
+                    ClipEditorPane("Playback") {
+                        ContentView(
+                            viewModel: viewModel,
+                            allowsFileOpening: false,
+                            accessibilityFocusRequest: commandContext.focusRequest
+                        )
                     }
-                    Button(PlacementAction.append.title) { place(.append) }
-                        .keyboardShortcut("e", modifiers: [])
-                        .disabled(!commandContext.canPlace)
-                        .accessibilityFocused($focusedPlacementControl, equals: .append)
-                    Button(PlacementAction.insert.title) { place(.insert) }
-                        .keyboardShortcut("w", modifiers: [])
-                        .disabled(!commandContext.canPlace)
-                        .accessibilityFocused($focusedPlacementControl, equals: .insert)
-                    Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
-                        .keyboardShortcut("d", modifiers: [])
-                        .disabled(!commandContext.canPlace)
-                        .accessibilityFocused($focusedPlacementControl, equals: .replaceRemainder)
-                    Menu("Insert on Top") {
-                        Button("With Source Audio") { place(.cutawaySourceAudio) }
-                            .keyboardShortcut("q", modifiers: [])
-                        Button("Over Primary Audio") { place(.cutawayPrimaryAudio) }
-                            .keyboardShortcut("q", modifiers: [.option])
+
+                    if commandContext.audioSettings != nil {
+                        ClipEditorPane("Audio Filters") {
+                            AudioClipControlsView(commandContext: commandContext)
+                                .padding(12)
+                            if let audioPreviewProgress {
+                                ProgressView(value: audioPreviewProgress) {
+                                    Text("Updating Audio Preview")
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.bottom, 12)
+                            }
+                        }
                     }
-                    .disabled(!commandContext.canPlace || !asset.hasVideo)
+
+                    ClipEditorPane("Clip Placement") {
+                        placementControls
+                            .padding(12)
+                    }
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
             }
         }
         .onAppear {
@@ -69,14 +71,17 @@ struct SourceClipEditorView: View {
                 commandContext?.isKeyWindow == true
             }
             loadIfNeeded()
-            restorePlacementControlFocus(to: .append)
         }
-        .onChange(of: viewModel.placementSourceSegments) { segments in
+        .onChange(of: viewModel.placementSourceSegments) { _, segments in
             guard loadedAssetID == asset.id else { return }
             commandContext.setSegments(segments)
         }
-        .onChange(of: commandContext.focusRequest) {
-            restorePlacementControlFocus(to: .append)
+        .onChange(of: viewModel.hasMedia) {
+            guard viewModel.hasMedia else { return }
+            scheduleAudioPreview(for: commandContext.audioSettings, debounce: false)
+        }
+        .onChange(of: commandContext.audioSettings) { _, settings in
+            scheduleAudioPreview(for: settings)
         }
         .sheet(item: $commandContext.trackPlacementAction, onDismiss: restorePlacementControlFocus) { action in
             VStack(alignment: .leading, spacing: 16) {
@@ -102,7 +107,7 @@ struct SourceClipEditorView: View {
                     Button("Cancel", role: .cancel) { commandContext.trackPlacementAction = nil }
                     Button("Place") {
                         guard let selectedTrackID else { return }
-                        controller.place(action, editing: editSelection, segments: commandContext.segments, onTrack: selectedTrackID)
+                        commandContext.place(action, onTrack: selectedTrackID)
                         commandContext.trackPlacementAction = nil
                     }
                     .keyboardShortcut(.defaultAction)
@@ -119,9 +124,52 @@ struct SourceClipEditorView: View {
         .onDisappear {
             preparationTask?.cancel()
             preparationTask = nil
+            audioPreviewTask?.cancel()
+            audioPreviewTask = nil
             viewModel.closeMedia()
             let owner = cacheOwnerID
             Task { await MediaCacheManager.shared.releaseProtectedKeys(owner: owner) }
+        }
+        .alert("Audio Preview Could Not Be Updated", isPresented: Binding(
+            get: { audioPreviewErrorMessage != nil },
+            set: { if !$0 { audioPreviewErrorMessage = nil } }
+        )) {
+            Button("OK") { audioPreviewErrorMessage = nil }
+        } message: {
+            Text(audioPreviewErrorMessage ?? "The audio preview could not be updated.")
+        }
+    }
+
+    @ViewBuilder
+    private var placementControls: some View {
+        HStack {
+            if commandContext.isTimelineEntry {
+                Button("Update Clip") { commandContext.performUpdate() }
+                    .keyboardShortcut("u", modifiers: .command)
+                    .disabled(!commandContext.canUpdate)
+                Divider()
+            }
+            Button(PlacementAction.append.title) { place(.append) }
+                .keyboardShortcut("e", modifiers: [])
+                .disabled(!commandContext.canPlace)
+                .accessibilityFocused($focusedPlacementControl, equals: .append)
+            Button(PlacementAction.insert.title) { place(.insert) }
+                .keyboardShortcut("w", modifiers: [])
+                .disabled(!commandContext.canPlace)
+                .accessibilityFocused($focusedPlacementControl, equals: .insert)
+            Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
+                .keyboardShortcut("d", modifiers: [])
+                .disabled(!commandContext.canPlace)
+                .accessibilityFocused($focusedPlacementControl, equals: .replaceRemainder)
+            if asset.hasVideo {
+                Menu("Insert on Top") {
+                    Button("With Source Audio") { place(.cutawaySourceAudio) }
+                        .keyboardShortcut("q", modifiers: [])
+                    Button("Over Primary Audio") { place(.cutawayPrimaryAudio) }
+                        .keyboardShortcut("q", modifiers: [.option])
+                }
+                .disabled(!commandContext.canPlace)
+            }
         }
     }
 
@@ -176,8 +224,59 @@ struct SourceClipEditorView: View {
     private func createAndPlace(kind: TimelineTrackKind, action: PlacementAction) {
         controller.addTrack(kind: kind, name: nil)
         guard let trackID = controller.activeTimelineTrackID else { return }
-        controller.place(action, editing: editSelection, segments: commandContext.segments, onTrack: trackID)
+        commandContext.place(action, onTrack: trackID)
         commandContext.trackPlacementAction = nil
+    }
+
+    private func scheduleAudioPreview(
+        for settings: AudioClipSettings?,
+        debounce: Bool = true
+    ) {
+        audioPreviewTask?.cancel()
+        audioPreviewTask = nil
+        audioPreviewErrorMessage = nil
+        guard commandContext.audioSettings != nil, viewModel.hasMedia else { return }
+        guard AudioClipPreviewPlan.requiresRender(for: settings), let settings else {
+            audioPreviewProgress = nil
+            viewModel.restoreUnprocessedAudioPreview()
+            return
+        }
+        guard let sourceURL = controller.resolveURL(for: asset),
+              !viewModel.audioPreviewSegments.isEmpty else { return }
+        let segments = viewModel.audioPreviewSegments
+        audioPreviewProgress = 0
+        audioPreviewTask = Task { @MainActor in
+            var generatedURL: URL?
+            do {
+                if debounce {
+                    try await Task.sleep(for: .milliseconds(250))
+                }
+                let outputURL = try await FFmpegTimelineEffectRenderer.renderAudio(
+                    sourceURL: sourceURL,
+                    segments: segments,
+                    settings: settings
+                ) { progress in
+                    audioPreviewProgress = progress
+                }
+                generatedURL = outputURL
+                try Task.checkCancellation()
+                try await viewModel.applyAudioPreview(at: outputURL)
+                generatedURL = nil
+                audioPreviewProgress = nil
+                audioPreviewTask = nil
+            } catch is CancellationError {
+                if let generatedURL {
+                    try? FileManager.default.removeItem(at: generatedURL)
+                }
+            } catch {
+                if let generatedURL {
+                    try? FileManager.default.removeItem(at: generatedURL)
+                }
+                audioPreviewProgress = nil
+                audioPreviewTask = nil
+                audioPreviewErrorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func restorePlacementControlFocus() {
@@ -201,12 +300,16 @@ private struct AudioClipControlsView: View {
     @ObservedObject var commandContext: ClipPlacementCommandContext
 
     var body: some View {
-        GroupBox("Audio") {
-            VStack(alignment: .leading, spacing: 10) {
+        Form {
+            Section("Level") {
                 valueField("Gain", value: binding(\.gainDecibels), suffix: "dB")
+            }
+            Section("Equalizer") {
                 valueField("Low EQ", value: binding(\.lowGainDecibels), suffix: "dB")
                 valueField("Mid EQ", value: binding(\.midGainDecibels), suffix: "dB")
                 valueField("High EQ", value: binding(\.highGainDecibels), suffix: "dB")
+            }
+            Section("Filters") {
                 Toggle("High-pass filter", isOn: binding(\.highPassEnabled))
                 if commandContext.audioSettings?.highPassEnabled == true {
                     valueField("High-pass frequency", value: binding(\.highPassFrequency), suffix: "Hz")
@@ -215,11 +318,14 @@ private struct AudioClipControlsView: View {
                 if commandContext.audioSettings?.lowPassEnabled == true {
                     valueField("Low-pass frequency", value: binding(\.lowPassFrequency), suffix: "Hz")
                 }
+            }
+            Section {
                 Button("Reset Audio") { commandContext.resetAudioSettings() }
                     .disabled(commandContext.audioSettings?.isNeutral != false)
             }
-            .padding(.top, 4)
         }
+        .formStyle(.grouped)
+        .frame(minHeight: 360)
     }
 
     private func binding<T>(_ keyPath: WritableKeyPath<AudioClipSettings, T>) -> Binding<T> {
@@ -239,6 +345,32 @@ private struct AudioClipControlsView: View {
                 TextField(label, value: value, format: .number.precision(.fractionLength(0...1)))
                     .labelsHidden()
                 Text(suffix).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct ClipEditorPane<Content: View>: View {
+    let name: String
+    private let content: Content
+
+    init(_ name: String, @ViewBuilder content: () -> Content) {
+        self.name = name
+        self.content = content()
+    }
+
+    var body: some View {
+        MacEditorPane(name) {
+            VStack(spacing: 0) {
+                Text(name)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(EditorTheme.controlSurface)
+                Divider()
+                content
             }
         }
     }

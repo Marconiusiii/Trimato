@@ -31,6 +31,7 @@ final class ProjectController: ObservableObject {
     @Published private(set) var editorFocusRestoreRequest = 0
     @Published private(set) var timelineFocusRestoreRequest = 0
     @Published private(set) var timelineTrackPickerFocusRestoreRequest = 0
+    @Published private(set) var timelineListFocusRestoreRequest = 0
     @Published private(set) var timelineContentRevision = 0
     @Published private(set) var applyingTransitionName: String?
     @Published private(set) var applyingTransitionProgress: Double?
@@ -298,11 +299,7 @@ final class ProjectController: ObservableObject {
         let current = activeTimelineTrackID.flatMap { id in project.tracks.firstIndex { $0.id == id } } ?? 0
         let destination = min(max(current + offset, 0), project.tracks.count - 1)
         activeTimelineTrackID = project.tracks[destination].id
-        if let clip = editorClip(at: timelinePlayhead) {
-            requestTimelineFocusRestore(to: .clip(clip.id))
-        } else {
-            requestTimelineTrackPickerFocusRestore()
-        }
+        requestTimelineListFocusRestore()
     }
 
     func addTrack(kind: TimelineTrackKind, name: String?) {
@@ -388,6 +385,10 @@ final class ProjectController: ObservableObject {
 
     func requestTimelineTrackPickerFocusRestore() {
         timelineTrackPickerFocusRestoreRequest += 1
+    }
+
+    func requestTimelineListFocusRestore() {
+        timelineListFocusRestoreRequest += 1
     }
 
     func beginApplyingTransitions(_ transitions: [TimelineTransition]) {

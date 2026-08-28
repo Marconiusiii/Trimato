@@ -1,6 +1,13 @@
 import AppKit
 import SwiftUI
 
+nonisolated enum TimelineAccessibility {
+    static func clipsListValue(trackName: String?) -> String {
+        guard let trackName else { return "No track selected" }
+        return "\(trackName) track"
+    }
+}
+
 struct ProjectTimelineView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
@@ -8,6 +15,7 @@ struct ProjectTimelineView: View {
 
     @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
     @AccessibilityFocusState private var trackPickerFocused: Bool
+    @AccessibilityFocusState private var timelineListFocused: Bool
     @State private var renamedClipName = ""
     @State private var isRenamingClip = false
     @State private var isRenamingTrack = false
@@ -85,6 +93,9 @@ struct ProjectTimelineView: View {
         .onChange(of: controller.timelineTrackPickerFocusRestoreRequest) {
             restoreTrackPickerFocus()
         }
+        .onChange(of: controller.timelineListFocusRestoreRequest) {
+            restoreTimelineListFocus()
+        }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
         .sheet(isPresented: $isAddingTrack, onDismiss: restoreTrackPickerFocus) {
@@ -128,8 +139,6 @@ struct ProjectTimelineView: View {
     private var timelineContent: some View {
         if controller.project.tracks.isEmpty {
             emptyMessage("No clips in the project timeline")
-        } else if timelineElements.isEmpty {
-            emptyMessage("No clips on this track")
         } else {
             accessibleTimelineElements
             .background(
@@ -161,18 +170,25 @@ struct ProjectTimelineView: View {
 
     private var timelineScrollView: some View {
         List {
-            ForEach(timelineElements) { element in
-                switch element.content {
-                case .clip(let clip):
-                    clipButton(clip)
-                case .transition(let transition):
-                    transitionButton(transition)
+            if timelineElements.isEmpty {
+                Text("No clips on this track")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(timelineElements) { element in
+                    switch element.content {
+                    case .clip(let clip):
+                        clipButton(clip)
+                    case .transition(let transition):
+                        transitionButton(transition)
+                    }
                 }
             }
         }
         .listStyle(.inset)
         .accessibilityLabel("Timeline Clips")
+        .accessibilityValue(timelineListAccessibilityValue)
         .accessibilityIdentifier("trimato.timeline.clips")
+        .accessibilityFocused($timelineListFocused)
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -206,9 +222,13 @@ struct ProjectTimelineView: View {
             },
             set: { trackID in
                 controller.activeTimelineTrackID = trackID
-                restoreFocusAfterTrackChange()
+                restoreTrackPickerFocus()
             }
         )
+    }
+
+    private var timelineListAccessibilityValue: String {
+        TimelineAccessibility.clipsListValue(trackName: controller.activeTimelineTrack?.name)
     }
 
     private func clipButton(_ clip: TimelineClip) -> some View {
@@ -470,22 +490,27 @@ struct ProjectTimelineView: View {
         controller.requestTimelineFocusRestore(to: .clip(clipID))
     }
 
-    private func restoreFocusAfterTrackChange() {
-        if let clip = controller.editorClip(at: controller.timelinePlayhead) {
-            restoreTimelineElementFocus(to: .clip(clip.id))
-        } else {
-            restoreTrackPickerFocus()
-        }
-    }
-
     private func restoreTrackPickerFocus() {
         focusedElement = nil
+        timelineListFocused = false
         trackPickerFocused = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             trackPickerFocused = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             trackPickerFocused = true
+        }
+    }
+
+    private func restoreTimelineListFocus() {
+        focusedElement = nil
+        trackPickerFocused = false
+        timelineListFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            timelineListFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            timelineListFocused = true
         }
     }
 }

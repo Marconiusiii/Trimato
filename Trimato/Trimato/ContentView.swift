@@ -4,10 +4,18 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject private var viewModel: VideoPlayerViewModel
     private let allowsFileOpening: Bool
+    private let accessibilityFocusRequest: Int
+    @AccessibilityFocusState private var playButtonFocused: Bool
+    @State private var pendingPlaybackFocus = false
 
-    init(viewModel: VideoPlayerViewModel, allowsFileOpening: Bool = true) {
+    init(
+        viewModel: VideoPlayerViewModel,
+        allowsFileOpening: Bool = true,
+        accessibilityFocusRequest: Int = 0
+    ) {
         self.viewModel = viewModel
         self.allowsFileOpening = allowsFileOpening
+        self.accessibilityFocusRequest = accessibilityFocusRequest
     }
 
     var body: some View {
@@ -92,6 +100,19 @@ struct ContentView: View {
             Button("OK") { viewModel.dismissExportError() }
         } message: {
             Text(viewModel.exportErrorMessage ?? "Trimato could not create the selected file.")
+        }
+        .onAppear {
+            if accessibilityFocusRequest > 0 {
+                requestPlaybackControlFocus()
+            }
+        }
+        .onChange(of: accessibilityFocusRequest) {
+            requestPlaybackControlFocus()
+        }
+        .onChange(of: viewModel.hasMedia) {
+            if viewModel.hasMedia, pendingPlaybackFocus {
+                requestPlaybackControlFocus()
+            }
         }
         .onDisappear {
             viewModel.closeMedia()
@@ -227,6 +248,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .disabled(!viewModel.hasMedia)
                 .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
+                .accessibilityFocused($playButtonFocused)
 
                 Button { viewModel.seekForward() } label: {
                     Image(systemName: "goforward.10").font(.title2)
@@ -290,6 +312,21 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
+    }
+
+    private func requestPlaybackControlFocus() {
+        pendingPlaybackFocus = true
+        guard viewModel.hasMedia else { return }
+        playButtonFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            guard viewModel.hasMedia else { return }
+            playButtonFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            guard viewModel.hasMedia else { return }
+            playButtonFocused = true
+            pendingPlaybackFocus = false
+        }
     }
 
     @ViewBuilder
