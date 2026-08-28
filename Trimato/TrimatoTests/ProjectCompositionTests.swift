@@ -302,6 +302,78 @@ struct ProjectCompositionTests {
         #expect(firstInstruction.backgroundColor != nil)
     }
 
+    @Test func negativeAdditionalAudioPositionUsesOnlyTheVisibleSourceForPreview() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("music.wav")
+        try await makeAudioFixture(at: sourceURL, frequency: 440, duration: 1)
+
+        var music = fixtureAsset(name: "Music", duration: 1)
+        music.originalPath = sourceURL.path
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        music.frameRate = nil
+        var project = TrimatoProject(name: "Positioned Audio")
+        project.media = [music]
+        let trackID = project.createTrack(kind: .audio, name: "Music")
+        let clipID = try project.append(asset: music, toTrack: trackID)
+        try project.updateAudioSettings(
+            clipID: clipID,
+            settings: AudioClipSettings(gainDecibels: 2)
+        )
+        try project.positionAdditionalTrackClip(
+            id: clipID,
+            edge: .tail,
+            at: ProjectTime(seconds: 0.25)
+        )
+
+        let result = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: [music.id: sourceURL]
+        )
+        let track = try #require(try await result.composition.loadTracks(withMediaType: .audio).first)
+        let segment = try #require(track.segments.first(where: { !$0.isEmpty }))
+
+        #expect(abs(track.timeRange.duration.seconds - 0.25) < 0.03)
+        #expect(abs(segment.timeMapping.source.start.seconds - 0.75) < 0.03)
+        #expect(abs(segment.timeMapping.target.start.seconds) < 0.01)
+    }
+
+    @Test func negativeAdditionalVideoPositionUsesOnlyTheVisibleSourceForPreview() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("overlay.mov")
+        try await makeFixture(at: sourceURL, color: "orange", frequency: 440, duration: 1)
+
+        var overlay = fixtureAsset(name: "Overlay", duration: 1)
+        overlay.originalPath = sourceURL.path
+        var project = TrimatoProject(name: "Positioned Video")
+        project.format = ProjectFormat(mode: .custom, width: 320, height: 180, frameRate: 24)
+        project.media = [overlay]
+        let trackID = project.createTrack(kind: .video, name: "Overlay")
+        let clipID = try project.append(asset: overlay, toTrack: trackID)
+        try project.positionAdditionalTrackClip(
+            id: clipID,
+            edge: .tail,
+            at: ProjectTime(seconds: 0.25)
+        )
+
+        let result = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: [overlay.id: sourceURL]
+        )
+        let track = try #require(try await result.composition.loadTracks(withMediaType: .video).first)
+        let segment = try #require(track.segments.first(where: { !$0.isEmpty }))
+
+        #expect(abs(track.timeRange.duration.seconds - 0.25) < 0.03)
+        #expect(abs(segment.timeMapping.source.start.seconds - 0.75) < 0.03)
+        #expect(abs(segment.timeMapping.target.start.seconds) < 0.01)
+    }
+
     private func makeFixture(
         at url: URL,
         color: String,

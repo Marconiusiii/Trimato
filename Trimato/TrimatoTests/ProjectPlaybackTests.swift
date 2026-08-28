@@ -5,6 +5,33 @@ import Testing
 
 @Suite("Project playback")
 struct ProjectPlaybackTests {
+    @Test func editorKeyboardRoutingRecognizesTrackSelectionAndAbsolutePositioning() {
+        #expect(ProjectPlayerViewModel.trackSelectionOffset(
+            keyCode: 126,
+            commandAndOptionOnly: true
+        ) == -1)
+        #expect(ProjectPlayerViewModel.trackSelectionOffset(
+            keyCode: 125,
+            commandAndOptionOnly: true
+        ) == 1)
+        #expect(ProjectPlayerViewModel.trackSelectionOffset(
+            keyCode: 125,
+            commandAndOptionOnly: false
+        ) == nil)
+        #expect(ProjectPlayerViewModel.absolutePositioningEdge(
+            character: "[",
+            unmodified: true
+        ) == .head)
+        #expect(ProjectPlayerViewModel.absolutePositioningEdge(
+            character: "]",
+            unmodified: true
+        ) == .tail)
+        #expect(ProjectPlayerViewModel.absolutePositioningEdge(
+            character: "]",
+            unmodified: false
+        ) == nil)
+    }
+
     @Test func projectPlayheadSliderUsesOneFrameAsItsNativeAdjustmentStep() {
         #expect(abs(ProjectPlayerViewModel.playbackFractionStep(
             duration: ProjectTime(seconds: 10),
@@ -65,6 +92,27 @@ struct ProjectPlaybackTests {
         #expect(audioEnd.spokenName == "Audio edit point")
         let videoEnd = try #require(points.first { $0.time == ProjectTime(seconds: 5) })
         #expect(videoEnd.spokenName == "Video edit point")
+    }
+
+    @Test func editNavigationOmitsAnAdditionalClipsHiddenNegativeBoundary() throws {
+        var music = fixtureAsset(name: "Music", duration: 60)
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        var project = TrimatoProject(name: "Negative positioning")
+        project.media = [music]
+        let trackID = project.createTrack(kind: .audio, name: "Music")
+        let clipID = try project.append(asset: music, toTrack: trackID)
+        try project.positionAdditionalTrackClip(
+            id: clipID,
+            edge: .tail,
+            at: ProjectTime(seconds: 15)
+        )
+
+        let points = ProjectPlayerViewModel.editPoints(in: project)
+
+        #expect(points.allSatisfy { $0.time >= .zero })
+        #expect(!points.contains { $0.time == ProjectTime(seconds: -45) })
+        #expect(points.contains { $0.time == ProjectTime(seconds: 15) && $0.hasAudio })
     }
 
     @Test func videoEndIgnoresLongerLayeredAudioTracks() throws {

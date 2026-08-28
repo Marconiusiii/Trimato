@@ -134,6 +134,9 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var quickCrossTransition: (() -> Void)?
     private var quickFade: (() -> Void)?
     private var openClipAtPlayhead: (() -> Void)?
+    private var selectAdjacentTrack: ((Int) -> Void)?
+    private var positionActiveClipHead: (() -> Void)?
+    private var positionActiveClipTail: (() -> Void)?
     private var currentPreviewFailure: ProjectPreviewFailure?
 
     init() {
@@ -190,6 +193,18 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func onOpenClipAtPlayhead(_ handler: @escaping () -> Void) {
         openClipAtPlayhead = handler
+    }
+
+    func onSelectAdjacentTrack(_ handler: @escaping (Int) -> Void) {
+        selectAdjacentTrack = handler
+    }
+
+    func onPositionActiveClipHead(_ handler: @escaping () -> Void) {
+        positionActiveClipHead = handler
+    }
+
+    func onPositionActiveClipTail(_ handler: @escaping () -> Void) {
+        positionActiveClipTail = handler
     }
 
     func dismissPreviewFailure() {
@@ -905,7 +920,9 @@ final class ProjectPlayerViewModel: ObservableObject {
                 add(cutaway.end, kind: .audio)
             }
         }
-        return points.values.sorted { $0.time < $1.time }
+        return points.values
+            .filter { $0.time >= .zero && $0.time <= project.duration }
+            .sorted { $0.time < $1.time }
     }
 
     nonisolated static func videoEnd(in project: TrimatoProject) -> ProjectTime {
@@ -927,6 +944,15 @@ final class ProjectPlayerViewModel: ObservableObject {
 
             switch event.type {
             case .keyDown:
+                if modifiers == [.command, .option] {
+                    if let offset = Self.trackSelectionOffset(
+                        keyCode: event.keyCode,
+                        commandAndOptionOnly: true
+                    ) {
+                        if !event.isARepeat { self.selectAdjacentTrack?(offset) }
+                        return nil
+                    }
+                }
                 if modifiers == .command {
                     switch event.keyCode {
                     case 123:
@@ -970,6 +996,14 @@ final class ProjectPlayerViewModel: ObservableObject {
                     break
                 }
                 guard !event.isARepeat, unmodified else { return event }
+                if let edge = Self.absolutePositioningEdge(
+                    character: event.charactersIgnoringModifiers,
+                    unmodified: true
+                ) {
+                    if edge == .head { self.positionActiveClipHead?() }
+                    else { self.positionActiveClipTail?() }
+                    return nil
+                }
                 switch event.charactersIgnoringModifiers?.lowercased() {
                 case "c": self.openClipAtPlayhead?(); return nil
                 case "x": self.quickCrossTransition?(); return nil
@@ -994,6 +1028,26 @@ final class ProjectPlayerViewModel: ObservableObject {
                 return event
             }
         }
+    }
+
+    nonisolated static func trackSelectionOffset(
+        keyCode: UInt16,
+        commandAndOptionOnly: Bool
+    ) -> Int? {
+        guard commandAndOptionOnly else { return nil }
+        if keyCode == 126 { return -1 }
+        if keyCode == 125 { return 1 }
+        return nil
+    }
+
+    nonisolated static func absolutePositioningEdge(
+        character: String?,
+        unmodified: Bool
+    ) -> TimelineClipPositionEdge? {
+        guard unmodified else { return nil }
+        if character == "[" { return .head }
+        if character == "]" { return .tail }
+        return nil
     }
 
     private func isEditingText(in window: NSWindow?) -> Bool {

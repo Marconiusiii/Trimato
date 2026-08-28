@@ -360,6 +360,7 @@ enum ProjectCompositionBuilder {
                 var transforms: [(ProjectTimeRange, CGAffineTransform)] = []
                 for clip in timelineTrack.sortedClips {
                     if project.cutaways.contains(where: { $0.id == clip.id }) { continue }
+                    guard clip.visibleDuration.isPositive else { continue }
                     let record = try requireAsset(clip.assetID, in: project)
                     let asset = try await preparedAsset(
                         record, urls: mediaURLs, purpose: purpose, cache: &assets,
@@ -369,8 +370,8 @@ enum ProjectCompositionBuilder {
                         throw ProjectCompositionError.missingVideo(record.name)
                     }
                     let transform = try await displayTransform(for: source, renderSize: renderSize)
-                    var destination = clip.timelineStart
-                    for segment in clip.segments {
+                    var destination = clip.visibleTimelineStart
+                    for segment in clip.visibleSegments {
                         try compositionTrack.insertTimeRange(segment.sourceRange.cmTimeRange, of: source, at: destination.cmTime)
                         transforms.append((ProjectTimeRange(start: destination, duration: segment.duration), transform))
                         destination = destination + segment.duration
@@ -387,6 +388,7 @@ enum ProjectCompositionBuilder {
                         $0.audioMode == .sourceAudio && $0.assetID == clip.assetID &&
                             $0.start == clip.timelineStart && $0.segments == clip.segments
                     }) { continue }
+                    guard clip.visibleDuration.isPositive else { continue }
                     let record = try requireAsset(clip.assetID, in: project)
                     let asset = try await preparedAsset(
                         record, urls: mediaURLs, purpose: purpose, cache: &assets,
@@ -421,22 +423,29 @@ enum ProjectCompositionBuilder {
                         usesRenderedAudio = true
                     }
                     guard let source else { continue }
-                    var destination = clip.timelineStart
+                    var destination = clip.visibleTimelineStart
                     if usesRenderedAudio {
-                        let range = try await source.load(.timeRange)
-                        do {
-                            try compositionTrack.insertTimeRange(range, of: source, at: destination.cmTime)
-                        } catch {
-                            throw ProjectCompositionError.audioInsertionFailed(
-                                clip: clip.displayName,
-                                track: timelineTrack.name,
-                                detail: ProjectCompositionError.failureDetail(for: error)
-                            )
+                        let available = try await source.load(.timeRange)
+                        let requested = CMTimeRange(
+                            start: CMTimeAdd(available.start, clip.hiddenBeforeTimeline.cmTime),
+                            duration: clip.visibleDuration.cmTime
+                        )
+                        let portion = CMTimeRangeGetIntersection(requested, otherRange: available)
+                        if portion.isValid, !portion.isEmpty {
+                            do {
+                                try compositionTrack.insertTimeRange(portion, of: source, at: destination.cmTime)
+                            } catch {
+                                throw ProjectCompositionError.audioInsertionFailed(
+                                    clip: clip.displayName,
+                                    track: timelineTrack.name,
+                                    detail: ProjectCompositionError.failureDetail(for: error)
+                                )
+                            }
                         }
                         withExtendedLifetime(renderedAudioAsset) {}
                         continue
                     }
-                    for segment in clip.segments {
+                    for segment in clip.visibleSegments {
                         let available = try await source.load(.timeRange)
                         let portion = CMTimeRangeGetIntersection(segment.sourceRange.cmTimeRange, otherRange: available)
                         if portion.isValid, !portion.isEmpty {

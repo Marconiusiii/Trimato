@@ -16,6 +16,9 @@ enum ProjectTimelineError: LocalizedError, Equatable {
     case sourceAssetNotFound
     case unsupportedPlacement
     case cannotTrimAtPlayhead
+    case absolutePositioningRequiresAdditionalTrack
+    case clipPositionOverlap(String)
+    case clipPositionHasTransition
     case transitionNotAvailable(String)
 
     var errorDescription: String? {
@@ -35,9 +38,17 @@ enum ProjectTimelineError: LocalizedError, Equatable {
         case .sourceAssetNotFound: "The source clip is no longer available in this project. Reopen it from Project Sources and try again."
         case .unsupportedPlacement: "This placement is not available for the selected track."
         case .cannotTrimAtPlayhead: "Move the project playhead inside the focused timeline clip before trimming its end."
+        case .absolutePositioningRequiresAdditionalTrack: "Absolute clip positioning is available only on additional video and audio tracks."
+        case .clipPositionOverlap(let trackName): "That position would overlap another clip on the \(trackName) track."
+        case .clipPositionHasTransition: "Remove the clip's transition before changing its absolute position."
         case .transitionNotAvailable(let message): message
         }
     }
+}
+
+nonisolated enum TimelineClipPositionEdge: Equatable, Sendable {
+    case head
+    case tail
 }
 
 extension TrimatoProject {
@@ -271,6 +282,48 @@ extension TrimatoProject {
             tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart - removedDuration
         }
         removeInvalidBetweenTransitions(on: [tracks[trackIndex].id])
+    }
+
+    mutating func positionAdditionalTrackClip(
+        id: UUID,
+        edge: TimelineClipPositionEdge,
+        at playhead: ProjectTime
+    ) throws {
+        ensureTrackModel()
+        guard playhead >= .zero else { throw ProjectTimelineError.invalidPlayhead }
+        guard let trackIndex = tracks.firstIndex(where: { track in track.clips.contains { $0.id == id } }),
+              let clipIndex = tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        guard tracks[trackIndex].role == .additional,
+              !cutaways.contains(where: { $0.id == id }) else {
+            throw ProjectTimelineError.absolutePositioningRequiresAdditionalTrack
+        }
+
+        let clip = tracks[trackIndex].clips[clipIndex]
+        let positionedStart = edge == .head ? playhead : playhead - clip.duration
+        guard positionedStart != clip.timelineStart else { return }
+        guard !transitions.contains(where: {
+            $0.trackID == tracks[trackIndex].id &&
+                ($0.leadingClipID == id || $0.trailingClipID == id)
+        }) else {
+            throw ProjectTimelineError.clipPositionHasTransition
+        }
+
+        var positionedClip = clip
+        positionedClip.timelineStart = positionedStart
+        if positionedClip.visibleDuration.isPositive {
+            let overlapsAnotherClip = tracks[trackIndex].clips.contains { other in
+                guard other.id != id, other.visibleDuration.isPositive else { return false }
+                return positionedClip.visibleTimelineStart < other.visibleTimelineEnd &&
+                    other.visibleTimelineStart < positionedClip.visibleTimelineEnd
+            }
+            guard !overlapsAnotherClip else {
+                throw ProjectTimelineError.clipPositionOverlap(tracks[trackIndex].name)
+            }
+        }
+
+        tracks[trackIndex].clips[clipIndex].timelineStart = positionedStart
     }
 
     mutating func renameTrackClip(id: UUID, to requestedName: String) throws {

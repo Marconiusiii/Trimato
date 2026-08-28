@@ -29,7 +29,7 @@ nonisolated struct TimelineTrack: Codable, Equatable, Hashable, Identifiable, Se
     }
 
     var end: ProjectTime {
-        clips.map(\.timelineEnd).max() ?? .zero
+        max(clips.map(\.visibleTimelineEnd).max() ?? .zero, .zero)
     }
 }
 

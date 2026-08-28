@@ -69,7 +69,15 @@ struct ClipInspectorView: View {
             inspectorRow("Clips", "\(track.clips.count)")
         } else if let clip = controller.selectedTimelineClip {
             inspectorRow("Length", ProjectTimecodeFormatter.string(clip.duration))
-            if let start = controller.project.startTime(of: clip.id) {
+            if controller.project.tracks.contains(where: {
+                $0.role == .additional && $0.clips.contains { $0.id == clip.id }
+            }) {
+                inspectorRow("Timeline Start", ProjectTimecodeFormatter.string(clip.visibleTimelineStart))
+                if clip.hiddenBeforeTimeline.isPositive {
+                    inspectorRow("Hidden Before Timeline", ProjectTimecodeFormatter.string(clip.hiddenBeforeTimeline))
+                    inspectorRow("Visible Length", ProjectTimecodeFormatter.string(clip.visibleDuration))
+                }
+            } else if let start = controller.project.startTime(of: clip.id) {
                 inspectorRow("Timeline Start", ProjectTimecodeFormatter.string(start))
             }
             inspectorRow("Source Segments", "\(clip.segments.count)")

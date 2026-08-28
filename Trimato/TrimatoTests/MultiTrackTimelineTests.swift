@@ -254,6 +254,134 @@ struct MultiTrackTimelineTests {
         #expect(project.timelineClip(id: firstID)?.segments.first?.sourceRange.start == .zero)
     }
 
+    @Test func aligningAnAdditionalClipTailBeforeZeroKeepsAndRevealsItsSource() throws {
+        var music = fixtureAsset(name: "Music", duration: 60)
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [music]
+        let trackID = project.createTrack(kind: .audio, name: "Musica")
+        let sourceSegments = [segment(0, 30), segment(30, 30)]
+        let clipID = try project.append(asset: music, segments: sourceSegments, toTrack: trackID)
+
+        try project.positionAdditionalTrackClip(
+            id: clipID,
+            edge: .tail,
+            at: ProjectTime(seconds: 15)
+        )
+
+        var clip = try #require(project.timelineClip(id: clipID))
+        #expect(clip.timelineStart == ProjectTime(seconds: -45))
+        #expect(clip.segments == sourceSegments)
+        #expect(clip.hiddenBeforeTimeline == ProjectTime(seconds: 45))
+        #expect(clip.visibleTimelineStart == .zero)
+        #expect(clip.visibleDuration == ProjectTime(seconds: 15))
+        #expect(clip.visibleSegments.map(\.sourceRange) == [segment(45, 15).sourceRange])
+
+        try project.positionAdditionalTrackClip(
+            id: clipID,
+            edge: .tail,
+            at: ProjectTime(seconds: 20)
+        )
+
+        clip = try #require(project.timelineClip(id: clipID))
+        #expect(clip.timelineStart == ProjectTime(seconds: -40))
+        #expect(clip.segments == sourceSegments)
+        #expect(clip.visibleDuration == ProjectTime(seconds: 20))
+        #expect(clip.visibleSegments.map(\.sourceRange) == [segment(40, 20).sourceRange])
+    }
+
+    @Test func aligningAnAdditionalClipHeadMovesTheWholeClipWithoutChangingItsSource() throws {
+        var effect = fixtureAsset(name: "Effect", duration: 6)
+        effect.naturalWidth = nil
+        effect.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [effect]
+        let trackID = project.createTrack(kind: .audio, name: "Sound Effects")
+        let clipID = try project.append(asset: effect, toTrack: trackID)
+        let originalSegments = try #require(project.timelineClip(id: clipID)?.segments)
+
+        try project.positionAdditionalTrackClip(
+            id: clipID,
+            edge: .head,
+            at: ProjectTime(seconds: 20)
+        )
+
+        let clip = try #require(project.timelineClip(id: clipID))
+        #expect(clip.timelineStart == ProjectTime(seconds: 20))
+        #expect(clip.timelineEnd == ProjectTime(seconds: 26))
+        #expect(clip.segments == originalSegments)
+        #expect(clip.hiddenBeforeTimeline == .zero)
+    }
+
+    @Test func absolutePositioningRejectsSameTrackOverlapAndAttachedTransitions() throws {
+        var audio = fixtureAsset(name: "Effect", duration: 20)
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [audio]
+        let trackID = project.createTrack(kind: .audio, name: "Effects")
+        let firstID = try project.append(asset: audio, segments: [segment(0, 5)], toTrack: trackID)
+        let secondID = try project.append(asset: audio, segments: [segment(5, 5)], toTrack: trackID)
+
+        #expect(throws: ProjectTimelineError.clipPositionOverlap("Effects")) {
+            try project.positionAdditionalTrackClip(
+                id: secondID,
+                edge: .head,
+                at: ProjectTime(seconds: 2)
+            )
+        }
+
+        let transition = TimelineTransition(
+            trackID: trackID,
+            edge: .between,
+            kind: .audio(.crossFade),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: firstID,
+            trailingClipID: secondID
+        )
+        try project.addTransition(transition)
+        #expect(throws: ProjectTimelineError.clipPositionHasTransition) {
+            try project.positionAdditionalTrackClip(
+                id: firstID,
+                edge: .tail,
+                at: ProjectTime(seconds: 4)
+            )
+        }
+    }
+
+    @Test @MainActor func editorPositioningUsesTheActiveTracksRememberedClipWithoutTimelineFocus() throws {
+        var music = fixtureAsset(name: "Amsterdam Music", duration: 60)
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [music]
+        let dialogueID = project.createTrack(kind: .audio, name: "Dialogue")
+        let musicID = project.createTrack(kind: .audio, name: "Musica")
+        _ = try project.append(asset: music, segments: [segment(0, 5)], toTrack: dialogueID)
+        let clipID = try project.append(asset: music, toTrack: musicID)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = dialogueID
+        controller.timelinePlayhead = ProjectTime(seconds: 15)
+
+        controller.selectAdjacentTrack(1, restoreTimelineFocus: false)
+
+        #expect(controller.activeTimelineTrackID == musicID)
+        #expect(controller.timelineFocusRestoreRequest == 0)
+        #expect(controller.timelineListFocusRestoreRequest == 0)
+        #expect(ProjectController.activeTrackAnnouncement(
+            trackName: "Musica",
+            clipName: "Amsterdam Music"
+        ) == "Musica track, Amsterdam Music selected")
+
+        controller.positionActiveAdditionalTrackClip(edge: .tail, at: ProjectTime(seconds: 15))
+        #expect(controller.project.timelineClip(id: clipID)?.timelineStart == ProjectTime(seconds: -45))
+        #expect(controller.selection == .timelineClip(clipID))
+
+        controller.positionActiveAdditionalTrackClip(edge: .tail, at: ProjectTime(seconds: 20))
+        #expect(controller.project.timelineClip(id: clipID)?.timelineStart == ProjectTime(seconds: -40))
+    }
+
     @Test func timelineTrimRequiresThePlayheadInsideTheFocusedClip() throws {
         var music = fixtureAsset(name: "Music", duration: 60)
         music.naturalWidth = nil

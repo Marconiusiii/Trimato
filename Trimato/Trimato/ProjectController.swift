@@ -52,6 +52,7 @@ final class ProjectController: ObservableObject {
     private weak var projectPlayer: ProjectPlayerViewModel?
     private var projectWithPreparedTransitionPreview: TrimatoProject?
     private var closeProjectAction: (() -> Void)?
+    private var editorDirectClipIDs: [UUID: UUID] = [:]
     private let cacheOwnerID = UUID()
 
     init(document: ProjectDocument) {
@@ -289,7 +290,11 @@ final class ProjectController: ObservableObject {
 
     func focusTimelineElement(_ element: TimelineElementSelection) {
         switch element {
-        case .clip(let id): selection = .timelineClip(id)
+        case .clip(let id):
+            selection = .timelineClip(id)
+            if let track = project.tracks.first(where: { $0.clips.contains { $0.id == id } }) {
+                editorDirectClipIDs[track.id] = id
+            }
         case .transition(let id): selection = .transition(id)
         }
     }
@@ -302,17 +307,49 @@ final class ProjectController: ObservableObject {
         announce("Clip end trimmed to project playhead")
     }
 
-    func selectAdjacentTrack(_ offset: Int) {
+    func selectAdjacentTrack(_ offset: Int, restoreTimelineFocus: Bool = true) {
         guard !project.tracks.isEmpty else { return }
         let current = activeTimelineTrackID.flatMap { id in project.tracks.firstIndex { $0.id == id } } ?? 0
         let destination = min(max(current + offset, 0), project.tracks.count - 1)
         activeTimelineTrackID = project.tracks[destination].id
         let track = project.tracks[destination]
-        announce("\(track.name) track")
-        if let clip = editorClip(at: timelinePlayhead) {
+        let clip = editorDirectClip(on: track, at: timelinePlayhead)
+        announce(Self.activeTrackAnnouncement(trackName: track.name, clipName: clip?.displayName))
+        guard restoreTimelineFocus else { return }
+        if let clip {
             requestTimelineFocusRestore(to: .clip(clip.id))
         } else {
             requestTimelineListFocusRestore()
+        }
+    }
+
+    func positionActiveAdditionalTrackClip(edge: TimelineClipPositionEdge, at playhead: ProjectTime) {
+        guard let track = activeTimelineTrack,
+              let clip = editorDirectClip(on: track, at: playhead) else {
+            presentedError = ProjectPresentedError(
+                title: "Clip Could Not Be Moved",
+                message: "The active track does not contain a clip to move."
+            )
+            return
+        }
+        do {
+            try mutateProjectThrowing(actionName: edge == .head ? "Move Clip Head" : "Move Clip Tail") {
+                try $0.positionAdditionalTrackClip(id: clip.id, edge: edge, at: playhead)
+            }
+            editorDirectClipIDs[track.id] = clip.id
+            selection = .timelineClip(clip.id)
+            let edgeName = edge == .head ? "head" : "tail"
+            let time = ProjectPlayerViewModel.accessibilityTimeLabel(
+                time: playhead,
+                showingFrames: false,
+                frameRate: project.format.frameRate ?? 30
+            )
+            announce("\(clip.displayName), \(track.name) track, \(edgeName) moved to \(time)")
+        } catch {
+            presentedError = ProjectPresentedError(
+                title: "Clip Could Not Be Moved",
+                message: error.localizedDescription
+            )
         }
     }
 
@@ -516,6 +553,32 @@ final class ProjectController: ObservableObject {
         }
         if let following = clips.first(where: { $0.timelineStart > time }) { return following }
         return clips.last(where: { $0.timelineEnd == time })
+    }
+
+    private func editorDirectClip(on track: TimelineTrack, at time: ProjectTime) -> TimelineClip? {
+        if let selected = selectedTimelineClip,
+           track.clips.contains(where: { $0.id == selected.id }) {
+            editorDirectClipIDs[track.id] = selected.id
+            return selected
+        }
+        if let rememberedID = editorDirectClipIDs[track.id],
+           let remembered = track.clips.first(where: { $0.id == rememberedID }) {
+            return remembered
+        }
+        let clips = track.sortedClips
+        let resolved = clips.first(where: { $0.timelineStart == time })
+            ?? clips.first(where: { time >= $0.visibleTimelineStart && time < $0.visibleTimelineEnd })
+            ?? clips.first(where: { $0.visibleTimelineStart > time })
+            ?? clips.last(where: { $0.visibleTimelineEnd <= time })
+        if let resolved {
+            editorDirectClipIDs[track.id] = resolved.id
+        }
+        return resolved
+    }
+
+    nonisolated static func activeTrackAnnouncement(trackName: String, clipName: String?) -> String {
+        clipName.map { "\(trackName) track, \($0) selected" }
+            ?? "\(trackName) track, no clip selected"
     }
 
     func editorClipSelection(at time: ProjectTime) -> EditorSelection? {

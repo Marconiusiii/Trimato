@@ -142,6 +142,41 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
 
     var timelineEnd: ProjectTime { timelineStart + duration }
 
+    var hiddenBeforeTimeline: ProjectTime {
+        min(max(.zero - timelineStart, .zero), duration)
+    }
+
+    var visibleTimelineStart: ProjectTime {
+        max(timelineStart, .zero)
+    }
+
+    var visibleTimelineEnd: ProjectTime {
+        max(timelineEnd, .zero)
+    }
+
+    var visibleDuration: ProjectTime {
+        max(visibleTimelineEnd - visibleTimelineStart, .zero)
+    }
+
+    var visibleSegments: [SourceSegment] {
+        var amountToSkip = hiddenBeforeTimeline
+        var result: [SourceSegment] = []
+        for segment in segments {
+            guard segment.duration.isPositive else { continue }
+            if amountToSkip >= segment.duration {
+                amountToSkip = amountToSkip - segment.duration
+                continue
+            }
+            let visibleStart = segment.sourceRange.start + amountToSkip
+            result.append(SourceSegment(sourceRange: ProjectTimeRange(
+                start: visibleStart,
+                duration: segment.duration - amountToSkip
+            )))
+            amountToSkip = .zero
+        }
+        return result
+    }
+
     var displayName: String {
         if let customName { return customName }
         guard let labelOrdinal else { return name }

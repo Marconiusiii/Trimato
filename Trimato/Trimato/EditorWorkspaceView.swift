@@ -286,6 +286,17 @@ private struct ProjectViewerView: View {
                       let selection = controller.editorClipSelection(at: viewModel.currentTime) else { return }
                 openClipEditor(selection)
             }
+            viewModel.onSelectAdjacentTrack { [weak controller] offset in
+                controller?.selectAdjacentTrack(offset, restoreTimelineFocus: false)
+            }
+            viewModel.onPositionActiveClipHead { [weak controller, weak viewModel] in
+                guard let controller, let viewModel else { return }
+                controller.positionActiveAdditionalTrackClip(edge: .head, at: viewModel.currentTime)
+            }
+            viewModel.onPositionActiveClipTail { [weak controller, weak viewModel] in
+                guard let controller, let viewModel else { return }
+                controller.positionActiveAdditionalTrackClip(edge: .tail, at: viewModel.currentTime)
+            }
             prepare()
         }
         .onChange(of: controller.project) { project in
