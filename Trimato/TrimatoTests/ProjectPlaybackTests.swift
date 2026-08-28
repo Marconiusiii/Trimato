@@ -89,6 +89,36 @@ struct ProjectPlaybackTests {
         #expect(!controller.canExportProject)
     }
 
+    @Test @MainActor func transitionApplicationUsesThePrimaryVideoNameAndSeparateProgressFocus() {
+        let controller = ProjectController(document: ProjectDocument())
+        let audio = TimelineTransition(
+            trackID: UUID(),
+            edge: .between,
+            kind: .audio(.crossFade),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: UUID(),
+            trailingClipID: UUID()
+        )
+        let video = TimelineTransition(
+            trackID: UUID(),
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: UUID(),
+            trailingClipID: UUID()
+        )
+
+        controller.beginApplyingTransitions([audio, video])
+        #expect(controller.applyingTransitionName == "Cross Dissolve")
+
+        controller.requestTransitionProgressFocus()
+        #expect(controller.transitionProgressFocusRequest == 1)
+        #expect(controller.editorFocusRestoreRequest == 0)
+
+        controller.finishApplyingTransition()
+        #expect(controller.applyingTransitionName == nil)
+    }
+
     @Test func projectNavigationAnnouncementsIdentifyTheDestinationConcisely() {
         let duration = ProjectTime(seconds: 10)
         let inMarker = ProjectTime(seconds: 2)

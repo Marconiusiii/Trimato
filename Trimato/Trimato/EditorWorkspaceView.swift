@@ -103,35 +103,36 @@ struct EditorWorkspaceView: View {
             MacEditorPane("Project") {
                 ProjectBrowserView(
                     controller: controller,
-                    openClipEditor: clipEditorWindows.open
+                    openClipEditor: clipEditorWindows.open,
+                    workspacePaneLinks: workspacePaneLinks
                 )
             }
                 .frame(minWidth: 210, idealWidth: 260, maxWidth: 360)
-                .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
 
             VSplitView {
                 MacEditorPane("Editor") {
                     ProjectViewerView(
-                        controller: controller
+                        controller: controller,
+                        workspacePaneLinks: workspacePaneLinks
                     )
                 }
                 .frame(minHeight: 360)
-                .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
 
                 HSplitView {
                     MacEditorPane("Timeline") {
                         ProjectTimelineView(
                             controller: controller,
-                            openClipEditor: clipEditorWindows.open
+                            openClipEditor: clipEditorWindows.open,
+                            workspacePaneLinks: workspacePaneLinks
                         )
                     }
                         .frame(minWidth: 460)
-                        .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                     MacEditorPane("Inspector") {
                         VStack(spacing: 0) {
                             Text("Inspector")
                                 .font(.headline)
                                 .accessibilityAddTraits(.isHeader)
+                                .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 6)
@@ -143,7 +144,6 @@ struct EditorWorkspaceView: View {
                         }
                     }
                         .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
-                        .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 }
                 .frame(minHeight: 240)
             }
@@ -165,7 +165,7 @@ struct EditorWorkspaceView: View {
                 project: controller.project,
                 request: request,
                 add: { transitions in
-                    try controller.addTransitions(transitions, selectAddedTransition: false)
+                    try addQuickTransitions(transitions)
                 },
                 finished: dismissQuickTransition
             )
@@ -174,14 +174,27 @@ struct EditorWorkspaceView: View {
 
     private func addTransitions(_ transitions: [TimelineTransition]) {
         let returnsToEditor = controller.transitionRequestReturnsToEditor
+        if returnsToEditor { controller.beginApplyingTransitions(transitions) }
         do {
             try controller.addTransitions(transitions, selectAddedTransition: !returnsToEditor)
             controller.transitionRequest = nil
         } catch {
+            if returnsToEditor { controller.finishApplyingTransition() }
             controller.presentedError = ProjectPresentedError(
                 title: "Transition Could Not Be Added",
                 message: error.localizedDescription
             )
+        }
+    }
+
+    private func addQuickTransitions(_ transitions: [TimelineTransition]) throws {
+        let returnsToEditor = controller.transitionRequestReturnsToEditor
+        if returnsToEditor { controller.beginApplyingTransitions(transitions) }
+        do {
+            try controller.addTransitions(transitions, selectAddedTransition: false)
+        } catch {
+            if returnsToEditor { controller.finishApplyingTransition() }
+            throw error
         }
     }
 
@@ -195,8 +208,9 @@ struct EditorWorkspaceView: View {
 
     private func transitionSheetDidDismiss() {
         guard controller.transitionRequestReturnsToEditor else { return }
-        Task { @MainActor in
-            await Task.yield()
+        if controller.applyingTransitionName != nil {
+            controller.requestTransitionProgressFocus()
+        } else {
             controller.requestEditorFocusRestore()
         }
     }
@@ -210,15 +224,19 @@ struct EditorWorkspaceView: View {
 
 private struct ProjectViewerView: View {
     @ObservedObject var controller: ProjectController
+    let workspacePaneLinks: Namespace.ID
     @StateObject private var viewModel = ProjectPlayerViewModel()
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
     @AccessibilityFocusState private var playPauseFocused: Bool
+    @AccessibilityFocusState private var applyingTransitionFocused: Bool
+    @State private var pendingPlayFocus = false
 
     var body: some View {
         VStack(spacing: 0) {
             Text("Editor")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 .accessibilityIdentifier("trimato.editor.heading")
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
@@ -268,6 +286,12 @@ private struct ProjectViewerView: View {
         .onChange(of: controller.editorFocusRestoreRequest) { _ in
             restorePlayPauseFocus()
         }
+        .onChange(of: controller.transitionProgressFocusRequest) {
+            focusApplyingTransition()
+        }
+        .onChange(of: viewModel.isPreparing) { isPreparing in
+            preparationChanged(isPreparing)
+        }
         .alert(item: Binding(
             get: { viewModel.presentedPreviewFailure },
             set: { failure in
@@ -287,12 +311,45 @@ private struct ProjectViewerView: View {
     }
 
     private func restorePlayPauseFocus() {
-        playPauseFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            playPauseFocused = true
+        guard viewModel.canControlPlayback else {
+            pendingPlayFocus = true
+            return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            playPauseFocused = true
+        pendingPlayFocus = false
+        playPauseFocused = false
+        DispatchQueue.main.async {
+            if viewModel.canControlPlayback {
+                playPauseFocused = true
+            }
+        }
+    }
+
+    private func focusApplyingTransition() {
+        playPauseFocused = false
+        applyingTransitionFocused = false
+        DispatchQueue.main.async {
+            if controller.applyingTransitionName != nil {
+                applyingTransitionFocused = true
+            }
+        }
+    }
+
+    private func preparationChanged(_ isPreparing: Bool) {
+        if isPreparing {
+            if controller.applyingTransitionName != nil {
+                playPauseFocused = false
+            }
+            return
+        }
+        Task { @MainActor in
+            await Task.yield()
+            let finishedTransition = controller.applyingTransitionName != nil
+            if finishedTransition { controller.finishApplyingTransition() }
+            if (finishedTransition || pendingPlayFocus),
+               viewModel.presentedPreviewFailure == nil,
+               viewModel.canControlPlayback {
+                restorePlayPauseFocus()
+            }
         }
     }
 
@@ -335,9 +392,15 @@ private struct ProjectViewerView: View {
                 Text("Add a clip to the project timeline")
                     .foregroundStyle(.secondary)
             } else if viewModel.isPreparing {
-                ProgressView("Preparing Project Preview")
-                    .padding()
-                    .accessibilityHidden(true)
+                if let transitionName = controller.applyingTransitionName {
+                    ProgressView("Applying \(transitionName)…")
+                        .padding()
+                        .accessibilityFocused($applyingTransitionFocused)
+                } else {
+                    ProgressView("Preparing Project Preview")
+                        .padding()
+                        .accessibilityHidden(true)
+                }
             } else if viewModel.errorMessage != nil {
                 VStack(spacing: 12) {
                     Text("Project preview unavailable")

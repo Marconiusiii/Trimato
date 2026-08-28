@@ -3,6 +3,7 @@ import SwiftUI
 struct ProjectBrowserView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
+    let workspacePaneLinks: Namespace.ID
     @State private var sourceSelection: ProjectSourceItemID?
     @State private var showingNewFolder = false
     @State private var folderName = ""
@@ -11,10 +12,12 @@ struct ProjectBrowserView: View {
 
     init(
         controller: ProjectController,
-        openClipEditor: @escaping (EditorSelection) -> Void
+        openClipEditor: @escaping (EditorSelection) -> Void,
+        workspacePaneLinks: Namespace.ID
     ) {
         self.controller = controller
         self.openClipEditor = openClipEditor
+        self.workspacePaneLinks = workspacePaneLinks
         _sourceSelection = State(initialValue: .timeline(controller.project.id))
     }
 
@@ -23,6 +26,7 @@ struct ProjectBrowserView: View {
             Text("Project")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)

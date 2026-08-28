@@ -29,6 +29,8 @@ final class ProjectController: ObservableObject {
     @Published var transitionRequest: TransitionRequest?
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
+    @Published private(set) var transitionProgressFocusRequest = 0
+    @Published private(set) var applyingTransitionName: String?
     @Published var isImporting = false
     @Published var isShowingProjectSettings = false
     @Published var presentedError: ProjectPresentedError?
@@ -347,6 +349,22 @@ final class ProjectController: ObservableObject {
 
     func requestEditorFocusRestore() {
         editorFocusRestoreRequest += 1
+    }
+
+    func beginApplyingTransitions(_ transitions: [TimelineTransition]) {
+        let primary = transitions.first { transition in
+            if case .video = transition.kind { return true }
+            return false
+        } ?? transitions.first
+        applyingTransitionName = primary?.displayName ?? "Transition"
+    }
+
+    func requestTransitionProgressFocus() {
+        transitionProgressFocusRequest += 1
+    }
+
+    func finishApplyingTransition() {
+        applyingTransitionName = nil
     }
 
     func updateTransition(_ transition: TimelineTransition) throws {

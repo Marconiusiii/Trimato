@@ -3,8 +3,12 @@ import SwiftUI
 struct ProjectTimelineView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
+    let workspacePaneLinks: Namespace.ID
 
     @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
+    @AccessibilityFocusState private var trackPickerFocused: Bool
+    @State private var accessibilityElements: [TimelineListElement] = []
+    @State private var accessibilitySnapshotID = UUID()
     @State private var renamedClipName = ""
     @State private var isRenamingClip = false
     @State private var isRenamingTrack = false
@@ -19,6 +23,7 @@ struct ProjectTimelineView: View {
             Text("Timeline")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -31,6 +36,7 @@ struct ProjectTimelineView: View {
                     }
                 }
                 .disabled(controller.project.tracks.isEmpty)
+                .accessibilityFocused($trackPickerFocused)
                 Menu("Track Actions") {
                     Button("Add Track…") { beginAddTrack() }
                     Button("Rename Track…") { beginRenameTrack() }
@@ -59,6 +65,7 @@ struct ProjectTimelineView: View {
         }
         .onAppear {
             reconcileActiveTrack()
+            refreshAccessibilityElements()
         }
         .onChange(of: controller.project.tracks.map(\.id)) {
             reconcileActiveTrack()
@@ -66,6 +73,14 @@ struct ProjectTimelineView: View {
         .onChange(of: focusedElement) { element in
             guard let element else { return }
             controller.focusTimelineElement(element)
+        }
+        .onChange(of: trackPickerFocused) { focused in
+            if focused { refreshAccessibilityElements() }
+        }
+        .onChange(of: controller.activeTimelineTrackID) {
+            if trackPickerFocused || focusedElement != nil {
+                refreshAccessibilityElements()
+            }
         }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
@@ -124,7 +139,9 @@ struct ProjectTimelineView: View {
                 }
                 .padding(8)
             }
-            .accessibilityLabel("Timeline clips")
+            .accessibilityRepresentation {
+                accessibilityTimelineContent
+            }
             .background(
                 TimelineContextMenuKeyBridge(
                     focusedElement: focusedElement,
@@ -137,6 +154,21 @@ struct ProjectTimelineView: View {
                 .frame(width: 0, height: 0)
             )
         }
+    }
+
+    private var accessibilityTimelineContent: some View {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(accessibilityElements) { element in
+                    switch element.content {
+                    case .clip(let clip): clipButton(clip)
+                    case .transition(let transition): transitionButton(transition)
+                    }
+                }
+            }
+        }
+        .accessibilityLabel("Timeline clips")
+        .id(accessibilitySnapshotID)
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -252,6 +284,7 @@ struct ProjectTimelineView: View {
     private func restoreTimelineElementFocus() {
         guard let target = transitionFocusReturn else { return }
         transitionFocusReturn = nil
+        refreshAccessibilityElements()
         focusedElement = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             focusedElement = target
@@ -259,6 +292,13 @@ struct ProjectTimelineView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             focusedElement = target
         }
+    }
+
+    private func refreshAccessibilityElements() {
+        let refreshed = timelineElements
+        guard refreshed != accessibilityElements else { return }
+        accessibilityElements = refreshed
+        accessibilitySnapshotID = UUID()
     }
 
     private func activateTimelineElement(_ selection: TimelineElementSelection) {
