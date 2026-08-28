@@ -197,7 +197,7 @@ enum FFmpegTimelineEffectRenderer {
             "asetpts=PTS-STARTPTS\(leadingEffects)[a0];" +
             "[1:a:0]atrim=start=\(number(trailingStart)):duration=\(number(duration))," +
             "asetpts=PTS-STARTPTS\(trailingEffects)[a1];" +
-            "[a0][a1]acrossfade=d=\(number(duration)):c1=tri:c2=tri[outa]"
+            "[a0][a1]acrossfade=d=\(number(duration)):o=1:c1=qsin:c2=qsin[outa]"
     }
 
     static func audioFadeOutInGraph(
@@ -262,7 +262,7 @@ enum FFmpegTimelineEffectRenderer {
         case .video(let type):
             return "xfade=transition=\(videoTransitionName(type) ?? "fade"):duration=\(number(duration.seconds)):offset=\(number(offset.seconds))"
         case .audio:
-            return "acrossfade=d=\(number(duration.seconds)):c1=tri:c2=tri"
+            return "acrossfade=d=\(number(duration.seconds)):o=1:c1=qsin:c2=qsin"
         }
     }
 

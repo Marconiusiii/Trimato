@@ -114,12 +114,77 @@ struct MultiTrackTimelineTests {
             trailingSettings: AudioClipSettings()
         )
 
-        #expect(crossFade.contains("[a0][a1]acrossfade=d=1:c1=tri:c2=tri[outa]"))
+        #expect(crossFade.contains("[a0][a1]acrossfade=d=1:o=1:c1=qsin:c2=qsin[outa]"))
         #expect(!crossFade.contains("concat="))
         #expect(fadeOutIn.contains("afade=t=out"))
         #expect(fadeOutIn.contains("afade=t=in"))
         #expect(fadeOutIn.contains("concat=n=2:v=0:a=1[outa]"))
         #expect(!fadeOutIn.contains("acrossfade="))
+    }
+
+    @Test @MainActor func renderedThreeSecondCrossFadeContainsBothSourcesThroughoutTheOverlap() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let leadingURL = directory.appendingPathComponent("leading.wav")
+        let trailingURL = directory.appendingPathComponent("trailing.wav")
+        try await makeStereoFixture(
+            expression: "sin(2*PI*440*t)|0",
+            outputURL: leadingURL
+        )
+        try await makeStereoFixture(
+            expression: "0|sin(2*PI*660*t)",
+            outputURL: trailingURL
+        )
+
+        let leadingClip = TimelineClip(
+            assetID: UUID(),
+            name: "Outgoing",
+            segments: [segment(0, 3)]
+        )
+        let trailingClip = TimelineClip(
+            assetID: UUID(),
+            name: "Incoming",
+            segments: [segment(3, 3)]
+        )
+        let renderedURL = try await FFmpegTimelineEffectRenderer.renderAudioTransition(
+            leadingURL: leadingURL,
+            trailingURL: trailingURL,
+            leadingClip: leadingClip,
+            trailingClip: trailingClip,
+            type: .crossFade,
+            duration: ProjectTime(seconds: 3)
+        )
+        defer { try? FileManager.default.removeItem(at: renderedURL) }
+
+        let report = try await FFmpegMediaProbe.inspect(url: renderedURL)
+        #expect(abs(report.duration - 3) < 0.02)
+
+        let earlyLeft = try await meanVolume(
+            url: renderedURL, channel: 0, start: 0.15, duration: 0.2
+        )
+        let earlyRight = try await meanVolume(
+            url: renderedURL, channel: 1, start: 0.15, duration: 0.2
+        )
+        let middleLeft = try await meanVolume(
+            url: renderedURL, channel: 0, start: 1.4, duration: 0.2
+        )
+        let middleRight = try await meanVolume(
+            url: renderedURL, channel: 1, start: 1.4, duration: 0.2
+        )
+        let lateLeft = try await meanVolume(
+            url: renderedURL, channel: 0, start: 2.65, duration: 0.2
+        )
+        let lateRight = try await meanVolume(
+            url: renderedURL, channel: 1, start: 2.65, duration: 0.2
+        )
+
+        #expect(earlyLeft > earlyRight + 10)
+        #expect(middleLeft > -12)
+        #expect(middleRight > -12)
+        #expect(lateRight > lateLeft + 10)
     }
 
     @Test func timelineElementsPlaceCrossTransitionsBetweenTheirClips() throws {
@@ -221,4 +286,43 @@ struct MultiTrackTimelineTests {
             duration: ProjectTime(seconds: duration)
         ))
     }
+}
+
+private func makeStereoFixture(expression: String, outputURL: URL) async throws {
+    _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+        "-hide_banner", "-nostdin", "-y",
+        "-f", "lavfi", "-i", "aevalsrc=\(expression):s=48000:d=6",
+        "-c:a", "pcm_s16le", outputURL.path,
+    ])
+}
+
+private func meanVolume(
+    url: URL,
+    channel: Int,
+    start: Double,
+    duration: Double
+) async throws -> Double {
+    let result = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+        "-hide_banner", "-nostdin",
+        "-ss", String(start), "-t", String(duration),
+        "-i", url.path,
+        "-af", "pan=mono|c0=c\(channel),volumedetect",
+        "-f", "null", "-",
+    ])
+    let pattern = #"mean_volume:\s*(-?(?:\d+(?:\.\d+)?|inf))\s*dB"#
+    let expression = try NSRegularExpression(pattern: pattern)
+    let diagnostics = result.standardError as NSString
+    guard let match = expression.matches(
+        in: result.standardError,
+        range: NSRange(location: 0, length: diagnostics.length)
+    ).last,
+          let range = Range(match.range(at: 1), in: result.standardError),
+          let value = Double(result.standardError[range]) else {
+        throw CrossFadeFixtureError.missingMeanVolume
+    }
+    return value
+}
+
+private enum CrossFadeFixtureError: Error {
+    case missingMeanVolume
 }

@@ -421,6 +421,15 @@ struct ProjectPlaybackTests {
 
         #expect(result.videoComposition != nil)
         #expect(result.temporaryMediaURLs.count >= 2)
+        var renderedAudioDuration: Double?
+        for url in result.temporaryMediaURLs {
+            let report = try await FFmpegMediaProbe.inspect(url: url)
+            if report.videoStream == nil, report.hasAudio {
+                renderedAudioDuration = report.duration
+                break
+            }
+        }
+        #expect(abs((renderedAudioDuration ?? 0) - duration.seconds) < 0.02)
         let audioTracks = try await result.composition.loadTracks(withMediaType: .audio)
         #expect(audioTracks.count >= 2)
         var hasOverlappingTransitionTrack = false
