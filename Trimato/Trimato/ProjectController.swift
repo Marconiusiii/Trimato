@@ -29,6 +29,7 @@ final class ProjectController: ObservableObject {
     @Published var transitionRequest: TransitionRequest?
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
+    @Published private(set) var timelineContentRevision = 0
     @Published private(set) var applyingTransitionName: String?
     @Published private(set) var applyingTransitionProgress: Double?
     @Published var isImporting = false
@@ -945,6 +946,7 @@ final class ProjectController: ObservableObject {
     private func apply(_ project: TrimatoProject, undoingTo previous: TrimatoProject, actionName: String) {
         guard project != previous else { return }
         document.project = project
+        timelineContentRevision += 1
         updateCacheProtection(for: project)
         if let undoManager = projectUndoManager {
             undoManager.registerUndo(withTarget: self) { target in

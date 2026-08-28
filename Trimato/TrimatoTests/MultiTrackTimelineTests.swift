@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import Foundation
 import Testing
 @testable import Trimato
@@ -492,6 +493,86 @@ struct MultiTrackTimelineTests {
         ])
         #expect(TimelineElementSequence.contextDescription(for: firstTransition, in: project) ==
             "Interview A to Interview B")
+
+        let rowsWithoutTransitions = TimelineElementSequence.rows(track: track, transitions: [])
+        let rowsWithTransitions = TimelineElementSequence.rows(
+            track: track,
+            transitions: [secondTransition, firstTransition]
+        )
+        #expect(rowsWithTransitions.map(\.id) == rowsWithoutTransitions.map(\.id))
+        #expect(rowsWithTransitions[0].transitionsBeforeClip.isEmpty)
+        #expect(rowsWithTransitions[0].transitionsAfterClip.isEmpty)
+        #expect(rowsWithTransitions[1].transitionsBeforeClip.map(\.id) == [firstTransition.id])
+        #expect(rowsWithTransitions[2].transitionsBeforeClip.map(\.id) == [secondTransition.id])
+    }
+
+    @Test @MainActor func committedCrossDissolvePublishesAfterTimelineContainsItsRow() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 12)
+        var project = TrimatoProject(name: "Live cross dissolve")
+        project.media = [asset]
+        let leadingID = try project.append(asset: asset, segments: [segment(1, 3)])
+        let trailingID = try project.append(asset: asset, segments: [segment(6, 3)])
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let videoTrack = try #require(controller.project.tracks.first { $0.role == .primaryVideo })
+        let transition = TimelineTransition(
+            trackID: videoTrack.id,
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: leadingID,
+            trailingClipID: trailingID
+        )
+        var publishedElementIDs: [[String]] = []
+        let subscription = controller.objectWillChange.sink {
+            guard let track = controller.project.track(id: videoTrack.id) else { return }
+            publishedElementIDs.append(TimelineElementSequence.elements(
+                track: track,
+                transitions: TimelineElementSequence.transitions(for: track, in: controller.project)
+            ).map(\.id))
+        }
+
+        try controller.addTransitions([transition], selectAddedTransition: false)
+
+        #expect(controller.timelineContentRevision == 1)
+        #expect(publishedElementIDs.last == [
+            "clip-\(leadingID.uuidString)",
+            "transition-\(transition.id.uuidString)",
+            "clip-\(trailingID.uuidString)",
+        ])
+        _ = subscription
+    }
+
+    @Test func stableTimelineRowsKeepIntroAndOutroFadesInSourceOrder() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject(name: "Fades")
+        project.media = [asset]
+        let firstID = try project.append(asset: asset, segments: [segment(0, 5)])
+        let secondID = try project.append(asset: asset, segments: [segment(5, 5)])
+        let track = try #require(project.tracks.first { $0.role == .primaryVideo })
+        let intro = TimelineTransition(
+            trackID: track.id,
+            edge: .intro,
+            kind: .video(.fade),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: nil,
+            trailingClipID: firstID
+        )
+        let outro = TimelineTransition(
+            trackID: track.id,
+            edge: .outro,
+            kind: .video(.fade),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: secondID,
+            trailingClipID: nil
+        )
+
+        let rows = TimelineElementSequence.rows(track: track, transitions: [outro, intro])
+
+        #expect(rows.map(\.id) == [firstID, secondID])
+        #expect(rows[0].transitionsBeforeClip.map(\.id) == [intro.id])
+        #expect(rows[0].transitionsAfterClip.isEmpty)
+        #expect(rows[1].transitionsBeforeClip.isEmpty)
+        #expect(rows[1].transitionsAfterClip.map(\.id) == [outro.id])
     }
 
     @Test @MainActor func reopenedProjectsSelectPrimaryVideoAndRecoverTransitionOwnership() throws {

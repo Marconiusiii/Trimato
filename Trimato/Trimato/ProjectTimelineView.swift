@@ -116,7 +116,7 @@ struct ProjectTimelineView: View {
     private var timelineContent: some View {
         if controller.project.tracks.isEmpty {
             emptyMessage("No clips in the project timeline")
-        } else if timelineElements.isEmpty {
+        } else if timelineRows.isEmpty {
             emptyMessage("No clips on this track")
         } else {
             accessibleTimelineList
@@ -149,11 +149,16 @@ struct ProjectTimelineView: View {
 
     private var timelineList: some View {
         List {
-            ForEach(timelineElements) { element in
-                    switch element.content {
-                    case .clip(let clip): clipButton(clip)
-                    case .transition(let transition): transitionButton(transition)
+            ForEach(timelineRows) { row in
+                VStack(spacing: 8) {
+                    ForEach(row.transitionsBeforeClip) { transition in
+                        transitionButton(transition)
                     }
+                    clipButton(row.clip)
+                    ForEach(row.transitionsAfterClip) { transition in
+                        transitionButton(transition)
+                    }
+                }
             }
         }
         .listStyle(.plain)
@@ -176,9 +181,10 @@ struct ProjectTimelineView: View {
             .padding()
     }
 
-    private var timelineElements: [TimelineListElement] {
+    private var timelineRows: [TimelineListRow] {
+        _ = controller.timelineContentRevision
         guard let track = controller.activeTimelineTrack else { return [] }
-        return TimelineElementSequence.elements(
+        return TimelineElementSequence.rows(
             track: track,
             transitions: TimelineElementSequence.transitions(
                 for: track,
@@ -559,6 +565,14 @@ struct TimelineListElement: Identifiable, Equatable {
 
 extension TimelineListElement.Content: Equatable {}
 
+struct TimelineListRow: Identifiable, Equatable {
+    let clip: TimelineClip
+    let transitionsBeforeClip: [TimelineTransition]
+    let transitionsAfterClip: [TimelineTransition]
+
+    var id: UUID { clip.id }
+}
+
 enum TimelineElementSequence {
     static func transitions(
         for track: TimelineTrack,
@@ -620,6 +634,45 @@ enum TimelineElementSequence {
             result.append(TimelineListElement(content: .transition(transition)))
         }
         return result
+    }
+
+    static func rows(
+        track: TimelineTrack,
+        transitions: [TimelineTransition]
+    ) -> [TimelineListRow] {
+        let clips = track.sortedClips
+        guard !clips.isEmpty else { return [] }
+        let clipIDs = Set(clips.map(\.id))
+        let orderedTransitions = transitions.sorted { $0.id.uuidString < $1.id.uuidString }
+        var transitionsBeforeClip: [UUID: [TimelineTransition]] = [:]
+        var transitionsAfterClip: [UUID: [TimelineTransition]] = [:]
+        var unattachedTransitions: [TimelineTransition] = []
+
+        for transition in orderedTransitions {
+            if (transition.edge == .intro || transition.edge == .between),
+               let trailingID = transition.trailingClipID,
+               clipIDs.contains(trailingID) {
+                transitionsBeforeClip[trailingID, default: []].append(transition)
+            } else if let leadingID = transition.leadingClipID,
+                      clipIDs.contains(leadingID) {
+                transitionsAfterClip[leadingID, default: []].append(transition)
+            } else {
+                unattachedTransitions.append(transition)
+            }
+        }
+
+        let lastClipID = clips.last?.id
+        return clips.map { clip in
+            var after = transitionsAfterClip[clip.id, default: []]
+            if clip.id == lastClipID {
+                after.append(contentsOf: unattachedTransitions)
+            }
+            return TimelineListRow(
+                clip: clip,
+                transitionsBeforeClip: transitionsBeforeClip[clip.id, default: []],
+                transitionsAfterClip: after
+            )
+        }
     }
 }
 
