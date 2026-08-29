@@ -114,6 +114,21 @@ struct ProjectSourceItemTests {
         #expect(focusedID == nil)
     }
 
+    @Test func pastedSourceFocusWaitsUntilImportAndProgressUpdatesFinish() {
+        #expect(ProjectSourcePasteFocus.shouldAttemptFocus(
+            hasPendingAsset: true,
+            importIsRunning: true
+        ) == false)
+        #expect(ProjectSourcePasteFocus.shouldAttemptFocus(
+            hasPendingAsset: true,
+            importIsRunning: false
+        ))
+        #expect(ProjectSourcePasteFocus.shouldAttemptFocus(
+            hasPendingAsset: false,
+            importIsRunning: false
+        ) == false)
+    }
+
     @Test func projectSourceKeyboardRecognizesBothDeleteKeysWithoutModifiers() {
         #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 51, hasAnyModifiers: false) == .delete)
         #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 117, hasAnyModifiers: false) == .delete)

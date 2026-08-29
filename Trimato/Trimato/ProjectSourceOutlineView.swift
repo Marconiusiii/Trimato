@@ -8,6 +8,10 @@ nonisolated enum ProjectSourcePasteFocus {
     ) -> UUID? {
         assets.first { !existingAssetIDs.contains($0.id) }?.id
     }
+
+    static func shouldAttemptFocus(hasPendingAsset: Bool, importIsRunning: Bool) -> Bool {
+        hasPendingAsset && !importIsRunning
+    }
 }
 
 nonisolated enum ProjectSourceKeyboardCommand: Equatable {
@@ -124,7 +128,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             captureRequestedFocusIfAvailable()
             guard change.hasChanges else {
                 synchronizeSelection(in: outlineView)
-                schedulePastedAssetFocusIfNeeded()
+                schedulePastedAssetFocusIfNeeded(importIsRunning: importIsRunning)
                 scheduleRequestedFocusIfNeeded()
                 return
             }
@@ -140,7 +144,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             }
             synchronizeSelection(in: outlineView)
             isSynchronizingSelection = false
-            schedulePastedAssetFocusIfNeeded()
+            schedulePastedAssetFocusIfNeeded(importIsRunning: importIsRunning)
             scheduleRequestedFocusIfNeeded()
         }
 
@@ -461,8 +465,11 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             return true
         }
 
-        private func schedulePastedAssetFocusIfNeeded() {
-            guard pendingPastedAssetFocusID != nil else { return }
+        private func schedulePastedAssetFocusIfNeeded(importIsRunning: Bool) {
+            guard ProjectSourcePasteFocus.shouldAttemptFocus(
+                hasPendingAsset: pendingPastedAssetFocusID != nil,
+                importIsRunning: importIsRunning
+            ) else { return }
             pastedAssetFocusTask?.cancel()
             pastedAssetFocusTask = Task { @MainActor [weak self] in
                 await Task.yield()
@@ -493,6 +500,9 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                 makeIfNecessary: true
             ) as? ProjectSourceButton,
                   outlineView.window?.makeFirstResponder(button) == true else { return false }
+
+            NSApp.setAccessibilityApplicationFocusedUIElement(button)
+            button.setAccessibilityFocused(true)
 
             pendingPastedAssetFocusID = nil
             pastedAssetFocusTask = nil
