@@ -38,7 +38,7 @@ struct TransitionEditorView: View {
                 Text(contextDescription)
             }
 
-            Form {
+            VStack(alignment: .leading, spacing: 12) {
                 LabeledContent("Transition Name") {
                     TextField("Transition name", text: $transitionName)
                         .labelsHidden()
@@ -46,8 +46,6 @@ struct TransitionEditorView: View {
                 transitionPicker
                 TransitionDurationField(text: $durationText)
             }
-            .formStyle(.grouped)
-            .frame(height: 170)
 
             HStack {
                 Button("Delete Transition", role: .destructive, action: delete)

@@ -57,7 +57,7 @@ struct QuickTransitionView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
-            Form {
+            VStack(alignment: .leading, spacing: 12) {
                 if request.mode == .quickCross {
                     Text(crossDescription)
                 } else {
@@ -73,8 +73,6 @@ struct QuickTransitionView: View {
 
                 TransitionDurationField(text: $durationText)
             }
-            .formStyle(.grouped)
-            .frame(height: request.mode == .quickFade ? 210 : 170)
 
             HStack {
                 Button("Cancel", role: .cancel, action: finished)
