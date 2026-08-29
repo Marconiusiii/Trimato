@@ -30,6 +30,18 @@ struct ProjectPlaybackTests {
             character: "]",
             unmodified: false
         ) == nil)
+        #expect(ProjectPlayerViewModel.trimEdge(
+            character: "[",
+            commandOnly: true
+        ) == .head)
+        #expect(ProjectPlayerViewModel.trimEdge(
+            character: "]",
+            commandOnly: true
+        ) == .tail)
+        #expect(ProjectPlayerViewModel.trimEdge(
+            character: "[",
+            commandOnly: false
+        ) == nil)
     }
 
     @Test func projectPlayheadSliderUsesOneFrameAsItsNativeAdjustmentStep() {

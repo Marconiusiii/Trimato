@@ -399,6 +399,63 @@ struct MultiTrackTimelineTests {
         }
     }
 
+    @Test @MainActor func editorTrimUsesTheActiveTracksRememberedClipWithoutMovingFocus() throws {
+        var music = fixtureAsset(name: "Amsterdam Music", duration: 60)
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [music]
+        let trackID = project.createTrack(kind: .audio, name: "Musica")
+        let clipID = try project.append(asset: music, toTrack: trackID)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = trackID
+
+        controller.trimActiveTrackClip(edge: .head, at: ProjectTime(seconds: 15))
+
+        let headTrimmed = try #require(controller.project.timelineClip(id: clipID))
+        #expect(headTrimmed.timelineStart == ProjectTime(seconds: 15))
+        #expect(headTrimmed.timelineEnd == ProjectTime(seconds: 60))
+        #expect(headTrimmed.segments.first?.sourceRange.start == ProjectTime(seconds: 15))
+        #expect(controller.selection == .project)
+        #expect(controller.timelineFocusRestoreRequest == 0)
+        #expect(controller.timelineListFocusRestoreRequest == 0)
+        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
+
+        controller.trimActiveTrackClip(edge: .tail, at: ProjectTime(seconds: 40))
+
+        let fullyTrimmed = try #require(controller.project.timelineClip(id: clipID))
+        #expect(fullyTrimmed.timelineStart == ProjectTime(seconds: 15))
+        #expect(fullyTrimmed.timelineEnd == ProjectTime(seconds: 40))
+        #expect(controller.selection == .project)
+        #expect(controller.timelineFocusRestoreRequest == 0)
+        #expect(controller.timelineListFocusRestoreRequest == 0)
+        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
+    }
+
+    @Test @MainActor func editorHeadTrimRemovesSourceHiddenBeforeProjectStart() throws {
+        var music = fixtureAsset(name: "Amsterdam Music", duration: 60)
+        music.naturalWidth = nil
+        music.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [music]
+        let trackID = project.createTrack(kind: .audio, name: "Musica")
+        let clipID = try project.append(asset: music, toTrack: trackID)
+        try project.positionAdditionalTrackClip(
+            id: clipID,
+            edge: .tail,
+            at: ProjectTime(seconds: 15)
+        )
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = trackID
+
+        controller.trimActiveTrackClip(edge: .head, at: ProjectTime(seconds: 5))
+
+        let trimmed = try #require(controller.project.timelineClip(id: clipID))
+        #expect(trimmed.timelineStart == ProjectTime(seconds: 5))
+        #expect(trimmed.timelineEnd == ProjectTime(seconds: 15))
+        #expect(trimmed.segments.first?.sourceRange.start == ProjectTime(seconds: 50))
+    }
+
     @Test @MainActor func keyboardTrackSwitchRequestsTheTimelineListForAnEmptyTrack() throws {
         var audio = fixtureAsset(name: "Dialogue", duration: 10)
         audio.naturalWidth = nil

@@ -144,6 +144,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var selectAdjacentTrack: ((Int) -> Void)?
     private var positionActiveClipHead: (() -> Void)?
     private var positionActiveClipTail: (() -> Void)?
+    private var trimActiveClipStart: (() -> Void)?
+    private var trimActiveClipEnd: (() -> Void)?
     private var currentPreviewFailure: ProjectPreviewFailure?
 
     init() {
@@ -212,6 +214,24 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func onPositionActiveClipTail(_ handler: @escaping () -> Void) {
         positionActiveClipTail = handler
+    }
+
+    func onTrimActiveClipStart(_ handler: @escaping () -> Void) {
+        trimActiveClipStart = handler
+    }
+
+    func onTrimActiveClipEnd(_ handler: @escaping () -> Void) {
+        trimActiveClipEnd = handler
+    }
+
+    func trimActiveClipStartToPlayhead() {
+        guard canControlPlayback else { return }
+        trimActiveClipStart?()
+    }
+
+    func trimActiveClipEndToPlayhead() {
+        guard canControlPlayback else { return }
+        trimActiveClipEnd?()
     }
 
     func dismissPreviewFailure() {
@@ -967,6 +987,16 @@ final class ProjectPlayerViewModel: ObservableObject {
                     }
                 }
                 if modifiers == .command {
+                    if let edge = Self.trimEdge(
+                        character: event.charactersIgnoringModifiers,
+                        commandOnly: true
+                    ) {
+                        if !event.isARepeat {
+                            if edge == .head { self.trimActiveClipStartToPlayhead() }
+                            else { self.trimActiveClipEndToPlayhead() }
+                        }
+                        return nil
+                    }
                     switch event.keyCode {
                     case 123:
                         if !event.isARepeat { self.goToPreviousEdit() }
@@ -1058,6 +1088,16 @@ final class ProjectPlayerViewModel: ObservableObject {
         unmodified: Bool
     ) -> TimelineClipPositionEdge? {
         guard unmodified else { return nil }
+        if character == "[" { return .head }
+        if character == "]" { return .tail }
+        return nil
+    }
+
+    nonisolated static func trimEdge(
+        character: String?,
+        commandOnly: Bool
+    ) -> TimelineClipPositionEdge? {
+        guard commandOnly else { return nil }
         if character == "[" { return .head }
         if character == "]" { return .tail }
         return nil

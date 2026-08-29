@@ -45,12 +45,18 @@ struct TrimatoApp: App {
                     projectController?.selectedCutaway == nil &&
                     projectController?.selectedTransition == nil
                 )
-                Button("Trim Start to Playhead") { viewModel?.trimStartToPlayhead() }
+                Button("Trim Start to Playhead") {
+                    if let projectPlayer { projectPlayer.trimActiveClipStartToPlayhead() }
+                    else { viewModel?.trimStartToPlayhead() }
+                }
                     .keyboardShortcut("[", modifiers: .command)
-                    .disabled(viewModel?.canTrimStart != true)
-                Button("Trim End from Playhead") { viewModel?.trimEndFromPlayhead() }
+                    .disabled(projectPlayer?.canControlPlayback != true && viewModel?.canTrimStart != true)
+                Button("Trim End from Playhead") {
+                    if let projectPlayer { projectPlayer.trimActiveClipEndToPlayhead() }
+                    else { viewModel?.trimEndFromPlayhead() }
+                }
                     .keyboardShortcut("]", modifiers: .command)
-                    .disabled(viewModel?.canTrimEnd != true)
+                    .disabled(projectPlayer?.canControlPlayback != true && viewModel?.canTrimEnd != true)
             }
             CommandMenu("Playback") {
                 Button("Play or Pause (Space)") {

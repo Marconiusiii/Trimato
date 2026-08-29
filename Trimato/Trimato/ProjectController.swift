@@ -352,6 +352,85 @@ final class ProjectController: ObservableObject {
         }
     }
 
+    func trimActiveTrackClip(edge: TimelineClipPositionEdge, at playhead: ProjectTime) {
+        guard let track = activeTimelineTrack,
+              let clip = editorDirectClip(on: track, at: playhead) else {
+            presentedError = ProjectPresentedError(
+                title: "Clip Could Not Be Trimmed",
+                message: "The active track does not contain a clip to trim."
+            )
+            return
+        }
+        do {
+            try mutateProjectThrowing(actionName: edge == .head ? "Trim Clip Start" : "Trim Clip End") {
+                if edge == .head {
+                    try Self.trimTrackClipStart(in: &$0, id: clip.id, at: playhead)
+                } else {
+                    try $0.trimTrackClipEnd(id: clip.id, at: playhead)
+                }
+            }
+            editorDirectClipIDs[track.id] = clip.id
+            let edgeName = edge == .head ? "start" : "end"
+            let time = ProjectPlayerViewModel.accessibilityTimeLabel(
+                time: playhead,
+                showingFrames: false,
+                frameRate: project.format.frameRate ?? 30
+            )
+            announce("\(clip.displayName), \(track.name) track, \(edgeName) trimmed to \(time)")
+        } catch {
+            let message: String
+            if let timelineError = error as? ProjectTimelineError,
+               timelineError == .cannotTrimAtPlayhead {
+                let edgeName = edge == .head ? "start" : "end"
+                message = "Move the project playhead inside the selected clip before trimming its \(edgeName)."
+            } else {
+                message = error.localizedDescription
+            }
+            presentedError = ProjectPresentedError(
+                title: "Clip Could Not Be Trimmed",
+                message: message
+            )
+        }
+    }
+
+    private static func trimTrackClipStart(
+        in project: inout TrimatoProject,
+        id: UUID,
+        at playhead: ProjectTime
+    ) throws {
+        project.ensureTrackModel()
+        guard let trackIndex = project.tracks.firstIndex(where: { track in
+            track.clips.contains { $0.id == id }
+        }), let clipIndex = project.tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        let clip = project.tracks[trackIndex].clips[clipIndex]
+        guard playhead > clip.timelineStart, playhead < clip.timelineEnd else {
+            throw ProjectTimelineError.cannotTrimAtPlayhead
+        }
+
+        var amountToRemove = playhead - clip.timelineStart
+        var retainedSegments: [SourceSegment] = []
+        for segment in clip.segments {
+            if amountToRemove >= segment.duration {
+                amountToRemove = amountToRemove - segment.duration
+                continue
+            }
+            if amountToRemove.isPositive {
+                retainedSegments.append(SourceSegment(sourceRange: ProjectTimeRange(
+                    start: segment.sourceRange.start + amountToRemove,
+                    duration: segment.duration - amountToRemove
+                )))
+                amountToRemove = .zero
+            } else {
+                retainedSegments.append(segment)
+            }
+        }
+        guard !retainedSegments.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
+        project.tracks[trackIndex].clips[clipIndex].segments = retainedSegments
+        project.tracks[trackIndex].clips[clipIndex].timelineStart = playhead
+    }
+
     func addTrack(kind: TimelineTrackKind, name: String?) {
         var createdID: UUID?
         mutateProject(actionName: "Add \(kind.title) Track") {

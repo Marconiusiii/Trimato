@@ -297,6 +297,14 @@ private struct ProjectViewerView: View {
                 guard let controller, let viewModel else { return }
                 controller.positionActiveAdditionalTrackClip(edge: .tail, at: viewModel.currentTime)
             }
+            viewModel.onTrimActiveClipStart { [weak controller, weak viewModel] in
+                guard let controller, let viewModel else { return }
+                controller.trimActiveTrackClip(edge: .head, at: viewModel.currentTime)
+            }
+            viewModel.onTrimActiveClipEnd { [weak controller, weak viewModel] in
+                guard let controller, let viewModel else { return }
+                controller.trimActiveTrackClip(edge: .tail, at: viewModel.currentTime)
+            }
             prepare()
         }
         .onChange(of: controller.project) { project in
