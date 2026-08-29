@@ -8,6 +8,7 @@ SOURCE_ARCHIVE="${SCRIPT_DIRECTORY}/ffmpeg-${FFMPEG_VERSION}.tar.xz"
 SOURCE_DIRECTORY="${SCRIPT_DIRECTORY}/ffmpeg-${FFMPEG_VERSION}"
 BUILD_ROOT="${SCRIPT_DIRECTORY}/build-lgpl"
 OUTPUT_DIRECTORY="${PROJECT_DIRECTORY}/Trimato/Resources/Tools"
+SYMBOL_DIRECTORY="${SCRIPT_DIRECTORY}/Symbols"
 DEPLOYMENT_TARGET="13.0"
 MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 
@@ -19,7 +20,7 @@ if [[ ! -d "${SOURCE_DIRECTORY}" ]]; then
     tar -xf "${SOURCE_ARCHIVE}" -C "${SCRIPT_DIRECTORY}"
 fi
 
-mkdir -p "${BUILD_ROOT}" "${OUTPUT_DIRECTORY}"
+mkdir -p "${BUILD_ROOT}" "${OUTPUT_DIRECTORY}" "${SYMBOL_DIRECTORY}"
 
 build_architecture() {
     local architecture="$1"
@@ -43,7 +44,8 @@ build_architecture() {
         --disable-x86asm \
         --disable-shared \
         --enable-static \
-        --disable-debug \
+        --enable-debug=1 \
+        --disable-stripping \
         --disable-doc \
         --disable-ffplay \
         --disable-gpl \
@@ -75,7 +77,25 @@ lipo -create \
     -output "${OUTPUT_DIRECTORY}/ffprobe"
 chmod 755 "${OUTPUT_DIRECTORY}/ffmpeg" "${OUTPUT_DIRECTORY}/ffprobe"
 
+for tool_name in ffmpeg ffprobe; do
+    tool_path="${OUTPUT_DIRECTORY}/${tool_name}"
+    symbol_path="${SYMBOL_DIRECTORY}/${tool_name}.dSYM"
+    rm -rf "${symbol_path}"
+    xcrun dsymutil "${tool_path}" -o "${symbol_path}"
+
+    binary_uuids="$(xcrun dwarfdump --uuid "${tool_path}" | sed -E 's/^UUID: ([^ ]+) \(([^)]+)\).*/\2 \1/' | sort)"
+    symbol_uuids="$(xcrun dwarfdump --uuid "${symbol_path}" | sed -E 's/^UUID: ([^ ]+) \(([^)]+)\).*/\2 \1/' | sort)"
+    if [[ "${binary_uuids}" != "${symbol_uuids}" ]]; then
+        print -u2 "The ${tool_name} dSYM UUIDs do not match the executable."
+        print -u2 "Executable UUIDs:\n${binary_uuids}"
+        print -u2 "dSYM UUIDs:\n${symbol_uuids}"
+        exit 1
+    fi
+done
+
 "${OUTPUT_DIRECTORY}/ffmpeg" -hide_banner -version
 "${OUTPUT_DIRECTORY}/ffprobe" -hide_banner -version
 lipo -archs "${OUTPUT_DIRECTORY}/ffmpeg"
 lipo -archs "${OUTPUT_DIRECTORY}/ffprobe"
+xcrun dwarfdump --uuid "${SYMBOL_DIRECTORY}/ffmpeg.dSYM"
+xcrun dwarfdump --uuid "${SYMBOL_DIRECTORY}/ffprobe.dSYM"

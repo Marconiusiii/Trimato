@@ -284,6 +284,23 @@ struct TrimatoTests {
         #expect(String(decoding: ffprobe.standardOutput, as: UTF8.self).contains("ffprobe version 8.1.2"))
     }
 
+    @Test func bundledFFmpegToolSymbolsMatchExecutableUUIDs() throws {
+        let projectDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        for toolName in ["ffmpeg", "ffprobe"] {
+            let toolURL = projectDirectory
+                .appendingPathComponent("Trimato/Resources/Tools")
+                .appendingPathComponent(toolName)
+            let symbolURL = projectDirectory
+                .appendingPathComponent("ThirdParty/FFmpeg/Symbols")
+                .appendingPathComponent("\(toolName).dSYM")
+
+            #expect(try dwarfUUIDs(at: toolURL) == dwarfUUIDs(at: symbolURL))
+        }
+    }
+
     @Test func bundledFFmpegToolsOnlyExposeLocalProtocols() async throws {
         let result = try await FFmpegRunner.run(
             tool: .ffmpeg,
@@ -300,6 +317,25 @@ struct TrimatoTests {
             "crypto", "ftp", "gopher", "http", "httpproxy", "rtmp", "rtp",
             "srtp", "tcp", "udp", "udplite", "unix"
         ]))
+    }
+
+    private func dwarfUUIDs(at url: URL) throws -> Set<String> {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["dwarfdump", "--uuid", url.path]
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        process.waitUntilExit()
+
+        let report = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        #expect(process.terminationStatus == 0, Comment(rawValue: report))
+        return Set(report.split(separator: "\n").compactMap { line in
+            let fields = line.split(separator: " ", maxSplits: 3)
+            guard fields.count >= 3, fields[0] == "UUID:" else { return nil }
+            return "\(fields[2]) \(fields[1])"
+        })
     }
 
     @Test func bundledToolsEncodeTrimmedMP4FromMKV() async throws {

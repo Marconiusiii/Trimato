@@ -20,6 +20,9 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.dSYM
+!Trimato/ThirdParty/FFmpeg/Symbols/
+!Trimato/ThirdParty/FFmpeg/Symbols/*.dSYM/
+!Trimato/ThirdParty/FFmpeg/Symbols/*.dSYM/**
 
 ## Playgrounds
 timeline.xctimeline
