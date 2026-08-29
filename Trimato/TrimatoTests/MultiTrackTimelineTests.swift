@@ -376,7 +376,10 @@ struct MultiTrackTimelineTests {
 
         controller.positionActiveAdditionalTrackClip(edge: .tail, at: ProjectTime(seconds: 15))
         #expect(controller.project.timelineClip(id: clipID)?.timelineStart == ProjectTime(seconds: -45))
-        #expect(controller.selection == .timelineClip(clipID))
+        #expect(controller.selection == .project)
+        #expect(controller.timelineFocusRestoreRequest == 0)
+        #expect(controller.timelineListFocusRestoreRequest == 0)
+        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
 
         controller.positionActiveAdditionalTrackClip(edge: .tail, at: ProjectTime(seconds: 20))
         #expect(controller.project.timelineClip(id: clipID)?.timelineStart == ProjectTime(seconds: -40))

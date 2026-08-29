@@ -74,6 +74,7 @@ private nonisolated final class ProjectPreviewOperationWaiter: @unchecked Sendab
 final class ProjectPlayerViewModel: ObservableObject {
     let player = AVPlayer()
     @Published private(set) var isPreparing = false
+    @Published private(set) var hasPreparedPlayerItem = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var presentedPreviewFailure: ProjectPreviewFailure?
     @Published private(set) var isPlaying = false
@@ -86,7 +87,13 @@ final class ProjectPlayerViewModel: ObservableObject {
     @Published private(set) var inMarker: ProjectTime?
     @Published private(set) var outMarker: ProjectTime?
 
-    var canControlPlayback: Bool { player.currentItem != nil && !isPreparing }
+    var canControlPlayback: Bool {
+        Self.canControlPlayback(hasPreparedItem: hasPreparedPlayerItem, isPreparing: isPreparing)
+    }
+
+    nonisolated static func canControlPlayback(hasPreparedItem: Bool, isPreparing: Bool) -> Bool {
+        hasPreparedItem
+    }
     var duration: ProjectTime { projectDuration }
     var playbackFraction: Double {
         guard projectDuration > .zero else { return 0 }
@@ -238,6 +245,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         removeTemporaryMedia()
         guard project.tracks.contains(where: { !$0.clips.isEmpty }) else {
             player.replaceCurrentItem(with: nil)
+            hasPreparedPlayerItem = false
             isPreparing = false
             errorMessage = nil
             currentPreviewFailure = nil
@@ -278,6 +286,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 }
                 temporaryMediaURLs = pendingTemporaryMediaURLs
                 pendingTemporaryMediaURLs.removeAll()
+                hasPreparedPlayerItem = true
                 isPreparing = false
                 currentPreviewFailure = nil
                 presentedPreviewFailure = nil
@@ -290,6 +299,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
                 if self.preparationID == preparationID {
                     player.replaceCurrentItem(with: nil)
+                    hasPreparedPlayerItem = false
                     isPreparing = false
                     let failure: ProjectPreviewFailure
                     if let transitionError = error as? ProjectTransitionRenderError {
@@ -338,6 +348,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
         var pendingTemporaryMediaURLs: [URL] = []
         let previousPlayerItem = player.currentItem
+        let previouslyHadPreparedPlayerItem = hasPreparedPlayerItem
         var replacedPlayerItem = false
         var stagingPlayer: AVPlayer?
         do {
@@ -396,12 +407,14 @@ final class ProjectPlayerViewModel: ObservableObject {
             projectFrameRate = max(project.format.frameRate ?? 30, 1)
             editPoints = Self.editPoints(in: project)
             updateDisplayedTime(boundedInitialTime)
+            hasPreparedPlayerItem = true
             isPreparing = false
             progress(1)
         } catch {
             stagingPlayer?.replaceCurrentItem(with: nil)
             if replacedPlayerItem {
                 player.replaceCurrentItem(with: previousPlayerItem)
+                hasPreparedPlayerItem = previouslyHadPreparedPlayerItem
             }
             Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
             if preparationID == requestID { isPreparing = false }

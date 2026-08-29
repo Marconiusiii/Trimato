@@ -43,6 +43,21 @@ struct ProjectPlaybackTests {
         ) == 1)
     }
 
+    @Test func preparedEditorControlsRemainAvailableDuringBackgroundPreviewRebuilds() {
+        #expect(ProjectPlayerViewModel.canControlPlayback(
+            hasPreparedItem: true,
+            isPreparing: true
+        ))
+        #expect(ProjectPlayerViewModel.canControlPlayback(
+            hasPreparedItem: true,
+            isPreparing: false
+        ))
+        #expect(!ProjectPlayerViewModel.canControlPlayback(
+            hasPreparedItem: false,
+            isPreparing: true
+        ))
+    }
+
     @Test func editNavigationIncludesStorylineAndCutawayBoundariesWithoutDuplicates() {
         let firstAsset = fixtureAsset(name: "Interview", duration: 5)
         let secondAsset = fixtureAsset(name: "Closing", duration: 5)

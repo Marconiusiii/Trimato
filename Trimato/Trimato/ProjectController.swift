@@ -337,7 +337,6 @@ final class ProjectController: ObservableObject {
                 try $0.positionAdditionalTrackClip(id: clip.id, edge: edge, at: playhead)
             }
             editorDirectClipIDs[track.id] = clip.id
-            selection = .timelineClip(clip.id)
             let edgeName = edge == .head ? "head" : "tail"
             let time = ProjectPlayerViewModel.accessibilityTimeLabel(
                 time: playhead,

@@ -159,7 +159,7 @@ struct ProjectTimelineView: View {
         if controller.project.tracks.isEmpty {
             emptyMessage("No clips in the project timeline")
         } else {
-            accessibleTimelineElements
+            timelineScrollView
             .background(
                 TimelineContextMenuKeyBridge(
                     focusedElement: focusedElement,
@@ -175,16 +175,6 @@ struct ProjectTimelineView: View {
                 )
                 .frame(width: 0, height: 0)
             )
-        }
-    }
-
-    @ViewBuilder
-    private var accessibleTimelineElements: some View {
-        if #available(macOS 26.0, *), let currentSelection {
-            timelineScrollView
-                .accessibilityDefaultFocus($focusedElement, currentSelection)
-        } else {
-            timelineScrollView
         }
     }
 
@@ -208,10 +198,10 @@ struct ProjectTimelineView: View {
             }
             }
             .padding(8)
+            .accessibilityLabel(timelineListAccessibilityLabel)
+            .accessibilityIdentifier("trimato.timeline.clips")
+            .accessibilityFocused($timelineListFocused)
         }
-        .accessibilityLabel(timelineListAccessibilityLabel)
-        .accessibilityIdentifier("trimato.timeline.clips")
-        .accessibilityFocused($timelineListFocused)
     }
 
     private func emptyMessage(_ message: String) -> some View {
