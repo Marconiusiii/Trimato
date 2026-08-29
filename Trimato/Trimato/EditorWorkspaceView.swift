@@ -57,7 +57,7 @@ struct EditorWorkspaceView: View {
                 }
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
-            .onChange(of: controller.isShowingProjectSettings) { isShowing in
+            .onChange(of: controller.isShowingProjectSettings) { _, isShowing in
                 if !isShowing { requestEditorFocus() }
             }
             .onDisappear {
@@ -307,20 +307,20 @@ private struct ProjectViewerView: View {
             }
             prepare()
         }
-        .onChange(of: controller.project) { project in
+        .onChange(of: controller.project) { _, project in
             if !controller.consumePreparedTransitionPreview(for: project) { prepare() }
         }
-        .onChange(of: controller.timelinePlayhead) { time in
+        .onChange(of: controller.timelinePlayhead) { _, time in
             guard abs(viewModel.currentTime.seconds - time.seconds) > 0.02 else { return }
             viewModel.seek(to: time)
         }
-        .onChange(of: viewModel.currentTime) { time in
+        .onChange(of: viewModel.currentTime) { _, time in
             controller.timelinePlayhead = time
         }
-        .onChange(of: controller.editorFocusRestoreRequest) { _ in
+        .onChange(of: controller.editorFocusRestoreRequest) {
             restoreProjectPlayheadFocus()
         }
-        .onChange(of: viewModel.isPreparing) { isPreparing in
+        .onChange(of: viewModel.isPreparing) { _, isPreparing in
             preparationChanged(isPreparing)
         }
         .alert(item: Binding(

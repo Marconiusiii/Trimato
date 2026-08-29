@@ -6,7 +6,7 @@ Created by Marco Salsiccia.
 
 ## Release status
 
-Trimato 1.0.0 is a TestFlight-only beta of the focused clip editor and will not be released to the production App Store. The current source expands Trimato into a complete project editor and is being prepared as the first production App Store release.
+Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will not be released to the production App Store. Trimato 1.2.0 build 8 is the first TestFlight build of the complete project editor and is the candidate for Trimato's first production App Store release.
 
 ## Features
 

@@ -242,9 +242,15 @@ struct ProjectWindowSaveBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: ProjectWindowAttachmentView, context: Context) {
         nsView.onWindowChange = { [weak saveCoordinator] window in
-            saveCoordinator?.attach(to: window)
+            DispatchQueue.main.async {
+                saveCoordinator?.attach(to: window)
+            }
         }
-        if let window = nsView.window { saveCoordinator.attach(to: window) }
+        if let window = nsView.window {
+            DispatchQueue.main.async {
+                saveCoordinator.attach(to: window)
+            }
+        }
     }
 }
 
@@ -253,6 +259,9 @@ final class ProjectWindowAttachmentView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let window { onWindowChange?(window) }
+        guard let window else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.onWindowChange?(window)
+        }
     }
 }

@@ -256,7 +256,10 @@ private struct ProjectLauncherWindowBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: ProjectLauncherWindowView, context: Context) {
         nsView.windowChanged = windowChanged
-        windowChanged(nsView.window)
+        let window = nsView.window
+        DispatchQueue.main.async {
+            windowChanged(window)
+        }
     }
 }
 
@@ -265,7 +268,10 @@ private final class ProjectLauncherWindowView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        windowChanged?(window)
+        let currentWindow = window
+        DispatchQueue.main.async { [weak self] in
+            self?.windowChanged?(currentWindow)
+        }
     }
 }
 

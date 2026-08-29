@@ -3,7 +3,8 @@ import Foundation
 import Testing
 @testable import Trimato
 
-@Suite("Project playback")
+@Suite("Project playback", .serialized)
+@MainActor
 struct ProjectPlaybackTests {
     @Test func editorKeyboardRoutingRecognizesTrackSelectionAndAbsolutePositioning() {
         #expect(ProjectPlayerViewModel.trackSelectionOffset(

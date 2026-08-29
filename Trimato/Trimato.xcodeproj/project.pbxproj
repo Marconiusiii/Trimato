@@ -121,7 +121,7 @@
 				82306B5D2FAAAF1000B67C04 /* Sources */,
 				82306B5E2FAAAF1000B67C04 /* Frameworks */,
 				82306B5F2FAAAF1000B67C04 /* Resources */,
-				82FF6A012FB0000100B67C04 /* Prepare FFmpeg Tools and Symbols */,
+				82FF6A012FB0000100B67C04 /* Prepare FFmpeg Tools */,
 			);
 			buildRules = (
 			);
@@ -253,9 +253,9 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		82FF6A012FB0000100B67C04 /* Prepare FFmpeg Tools and Symbols */ = {
+		82FF6A012FB0000100B67C04 /* Prepare FFmpeg Tools */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
+			alwaysOutOfDate = 0;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -266,7 +266,7 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffmpeg",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffprobe",
 			);
-			name = "Prepare FFmpeg Tools and Symbols";
+			name = "Prepare FFmpeg Tools";
 			outputFileListPaths = (
 			);
 			outputPaths = (
@@ -274,22 +274,10 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffmpeg.cstemp",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffprobe",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffprobe.cstemp",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Info.plist",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Resources",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Resources/DWARF",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Resources/DWARF/ffmpeg",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Info.plist",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Resources",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Resources/DWARF",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Resources/DWARF/ffprobe",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "SIGNING_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\nfor TOOL_NAME in ffmpeg ffprobe; do\n    TOOL_PATH=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$TOOL_NAME\"\n\n    if [ \"${DEBUG_INFORMATION_FORMAT:-}\" = \"dwarf-with-dsym\" ] && [ -n \"${DWARF_DSYM_FOLDER_PATH:-}\" ]; then\n        /usr/bin/dsymutil \"$TOOL_PATH\" -o \"$DWARF_DSYM_FOLDER_PATH/$TOOL_NAME.dSYM\"\n    fi\n\n    /usr/bin/codesign --force --sign \"$SIGNING_IDENTITY\" --options runtime --entitlements \"$SRCROOT/FFmpegTool.entitlements\" --timestamp=none \"$TOOL_PATH\"\ndone\n";
+			shellScript = "SIGNING_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\nfor TOOL_NAME in ffmpeg ffprobe; do\n    TOOL_PATH=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$TOOL_NAME\"\n    /usr/bin/codesign --force --sign \"$SIGNING_IDENTITY\" --options runtime --entitlements \"$SRCROOT/FFmpegTool.entitlements\" --timestamp=none \"$TOOL_PATH\"\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -458,7 +446,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 4FL3XZDQ9P;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -469,7 +457,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Trimato;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright 2026 Marco Salsiccia. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -495,7 +483,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 4FL3XZDQ9P;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -506,7 +494,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Trimato;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright 2026 Marco Salsiccia. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

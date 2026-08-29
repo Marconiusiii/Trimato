@@ -695,7 +695,7 @@ extension TrimatoProject {
     }
 
     private mutating func shiftTransitions(onTrack trackID: UUID, atOrAfter time: ProjectTime, by amount: ProjectTime) {}
-    mutating func applyProjectFormat(_ requestedFormat: ProjectFormat) {
+    nonisolated mutating func applyProjectFormat(_ requestedFormat: ProjectFormat) {
         guard requestedFormat.mode == .automatic else {
             format = requestedFormat
             return

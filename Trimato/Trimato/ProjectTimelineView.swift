@@ -95,7 +95,7 @@ struct ProjectTimelineView: View {
         .onChange(of: controller.project.tracks.map(\.id)) {
             reconcileActiveTrack()
         }
-        .onChange(of: focusedElement) { element in
+        .onChange(of: focusedElement) { _, element in
             guard let element else { return }
             controller.focusTimelineElement(element)
         }

@@ -3,6 +3,7 @@ import Testing
 @testable import Trimato
 
 @Suite("External media opening")
+@MainActor
 struct ExternalMediaOpenRoutingTests {
     @Test func videoOpensStandaloneWhenNoProjectIsActive() {
         let url = URL(fileURLWithPath: "/tmp/Interview.mov")

@@ -4,6 +4,7 @@ import Testing
 @testable import Trimato
 
 @Suite(.serialized)
+@MainActor
 struct ProjectCompositionTests {
     @Test func projectWithoutCutawaysExportsACompleteMP4() async throws {
         let directory = FileManager.default.temporaryDirectory

@@ -4,6 +4,8 @@ import Foundation
 import Testing
 @testable import Trimato
 
+@Suite(.serialized)
+@MainActor
 struct MultiTrackTimelineTests {
     @Test func legacyVideoAndAudioMigrateIntoLinkedPrimaryTracks() throws {
         let asset = fixtureAsset(name: "Interview", duration: 10)

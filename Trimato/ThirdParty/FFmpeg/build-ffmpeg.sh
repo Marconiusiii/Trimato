@@ -29,7 +29,7 @@ build_architecture() {
 
     pushd "${architecture_build}" >/dev/null
     "${SOURCE_DIRECTORY}/configure" \
-        --prefix="${architecture_install}" \
+        --prefix="/opt/trimato-ffmpeg/${architecture}" \
         --arch="${architecture}" \
         --cc="$(xcrun --find clang)" \
         --host-cc="$(xcrun --find clang)" \

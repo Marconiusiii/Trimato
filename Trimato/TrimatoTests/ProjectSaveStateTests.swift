@@ -232,22 +232,29 @@ struct ProjectSaveStateTests {
             start: ProjectTime(seconds: 2),
             duration: ProjectTime(seconds: 4)
         ))]
+        func performUndoGroup(_ action: () throws -> Void) rethrows {
+            undoManager.beginUndoGrouping()
+            defer { undoManager.endUndoGrouping() }
+            try action()
+        }
 
-        controller.place(.append, editing: .asset(asset.id), segments: segments)
-        controller.place(.append, editing: .asset(asset.id), segments: segments)
-        controller.place(.append, editing: .asset(asset.id), segments: segments)
+        performUndoGroup { controller.place(.append, editing: .asset(asset.id), segments: segments) }
+        performUndoGroup { controller.place(.append, editing: .asset(asset.id), segments: segments) }
+        performUndoGroup { controller.place(.append, editing: .asset(asset.id), segments: segments) }
 
         let videoTrack = try #require(controller.project.tracks.first { $0.kind == .video })
         let clips = videoTrack.sortedClips
         #expect(clips.count == 3)
-        try controller.addTransitions([TimelineTransition(
-            trackID: videoTrack.id,
-            edge: .intro,
-            kind: .video(.fade),
-            duration: ProjectTime(seconds: 1),
-            leadingClipID: nil,
-            trailingClipID: clips[0].id
-        )], selectAddedTransition: false)
+        try performUndoGroup {
+            try controller.addTransitions([TimelineTransition(
+                trackID: videoTrack.id,
+                edge: .intro,
+                kind: .video(.fade),
+                duration: ProjectTime(seconds: 1),
+                leadingClipID: nil,
+                trailingClipID: clips[0].id
+            )], selectAddedTransition: false)
+        }
 
         let failedCrossDissolve = TimelineTransition(
             trackID: videoTrack.id,

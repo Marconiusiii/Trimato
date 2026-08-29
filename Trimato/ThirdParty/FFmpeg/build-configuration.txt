@@ -1,25 +1,10 @@
 FFmpeg version: 8.1.2
 Architectures: arm64 x86_64
 Minimum macOS: 13.0
+License: LGPL version 2.1 or later
 
-Key configuration:
---disable-shared
---enable-static
---disable-debug
---disable-doc
---disable-ffplay
---disable-autodetect
---disable-x86asm
---disable-gpl
---disable-nonfree
---disable-network
---disable-protocols
---enable-protocol=file
---enable-protocol=pipe
---enable-protocol=fd
---disable-demuxer=hls
---disable-muxer=hls
---enable-audiotoolbox
---enable-videotoolbox
+Complete arm64 configuration:
+--prefix=/opt/trimato-ffmpeg/arm64 --arch=arm64 --cc=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang --host-cc=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang --host-cflags='-isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk' --host-ldflags='-isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk' --sysroot=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk --extra-cflags='-arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -mmacosx-version-min=13.0' --extra-ldflags='-arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -mmacosx-version-min=13.0' --target-os=darwin --disable-autodetect --disable-x86asm --disable-shared --enable-static --disable-debug --disable-doc --disable-ffplay --disable-gpl --disable-nonfree --disable-network --disable-protocols --enable-protocol=file --enable-protocol=pipe --enable-protocol=fd --disable-demuxer=hls --disable-muxer=hls --enable-audiotoolbox --enable-videotoolbox
 
-Run the bundled `ffmpeg -version` before release and replace this file with the complete configuration line from that command.
+Complete x86_64 configuration:
+--prefix=/opt/trimato-ffmpeg/x86_64 --arch=x86_64 --cc=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang --host-cc=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang --host-cflags='-isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk' --host-ldflags='-isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk' --sysroot=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk --extra-cflags='-arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -mmacosx-version-min=13.0' --extra-ldflags='-arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -mmacosx-version-min=13.0' --target-os=darwin --disable-autodetect --disable-x86asm --disable-shared --enable-static --disable-debug --disable-doc --disable-ffplay --disable-gpl --disable-nonfree --disable-network --disable-protocols --enable-protocol=file --enable-protocol=pipe --enable-protocol=fd --disable-demuxer=hls --disable-muxer=hls --enable-audiotoolbox --enable-videotoolbox

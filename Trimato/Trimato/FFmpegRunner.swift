@@ -27,20 +27,32 @@ struct FFmpegCommandError: LocalizedError {
 nonisolated final class FFmpegProcessBox: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
+    private var cancellationRequested = false
 
     func store(_ process: Process) {
         lock.lock()
         self.process = process
+        let shouldTerminate = cancellationRequested
         lock.unlock()
+        if shouldTerminate {
+            process.terminate()
+        }
     }
 
-    func terminate() {
+    func cancel() {
         lock.lock()
+        cancellationRequested = true
         let runningProcess = process
         lock.unlock()
         if runningProcess?.isRunning == true {
             runningProcess?.terminate()
         }
+    }
+
+    var wasCancellationRequested: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancellationRequested
     }
 }
 
@@ -221,7 +233,7 @@ struct FFmpegRunner {
                     let output = collector.snapshot()
                     let diagnostics = String(decoding: errorData, as: UTF8.self)
 
-                    if Task.isCancelled || process.terminationReason == .uncaughtSignal {
+                    if box.wasCancellationRequested {
                         continuation.resume(throwing: CancellationError())
                     } else if process.terminationStatus != 0 {
                         continuation.resume(throwing: FFmpegCommandError(
@@ -238,7 +250,7 @@ struct FFmpegRunner {
                 }
             }
         } onCancel: {
-            box.terminate()
+            box.cancel()
         }
     }
 
