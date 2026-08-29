@@ -16,6 +16,10 @@ nonisolated enum ProjectSourcePasteFocus {
     static func shouldRetryFocus(didResolveTarget: Bool, didEstablishFocus: Bool) -> Bool {
         !didResolveTarget || !didEstablishFocus
     }
+
+    static func selectedAccessibilityRow<Element>(from rows: [Element]?) -> Element? {
+        rows?.first
+    }
 }
 
 nonisolated enum ProjectSourceKeyboardCommand: Equatable {
@@ -524,14 +528,12 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                 makeIfNecessary: true
             ) as? ProjectSourceButton else { return false }
 
-            let rowElements = outlineView.accessibilityRows() ?? []
-            guard rowElements.indices.contains(row),
-                  let focusTarget = NSAccessibility.unignoredDescendant(of: button) else { return false }
-            let rowElement = rowElements[row]
-
-            outlineView.setAccessibilitySelectedRows([rowElement])
             guard outlineView.window?.makeFirstResponder(outlineView) == true else { return false }
             outlineView.setAccessibilityFocused(true)
+            guard let rowElement = ProjectSourcePasteFocus.selectedAccessibilityRow(
+                from: outlineView.accessibilitySelectedRows()
+            ),
+                  let focusTarget = NSAccessibility.unignoredDescendant(of: button) else { return false }
 
             NSApp.setAccessibilityApplicationFocusedUIElement(focusTarget)
             NSAccessibility.post(element: outlineView, notification: .selectedRowsChanged)

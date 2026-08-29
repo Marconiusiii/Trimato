@@ -141,6 +141,12 @@ struct ProjectSourceItemTests {
         ) == false)
     }
 
+    @Test func pastedSourceFocusUsesTheSelectedAccessibilityRowWithoutIndexing() {
+        #expect(ProjectSourcePasteFocus.selectedAccessibilityRow(from: ["Selected"]) == "Selected")
+        #expect(ProjectSourcePasteFocus.selectedAccessibilityRow(from: [String]()) == nil)
+        #expect(ProjectSourcePasteFocus.selectedAccessibilityRow(from: Optional<[String]>.none) == nil)
+    }
+
     @Test func projectSourceKeyboardRecognizesBothDeleteKeysWithoutModifiers() {
         #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 51, hasAnyModifiers: false) == .delete)
         #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 117, hasAnyModifiers: false) == .delete)
