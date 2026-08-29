@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+nonisolated enum ProjectSourcePasteFocus {
+    static func firstImportedAssetID(
+        existingAssetIDs: Set<UUID>,
+        assets: [MediaAssetRecord]
+    ) -> UUID? {
+        assets.first { !existingAssetIDs.contains($0.id) }?.id
+    }
+}
+
 struct ProjectSourceOutlineView: NSViewRepresentable {
     @ObservedObject var controller: ProjectController
     @Binding var selection: ProjectSourceItemID?
@@ -53,7 +62,10 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.reload(with: ProjectSourceItem.hierarchy(for: controller.project))
+        context.coordinator.reload(
+            with: ProjectSourceItem.hierarchy(for: controller.project),
+            importIsRunning: controller.isImporting
+        )
     }
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
@@ -62,6 +74,9 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         private var root: ProjectSourceNode
         private var expandedIDs: Set<ProjectSourceItemID> = []
         private var isSynchronizingSelection = false
+        private var pastedImportBaselineAssetIDs: Set<UUID>?
+        private var pendingPastedAssetFocusID: UUID?
+        private var pastedAssetFocusTask: Task<Void, Never>?
 
         init(parent: ProjectSourceOutlineView, root: ProjectSourceNode) {
             self.parent = parent
@@ -84,12 +99,14 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             isSynchronizingSelection = false
         }
 
-        func reload(with item: ProjectSourceItem) {
+        func reload(with item: ProjectSourceItem, importIsRunning: Bool) {
             guard let outlineView else { return }
             captureExpansion(in: outlineView)
             let change = root.reconcile(with: item)
+            capturePastedAssetFocusIfAvailable(importIsRunning: importIsRunning)
             guard change.hasChanges else {
                 synchronizeSelection(in: outlineView)
+                schedulePastedAssetFocusIfNeeded()
                 return
             }
 
@@ -104,6 +121,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             }
             synchronizeSelection(in: outlineView)
             isSynchronizingSelection = false
+            schedulePastedAssetFocusIfNeeded()
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -325,8 +343,88 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
 
         func pasteFilesFromFinder() {
             let urls = pasteboardFileURLs()
-            guard !urls.isEmpty else { return }
+            guard !urls.isEmpty, !parent.controller.isImporting else { return }
+            pastedImportBaselineAssetIDs = Set(parent.controller.project.media.map(\.id))
+            pendingPastedAssetFocusID = nil
+            pastedAssetFocusTask?.cancel()
             parent.controller.importFiles(at: urls, into: selectedDestinationFolderID())
+        }
+
+        private func capturePastedAssetFocusIfAvailable(importIsRunning: Bool) {
+            guard let pastedImportBaselineAssetIDs else { return }
+            if let assetID = ProjectSourcePasteFocus.firstImportedAssetID(
+                existingAssetIDs: pastedImportBaselineAssetIDs,
+                assets: parent.controller.project.media
+            ) {
+                let sourceID = ProjectSourceItemID.asset(assetID)
+                pendingPastedAssetFocusID = assetID
+                self.pastedImportBaselineAssetIDs = nil
+                parent.selection = sourceID
+                parent.controller.selection = .asset(assetID)
+            } else if !importIsRunning {
+                self.pastedImportBaselineAssetIDs = nil
+            }
+        }
+
+        private func schedulePastedAssetFocusIfNeeded() {
+            guard pendingPastedAssetFocusID != nil else { return }
+            pastedAssetFocusTask?.cancel()
+            pastedAssetFocusTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled, let self else { return }
+                if self.focusPendingPastedAsset() { return }
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                _ = self.focusPendingPastedAsset()
+            }
+        }
+
+        private func focusPendingPastedAsset() -> Bool {
+            guard let assetID = pendingPastedAssetFocusID,
+                  let outlineView,
+                  let item = root.item(withID: .asset(assetID)) else { return false }
+            expandAncestors(of: item.id, in: outlineView)
+            let row = outlineView.row(forItem: item)
+            guard row >= 0 else { return false }
+
+            isSynchronizingSelection = true
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            outlineView.scrollRowToVisible(row)
+            isSynchronizingSelection = false
+
+            guard let button = outlineView.view(
+                atColumn: 0,
+                row: row,
+                makeIfNecessary: true
+            ) as? ProjectSourceButton,
+                  outlineView.window?.makeFirstResponder(button) == true else { return false }
+
+            pendingPastedAssetFocusID = nil
+            pastedAssetFocusTask = nil
+            NSAccessibility.post(element: outlineView, notification: .selectedRowsChanged)
+            NSAccessibility.post(element: button, notification: .focusedUIElementChanged)
+            return true
+        }
+
+        private func expandAncestors(of id: ProjectSourceItemID, in outlineView: NSOutlineView) {
+            guard let path = nodePath(to: id, from: root) else { return }
+            for ancestor in path.dropLast() where ancestor.isExpandable {
+                expandedIDs.insert(ancestor.id)
+                outlineView.expandItem(ancestor)
+            }
+        }
+
+        private func nodePath(
+            to id: ProjectSourceItemID,
+            from node: ProjectSourceNode
+        ) -> [ProjectSourceNode]? {
+            if node.id == id { return [node] }
+            for child in node.children {
+                if let path = nodePath(to: id, from: child) {
+                    return [node] + path
+                }
+            }
+            return nil
         }
 
         private func selectedDestinationFolderID() -> UUID? {

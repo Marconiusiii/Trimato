@@ -89,6 +89,30 @@ struct ProjectSourceItemTests {
         #expect(node.item(withID: .asset(interview.id)) != nil)
     }
 
+    @Test func pastedSourceFocusChoosesTheFirstNewAssetInImportOrder() throws {
+        let existing = makeAsset(name: "Existing")
+        let firstPasted = makeAsset(name: "First Pasted")
+        let secondPasted = makeAsset(name: "Second Pasted")
+
+        let focusedID = ProjectSourcePasteFocus.firstImportedAssetID(
+            existingAssetIDs: [existing.id],
+            assets: [existing, firstPasted, secondPasted]
+        )
+
+        #expect(focusedID == firstPasted.id)
+    }
+
+    @Test func pastedSourceFocusHasNoTargetWhenImportAddsNothing() {
+        let existing = makeAsset(name: "Existing")
+
+        let focusedID = ProjectSourcePasteFocus.firstImportedAssetID(
+            existingAssetIDs: [existing.id],
+            assets: [existing]
+        )
+
+        #expect(focusedID == nil)
+    }
+
     private func makeAsset(name: String) -> MediaAssetRecord {
         MediaAssetRecord(
             name: name,
