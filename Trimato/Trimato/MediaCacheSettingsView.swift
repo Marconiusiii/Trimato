@@ -26,21 +26,28 @@ final class ExportNotificationSettingsModel: ObservableObject {
 @MainActor
 final class MediaCacheSettingsModel: ObservableObject {
     @Published private(set) var status: MediaCacheStatus?
+    @Published private(set) var isRefreshing = false
     @Published private(set) var isWorking = false
     @Published var errorMessage: String?
 
-    func refresh() {
+    func refresh(announceCompletion: Bool = false) {
+        guard !isRefreshing, !isWorking else { return }
+        isRefreshing = true
         Task { @MainActor in
             do {
                 status = try await MediaCacheManager.shared.status()
+                if announceCompletion {
+                    announce("Playback proxy storage updated")
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }
+            isRefreshing = false
         }
     }
 
     func clear(_ scope: MediaCacheClearScope) {
-        guard !isWorking else { return }
+        guard !isWorking, !isRefreshing else { return }
         isWorking = true
         Task { @MainActor in
             do {
@@ -48,8 +55,8 @@ final class MediaCacheSettingsModel: ObservableObject {
                 status = try await MediaCacheManager.shared.status()
                 let retained = result.retainedActiveFileCount
                 announce(retained == 0
-                    ? "Media cache cleared"
-                    : "Media cache cleared. Media for open projects was retained")
+                    ? "Playback proxies cleared"
+                    : "Playback proxies cleared. Proxies for open projects were retained")
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -76,50 +83,70 @@ struct MediaCacheSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Export Notifications") {
+            Section("Export notifications") {
                 LabeledContent("Permission", value: notificationModel.state.statusText)
                 Text(notificationModel.state.explanation)
                     .foregroundStyle(.secondary)
 
                 if notificationModel.state == .notRequested {
-                    Button("Allow Export Notifications…") {
+                    Button("Allow export notifications…") {
                         notificationModel.requestAuthorization()
                     }
                     .disabled(notificationModel.isRequesting)
                 }
             }
 
-            Section("Media Cache") {
-                LabeledContent("Current size", value: formattedSize)
-                LabeledContent("Automatic limit", value: "10 GB")
-                LabeledContent("Location", value: "macOS Caches")
-                Text("Playback proxies are stored in macOS Caches. Original media and Trimato projects are never removed.")
+            Section("Playback proxy storage") {
+                LabeledContent("Storage used", value: formattedSize)
+                LabeledContent("Proxy files", value: formattedFileCount)
+                LabeledContent("Storage limit", value: "10 GB")
+                LabeledContent("Stored in", value: "macOS Caches")
+                Text("Trimato creates a reusable playback proxy only when macOS cannot play an original file directly. Compatible media may use no proxy storage.")
+                    .foregroundStyle(.secondary)
+                Text("This total does not include projects, original media, exports, transition renders, audio previews, or export intermediates.")
                     .foregroundStyle(.secondary)
 
-                HStack {
-                    Button("Clear Unused Media Cache…") {
-                        confirmation = .unused
-                    }
-                    Button("Clear All Media Cache…") {
-                        confirmation = .all
-                    }
-                    Spacer()
-                    if model.isWorking {
-                        ProgressView("Clearing Media Cache")
-                            .controlSize(.small)
-                    }
+                Button("Refresh storage usage") {
+                    model.refresh(announceCompletion: true)
                 }
-                .disabled(model.isWorking)
+                .disabled(model.isRefreshing || model.isWorking)
+
+                if model.isRefreshing {
+                    ProgressView("Refreshing storage usage")
+                        .controlSize(.small)
+                }
+            }
+
+            Section("Manage playback proxies") {
+                Button("Clear proxies not used recently…") {
+                    confirmation = .unused
+                }
+                .disabled(model.isWorking || model.isRefreshing)
+                Text("Removes playback proxies that have not been used in the last seven days.")
+                    .foregroundStyle(.secondary)
+
+                Button("Clear all playback proxies…") {
+                    confirmation = .all
+                }
+                .disabled(model.isWorking || model.isRefreshing)
+                Text("Removes every playback proxy except those required by an open project or editor.")
+                    .foregroundStyle(.secondary)
+
+                if model.isWorking {
+                    ProgressView("Clearing playback proxies")
+                        .controlSize(.small)
+                }
             }
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 420)
+        .frame(width: 600, height: 600)
         .onAppear {
             notificationModel.refresh()
             model.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             notificationModel.refresh()
+            model.refresh()
         }
         .alert(item: $confirmation) { confirmation in
             Alert(
@@ -131,19 +158,24 @@ struct MediaCacheSettingsView: View {
                 secondaryButton: .cancel()
             )
         }
-        .alert("Media Cache Could Not Be Changed", isPresented: Binding(
+        .alert("Playback proxy storage could not be changed", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { presented in if !presented { model.errorMessage = nil } }
         )) {
             Button("OK") { model.errorMessage = nil }
         } message: {
-            Text(model.errorMessage ?? "The media cache could not be changed.")
+            Text(model.errorMessage ?? "Playback proxy storage could not be changed.")
         }
     }
 
     private var formattedSize: String {
         guard let status = model.status else { return "Calculating" }
         return ByteCountFormatter.string(fromByteCount: status.byteCount, countStyle: .file)
+    }
+
+    private var formattedFileCount: String {
+        guard let count = model.status?.fileCount else { return "Calculating" }
+        return count == 1 ? "1 file" : "\(count.formatted()) files"
     }
 }
 
@@ -155,11 +187,11 @@ private enum CacheConfirmation: String, Identifiable {
     var scope: MediaCacheClearScope { self == .unused ? .unused : .all }
 
     var title: String {
-        self == .unused ? "Clear Unused Media Cache?" : "Clear All Media Cache?"
+        self == .unused ? "Clear proxies not used recently?" : "Clear all playback proxies?"
     }
 
     var actionTitle: String {
-        self == .unused ? "Clear Unused" : "Clear All"
+        self == .unused ? "Clear proxies" : "Clear all proxies"
     }
 
     var message: String {

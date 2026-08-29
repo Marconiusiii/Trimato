@@ -34,8 +34,9 @@
 
     <h2>Understand which media export uses</h2>
     <p>Playback proxies are used for responsive preview and editing, not as the final-quality sources for a project export. Trimato returns to the original source files and applies the source ranges, timeline arrangement, cutaways, audio choices, project resolution, and project frame rate saved in the project.</p>
-    <p>If macOS cannot use an original source directly in the final composition, Trimato creates a temporary full-resolution ProRes render intermediate from that original. Trimato uses the intermediate to complete the selected output and removes it after export.</p>
+    <p>If macOS cannot use an original directly, Trimato makes a temporary full-quality copy for export. Trimato removes that copy when export finishes, is cancelled, or fails.</p>
     <p>Keep every original source used by the timeline available. A cached proxy does not make an offline original available for final export.</p>
+    <p><a href="storage-and-temporary-media.html">Learn what Trimato stores and when temporary media is removed.</a></p>
 
     <h2>Export the project</h2>
     <ol>

@@ -58,9 +58,8 @@
     </ul>
 
     <h2>Understand playback proxies</h2>
-    <p>A playback proxy is an internal editing copy designed for responsive playback. It does not replace or modify the original, and it is not the final-quality source for a project export.</p>
-    <p>Project proxies are stored in the macOS Caches directory and can be reused after a project is closed and reopened. If a proxy is missing, cleared, or no longer matches the source file's size and modification date, Trimato recreates it from the original when needed.</p>
-    <p>A proxy is disposable cache data, not a backup. A project still needs access to its original source files for reliable preview, relinking, and final export.</p>
+    <p>Trimato creates a playback proxy only when macOS cannot play an original file directly. A proxy is a compatible editing copy. It does not modify the original and is not used as the final-quality source for project export.</p>
+    <p>Compatible media can use the original directly, so substantial editing may use no playback proxy storage. <a href="storage-and-temporary-media.html">Learn what Trimato stores and when it removes temporary media.</a></p>
 
     <h2>Use media with different dimensions and frame rates</h2>
     <p>A project can contain sources with different file formats, codecs, resolutions, orientations, aspect ratios, and frame rates. Trimato conforms each timeline instance to the project during preview and export while leaving the original file unchanged.</p>

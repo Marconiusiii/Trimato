@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="description" content="Relink offline media, correct marker ranges, clear cached media, and report Trimato problems.">
+    <meta name="description" content="Relink offline media, correct marker ranges, clear playback proxies, and report Trimato problems.">
     <title>Resolve common problems</title>
     <link rel="stylesheet" href="trimato-help.css">
 </head>
@@ -50,15 +50,16 @@
         <li>Choose a position that does not overlap another cutaway.</li>
     </ul>
 
-    <h2>Clear the media cache</h2>
-    <p>Trimato stores playback proxies in the macOS Caches directory. It limits the cache to 10 GB, removes the least recently used proxies when necessary, and requires enough storage for a new proxy while retaining at least 10 GB of available disk space. Proxies required by open projects and editors are protected from removal.</p>
+    <h2>Clear playback proxies</h2>
+    <p>Playback proxies are compatible editing copies created only when macOS cannot play an original directly. Settings reports these proxies, not every temporary file Trimato uses.</p>
     <ol>
         <li>Open Trimato Settings.</li>
-        <li>Read Current size to review the space used by playback proxies.</li>
-        <li>Choose Clear Unused Media Cache to remove proxies not used in the last seven days, or choose Clear All Media Cache to remove every proxy not required by an open project or editor.</li>
+        <li>Read Storage used and Proxy files in Playback proxy storage.</li>
+        <li>Activate Refresh storage usage if you want Trimato to read the folder again.</li>
+        <li>Activate Clear proxies not used recently to remove proxies not used in the last seven days, or activate Clear all playback proxies to remove every proxy not required by an open project or editor.</li>
         <li>Confirm the action.</li>
     </ol>
-    <p>These commands leave original media and Trimato projects unchanged. Trimato recreates a cleared proxy when it is next needed, provided the original source file remains available. macOS may also remove cached files when storage is constrained.</p>
+    <p>These commands leave original media, Trimato projects, completed exports, and temporary renders unchanged. Trimato recreates a cleared proxy when it is next needed, provided the original remains available. <a href="storage-and-temporary-media.html">Learn more about playback proxies and temporary renders.</a></p>
 
     <h2>Report a problem</h2>
     <p>Include the Trimato version, macOS version, media file type, assistive technology, selected item, focused control, command used, expected result, and actual result.</p>
