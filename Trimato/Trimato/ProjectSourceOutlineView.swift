@@ -10,12 +10,23 @@ nonisolated enum ProjectSourcePasteFocus {
     }
 }
 
+nonisolated enum ProjectSourceKeyboardCommand: Equatable {
+    case none
+    case delete
+
+    static func resolve(keyCode: UInt16, hasAnyModifiers: Bool) -> Self {
+        !hasAnyModifiers && (keyCode == 51 || keyCode == 117) ? .delete : .none
+    }
+}
+
 struct ProjectSourceOutlineView: NSViewRepresentable {
     @ObservedObject var controller: ProjectController
     @Binding var selection: ProjectSourceItemID?
     let openClipEditor: (EditorSelection) -> Void
     let requestNewFolder: () -> Void
     let requestRenameFolder: (UUID) -> Void
+    let requestDeleteAsset: (UUID) -> Void
+    let focusRequest: ProjectSourceFocusRequest
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -49,6 +60,9 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         outline.pasteFiles = { [weak coordinator = context.coordinator] in
             coordinator?.pasteFilesFromFinder()
         }
+        outline.deleteSelectedAsset = { [weak coordinator = context.coordinator] in
+            coordinator?.deleteSelectedAsset()
+        }
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -77,6 +91,9 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
         private var pastedImportBaselineAssetIDs: Set<UUID>?
         private var pendingPastedAssetFocusID: UUID?
         private var pastedAssetFocusTask: Task<Void, Never>?
+        private var handledFocusRequestRevision = 0
+        private var pendingRequestedFocusTarget: ProjectSourceItemID?
+        private var requestedFocusTask: Task<Void, Never>?
 
         init(parent: ProjectSourceOutlineView, root: ProjectSourceNode) {
             self.parent = parent
@@ -104,9 +121,11 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             captureExpansion(in: outlineView)
             let change = root.reconcile(with: item)
             capturePastedAssetFocusIfAvailable(importIsRunning: importIsRunning)
+            captureRequestedFocusIfAvailable()
             guard change.hasChanges else {
                 synchronizeSelection(in: outlineView)
                 schedulePastedAssetFocusIfNeeded()
+                scheduleRequestedFocusIfNeeded()
                 return
             }
 
@@ -122,6 +141,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             synchronizeSelection(in: outlineView)
             isSynchronizingSelection = false
             schedulePastedAssetFocusIfNeeded()
+            scheduleRequestedFocusIfNeeded()
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -161,6 +181,9 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                     button.lineBreakMode = .byTruncatingTail
                 }
                 button.assetID = assetID
+                button.deleteAsset = { [weak self] in
+                    self?.requestDeletion(of: assetID)
+                }
                 button.title = item.name
                 button.menu = contextMenu(for: item.id)
                 return button
@@ -240,6 +263,8 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             case .relink(let assetID):
                 selectSourceAsset(assetID)
                 parent.controller.relinkSelectedAsset()
+            case .delete(let assetID):
+                requestDeletion(of: assetID)
             case .importClips(let folderID):
                 parent.controller.importFiles(into: folderID)
             case .newFolder:
@@ -320,6 +345,8 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                    parent.controller.resolveURL(for: asset) == nil {
                     menu.addItem(menuItem("Relink Clip…", command: .relink(assetID)))
                 }
+                menu.addItem(.separator())
+                menu.addItem(menuItem("Delete Source Clip", command: .delete(assetID)))
             }
             return menu
         }
@@ -350,6 +377,19 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             parent.controller.importFiles(at: urls, into: selectedDestinationFolderID())
         }
 
+        func deleteSelectedAsset() {
+            guard let outlineView,
+                  outlineView.selectedRow >= 0,
+                  let item = outlineView.item(atRow: outlineView.selectedRow) as? ProjectSourceNode,
+                  case .asset(let assetID) = item.id else { return }
+            requestDeletion(of: assetID)
+        }
+
+        private func requestDeletion(of assetID: UUID) {
+            selectSourceAsset(assetID)
+            parent.requestDeleteAsset(assetID)
+        }
+
         private func capturePastedAssetFocusIfAvailable(importIsRunning: Bool) {
             guard let pastedImportBaselineAssetIDs else { return }
             if let assetID = ProjectSourcePasteFocus.firstImportedAssetID(
@@ -364,6 +404,61 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             } else if !importIsRunning {
                 self.pastedImportBaselineAssetIDs = nil
             }
+        }
+
+        private func captureRequestedFocusIfAvailable() {
+            let request = parent.focusRequest
+            guard request.revision > handledFocusRequestRevision,
+                  let target = request.target else { return }
+            handledFocusRequestRevision = request.revision
+            pendingRequestedFocusTarget = target
+        }
+
+        private func scheduleRequestedFocusIfNeeded() {
+            guard pendingRequestedFocusTarget != nil else { return }
+            requestedFocusTask?.cancel()
+            requestedFocusTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled, let self else { return }
+                if self.focusPendingRequestedItem() { return }
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                _ = self.focusPendingRequestedItem()
+            }
+        }
+
+        private func focusPendingRequestedItem() -> Bool {
+            guard let target = pendingRequestedFocusTarget,
+                  let outlineView,
+                  let item = root.item(withID: target) else { return false }
+            expandAncestors(of: target, in: outlineView)
+            let row = outlineView.row(forItem: item)
+            guard row >= 0 else { return false }
+
+            isSynchronizingSelection = true
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            outlineView.scrollRowToVisible(row)
+            isSynchronizingSelection = false
+
+            let focusedElement: Any
+            if case .asset = target,
+               let button = outlineView.view(
+                atColumn: 0,
+                row: row,
+                makeIfNecessary: true
+               ) as? ProjectSourceButton {
+                guard outlineView.window?.makeFirstResponder(button) == true else { return false }
+                focusedElement = button
+            } else {
+                guard outlineView.window?.makeFirstResponder(outlineView) == true else { return false }
+                focusedElement = outlineView
+            }
+
+            pendingRequestedFocusTarget = nil
+            requestedFocusTask = nil
+            NSAccessibility.post(element: outlineView, notification: .selectedRowsChanged)
+            NSAccessibility.post(element: focusedElement, notification: .focusedUIElementChanged)
+            return true
         }
 
         private func schedulePastedAssetFocusIfNeeded() {
@@ -615,9 +710,23 @@ private final class ProjectSourceOutline: NSOutlineView {
     var menuForSelectedRow: (() -> NSMenu?)?
     var canPasteFiles: (() -> Bool)?
     var pasteFiles: (() -> Void)?
+    var deleteSelectedAsset: (() -> Void)?
 
     @IBAction func paste(_ sender: Any?) {
         pasteFiles?()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if !event.isARepeat,
+           ProjectSourceKeyboardCommand.resolve(
+            keyCode: event.keyCode,
+            hasAnyModifiers: !modifiers.isEmpty
+           ) == .delete {
+            deleteSelectedAsset?()
+            return
+        }
+        super.keyDown(with: event)
     }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
@@ -646,6 +755,20 @@ private final class ProjectSourceOutline: NSOutlineView {
 
 private final class ProjectSourceButton: NSButton {
     var assetID: UUID?
+    var deleteAsset: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if !event.isARepeat,
+           ProjectSourceKeyboardCommand.resolve(
+            keyCode: event.keyCode,
+            hasAnyModifiers: !modifiers.isEmpty
+           ) == .delete {
+            deleteAsset?()
+            return
+        }
+        super.keyDown(with: event)
+    }
 
     override func accessibilityPerformShowMenu() -> Bool {
         guard let menu else { return false }
@@ -668,6 +791,7 @@ private enum ProjectSourceMenuCommand {
     case placeOnTrack(UUID, PlacementAction, UUID)
     case move(UUID, UUID?)
     case relink(UUID)
+    case delete(UUID)
     case importClips(UUID?)
     case newFolder
     case renameFolder(UUID)

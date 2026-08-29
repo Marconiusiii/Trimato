@@ -951,6 +951,18 @@ final class ProjectController: ObservableObject {
         }
     }
 
+    func deleteSourceAsset(_ assetID: UUID) {
+        guard let asset = project.asset(id: assetID) else { return }
+        mutateProject(actionName: "Delete Source Clip") { project in
+            project.removeSourceAsset(assetID)
+        }
+        if selection == .asset(assetID) { selection = .project }
+        if activeTimelineTrackID.flatMap({ project.track(id: $0) }) == nil {
+            activeTimelineTrackID = Self.preferredTimelineTrackID(in: project)
+        }
+        announce("\(asset.name) deleted from Project Source")
+    }
+
     func updateProjectSettings(name: String, format: ProjectFormat, targetDuration: ProjectTime?) {
         mutateProject(actionName: "Change Project Settings") { project in
             project.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Project" : name

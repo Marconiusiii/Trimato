@@ -1,5 +1,37 @@
 import SwiftUI
 
+nonisolated enum ProjectSourceDeletionConfirmation {
+    static let title = "Delete Source Clip?"
+
+    static func message(clipName: String, timelineUseCount: Int) -> String {
+        if timelineUseCount == 0 {
+            return "Remove \(clipName) from Project Source? This can be undone."
+        }
+        let uses = timelineUseCount == 1 ? "1 timeline clip" : "\(timelineUseCount) timeline clips"
+        return "\(clipName) is used by \(uses). Deleting it from Project Source will also remove those timeline clips and their transitions. This can be undone."
+    }
+}
+
+nonisolated enum ProjectSourceDeletionFocus {
+    static func target(
+        afterDeleting assetID: UUID,
+        from assets: [MediaAssetRecord],
+        projectID: UUID
+    ) -> ProjectSourceItemID {
+        guard let index = assets.firstIndex(where: { $0.id == assetID }) else {
+            return .clips(projectID)
+        }
+        if assets.indices.contains(index + 1) { return .asset(assets[index + 1].id) }
+        if index > assets.startIndex { return .asset(assets[index - 1].id) }
+        return .clips(projectID)
+    }
+}
+
+nonisolated struct ProjectSourceFocusRequest: Equatable, Sendable {
+    var target: ProjectSourceItemID?
+    var revision = 0
+}
+
 struct ProjectBrowserView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
@@ -9,6 +41,8 @@ struct ProjectBrowserView: View {
     @State private var folderName = ""
     @State private var folderBeingRenamed: ProjectFolder?
     @State private var renamedFolderName = ""
+    @State private var assetPendingDeletion: MediaAssetRecord?
+    @State private var sourceFocusRequest = ProjectSourceFocusRequest()
 
     init(
         controller: ProjectController,
@@ -55,7 +89,9 @@ struct ProjectBrowserView: View {
                 selection: $sourceSelection,
                 openClipEditor: openClipEditor,
                 requestNewFolder: { showingNewFolder = true },
-                requestRenameFolder: beginRenamingFolder
+                requestRenameFolder: beginRenamingFolder,
+                requestDeleteAsset: beginDeletingAsset,
+                focusRequest: sourceFocusRequest
             )
 
             Divider()
@@ -92,6 +128,12 @@ struct ProjectBrowserView: View {
             } cancel: {
                 folderBeingRenamed = nil
             }
+        }
+        .alert(ProjectSourceDeletionConfirmation.title, isPresented: deleteAssetConfirmationPresented) {
+            Button("Cancel", role: .cancel) { cancelAssetDeletion() }
+            Button("Delete Source Clip", role: .destructive) { confirmAssetDeletion() }
+        } message: {
+            Text(deleteAssetConfirmationMessage)
         }
     }
 
@@ -165,10 +207,62 @@ struct ProjectBrowserView: View {
                         controller.relinkSelectedAsset()
                     }
                 }
+                Divider()
+                Button("Delete Source Clip", role: .destructive) {
+                    beginDeletingAsset(id)
+                }
             case .project, .timeline, .clips, .none:
                 Text("No Actions Available")
             }
         }
+    }
+
+    private func beginDeletingAsset(_ assetID: UUID) {
+        guard let asset = controller.project.asset(id: assetID) else { return }
+        sourceSelection = .asset(assetID)
+        controller.selection = .asset(assetID)
+        assetPendingDeletion = asset
+    }
+
+    private var deleteAssetConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { assetPendingDeletion != nil },
+            set: { presented in
+                if !presented, assetPendingDeletion != nil { cancelAssetDeletion() }
+            }
+        )
+    }
+
+    private var deleteAssetConfirmationMessage: String {
+        guard let asset = assetPendingDeletion else { return "Remove this clip from Project Source?" }
+        return ProjectSourceDeletionConfirmation.message(
+            clipName: asset.name,
+            timelineUseCount: controller.project.sourceAssetTimelineUseCount(asset.id)
+        )
+    }
+
+    private func cancelAssetDeletion() {
+        guard let asset = assetPendingDeletion else { return }
+        assetPendingDeletion = nil
+        requestSourceFocus(.asset(asset.id))
+    }
+
+    private func confirmAssetDeletion() {
+        guard let asset = assetPendingDeletion else { return }
+        let target = ProjectSourceDeletionFocus.target(
+            afterDeleting: asset.id,
+            from: controller.project.media,
+            projectID: controller.project.id
+        )
+        assetPendingDeletion = nil
+        sourceSelection = target
+        controller.deleteSourceAsset(asset.id)
+        requestSourceFocus(target)
+    }
+
+    private func requestSourceFocus(_ target: ProjectSourceItemID) {
+        sourceFocusRequest.target = target
+        sourceFocusRequest.revision += 1
     }
 
     private func folderEditor(

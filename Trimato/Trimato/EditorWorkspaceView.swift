@@ -6,7 +6,6 @@ struct EditorWorkspaceView: View {
     @StateObject private var controller: ProjectController
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
-    @State private var hasRequestedInitialEditorFocus = false
     @State private var restoresEditorFocusAfterTransitionSheet = false
     @State private var timelineFocusAfterTransitionSheet: TimelineElementSelection?
     @Namespace private var workspacePaneLinks
@@ -42,9 +41,6 @@ struct EditorWorkspaceView: View {
                 projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
                     guard let controller else { return }
                     ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-                    if !controller.isShowingProjectSettings, !hasRequestedInitialEditorFocus {
-                        requestEditorFocus()
-                    }
                 }
                 projectWindowSaveCoordinator.onLastProjectWindowWillClose {
                     openWindow(id: "project-launcher")
@@ -58,7 +54,7 @@ struct EditorWorkspaceView: View {
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
             .onChange(of: controller.isShowingProjectSettings) { _, isShowing in
-                if !isShowing { requestEditorFocus() }
+                if !isShowing { controller.requestEditorFocusRestore() }
             }
             .onDisappear {
                 ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
@@ -221,11 +217,6 @@ struct EditorWorkspaceView: View {
             timelineFocusAfterTransitionSheet = nil
             controller.requestTimelineFocusRestore(to: target)
         }
-    }
-
-    private func requestEditorFocus() {
-        hasRequestedInitialEditorFocus = true
-        controller.requestEditorFocusRestore()
     }
 
 }

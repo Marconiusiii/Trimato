@@ -52,6 +52,48 @@ nonisolated enum TimelineClipPositionEdge: Equatable, Sendable {
 }
 
 extension TrimatoProject {
+    func sourceAssetTimelineUseCount(_ assetID: UUID) -> Int {
+        let primaryIDs = primaryTimeline.filter { $0.assetID == assetID }.map(\.id)
+        let cutawayIDs = cutaways.filter { $0.assetID == assetID }.map(\.id)
+        let trackIDs = tracks.flatMap(\.clips).filter { $0.assetID == assetID }.map(\.id)
+        return Set(primaryIDs + cutawayIDs + trackIDs).count
+    }
+
+    mutating func removeSourceAsset(_ assetID: UUID) {
+        guard media.contains(where: { $0.id == assetID }) else { return }
+
+        let primaryClipIDs = primaryTimeline.filter { $0.assetID == assetID }.map(\.id)
+        let cutawayClipIDs = cutaways.filter { $0.assetID == assetID }.map(\.id)
+        let trackClipIDs = tracks.flatMap(\.clips).filter { $0.assetID == assetID }.map(\.id)
+        let removedClipIDs = Set(primaryClipIDs + cutawayClipIDs + trackClipIDs)
+        let additionalClipIDs = tracks
+            .filter { $0.role == .additional }
+            .flatMap(\.clips)
+            .filter { $0.assetID == assetID }
+            .map(\.id)
+
+        for clipID in additionalClipIDs {
+            try? removeTrackClip(id: clipID)
+        }
+        primaryTimeline.removeAll { $0.assetID == assetID }
+        cutaways.removeAll { $0.assetID == assetID }
+        transitions.removeAll {
+            $0.leadingClipID.map(removedClipIDs.contains) == true ||
+                $0.trailingClipID.map(removedClipIDs.contains) == true
+        }
+        for trackIndex in tracks.indices {
+            for clipIndex in tracks[trackIndex].clips.indices where
+                tracks[trackIndex].clips[clipIndex].linkedClipID.map(removedClipIDs.contains) == true {
+                tracks[trackIndex].clips[clipIndex].linkedClipID = nil
+            }
+        }
+        synchronizeLegacyTimelineToTracks()
+        for folderIndex in folders.indices {
+            folders[folderIndex].assetIDs.removeAll { $0 == assetID }
+        }
+        media.removeAll { $0.id == assetID }
+    }
+
     mutating func ensureTrackModel() {
         guard tracks.isEmpty else { return }
         tracks = Self.migratedTracks(

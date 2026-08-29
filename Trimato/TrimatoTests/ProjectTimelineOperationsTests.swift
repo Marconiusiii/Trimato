@@ -2,6 +2,59 @@ import Testing
 @testable import Trimato
 
 struct ProjectTimelineOperationsTests {
+    @Test func deletingASourceAssetRemovesItsTimelineUsesTransitionsAndFolderReference() throws {
+        let removed = fixtureAsset(name: "Delete Me", duration: 12)
+        let retained = fixtureAsset(name: "Keep Me", duration: 12)
+        let folder = ProjectFolder(name: "Imports", assetIDs: [removed.id, retained.id])
+        var project = TrimatoProject()
+        project.media = [removed, retained]
+        project.folders = [folder]
+        let removedPrimaryID = try project.append(
+            asset: removed,
+            segments: [SourceSegment(sourceRange: ProjectTimeRange(
+                start: ProjectTime(seconds: 1),
+                duration: ProjectTime(seconds: 4)
+            ))]
+        )
+        let retainedPrimaryID = try project.append(
+            asset: retained,
+            segments: [SourceSegment(sourceRange: ProjectTimeRange(
+                start: ProjectTime(seconds: 1),
+                duration: ProjectTime(seconds: 4)
+            ))]
+        )
+        let additionalTrackID = project.createTrack(kind: .video, name: "Video 2")
+        _ = try project.append(
+            asset: removed,
+            segments: [SourceSegment(sourceRange: ProjectTimeRange(
+                start: ProjectTime(seconds: 6),
+                duration: ProjectTime(seconds: 3)
+            ))],
+            toTrack: additionalTrackID
+        )
+        project.transitions = [TimelineTransition(
+            trackID: try #require(project.tracks.first { $0.role == .primaryVideo }?.id),
+            edge: .between,
+            kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1),
+            leadingClipID: removedPrimaryID,
+            trailingClipID: retainedPrimaryID
+        )]
+
+        #expect(project.sourceAssetTimelineUseCount(removed.id) == 3)
+
+        project.removeSourceAsset(removed.id)
+
+        #expect(project.asset(id: removed.id) == nil)
+        #expect(project.asset(id: retained.id) != nil)
+        #expect(project.folders.first?.assetIDs == [retained.id])
+        #expect(project.primaryTimeline.allSatisfy { $0.assetID != removed.id })
+        #expect(project.tracks.flatMap(\.clips).allSatisfy { $0.assetID != removed.id })
+        #expect(project.cutaways.allSatisfy { $0.assetID != removed.id })
+        #expect(project.transitions.isEmpty)
+        #expect(project.timelineClip(id: retainedPrimaryID) != nil)
+    }
+
     @Test func copyingAClipDuplicatesItAfterTheTargetWithoutCopyingTransitions() throws {
         let source = fixtureAsset(name: "Interview", duration: 12)
         var project = TrimatoProject()

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Trimato
 
@@ -111,6 +112,47 @@ struct ProjectSourceItemTests {
         )
 
         #expect(focusedID == nil)
+    }
+
+    @Test func projectSourceKeyboardRecognizesBothDeleteKeysWithoutModifiers() {
+        #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 51, hasAnyModifiers: false) == .delete)
+        #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 117, hasAnyModifiers: false) == .delete)
+        #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 51, hasAnyModifiers: true) == .none)
+    }
+
+    @Test func sourceDeletionConfirmationIsNamedAndExplainsTimelineRemoval() {
+        #expect(ProjectSourceDeletionConfirmation.title == "Delete Source Clip?")
+        #expect(ProjectSourceDeletionConfirmation.message(
+            clipName: "Interview",
+            timelineUseCount: 0
+        ) == "Remove Interview from Project Source? This can be undone.")
+        #expect(ProjectSourceDeletionConfirmation.message(
+            clipName: "Interview",
+            timelineUseCount: 2
+        ) == "Interview is used by 2 timeline clips. Deleting it from Project Source will also remove those timeline clips and their transitions. This can be undone.")
+    }
+
+    @Test func sourceDeletionFocusChoosesNextThenPreviousThenClips() {
+        let first = makeAsset(name: "First")
+        let second = makeAsset(name: "Second")
+        let third = makeAsset(name: "Third")
+        let projectID = UUID()
+
+        #expect(ProjectSourceDeletionFocus.target(
+            afterDeleting: second.id,
+            from: [first, second, third],
+            projectID: projectID
+        ) == .asset(third.id))
+        #expect(ProjectSourceDeletionFocus.target(
+            afterDeleting: third.id,
+            from: [first, second, third],
+            projectID: projectID
+        ) == .asset(second.id))
+        #expect(ProjectSourceDeletionFocus.target(
+            afterDeleting: first.id,
+            from: [first],
+            projectID: projectID
+        ) == .clips(projectID))
     }
 
     private func makeAsset(name: String) -> MediaAssetRecord {
