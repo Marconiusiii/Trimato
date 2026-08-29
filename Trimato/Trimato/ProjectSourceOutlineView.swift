@@ -30,6 +30,7 @@ struct ProjectSourceOutlineView: View {
     @State private var pendingPastedAssetFocusID: UUID?
     @State private var handledFocusRequestRevision = 0
     @State private var focusTask: Task<Void, Never>?
+    @FocusState private var keyboardFocusedItem: ProjectSourceItemID?
     @AccessibilityFocusState private var focusedItem: ProjectSourceItemID?
 
     init(
@@ -57,37 +58,39 @@ struct ProjectSourceOutlineView: View {
     }
 
     var body: some View {
-        List(selection: $selection) {
-            projectHierarchy
-        }
-        .accessibilityLabel("Project Source")
-        .onChange(of: selection) { _, selectedItem in
-            synchronizeControllerSelection(selectedItem)
-        }
-        .onChange(of: controller.project.media.map(\.id)) {
-            capturePastedAssetFocusIfAvailable()
-        }
-        .onChange(of: controller.isImporting) {
-            capturePastedAssetFocusIfAvailable()
-            restorePastedAssetFocusIfReady()
-        }
-        .onChange(of: controller.project.folders.map(\.id)) { _, folderIDs in
-            expandedItems.formUnion(folderIDs.map { .folder($0) })
-        }
-        .onChange(of: focusRequest) { _, request in
-            handleFocusRequest(request)
-        }
-        .onPasteCommand(of: [.fileURL]) { providers in
-            pasteFiles(from: providers)
-        }
-        .onDeleteCommand {
-            deleteSelectedAsset()
-        }
-        .dropDestination(for: URL.self) { urls, _ in
-            importFiles(urls, into: selectedDestinationFolderID())
-        }
-        .onDisappear {
-            focusTask?.cancel()
+        ScrollViewReader { proxy in
+            List(selection: $selection) {
+                projectHierarchy
+            }
+            .accessibilityLabel("Project Source")
+            .onChange(of: selection) { _, selectedItem in
+                synchronizeControllerSelection(selectedItem)
+            }
+            .onChange(of: controller.project.media.map(\.id)) {
+                capturePastedAssetFocusIfAvailable()
+            }
+            .onChange(of: controller.isImporting) {
+                capturePastedAssetFocusIfAvailable()
+                restorePastedAssetFocusIfReady(using: proxy)
+            }
+            .onChange(of: controller.project.folders.map(\.id)) { _, folderIDs in
+                expandedItems.formUnion(folderIDs.map { .folder($0) })
+            }
+            .onChange(of: focusRequest) { _, request in
+                handleFocusRequest(request, using: proxy)
+            }
+            .onPasteCommand(of: [.fileURL]) { providers in
+                pasteFiles(from: providers)
+            }
+            .onDeleteCommand {
+                deleteSelectedAsset()
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                importFiles(urls, into: selectedDestinationFolderID())
+            }
+            .onDisappear {
+                focusTask?.cancel()
+            }
         }
     }
 
@@ -104,6 +107,7 @@ struct ProjectSourceOutlineView: View {
             Text(controller.project.name)
         }
         .tag(ProjectSourceItemID.project(controller.project.id))
+        .id(ProjectSourceItemID.project(controller.project.id))
         .accessibilityFocused($focusedItem, equals: .project(controller.project.id))
         .contextMenu {
             Button("Import Clips\u{2026}") { controller.importFiles() }
@@ -114,6 +118,7 @@ struct ProjectSourceOutlineView: View {
     private var projectTimelineRow: some View {
         Text("Project Timeline")
             .tag(ProjectSourceItemID.timeline(controller.project.id))
+            .id(ProjectSourceItemID.timeline(controller.project.id))
             .accessibilityFocused($focusedItem, equals: .timeline(controller.project.id))
     }
 
@@ -128,6 +133,7 @@ struct ProjectSourceOutlineView: View {
             Text("Clips")
         }
         .tag(ProjectSourceItemID.clips(controller.project.id))
+        .id(ProjectSourceItemID.clips(controller.project.id))
         .accessibilityFocused($focusedItem, equals: .clips(controller.project.id))
     }
 
@@ -142,6 +148,7 @@ struct ProjectSourceOutlineView: View {
             Text(folder.name)
         }
         .tag(ProjectSourceItemID.folder(folder.id))
+        .id(ProjectSourceItemID.folder(folder.id))
         .accessibilityFocused($focusedItem, equals: .folder(folder.id))
         .contextMenu {
             Button("Import Clips into Folder\u{2026}") {
@@ -171,6 +178,8 @@ struct ProjectSourceOutlineView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .tag(ProjectSourceItemID.asset(asset.id))
+        .id(ProjectSourceItemID.asset(asset.id))
+        .focused($keyboardFocusedItem, equals: .asset(asset.id))
         .accessibilityFocused($focusedItem, equals: .asset(asset.id))
         .contextMenu {
             assetContextMenu(asset)
@@ -356,30 +365,42 @@ struct ProjectSourceOutlineView: View {
         }
     }
 
-    private func restorePastedAssetFocusIfReady() {
+    private func restorePastedAssetFocusIfReady(using proxy: ScrollViewProxy) {
         guard ProjectSourcePasteFocus.shouldRestoreFocus(
             pendingAssetID: pendingPastedAssetFocusID,
             importIsRunning: controller.isImporting
         ), let assetID = pendingPastedAssetFocusID else { return }
         pendingPastedAssetFocusID = nil
-        requestFocus(.asset(assetID))
+        requestFocus(.asset(assetID), using: proxy)
     }
 
-    private func handleFocusRequest(_ request: ProjectSourceFocusRequest) {
+    private func handleFocusRequest(_ request: ProjectSourceFocusRequest, using proxy: ScrollViewProxy) {
         guard request.revision > handledFocusRequestRevision,
               let target = request.target else { return }
         handledFocusRequestRevision = request.revision
-        requestFocus(target)
+        requestFocus(target, using: proxy)
     }
 
-    private func requestFocus(_ target: ProjectSourceItemID) {
+    private func requestFocus(_ target: ProjectSourceItemID, using proxy: ScrollViewProxy) {
         prepareExpansion(for: target)
         select(target)
         focusTask?.cancel()
         focusTask = Task { @MainActor in
+            keyboardFocusedItem = nil
             focusedItem = nil
             await Task.yield()
             guard !Task.isCancelled else { return }
+            proxy.scrollTo(target, anchor: .center)
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            keyboardFocusedItem = target
+            focusedItem = target
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            focusedItem = nil
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            keyboardFocusedItem = target
             focusedItem = target
         }
     }

@@ -1,5 +1,7 @@
 import AppKit
 import AVFoundation
+import Combine
+import SwiftUI
 import UniformTypeIdentifiers
 
 nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
@@ -114,13 +116,39 @@ struct ExportSaveSelection {
 }
 
 @MainActor
-final class ExportSavePanel: NSObject {
+final class ExportFormatSelectionModel: ObservableObject {
+    nonisolated static let pickerLabel = "Format"
+
+    @Published var selectedFormat: ExportFormat {
+        didSet { formatChanged?(selectedFormat) }
+    }
+
+    fileprivate var formatChanged: ((ExportFormat) -> Void)?
+
+    init(selectedFormat: ExportFormat) {
+        self.selectedFormat = selectedFormat
+    }
+}
+
+private struct ExportFormatAccessoryView: View {
+    @ObservedObject var model: ExportFormatSelectionModel
+    let formats: [ExportFormat]
+
+    var body: some View {
+        Picker(ExportFormatSelectionModel.pickerLabel, selection: $model.selectedFormat) {
+            ForEach(formats, id: \.self) { format in
+                Text(format.title).tag(format)
+            }
+        }
+        .frame(width: 330)
+        .padding(.vertical, 2)
+    }
+}
+
+@MainActor
+final class ExportSavePanel {
     let panel = NSSavePanel()
-    let formatPicker = NSPopUpButton(
-        frame: NSRect(x: 0, y: 0, width: 250, height: 28),
-        pullsDown: false
-    )
-    let formatCaption = NSTextField(labelWithString: "Format")
+    let formatModel: ExportFormatSelectionModel
 
     private let formats: [ExportFormat]
     private let originalExtension: String?
@@ -137,7 +165,7 @@ final class ExportSavePanel: NSObject {
         self.formats = formats
         self.originalExtension = originalExtension
         self.originalContentType = originalContentType
-        super.init()
+        self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0])
 
         panel.title = title
         panel.prompt = "Export"
@@ -145,27 +173,21 @@ final class ExportSavePanel: NSObject {
         panel.allowsOtherFileTypes = false
         panel.isExtensionHidden = false
 
-        formatPicker.addItems(withTitles: formats.map(\.title))
-        formatPicker.setAccessibilityLabel("Format")
-        formatPicker.target = self
-        formatPicker.action = #selector(formatChanged)
-
-        formatCaption.alignment = .right
-        formatCaption.setContentHuggingPriority(.required, for: .horizontal)
-        formatCaption.setAccessibilityElement(false)
-
-        let row = NSStackView(views: [formatCaption, formatPicker])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 8
-        row.frame = NSRect(x: 0, y: 0, width: 330, height: 32)
-        panel.accessoryView = row
+        let accessory = NSHostingView(rootView: ExportFormatAccessoryView(
+            model: formatModel,
+            formats: formats
+        ))
+        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: 36)
+        panel.accessoryView = accessory
 
         panel.nameFieldStringValue = formats[0].filename(
             for: baseName,
             originalExtension: originalExtension
         )
         apply(format: formats[0], replacingFilenameExtension: false)
+        formatModel.formatChanged = { [weak self] format in
+            self?.apply(format: format, replacingFilenameExtension: true)
+        }
     }
 
     func selection(parentWindow: NSWindow) async -> ExportSaveSelection? {
@@ -176,11 +198,7 @@ final class ExportSavePanel: NSObject {
     }
 
     var selectedFormat: ExportFormat {
-        formats[formatPicker.indexOfSelectedItem]
-    }
-
-    @objc private func formatChanged() {
-        applySelectedFormat()
+        formatModel.selectedFormat
     }
 
     func applySelectedFormat() {

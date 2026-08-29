@@ -7,11 +7,11 @@ struct ProjectLauncherView: View {
     @Environment(\.newDocument) private var newDocument
     @Environment(\.openDocument) private var openDocument
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     @ObservedObject private var navigation = ProjectLauncherNavigation.shared
     @StateObject private var recentProjects = RecentProjectStore()
     @State private var presentedError: ProjectLauncherError?
-    @State private var launcherWindow: NSWindow?
     @FocusState private var launcherFocus: LauncherFocus?
 
     private enum LauncherFocus: Hashable {
@@ -26,7 +26,6 @@ struct ProjectLauncherView: View {
         .background(EditorTheme.workspace)
         .tint(EditorTheme.accent)
         .preferredColorScheme(.dark)
-        .background(ProjectLauncherWindowBridge { launcherWindow = $0 })
         .sheet(isPresented: projectCreationPresentation) {
             newProjectOptions
         }
@@ -222,7 +221,7 @@ struct ProjectLauncherView: View {
 
     private func closeLauncher() {
         launcherFocus = nil
-        launcherWindow?.performClose(nil)
+        dismissWindow(id: "project-launcher")
     }
 }
 
@@ -243,36 +242,6 @@ final class ProjectLauncherNavigation: ObservableObject {
 
 extension Notification.Name {
     static let trimatoProjectDidOpen = Notification.Name("TrimatoProjectDidOpen")
-}
-
-private struct ProjectLauncherWindowBridge: NSViewRepresentable {
-    let windowChanged: (NSWindow?) -> Void
-
-    func makeNSView(context: Context) -> ProjectLauncherWindowView {
-        let view = ProjectLauncherWindowView(frame: .zero)
-        view.windowChanged = windowChanged
-        return view
-    }
-
-    func updateNSView(_ nsView: ProjectLauncherWindowView, context: Context) {
-        nsView.windowChanged = windowChanged
-        let window = nsView.window
-        DispatchQueue.main.async {
-            windowChanged(window)
-        }
-    }
-}
-
-private final class ProjectLauncherWindowView: NSView {
-    var windowChanged: ((NSWindow?) -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        let currentWindow = window
-        DispatchQueue.main.async { [weak self] in
-            self?.windowChanged?(currentWindow)
-        }
-    }
 }
 
 @MainActor

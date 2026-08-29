@@ -25,6 +25,7 @@ final class PlayerNSView: NSView {
         playerLayer.videoGravity = .resizeAspect
         playerLayer.backgroundColor = NSColor.black.cgColor
         layer?.addSublayer(playerLayer)
+        setAccessibilityElement(false)
     }
 
     required init?(coder: NSCoder) {

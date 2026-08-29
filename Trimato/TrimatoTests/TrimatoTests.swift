@@ -24,11 +24,10 @@ struct TrimatoTests {
         #expect(exportPanel.panel.title == "Export Project")
         #expect(exportPanel.panel.prompt == "Export")
         #expect(exportPanel.panel.nameFieldStringValue == "My Movie.mp4")
-        #expect(exportPanel.formatPicker.accessibilityLabel() == "Format")
-        #expect(exportPanel.formatCaption.isAccessibilityElement() == false)
+        #expect(exportPanel.panel.accessoryView != nil)
+        #expect(ExportFormatSelectionModel.pickerLabel == "Format")
 
-        exportPanel.formatPicker.selectItem(at: 1)
-        exportPanel.applySelectedFormat()
+        exportPanel.formatModel.selectedFormat = .hevcMovie
 
         #expect(exportPanel.selectedFormat == .hevcMovie)
         #expect(exportPanel.panel.nameFieldStringValue == "My Movie.mov")

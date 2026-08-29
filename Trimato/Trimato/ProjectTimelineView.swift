@@ -160,21 +160,18 @@ struct ProjectTimelineView: View {
             emptyMessage("No clips in the project timeline")
         } else {
             timelineScrollView
-            .background(
-                TimelineContextMenuKeyBridge(
-                    focusedElement: focusedElement,
-                    activate: activateTimelineElement,
-                    renameClip: beginRenamingClip,
-                    deleteClip: deleteTimelineClip,
-                    editTransition: editTransition,
-                    deleteTransition: deleteTimelineTransition,
-                    copyClip: controller.copyTimelineClip,
-                    pasteClipAfter: controller.pasteCopiedTimelineClip,
-                    moveClipAfter: controller.moveCopiedTimelineClip,
-                    trimClipEnd: trimTimelineClipEnd
-                )
-                .frame(width: 0, height: 0)
-            )
+                .onDeleteCommand(perform: deleteFocusedTimelineElement)
+        }
+    }
+
+    private func deleteFocusedTimelineElement() {
+        switch focusedElement {
+        case .clip(let id):
+            deleteTimelineClip(id)
+        case .transition(let id):
+            deleteTimelineTransition(id)
+        case nil:
+            break
         }
     }
 

@@ -491,29 +491,6 @@ struct MultiTrackTimelineTests {
         #expect(TimelineElementAccessibilityIdentifier.selection(from: "trimato.timeline.clips") == nil)
     }
 
-    @Test func timelineKeyboardCommandsRecognizeDeleteAndControlEnter() {
-        #expect(TimelineKeyboardCommand.resolve(
-            keyCode: 51,
-            controlOnly: false,
-            hasAnyModifiers: false
-        ) == .delete)
-        #expect(TimelineKeyboardCommand.resolve(
-            keyCode: 117,
-            controlOnly: false,
-            hasAnyModifiers: false
-        ) == .delete)
-        #expect(TimelineKeyboardCommand.resolve(
-            keyCode: 36,
-            controlOnly: true,
-            hasAnyModifiers: true
-        ) == .openContextMenu)
-        #expect(TimelineKeyboardCommand.resolve(
-            keyCode: 51,
-            controlOnly: false,
-            hasAnyModifiers: true
-        ) == .none)
-    }
-
     @Test func clipDeletionConfirmationIsNamedAndExplainsUndo() {
         #expect(TimelineClipDeletionConfirmation.title == "Delete Clip?")
         #expect(TimelineClipDeletionConfirmation.message(clipName: "Interview") ==

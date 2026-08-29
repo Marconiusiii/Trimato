@@ -1,4 +1,3 @@
-import AppKit
 import Combine
 import SwiftUI
 
@@ -44,10 +43,10 @@ final class StandaloneClipCommandContext: ObservableObject {
 struct StandaloneClipEditorView: View {
     let url: URL
     @Environment(\.newDocument) private var newDocument
+    @Environment(\.dismissWindow) private var dismissWindow
     @StateObject private var viewModel: VideoPlayerViewModel
     @StateObject private var commandContext: StandaloneClipCommandContext
     @State private var loadedURL: URL?
-    @State private var editorWindow: NSWindow?
 
     init(url: URL) {
         self.url = url
@@ -92,7 +91,6 @@ struct StandaloneClipEditorView: View {
         .focusedObject(commandContext)
         .navigationTitle("\(url.deletingPathExtension().lastPathComponent) — \(editorName)")
         .frame(minWidth: 700, minHeight: 600)
-        .background(StandaloneClipWindowBridge { editorWindow = $0 })
         .onAppear {
             guard loadedURL != url else { return }
             loadedURL = url
@@ -118,7 +116,7 @@ struct StandaloneClipEditorView: View {
                 let project = try await viewModel.makeProjectFromCurrentClip()
                 newDocument { ProjectDocument(project: project, isExplicitlySaved: false) }
                 commandContext.finishCreatingProject()
-                editorWindow?.performClose(nil)
+                dismissWindow(value: url)
             } catch {
                 commandContext.failCreatingProject(error)
             }
@@ -128,29 +126,5 @@ struct StandaloneClipEditorView: View {
     private var editorName: String {
         guard viewModel.hasMedia else { return "Clip Editor" }
         return ClipEditorMediaKind.name(hasVideo: viewModel.hasVideo)
-    }
-}
-
-private struct StandaloneClipWindowBridge: NSViewRepresentable {
-    let windowChanged: (NSWindow?) -> Void
-
-    func makeNSView(context: Context) -> StandaloneClipWindowView {
-        let view = StandaloneClipWindowView(frame: .zero)
-        view.windowChanged = windowChanged
-        return view
-    }
-
-    func updateNSView(_ nsView: StandaloneClipWindowView, context: Context) {
-        nsView.windowChanged = windowChanged
-        windowChanged(nsView.window)
-    }
-}
-
-private final class StandaloneClipWindowView: NSView {
-    var windowChanged: ((NSWindow?) -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        windowChanged?(window)
     }
 }
