@@ -18,6 +18,7 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Arrange clips on independent video and audio tracks, using one linear Timeline clips list for the track selected in the Track picker. Primary tracks retain magnetic editing, while additional tracks also support absolute positioning and gaps.
 - Append clips, insert and split at the playhead, or replace the remainder of the clip at the playhead.
 - Add a single-layer cutaway that temporarily replaces the picture, either with its source audio or while retaining the primary storyline audio.
+- Send only the audio from an imported video clip to an existing or newly named audio track, using the complete source edit or its marked In and Out range.
 - Split, rename, delete, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
 - Add, edit, and remove video fades, cross dissolves, directional wipes, audio fades, and cross fades as independent timeline elements.
 - Adjust gain, equalization, high-pass filtering, and low-pass filtering for clips on audio tracks.
@@ -108,6 +109,8 @@ After a clip-editor deletion, the playhead moves to the new edit point and the m
 The primary video and audio tracks retain magnetic editing, so operations that remove time close the resulting space on that track. Additional tracks can also contain independently positioned clips and gaps for music, effects, and layered material. Clips on different tracks can begin and end independently. The Track picker chooses the video or audio track presented as a native chronological Timeline clips list, while the Editor playhead remains shared across the complete project. Timeline clips is for reviewing and arranging the project. Clip Editor changes a source edit, Transition Editor changes transition timing, and Editor provides project playback and direct playhead-based editing.
 
 The protected primary video and audio tracks retain the standard placement commands. Insert at Playhead splits the clip under the playhead and preserves both sides. Replace Clip Remainder preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips in place. User-created tracks can be added, renamed, reordered, and deleted independently. A cutaway requires a visual source. It changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
+
+When a video source contains audio, open it in Clip Editor and use the native Audio Only menu to append its audio, insert its audio at the project playhead, or insert and overwrite on an audio track. Add Audio Only to Track lists only audio tracks and can create a named audio track in the same operation. The timeline placement retains the edited source range and contributes no picture to preview or export.
 
 Every primary clip and cutaway has a distinct displayed timeline name. Repeated filenames and additional uses of the same source receive stable letter suffixes. Choose Rename Clip from the item's context menu or Selected Clip Actions to give an instance a unique custom name. Timeline renames are saved in the project and participate in Undo and Redo.
 

@@ -93,6 +93,48 @@ struct ClipEditorSessionTests {
         #expect(controller.project.timelineClip(id: clipID)?.audioSettings.gainDecibels == 3)
     }
 
+    @Test @MainActor func videoSourceCanPlaceOnlyItsAudioOnAnAudioTrack() throws {
+        let segment = SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 1),
+            duration: ProjectTime(seconds: 3)
+        ))
+        let asset = MediaAssetRecord(
+            name: "Interview",
+            originalPath: "/tmp/interview.mov",
+            bookmarkData: nil,
+            duration: ProjectTime(seconds: 8),
+            naturalWidth: 1_920,
+            naturalHeight: 1_080,
+            frameRate: 30,
+            hasAudio: true,
+            sourceEdit: [segment]
+        )
+        var project = TrimatoProject()
+        project.media = [asset]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(
+            controller: controller,
+            editSelection: .asset(asset.id),
+            segments: [segment]
+        )
+
+        let clipID = try #require(context.createTrackAndPlace(
+            .append,
+            kind: .audio,
+            name: "Interview Audio"
+        ))
+
+        let track = try #require(controller.project.tracks.first { track in
+            track.clips.contains { $0.id == clipID }
+        })
+        let clip = try #require(controller.project.timelineClip(id: clipID))
+        #expect(track.kind == .audio)
+        #expect(clip.displayName == "Interview Audio")
+        #expect(clip.segments == [segment])
+        #expect(controller.project.format.width == nil)
+        #expect(controller.project.format.height == nil)
+    }
+
     @Test @MainActor func creatingANamedTrackAndAppendingIsOneAtomicProjectChange() throws {
         let originalSegment = SourceSegment(sourceRange: ProjectTimeRange(
             start: .zero,

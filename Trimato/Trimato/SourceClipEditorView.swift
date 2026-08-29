@@ -78,20 +78,23 @@ struct SourceClipEditorView: View {
             scheduleAudioPreview(for: settings)
         }
         .sheet(item: $commandContext.trackPlacementAction, onDismiss: restorePlacementControlFocus) { action in
+            let audioOnly = commandContext.trackPlacementIsAudioOnly
             AddToTrackView(
                 commandContext: commandContext,
                 action: action,
-                tracks: compatibleTracks,
+                heading: audioOnly ? "Add Audio Only to Track" : "Add to Track",
+                audioOnly: audioOnly,
+                tracks: compatibleTracks(audioOnly: audioOnly),
                 canCreateAudioTrack: asset.hasAudio,
-                canCreateVideoTrack: asset.hasVideo,
+                canCreateVideoTrack: asset.hasVideo && !audioOnly,
                 addToTrack: { trackID in
                     guard commandContext.place(action, onTrack: trackID) != nil else { return }
-                    commandContext.trackPlacementAction = nil
+                    commandContext.dismissTrackPlacement()
                 },
                 createTrackAndAdd: { kind, name in
                     createAndPlace(kind: kind, name: name, action: action)
                 },
-                cancel: { commandContext.trackPlacementAction = nil }
+                cancel: commandContext.dismissTrackPlacement
             )
             .onAppear { placementFocusReturn = action }
         }
@@ -144,6 +147,20 @@ struct SourceClipEditorView: View {
                 }
                 .disabled(!commandContext.canPlace)
             }
+            if asset.hasVideo && asset.hasAudio {
+                Menu("Audio Only") {
+                    Button("Append Audio to Track…") {
+                        commandContext.requestAudioOnlyTrackPlacement(.append)
+                    }
+                    Button("Insert Audio at Playhead on Track…") {
+                        commandContext.requestAudioOnlyTrackPlacement(.insert)
+                    }
+                    Button("Insert and Overwrite Audio on Track…") {
+                        commandContext.requestAudioOnlyTrackPlacement(.replaceRemainder)
+                    }
+                }
+                .disabled(!commandContext.canPlace)
+            }
         }
     }
 
@@ -189,9 +206,10 @@ struct SourceClipEditorView: View {
         commandContext.place(placement)
     }
 
-    private var compatibleTracks: [TimelineTrack] {
+    private func compatibleTracks(audioOnly: Bool) -> [TimelineTrack] {
         controller.project.tracks.filter { track in
-            (track.kind == .video && asset.hasVideo) || (track.kind == .audio && asset.hasAudio)
+            if audioOnly { return track.kind == .audio && asset.hasAudio }
+            return (track.kind == .video && asset.hasVideo) || (track.kind == .audio && asset.hasAudio)
         }
     }
 
@@ -201,7 +219,7 @@ struct SourceClipEditorView: View {
         action: PlacementAction
     ) {
         guard commandContext.createTrackAndPlace(action, kind: kind, name: name) != nil else { return }
-        commandContext.trackPlacementAction = nil
+        commandContext.dismissTrackPlacement()
     }
 
     private func scheduleAudioPreview(
@@ -275,6 +293,8 @@ struct SourceClipEditorView: View {
 private struct AddToTrackView: View {
     @ObservedObject var commandContext: ClipPlacementCommandContext
     let action: PlacementAction
+    let heading: String
+    let audioOnly: Bool
     let tracks: [TimelineTrack]
     let canCreateAudioTrack: Bool
     let canCreateVideoTrack: Bool
@@ -288,7 +308,7 @@ private struct AddToTrackView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Add to Track")
+            Text(heading)
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
@@ -299,7 +319,7 @@ private struct AddToTrackView: View {
             }
             .accessibilityFocused($trackPickerFocused)
 
-            Button(action.selectedTrackButtonTitle) {
+            Button(action.selectedTrackButtonTitle(audioOnly: audioOnly)) {
                 guard let selectedTrackID else { return }
                 addToTrack(selectedTrackID)
             }
@@ -314,14 +334,16 @@ private struct AddToTrackView: View {
             }
 
             HStack {
-                Button("Create Audio Track and \(action.newTrackButtonTitle)") {
+                Button("Create Audio Track and \(action.newTrackButtonTitle(audioOnly: audioOnly))") {
                     createTrackAndAdd(.audio, newTrackName)
                 }
                     .disabled(!canCreateAudioTrack)
-                Button("Create Video Track and \(action.newTrackButtonTitle)") {
-                    createTrackAndAdd(.video, newTrackName)
+                if !audioOnly {
+                    Button("Create Video Track and \(action.newTrackButtonTitle(audioOnly: false))") {
+                        createTrackAndAdd(.video, newTrackName)
+                    }
+                        .disabled(!canCreateVideoTrack)
                 }
-                    .disabled(!canCreateVideoTrack)
             }
             .disabled(newTrackName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
@@ -361,21 +383,37 @@ private struct AddToTrackView: View {
 }
 
 private extension PlacementAction {
-    var selectedTrackButtonTitle: String {
+    func selectedTrackButtonTitle(audioOnly: Bool) -> String {
+        if audioOnly {
+            switch self {
+            case .append: return "Append Audio to Selected Track"
+            case .insert: return "Insert Audio on Selected Track"
+            case .replaceRemainder: return "Insert and Overwrite Audio on Selected Track"
+            case .cutawaySourceAudio, .cutawayPrimaryAudio: return "Add Audio to Selected Track"
+            }
+        }
         switch self {
-        case .append: "Append to Selected Track"
-        case .insert: "Insert on Selected Track"
-        case .replaceRemainder: "Insert and Overwrite on Selected Track"
-        case .cutawaySourceAudio, .cutawayPrimaryAudio: "Add to Selected Track"
+        case .append: return "Append to Selected Track"
+        case .insert: return "Insert on Selected Track"
+        case .replaceRemainder: return "Insert and Overwrite on Selected Track"
+        case .cutawaySourceAudio, .cutawayPrimaryAudio: return "Add to Selected Track"
         }
     }
 
-    var newTrackButtonTitle: String {
+    func newTrackButtonTitle(audioOnly: Bool) -> String {
+        if audioOnly {
+            switch self {
+            case .append: return "Append Audio"
+            case .insert: return "Insert Audio"
+            case .replaceRemainder: return "Insert and Overwrite Audio"
+            case .cutawaySourceAudio, .cutawayPrimaryAudio: return "Add Audio"
+            }
+        }
         switch self {
-        case .append: "Append"
-        case .insert: "Insert"
-        case .replaceRemainder: "Insert and Overwrite"
-        case .cutawaySourceAudio, .cutawayPrimaryAudio: "Add"
+        case .append: return "Append"
+        case .insert: return "Insert"
+        case .replaceRemainder: return "Insert and Overwrite"
+        case .cutawaySourceAudio, .cutawayPrimaryAudio: return "Add"
         }
     }
 }

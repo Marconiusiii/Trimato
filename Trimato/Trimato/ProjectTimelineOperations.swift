@@ -129,7 +129,7 @@ extension TrimatoProject {
         clip.timelineStart = tracks[index].end
         if tracks[index].kind == .audio, asset.hasVideo { clip.name = "\(clip.displayName) Audio" }
         tracks[index].clips.append(clip)
-        resolveAutomaticFormat(from: asset)
+        if tracks[index].kind == .video { resolveAutomaticFormat(from: asset) }
         return clip.id
     }
 
@@ -166,7 +166,7 @@ extension TrimatoProject {
                 index > containingIndex + 2 && tracks[trackIndex].clips[index].timelineStart >= original.timelineEnd {
                 tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart + incoming.duration
             }
-            resolveAutomaticFormat(from: asset)
+            if tracks[trackIndex].kind == .video { resolveAutomaticFormat(from: asset) }
             return incoming.id
         }
         let shift = incoming.duration
@@ -176,7 +176,7 @@ extension TrimatoProject {
         tracks[trackIndex].clips.append(incoming)
         tracks[trackIndex].clips.sort { $0.timelineStart < $1.timelineStart }
         shiftTransitions(onTrack: trackID, atOrAfter: playhead, by: shift)
-        resolveAutomaticFormat(from: asset)
+        if tracks[trackIndex].kind == .video { resolveAutomaticFormat(from: asset) }
         return incoming.id
     }
 
@@ -218,7 +218,7 @@ extension TrimatoProject {
         } else {
             _ = try insert(asset: asset, segments: segments, at: playhead, onTrack: trackID)
         }
-        resolveAutomaticFormat(from: asset)
+        if tracks[trackIndex].kind == .video { resolveAutomaticFormat(from: asset) }
         return incoming.id
     }
 

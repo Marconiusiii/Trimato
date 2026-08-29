@@ -16,6 +16,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     @Published private(set) var isKeyWindow = false
     @Published var presentedError: ProjectPresentedError?
     @Published var trackPlacementAction: PlacementAction?
+    @Published private(set) var trackPlacementIsAudioOnly = false
     private var draft: ClipEditorDraft
     private let baselineAudioSettings: AudioClipSettings?
     @Published var audioSettings: AudioClipSettings?
@@ -118,7 +119,19 @@ final class ClipPlacementCommandContext: ObservableObject {
 
     func requestTrackPlacement(_ placement: PlacementAction) {
         guard canPlace else { return }
+        trackPlacementIsAudioOnly = false
         trackPlacementAction = placement
+    }
+
+    func requestAudioOnlyTrackPlacement(_ placement: PlacementAction) {
+        guard canPlace else { return }
+        trackPlacementIsAudioOnly = true
+        trackPlacementAction = placement
+    }
+
+    func dismissTrackPlacement() {
+        trackPlacementAction = nil
+        trackPlacementIsAudioOnly = false
     }
 
     @discardableResult

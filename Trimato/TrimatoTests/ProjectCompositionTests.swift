@@ -267,6 +267,33 @@ struct ProjectCompositionTests {
         #expect(try await output.loadTracks(withMediaType: .audio).count == 1)
     }
 
+    @Test func videoSourceOnAnAudioTrackContributesAudioWithoutPicture() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("interview.mp4")
+        try await makeFixture(at: sourceURL, color: "blue", frequency: 440, duration: 0.5)
+
+        var asset = fixtureAsset(name: "Interview", duration: 0.5)
+        asset.originalPath = sourceURL.path
+        var project = TrimatoProject(name: "Extracted Audio")
+        project.media = [asset]
+        let audioTrackID = project.createTrack(kind: .audio, name: "Interview Audio")
+        _ = try project.append(asset: asset, toTrack: audioTrackID)
+
+        let result = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: [asset.id: sourceURL]
+        )
+
+        #expect(!(try await result.composition.loadTracks(withMediaType: .audio)).isEmpty)
+        #expect((try await result.composition.loadTracks(withMediaType: .video)).isEmpty)
+        #expect(result.videoComposition == nil)
+        #expect(project.format.width == nil)
+        #expect(project.format.height == nil)
+    }
+
     @Test func audioFirstMixedTimelineResolvesFromVideoAndKeepsAudioOnlySpan() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
