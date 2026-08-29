@@ -277,8 +277,14 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM",
-				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Info.plist",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Resources/DWARF/ffmpeg",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Resources/Relocations/aarch64/ffmpeg.yml",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffmpeg.dSYM/Contents/Resources/Relocations/x86_64/ffmpeg.yml",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Info.plist",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Resources/DWARF/ffprobe",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Resources/Relocations/aarch64/ffprobe.yml",
+				"$(DWARF_DSYM_FOLDER_PATH)/ffprobe.dSYM/Contents/Resources/Relocations/x86_64/ffprobe.yml",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffmpeg",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffmpeg.cstemp",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ffprobe",
@@ -286,7 +292,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\nnormalized_uuids() {\n    /usr/bin/xcrun dwarfdump --uuid \"$1\" | /usr/bin/sed -E 's/^UUID: ([^ ]+) \\(([^)]+)\\).*/\\2 \\1/' | /usr/bin/sort\n}\n\nSIGNING_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n/bin/mkdir -p \"$DWARF_DSYM_FOLDER_PATH\"\n\nfor TOOL_NAME in ffmpeg ffprobe; do\n    TOOL_PATH=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$TOOL_NAME\"\n    SYMBOL_SOURCE=\"$SRCROOT/ThirdParty/FFmpeg/Symbols/$TOOL_NAME.dSYM\"\n    SYMBOL_DESTINATION=\"$DWARF_DSYM_FOLDER_PATH/$TOOL_NAME.dSYM\"\n\n    /usr/bin/ditto \"$SYMBOL_SOURCE\" \"$SYMBOL_DESTINATION\"\n\n    TOOL_UUIDS=\"$(normalized_uuids \"$TOOL_PATH\")\"\n    SYMBOL_UUIDS=\"$(normalized_uuids \"$SYMBOL_DESTINATION\")\"\n    if [ \"$TOOL_UUIDS\" != \"$SYMBOL_UUIDS\" ]; then\n        echo \"error: $TOOL_NAME dSYM UUIDs do not match the archived executable.\" >&2\n        echo \"Executable UUIDs:\" >&2\n        echo \"$TOOL_UUIDS\" >&2\n        echo \"dSYM UUIDs:\" >&2\n        echo \"$SYMBOL_UUIDS\" >&2\n        exit 1\n    fi\n\n    /usr/bin/codesign --force --sign \"$SIGNING_IDENTITY\" --options runtime --entitlements \"$SRCROOT/FFmpegTool.entitlements\" --timestamp=none \"$TOOL_PATH\"\ndone\n";
+			shellScript = "set -euo pipefail\n\nnormalized_uuids() {\n    /usr/bin/xcrun dwarfdump --uuid \"$1\" | /usr/bin/sed -E 's/^UUID: ([^ ]+) \\(([^)]+)\\).*/\\2 \\1/' | /usr/bin/sort\n}\n\nSIGNING_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n/bin/mkdir -p \"$DWARF_DSYM_FOLDER_PATH\"\n\nfor TOOL_NAME in ffmpeg ffprobe; do\n    TOOL_PATH=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$TOOL_NAME\"\n    SYMBOL_SOURCE=\"$SRCROOT/ThirdParty/FFmpeg/Symbols/$TOOL_NAME.dSYM\"\n    SYMBOL_DESTINATION=\"$DWARF_DSYM_FOLDER_PATH/$TOOL_NAME.dSYM\"\n\n    /bin/mkdir -p \"$SYMBOL_DESTINATION/Contents/Resources/DWARF\"\n    /bin/mkdir -p \"$SYMBOL_DESTINATION/Contents/Resources/Relocations/aarch64\"\n    /bin/mkdir -p \"$SYMBOL_DESTINATION/Contents/Resources/Relocations/x86_64\"\n    /usr/bin/ditto \"$SYMBOL_SOURCE/Contents/Info.plist\" \"$SYMBOL_DESTINATION/Contents/Info.plist\"\n    /usr/bin/ditto \"$SYMBOL_SOURCE/Contents/Resources/DWARF/$TOOL_NAME\" \"$SYMBOL_DESTINATION/Contents/Resources/DWARF/$TOOL_NAME\"\n    /usr/bin/ditto \"$SYMBOL_SOURCE/Contents/Resources/Relocations/aarch64/$TOOL_NAME.yml\" \"$SYMBOL_DESTINATION/Contents/Resources/Relocations/aarch64/$TOOL_NAME.yml\"\n    /usr/bin/ditto \"$SYMBOL_SOURCE/Contents/Resources/Relocations/x86_64/$TOOL_NAME.yml\" \"$SYMBOL_DESTINATION/Contents/Resources/Relocations/x86_64/$TOOL_NAME.yml\"\n\n    TOOL_UUIDS=\"$(normalized_uuids \"$TOOL_PATH\")\"\n    SYMBOL_UUIDS=\"$(normalized_uuids \"$SYMBOL_DESTINATION\")\"\n    if [ \"$TOOL_UUIDS\" != \"$SYMBOL_UUIDS\" ]; then\n        echo \"error: $TOOL_NAME dSYM UUIDs do not match the archived executable.\" >&2\n        echo \"Executable UUIDs:\" >&2\n        echo \"$TOOL_UUIDS\" >&2\n        echo \"dSYM UUIDs:\" >&2\n        echo \"$SYMBOL_UUIDS\" >&2\n        exit 1\n    fi\n\n    /usr/bin/codesign --force --sign \"$SIGNING_IDENTITY\" --options runtime --entitlements \"$SRCROOT/FFmpegTool.entitlements\" --timestamp=none \"$TOOL_PATH\"\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
