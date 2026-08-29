@@ -21,7 +21,9 @@ struct SourceClipEditorView: View {
     @State private var audioPreviewTask: Task<Void, Never>?
     @State private var audioPreviewProgress: Double?
     @State private var audioPreviewErrorMessage: String?
+    @State private var newTrackKind: NewTrackSourceKind?
     @AccessibilityFocusState private var focusedPlacementControl: PlacementAction?
+    @AccessibilityFocusState private var newTrackMenuFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -98,6 +100,24 @@ struct SourceClipEditorView: View {
             )
             .onAppear { placementFocusReturn = action }
         }
+        .sheet(item: $newTrackKind, onDismiss: restoreNewTrackMenuFocus) { kind in
+            NewTrackFromSourceView(
+                kind: kind,
+                suggestedTrackName: kind.suggestedTrackName(
+                    sourceName: asset.name,
+                    sourceHasVideo: asset.hasVideo
+                ),
+                presentedError: $commandContext.presentedError,
+                create: { name in
+                    commandContext.createTrackAndPlace(
+                        .append,
+                        kind: kind.trackKind,
+                        name: name
+                    ) != nil
+                },
+                close: { newTrackKind = nil }
+            )
+        }
         .onDisappear {
             preparationTask?.cancel()
             preparationTask = nil
@@ -161,6 +181,16 @@ struct SourceClipEditorView: View {
                 }
                 .disabled(!commandContext.canPlace)
             }
+            Menu("New Track") {
+                ForEach(NewTrackSourceKind.availableKinds(
+                    hasVideo: asset.hasVideo,
+                    hasAudio: asset.hasAudio
+                )) { kind in
+                    Button(kind.commandTitle) { newTrackKind = kind }
+                }
+            }
+            .disabled(!commandContext.canPlace)
+            .accessibilityFocused($newTrackMenuFocused)
         }
     }
 
@@ -286,6 +316,16 @@ struct SourceClipEditorView: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             focusedPlacementControl = target
+        }
+    }
+
+    private func restoreNewTrackMenuFocus() {
+        newTrackMenuFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            newTrackMenuFocused = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            newTrackMenuFocused = true
         }
     }
 }

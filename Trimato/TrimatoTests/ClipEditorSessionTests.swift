@@ -4,6 +4,17 @@ import Testing
 
 @Suite("Clip editor sessions")
 struct ClipEditorSessionTests {
+    @Test func newTrackCommandsMatchTheSourceMediaStreams() {
+        #expect(NewTrackSourceKind.availableKinds(hasVideo: true, hasAudio: true) == [.video, .audio])
+        #expect(NewTrackSourceKind.availableKinds(hasVideo: true, hasAudio: false) == [.video])
+        #expect(NewTrackSourceKind.availableKinds(hasVideo: false, hasAudio: true) == [.audio])
+        #expect(NewTrackSourceKind.availableKinds(hasVideo: false, hasAudio: false).isEmpty)
+        #expect(NewTrackSourceKind.audio.suggestedTrackName(
+            sourceName: "Interview",
+            sourceHasVideo: true
+        ) == "Interview Audio")
+    }
+
     @Test func spaceRemainsAvailableToNativeClipEditorControls() {
         #expect(ClipEditorKeyboardRouting.reservesSpace(
             isEditableText: false,

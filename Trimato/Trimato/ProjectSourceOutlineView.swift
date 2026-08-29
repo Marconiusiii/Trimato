@@ -12,6 +12,10 @@ nonisolated enum ProjectSourcePasteFocus {
     static func shouldAttemptFocus(hasPendingAsset: Bool, importIsRunning: Bool) -> Bool {
         hasPendingAsset && !importIsRunning
     }
+
+    static func shouldRetryFocus(didResolveTarget: Bool, didEstablishFocus: Bool) -> Bool {
+        !didResolveTarget || !didEstablishFocus
+    }
 }
 
 nonisolated enum ProjectSourceKeyboardCommand: Equatable {
@@ -30,6 +34,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
     let requestNewFolder: () -> Void
     let requestRenameFolder: (UUID) -> Void
     let requestDeleteAsset: (UUID) -> Void
+    let requestNewTrack: (UUID, NewTrackSourceKind) -> Void
     let focusRequest: ProjectSourceFocusRequest
 
     func makeCoordinator() -> Coordinator {
@@ -185,6 +190,7 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                     button.lineBreakMode = .byTruncatingTail
                 }
                 button.assetID = assetID
+                button.setAccessibilityIdentifier("trimato.project-source.asset.\(assetID.uuidString)")
                 button.deleteAsset = { [weak self] in
                     self?.requestDeletion(of: assetID)
                 }
@@ -261,6 +267,9 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                         onTrack: trackID
                       ) else { return }
                 parent.controller.requestTimelineFocusRestore(to: .clip(clipID))
+            case .newTrack(let assetID, let kind):
+                selectSourceAsset(assetID)
+                parent.requestNewTrack(assetID, kind)
             case .move(let assetID, let folderID):
                 selectSourceAsset(assetID)
                 parent.controller.moveAsset(assetID, toFolder: folderID)
@@ -332,6 +341,16 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                         trackItem.submenu = trackMenu
                         trackItem.isEnabled = !tracks.isEmpty
                         menu.addItem(trackItem)
+                    }
+                    menu.addItem(.separator())
+                    for kind in NewTrackSourceKind.availableKinds(
+                        hasVideo: asset.hasVideo,
+                        hasAudio: asset.hasAudio
+                    ) {
+                        menu.addItem(menuItem(
+                            kind.commandTitle,
+                            command: .newTrack(assetID, kind)
+                        ))
                     }
                 }
                 menu.addItem(.separator())
@@ -472,12 +491,17 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
             ) else { return }
             pastedAssetFocusTask?.cancel()
             pastedAssetFocusTask = Task { @MainActor [weak self] in
-                await Task.yield()
-                guard !Task.isCancelled, let self else { return }
-                if self.focusPendingPastedAsset() { return }
-                try? await Task.sleep(for: .milliseconds(100))
-                guard !Task.isCancelled else { return }
-                _ = self.focusPendingPastedAsset()
+                let delays = [0, 200, 550]
+                for delay in delays {
+                    if delay == 0 {
+                        await Task.yield()
+                    } else {
+                        try? await Task.sleep(for: .milliseconds(delay))
+                    }
+                    guard !Task.isCancelled, let self else { return }
+                    if self.focusPendingPastedAsset() { return }
+                }
+                self?.pastedAssetFocusTask = nil
             }
         }
 
@@ -498,17 +522,64 @@ struct ProjectSourceOutlineView: NSViewRepresentable {
                 atColumn: 0,
                 row: row,
                 makeIfNecessary: true
-            ) as? ProjectSourceButton,
-                  outlineView.window?.makeFirstResponder(button) == true else { return false }
+            ) as? ProjectSourceButton else { return false }
 
-            NSApp.setAccessibilityApplicationFocusedUIElement(button)
-            button.setAccessibilityFocused(true)
+            let rowElements = outlineView.accessibilityRows() ?? []
+            guard rowElements.indices.contains(row),
+                  let focusTarget = NSAccessibility.unignoredDescendant(of: button) else { return false }
+            let rowElement = rowElements[row]
+
+            outlineView.setAccessibilitySelectedRows([rowElement])
+            guard outlineView.window?.makeFirstResponder(outlineView) == true else { return false }
+            outlineView.setAccessibilityFocused(true)
+
+            NSApp.setAccessibilityApplicationFocusedUIElement(focusTarget)
+            NSAccessibility.post(element: outlineView, notification: .selectedRowsChanged)
+            NSAccessibility.post(element: focusTarget, notification: .focusedUIElementChanged)
+
+            var didEstablishFocus = accessibilityFocus(
+                NSApp.accessibilityFocusedUIElement,
+                matches: focusTarget,
+                within: rowElement
+            )
+            if !didEstablishFocus {
+                NSApp.setAccessibilityApplicationFocusedUIElement(rowElement)
+                NSAccessibility.post(element: rowElement, notification: .focusedUIElementChanged)
+                didEstablishFocus = accessibilityFocus(
+                    NSApp.accessibilityFocusedUIElement,
+                    matches: rowElement,
+                    within: rowElement
+                )
+            }
+            guard !ProjectSourcePasteFocus.shouldRetryFocus(
+                didResolveTarget: true,
+                didEstablishFocus: didEstablishFocus
+            ) else { return false }
 
             pendingPastedAssetFocusID = nil
             pastedAssetFocusTask = nil
-            NSAccessibility.post(element: outlineView, notification: .selectedRowsChanged)
-            NSAccessibility.post(element: button, notification: .focusedUIElementChanged)
             return true
+        }
+
+        private func accessibilityFocus(_ focusedElement: Any?, matches target: Any, within row: Any) -> Bool {
+            if sameAccessibilityObject(focusedElement, target) || sameAccessibilityObject(focusedElement, row) {
+                return true
+            }
+            guard var candidate = focusedElement as? NSObject else { return false }
+            for _ in 0..<8 {
+                guard let accessibleCandidate = candidate as? any NSAccessibilityProtocol,
+                      let parent = accessibleCandidate.accessibilityParent() as? NSObject else { return false }
+                if sameAccessibilityObject(parent, target) || sameAccessibilityObject(parent, row) {
+                    return true
+                }
+                candidate = parent
+            }
+            return false
+        }
+
+        private func sameAccessibilityObject(_ lhs: Any?, _ rhs: Any) -> Bool {
+            guard let lhs = lhs as AnyObject? else { return false }
+            return lhs === (rhs as AnyObject)
         }
 
         private func expandAncestors(of id: ProjectSourceItemID, in outlineView: NSOutlineView) {
@@ -799,6 +870,7 @@ private enum ProjectSourceMenuCommand {
     case open(UUID)
     case place(UUID, PlacementAction)
     case placeOnTrack(UUID, PlacementAction, UUID)
+    case newTrack(UUID, NewTrackSourceKind)
     case move(UUID, UUID?)
     case relink(UUID)
     case delete(UUID)

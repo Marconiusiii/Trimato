@@ -43,6 +43,9 @@ struct ProjectBrowserView: View {
     @State private var renamedFolderName = ""
     @State private var assetPendingDeletion: MediaAssetRecord?
     @State private var sourceFocusRequest = ProjectSourceFocusRequest()
+    @State private var newTrackRequest: NewTrackFromSourceRequest?
+    @State private var newTrackSourceFocusTarget: ProjectSourceItemID?
+    @State private var newTrackTimelineFocusTarget: TimelineElementSelection?
 
     init(
         controller: ProjectController,
@@ -91,6 +94,7 @@ struct ProjectBrowserView: View {
                 requestNewFolder: { showingNewFolder = true },
                 requestRenameFolder: beginRenamingFolder,
                 requestDeleteAsset: beginDeletingAsset,
+                requestNewTrack: beginNewTrackFromSource,
                 focusRequest: sourceFocusRequest
             )
 
@@ -127,6 +131,22 @@ struct ProjectBrowserView: View {
                 folderBeingRenamed = nil
             } cancel: {
                 folderBeingRenamed = nil
+            }
+        }
+        .sheet(item: $newTrackRequest, onDismiss: newTrackSheetDismissed) { request in
+            if let asset = controller.project.asset(id: request.assetID) {
+                NewTrackFromSourceView(
+                    kind: request.kind,
+                    suggestedTrackName: request.kind.suggestedTrackName(
+                        sourceName: asset.name,
+                        sourceHasVideo: asset.hasVideo
+                    ),
+                    presentedError: $controller.presentedError,
+                    create: { name in
+                        createNewTrackFromSource(request, asset: asset, name: name)
+                    },
+                    close: { newTrackRequest = nil }
+                )
             }
         }
         .alert(ProjectSourceDeletionConfirmation.title, isPresented: deleteAssetConfirmationPresented) {
@@ -192,6 +212,15 @@ struct ProjectBrowserView: View {
                             }
                         }
                         .disabled(compatibleTracks(for: asset).isEmpty)
+                    }
+                    Divider()
+                    ForEach(NewTrackSourceKind.availableKinds(
+                        hasVideo: asset.hasVideo,
+                        hasAudio: asset.hasAudio
+                    )) { kind in
+                        Button(kind.commandTitle) {
+                            beginNewTrackFromSource(id, kind)
+                        }
                     }
                 }
                 Divider()
@@ -263,6 +292,51 @@ struct ProjectBrowserView: View {
     private func requestSourceFocus(_ target: ProjectSourceItemID) {
         sourceFocusRequest.target = target
         sourceFocusRequest.revision += 1
+    }
+
+    private func beginNewTrackFromSource(_ assetID: UUID, _ kind: NewTrackSourceKind) {
+        guard controller.project.asset(id: assetID) != nil else { return }
+        let sourceTarget = ProjectSourceItemID.asset(assetID)
+        sourceSelection = sourceTarget
+        controller.selection = .asset(assetID)
+        newTrackSourceFocusTarget = sourceTarget
+        newTrackTimelineFocusTarget = nil
+        newTrackRequest = NewTrackFromSourceRequest(assetID: assetID, kind: kind)
+    }
+
+    private func createNewTrackFromSource(
+        _ request: NewTrackFromSourceRequest,
+        asset: MediaAssetRecord,
+        name: String
+    ) -> Bool {
+        do {
+            let result = try controller.createTrackAndPlaceThrowing(
+                .append,
+                editing: .asset(request.assetID),
+                segments: asset.sourceEdit,
+                trackKind: request.kind.trackKind,
+                trackName: name,
+                audioSettings: nil
+            )
+            newTrackTimelineFocusTarget = .clip(result.clipID)
+            return true
+        } catch {
+            controller.presentedError = ProjectPresentedError(
+                title: "Track Could Not Be Created",
+                message: error.localizedDescription
+            )
+            return false
+        }
+    }
+
+    private func newTrackSheetDismissed() {
+        if let target = newTrackTimelineFocusTarget {
+            controller.requestTimelineFocusRestore(to: target)
+        } else if let target = newTrackSourceFocusTarget {
+            requestSourceFocus(target)
+        }
+        newTrackTimelineFocusTarget = nil
+        newTrackSourceFocusTarget = nil
     }
 
     private func folderEditor(

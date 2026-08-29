@@ -127,6 +127,18 @@ struct ProjectSourceItemTests {
             hasPendingAsset: false,
             importIsRunning: false
         ) == false)
+        #expect(ProjectSourcePasteFocus.shouldRetryFocus(
+            didResolveTarget: false,
+            didEstablishFocus: false
+        ))
+        #expect(ProjectSourcePasteFocus.shouldRetryFocus(
+            didResolveTarget: true,
+            didEstablishFocus: false
+        ))
+        #expect(ProjectSourcePasteFocus.shouldRetryFocus(
+            didResolveTarget: true,
+            didEstablishFocus: true
+        ) == false)
     }
 
     @Test func projectSourceKeyboardRecognizesBothDeleteKeysWithoutModifiers() {
