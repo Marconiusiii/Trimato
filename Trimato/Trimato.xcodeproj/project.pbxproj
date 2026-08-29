@@ -255,7 +255,6 @@
 /* Begin PBXShellScriptBuildPhase section */
 		82FF6A012FB0000100B67C04 /* Prepare FFmpeg Tools */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 0;
 			buildActionMask = 2147483647;
 			files = (
 			);

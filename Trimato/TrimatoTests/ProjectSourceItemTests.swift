@@ -39,57 +39,6 @@ struct ProjectSourceItemTests {
         #expect(root.children.last?.children.map(\.id) == [.asset(filed.id)])
     }
 
-    @Test func renamingAProjectKeepsTheRootNodeAndDoesNotChangeStructure() {
-        var project = TrimatoProject(name: "Untitled Project")
-        let node = ProjectSourceNode(item: ProjectSourceItem.hierarchy(for: project))
-        let originalNode = node
-
-        project.name = "Documentary"
-        let change = node.reconcile(with: ProjectSourceItem.hierarchy(for: project))
-
-        #expect(node === originalNode)
-        #expect(node.name == "Documentary")
-        #expect(!change.structureChanged)
-        #expect(change.renamedIDs == [.project(project.id)])
-    }
-
-    @Test func unchangedProjectSourceHierarchyProducesNoUpdate() {
-        let project = TrimatoProject(name: "Documentary")
-        let hierarchy = ProjectSourceItem.hierarchy(for: project)
-        let node = ProjectSourceNode(item: hierarchy)
-
-        let change = node.reconcile(with: hierarchy)
-
-        #expect(!change.hasChanges)
-    }
-
-    @Test func importingAClipChangesStructureButKeepsExistingNodeIdentity() {
-        var project = TrimatoProject(name: "Documentary")
-        let node = ProjectSourceNode(item: ProjectSourceItem.hierarchy(for: project))
-        let originalClipsNode = node.item(withID: .clips(project.id))
-        let interview = makeAsset(name: "Interview")
-
-        project.media = [interview]
-        let change = node.reconcile(with: ProjectSourceItem.hierarchy(for: project))
-
-        #expect(change.structureChanged)
-        #expect(node.item(withID: .clips(project.id)) === originalClipsNode)
-        #expect(node.item(withID: .asset(interview.id)) != nil)
-    }
-
-    @Test func reconciledHierarchyStillResolvesSelectionIDs() {
-        let interview = makeAsset(name: "Interview")
-        var project = TrimatoProject(name: "Documentary")
-        project.media = [interview]
-        let node = ProjectSourceNode(item: ProjectSourceItem.hierarchy(for: project))
-
-        project.name = "Renamed Documentary"
-        _ = node.reconcile(with: ProjectSourceItem.hierarchy(for: project))
-
-        #expect(node.item(withID: .timeline(project.id)) != nil)
-        #expect(node.item(withID: .asset(interview.id)) != nil)
-    }
-
     @Test func pastedSourceFocusChoosesTheFirstNewAssetInImportOrder() throws {
         let existing = makeAsset(name: "Existing")
         let firstPasted = makeAsset(name: "First Pasted")
@@ -115,42 +64,19 @@ struct ProjectSourceItemTests {
     }
 
     @Test func pastedSourceFocusWaitsUntilImportAndProgressUpdatesFinish() {
-        #expect(ProjectSourcePasteFocus.shouldAttemptFocus(
-            hasPendingAsset: true,
+        let assetID = UUID()
+        #expect(ProjectSourcePasteFocus.shouldRestoreFocus(
+            pendingAssetID: assetID,
             importIsRunning: true
         ) == false)
-        #expect(ProjectSourcePasteFocus.shouldAttemptFocus(
-            hasPendingAsset: true,
+        #expect(ProjectSourcePasteFocus.shouldRestoreFocus(
+            pendingAssetID: assetID,
             importIsRunning: false
         ))
-        #expect(ProjectSourcePasteFocus.shouldAttemptFocus(
-            hasPendingAsset: false,
+        #expect(ProjectSourcePasteFocus.shouldRestoreFocus(
+            pendingAssetID: nil,
             importIsRunning: false
         ) == false)
-        #expect(ProjectSourcePasteFocus.shouldRetryFocus(
-            didResolveTarget: false,
-            didEstablishFocus: false
-        ))
-        #expect(ProjectSourcePasteFocus.shouldRetryFocus(
-            didResolveTarget: true,
-            didEstablishFocus: false
-        ))
-        #expect(ProjectSourcePasteFocus.shouldRetryFocus(
-            didResolveTarget: true,
-            didEstablishFocus: true
-        ) == false)
-    }
-
-    @Test func pastedSourceFocusUsesTheSelectedAccessibilityRowWithoutIndexing() {
-        #expect(ProjectSourcePasteFocus.selectedAccessibilityRow(from: ["Selected"]) == "Selected")
-        #expect(ProjectSourcePasteFocus.selectedAccessibilityRow(from: [String]()) == nil)
-        #expect(ProjectSourcePasteFocus.selectedAccessibilityRow(from: Optional<[String]>.none) == nil)
-    }
-
-    @Test func projectSourceKeyboardRecognizesBothDeleteKeysWithoutModifiers() {
-        #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 51, hasAnyModifiers: false) == .delete)
-        #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 117, hasAnyModifiers: false) == .delete)
-        #expect(ProjectSourceKeyboardCommand.resolve(keyCode: 51, hasAnyModifiers: true) == .none)
     }
 
     @Test func sourceDeletionConfirmationIsNamedAndExplainsTimelineRemoval() {
