@@ -26,12 +26,17 @@
         <li>Use Space, J, K, L, the Arrow keys, or the playback buttons.</li>
         <li>Use Command-Arrow keys to move among project edit points. Trimato announces whether each destination is a video edit point, an audio edit point, or both.</li>
         <li>Press Command-B to blade the clip beneath the playhead.</li>
+        <li>Press Command-[ or Command-] to trim the announced active-track clip to the shared project playhead.</li>
+        <li>On an additional track, press plain [ or ] to position the complete clip at the playhead without trimming its stored source.</li>
         <li>Press C to open Clip Editor for the active-track clip at or immediately after the playhead.</li>
         <li>Press Command-T, F, or X to add transitions without leaving Editor.</li>
     </ol>
 
     <h2>Work with timeline tracks</h2>
-    <p>Choose a track with the Track picker or Command-Option-Up Arrow and Command-Option-Down Arrow. Trimato announces the selected track and returns VoiceOver to the current clip on that track when one intersects the shared project playhead. Otherwise, focus returns to the named Timeline clips region. Move through that track in chronological order. The playhead clip is identified as Current clip, and an edit point identifies the incoming clip. Focusing a clip or transition selects it and updates Inspector. Activate a clip to open Clip Editor, or activate a transition to edit it.</p>
+    <p>Choose a track with the Track picker or Command-Option-Up Arrow and Command-Option-Down Arrow. When you use those shortcuts from Editor, Trimato announces the selected track and its direct-edit clip while VoiceOver remains on the same Editor control. The direct-edit clip is remembered separately for each track. If none has been remembered, Trimato uses the incoming clip at an edit point, a clip containing the shared playhead, the next clip, or the last earlier clip. When you work directly in Timeline, move through the selected track in chronological order. The playhead clip is identified as Current clip. Focusing a clip or transition selects it and updates Inspector. Activate a clip to open Clip Editor, or activate a transition to edit it.</p>
+
+    <h2>Trim or position the announced clip</h2>
+    <p>While VoiceOver remains in Editor, press Command-[ to trim the announced clip's start to the shared project playhead, or Command-] to trim its end. A successful trim announces the clip, track, edge, and time. Plain [ and ] are different commands: on an additional track, they move the complete clip so its head or tail meets the playhead without trimming its stored source.</p>
 
     <h2>Copy and move timeline clips</h2>
     <p>Focus a clip and press Command-C. Focus the destination clip and press Command-V to paste a copy after it, or press Command-Option-V to move the copied clip after it. These commands work only while VoiceOver focus identifies a Timeline clip. Elsewhere, macOS retains its standard Copy and Paste behavior.</p>
