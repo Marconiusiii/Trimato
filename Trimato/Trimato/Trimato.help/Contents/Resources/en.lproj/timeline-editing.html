@@ -54,7 +54,8 @@
     </ol>
     <p>For a specific destination, keep the source selected for moving and focus the destination clip. Open Selected Element Actions with Control-Enter, or the context menu with VoiceOver’s VO-Shift-M command. Choose Move To…, then Start, Before, After, or End. Before and After use the focused destination; Start and End use the active track. Without a picked-up clip, Start and End move the focused clip directly. Focusing another clip does not change the clip selected for moving.</p>
     <p>Press Enter or Return on a clip to open Clip Editor, matching a click or normal button activation. Space selects for moving only in Timeline Clips; Space still plays or pauses in Editor and Clip Editor. If VoiceOver Quick Nav is using the arrow keys, turn Quick Nav off for plain-arrow movement, or use the menu commands.</p>
-    <p>On absolute-position (additional video and audio) tracks, plain Left Arrow or Up Arrow nudges the focused clip one project frame earlier; Right Arrow or Down Arrow nudges it one frame later. You do not need to pick it up first. Each immediate nudge can be undone. If you have picked up a clip, the arrows adjust that clip’s proposed start time until you drop it. Trimato announces its start frame. Nudges leave neighboring clips in place and reject overlap or crossing another clip on the same track; touching edges are allowed. Linked audio moves with picture, and a collision on the linked track also blocks the nudge. Clips with attached transitions cannot be nudged until those transitions are removed.</p>
+    <p>On absolute-position (additional video and audio) tracks, plain Left Arrow or Up Arrow nudges the focused clip one project frame earlier; Right Arrow or Down Arrow nudges it one frame later. You do not need to pick it up first. Each immediate nudge can be undone. If you have picked up a clip, the arrows adjust that clip’s proposed start time until you drop it. Trimato announces its start frame. A project without a defined frame rate uses 30 fps for nudges. Nudges leave neighboring clips in place and reject overlap or crossing another clip on the same track; touching edges are allowed. Linked audio moves with picture, and a collision on the linked track also blocks the nudge. Clips with attached transitions cannot be nudged until those transitions are removed.</p>
+    <p>The clip context menu keeps Move To… as the single ordering submenu; it no longer includes separate Move Earlier and Move Later items. The Timeline menu’s Move Clip Earlier and Move Clip Later commands remain available as an alternative to plain arrows. On primary tracks they reorder by one clip; on additional tracks they nudge by one frame. If a clip is picked up, they adjust that clip.</p>
     <p>Current identifies the clip under the project playhead. Selected identifies only a clip you have picked up; moving VoiceOver focus does not select a clip or change the playhead. Ordinary clip navigation does not announce list positions. List positions are announced only when picking up and reordering a clip on a primary track; absolute-position nudges announce the start frame.</p>
     <p>VoiceOver’s VO-Command-Shift-Space command holds the mouse button down. When that mouse-down is on a clip, use the arrow keys to choose its new position, then repeat the command to release the mouse button and drop the clip. An ordinary short click still opens Clip Editor. Pointer dragging and keyboard movement use the same pickup-and-drop session.</p>
     <p>Press Command-C on a focused clip, focus a destination clip, then press Command-V to paste a copy after it. Command-Option-V moves the clip selected for moving, or the copied clip if no movement selection is active, after the destination. Video clips move among video tracks and audio clips move among audio tracks. Moving picture carries its linked audio. Moving audio directly makes it independent of its picture. Moves that would overlap linked material or invalidate a transition are rejected without changing the project. Copying does not copy transitions.</p>
@@ -67,20 +68,20 @@
     </ol>
     <p>The clip keeps its material before the shared project playhead. Later clips on that audio track move earlier by the removed duration. VoiceOver remains in Editor, and the operation can be undone. You can instead focus the clip in Timeline clips and choose Trim End to Project Playhead from its context menu.</p>
 
-    <h2>Open the current clip from Editor</h2>
-    <p>Press C while focus is in Editor to open Clip Editor for the active-track clip at the playhead. At an edit point, Trimato opens the incoming clip. In a gap, it opens the next clip. The same clip is identified as Current clip in Timeline clips.</p>
+    <h2>Open a clip from Editor</h2>
+    <p>Press C while focus is in Editor to open Clip Editor for the active-track clip at the playhead. At an edit point, Trimato opens the incoming clip. In a gap, it opens the next clip, but no clip is marked Current until the playhead is inside a clip. In Timeline Clips, Enter or Return opens the focused clip regardless of the playhead position.</p>
 
     <h2>Rename a timeline item</h2>
     <ol>
-        <li>Select a timeline clip or cutaway.</li>
-        <li>Choose Rename Clip from Selected Clip Actions or the item's context menu.</li>
+        <li>Focus a timeline clip or cutaway.</li>
+        <li>Choose Rename Clip from Selected Element Actions or the item's context menu.</li>
         <li>Enter a name that is not already used elsewhere in the timeline, then activate Rename.</li>
     </ol>
     <p>Trimato automatically gives repeated source names stable letter suffixes such as A and B. A custom name applies only to that timeline instance, is saved with the project, and can be undone.</p>
 
     <h2>Remove a timeline item</h2>
     <ol>
-        <li>Select a timeline clip or cutaway.</li>
+        <li>Focus a timeline clip or cutaway.</li>
         <li>Choose Delete from Timeline or press Delete.</li>
     </ol>
 
@@ -141,11 +142,14 @@
     <p>Wipes affect video only. Audio-only projects offer audio fades and cross fades without video transition choices. Each transition appears as its own Timeline clips item. Activate it to edit or delete the transition without changing the source edit.</p>
     <p>Trimato creates temporary render files so it can play transitions and adjusted audio. These files support the current preview and are normally removed when the preview changes or the project closes. <a href="storage-and-temporary-media.html">Learn about temporary renders and cleanup.</a></p>
 
+    <h2>Mute an audio track</h2>
+    <p>Choose the audio track in the Track picker, then turn on Mute Track. Muting affects the whole track in preview and export, including audio transitions. It does not delete clips, change timing, or hide picture. The setting is saved with the project and can be undone. Turn it off to restore the track’s sound.</p>
+
     <h2>Adjust an audio clip</h2>
     <p>Activate a clip on an audio track to open Clip Editor. The Audio section provides gain, low, mid, and high equalization, high-pass and low-pass filters, and Reset Audio. Activate Update Clip to apply the settings.</p>
 
     <h2>Inspect a timeline item</h2>
-    <p>VoiceOver focus on a clip or transition selects it. Stop interacting with Timeline, then move to Inspector to read that item’s details.</p>
+    <p>VoiceOver focus on a clip or transition updates the item shown in Inspector without picking up the clip. Stop interacting with Timeline, then move to Inspector to read that item’s details.</p>
 </main>
 <footer><p><a href="saving-and-exporting.html">Next topic: Save and export</a></p></footer>
 </body>

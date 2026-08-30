@@ -12,7 +12,7 @@
     <h1>Keyboard shortcuts</h1>
 
     <h2>Playback and navigation</h2>
-    <p>Audio and video clips use the same playback and navigation commands. In an audio Clip Editor, Left Arrow and Right Arrow use 1/30-second editing steps and provide audible scrub feedback.</p>
+    <p>These commands apply while focus is in Editor or Clip Editor. In Timeline Clips, Space and plain arrows control clip movement instead. Audio and video clips use the same playback and navigation commands. In an audio Clip Editor, Left Arrow and Right Arrow use 1/30-second editing steps and provide audible scrub feedback.</p>
     <table>
         <thead><tr><th scope="col">Shortcut</th><th scope="col">Command</th></tr></thead>
         <tbody>
@@ -35,7 +35,7 @@
         <tbody>
             <tr><td><kbd>I</kbd></td><td>Set or replace the In point</td></tr>
             <tr><td><kbd>O</kbd></td><td>Set or replace the Out point</td></tr>
-            <tr><td><kbd>Delete</kbd></td><td>Delete the marked section in Clip Editor or the selected project timeline item</td></tr>
+            <tr><td><kbd>Delete</kbd></td><td>Delete the marked section in Clip Editor or the focused project timeline item</td></tr>
             <tr><td><kbd>Command-[</kbd></td><td>Trim the source edit start to the Clip Editor playhead</td></tr>
             <tr><td><kbd>Command-]</kbd></td><td>Trim the source edit end to the Clip Editor playhead</td></tr>
             <tr><td><kbd>Command-U</kbd></td><td>Update the current timeline clip or cutaway edit</td></tr>
@@ -47,7 +47,7 @@
     <table>
         <thead><tr><th scope="col">Shortcut</th><th scope="col">Command</th></tr></thead>
         <tbody>
-            <tr><td><kbd>Space</kbd></td><td>Pick up the VoiceOver-focused clip, or drop the picked-up clip</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>Pick up the focused clip, or drop the picked-up clip; with VoiceOver, use the VoiceOver-focused clip</td></tr>
             <tr><td><kbd>Enter</kbd> or <kbd>Return</kbd></td><td>Open the focused clip in Clip Editor</td></tr>
             <tr><td><kbd>Left Arrow</kbd> or <kbd>Up Arrow</kbd></td><td>On primary tracks, move the picked-up clip one position earlier. On additional tracks, nudge the focused or picked-up clip one project frame earlier</td></tr>
             <tr><td><kbd>Right Arrow</kbd> or <kbd>Down Arrow</kbd></td><td>On primary tracks, move the picked-up clip one position later. On additional tracks, nudge the focused or picked-up clip one project frame later</td></tr>
@@ -67,12 +67,14 @@
             <tr><td><kbd>Control-Enter</kbd></td><td>Open Selected Element Actions for the focused Timeline clips item</td></tr>
             <tr><td><kbd>Option-Command-Up Arrow</kbd></td><td>Select the previous timeline track and announce its direct-edit clip without moving VoiceOver focus from the Editor</td></tr>
             <tr><td><kbd>Option-Command-Down Arrow</kbd></td><td>Select the next timeline track and announce its direct-edit clip without moving VoiceOver focus from the Editor</td></tr>
-            <tr><td><kbd>Option-Command-Left Arrow</kbd></td><td>Move the focused clip one position earlier on a primary track, or nudge it one frame earlier on an additional track</td></tr>
-            <tr><td><kbd>Option-Command-Right Arrow</kbd></td><td>Move the focused clip one position later on a primary track, or nudge it one frame later on an additional track</td></tr>
+            <tr><td><kbd>Option-Command-Left Arrow</kbd></td><td>Move the focused clip one position earlier on a primary track, or nudge it one frame earlier on an additional track; if a clip is picked up, adjust that clip instead</td></tr>
+            <tr><td><kbd>Option-Command-Right Arrow</kbd></td><td>Move the focused clip one position later on a primary track, or nudge it one frame later on an additional track; if a clip is picked up, adjust that clip instead</td></tr>
             <tr><td><kbd>X</kbd></td><td>Open Quick Cross Dissolve or Quick Cross Fade for the edit at the Editor playhead</td></tr>
             <tr><td><kbd>F</kbd></td><td>Open Quick Fade for the clip at the Editor playhead</td></tr>
         </tbody>
     </table>
+
+    <p>Additional-track nudges use the project frame rate, or 30 fps if it is not defined. Nudges cannot overlap or cross a neighboring clip. Current identifies the clip under the playhead; Selected identifies a picked-up clip. VO-Arrow navigation does not pick up or move clips. <a href="timeline-editing.html">Read the movement and track-muting workflows.</a></p>
 
     <h2>Place a clip</h2>
     <p>Append, Insert and Split, and Insert and Overwrite accept audio or video. Insert on Top requires a video source.</p>

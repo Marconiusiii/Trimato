@@ -20,8 +20,10 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Add a single-layer cutaway that temporarily replaces the picture, either with its source audio or while retaining the primary storyline audio.
 - Send only the audio from an imported video clip to an existing or newly named audio track, using the complete source edit or its marked In and Out range.
 - Split, rename, delete, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
+- Pick up a Timeline clip with Space, choose its position with arrow keys, and drop it with Space as one undoable move. On additional tracks, plain arrows also nudge the focused clip one project frame without pickup and without overlapping neighboring clips.
 - Add, edit, and remove video fades, cross dissolves, directional wipes, audio fades, and cross fades as independent timeline elements.
 - Adjust gain, equalization, high-pass filtering, and low-pass filtering for clips on audio tracks.
+- Mute audio tracks for both preview and export without removing their clips or changing their timing.
 - Preview and export the complete arranged project as H.264 or HEVC MP4, H.264 or HEVC QuickTime, ProRes 422 LT, ProRes 422, ProRes 422 HQ, M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, or 24-bit WAV.
 - Open audio and video files from the File menu, Finder, drag and drop, or Command-O.
 - Play, pause, seek, and move forward or backward one frame at a time.
@@ -39,6 +41,8 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 ## Keyboard controls
 
 ### Playback and navigation
+
+These commands apply while focus is in Editor or Clip Editor. Timeline Clips uses Space and plain arrows for clip movement, as described below.
 
 - Space: Play or pause.
 - Left Arrow: Move backward one frame.
@@ -71,7 +75,7 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 
 - Command-Shift-I: Import media into the current project.
 - Command-E: Export the current project when the project workspace is active.
-- Command-B: Split the selected timeline clip at the project playhead.
+- Command-B: Split the primary timeline clip beneath the project playhead; Timeline focus or movement selection is not required.
 - Command-T: Open Add Transition for the clip at the Editor playhead or the focused Timeline clips item.
 - Command-[: While focus is in Editor, trim the start of the active track's announced clip to the shared project playhead.
 - Command-]: While focus is in Editor, trim the end of the active track's announced clip to the shared project playhead. When a Timeline clip is focused, trim that focused clip's end instead.
@@ -80,16 +84,30 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - C: Open Clip Editor for the active-track clip at or immediately after the Editor playhead.
 - Command-C: Copy the focused Timeline clip.
 - Command-V: Paste a copy immediately after the focused Timeline clip.
-- Command-Option-V: Move the copied Timeline clip immediately after the focused Timeline clip.
+- Command-Option-V: Move the picked-up Timeline clip, or the copied clip when none is picked up, immediately after the focused Timeline clip.
 - Control-Enter: Open Selected Element Actions for the focused Timeline clips item.
 - Option-Command-Up Arrow: Select the previous timeline track and announce its direct-edit clip.
 - Option-Command-Down Arrow: Select the next timeline track and announce its direct-edit clip.
-- Option-Command-Left Arrow: Move the selected timeline clip earlier.
-- Option-Command-Right Arrow: Move the selected timeline clip later.
+- Option-Command-Left Arrow: Move the focused clip one position earlier on a primary track, or nudge it one frame earlier on an additional track. If a clip is picked up, adjust that clip instead.
+- Option-Command-Right Arrow: Move the focused clip one position later on a primary track, or nudge it one frame later on an additional track. If a clip is picked up, adjust that clip instead.
 - F: Open Quick Fade for the clip at the Editor playhead.
 - X: Open Quick Cross Dissolve or Quick Cross Fade for the edit at the Editor playhead.
 
-Media can also be dragged from Finder into the Project Browser. Timeline clips and Project Browser provide native buttons for every operation, including moving a clip directly to the beginning or end.
+### Timeline clip movement
+
+- Space: Pick up the focused clip for movement, or drop the picked-up clip.
+- Enter or Return: Open the focused clip in Clip Editor, matching normal button activation.
+- Left Arrow or Up Arrow: On primary tracks, move the picked-up clip one list position earlier. On additional tracks, nudge the focused or picked-up clip one project frame earlier.
+- Right Arrow or Down Arrow: On primary tracks, move the picked-up clip one list position later. On additional tracks, nudge the focused or picked-up clip one project frame later.
+- Escape: Drop the picked-up clip at its proposed position.
+- Command-Z: Undo an immediate nudge or the complete pickup-and-drop move.
+- VO-Command-Shift-Space: Hold the mouse button on a clip, use arrows to adjust its position, then repeat the command to release and drop it.
+
+Additional-track nudges do not require Space first. With VoiceOver, use ordinary VO-Arrow navigation to review clips; those navigation commands do not move clips. If Quick Nav is handling plain arrows, turn it off for nudging or use the Timeline menu's Move Clip Earlier and Move Clip Later commands.
+
+The clip context menu provides a movement-selection toggle and one Move To… submenu with Start, Before, After, and End. Pick up a source clip, focus a destination, and choose Before or After. Start and End use the active track and also work directly on the focused clip without pickup. The redundant Move Earlier and Move Later context-menu items have been removed.
+
+Media can also be dragged from Finder into the Project Browser. Native menus provide placement, movement, and editing commands.
 
 Editor shortcuts remain available while focus is on any editor control. Native import, open, save, and export panels retain their own keyboard behavior.
 
@@ -108,15 +126,19 @@ After a clip-editor deletion, the playhead moves to the new edit point and the m
 
 The primary video and audio tracks retain magnetic editing, so operations that remove time close the resulting space on that track. Additional tracks can also contain independently positioned clips and gaps for music, effects, and layered material. Clips on different tracks can begin and end independently. The Track picker chooses the video or audio track presented as a native chronological Timeline clips list, while the Editor playhead remains shared across the complete project. Timeline clips is for reviewing and arranging the project. Clip Editor changes a source edit, Transition Editor changes transition timing, and Editor provides project playback and direct playhead-based editing.
 
-The protected primary video and audio tracks retain the standard placement commands. Insert at Playhead splits the clip under the playhead and preserves both sides. Replace Clip Remainder preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips in place. User-created tracks can be added, renamed, reordered, and deleted independently. A cutaway requires a visual source. It changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
+The protected primary video and audio tracks retain the standard placement commands. Insert and Split splits the clip under the playhead and preserves both sides. After insertion, the shared project playhead advances to the incoming clip's end, so consecutive insertions stay in the order they were made. Insert and Overwrite preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips after the inserted clip. User-created tracks can be added, renamed, reordered, and deleted independently. A cutaway requires a visual source. It changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
+
+Current identifies the clip beneath the playhead on the displayed track. Selected identifies only a clip picked up for movement. VoiceOver focus updates Inspector and the target for clip commands without moving the playhead or picking up a clip. In a gap, no clip is marked Current, even though Editor's C command can open the next clip.
+
+During pickup-and-drop movement, the live timeline stays unchanged until drop. Primary-track arrows announce the proposed list position; additional-track nudges announce the proposed start frame. Ordinary navigation does not announce list positions. An immediate nudge changes only the focused clip's time and any linked audio that moves with picture. Neighboring clips stay in place. Nudges cannot overlap or cross another clip on the same track, but edges may touch. A linked-track collision also blocks the move. Clips with attached transitions must have those transitions removed before nudging. A project without a defined frame rate uses 30 fps for nudges.
 
 When a video source contains audio, open it in Clip Editor and use the native Audio Only menu to append its audio, insert its audio at the project playhead, or insert and overwrite on an audio track. Add Audio Only to Track lists only audio tracks and can create a named audio track in the same operation. New Track from Video and New Track from Audio are also available in Clip Editor and from a Project Source clip's Actions and context menus. Each command creates a named compatible track and appends the current source edit as one undoable operation; the audio command contributes no picture to preview or export.
 
-Every primary clip and cutaway has a distinct displayed timeline name. Repeated filenames and additional uses of the same source receive stable letter suffixes. Choose Rename Clip from the item's context menu or Selected Clip Actions to give an instance a unique custom name. Timeline renames are saved in the project and participate in Undo and Redo.
+Every primary clip and cutaway has a distinct displayed timeline name. Repeated filenames and additional uses of the same source receive stable letter suffixes. Choose Rename Clip from the item's context menu or Selected Element Actions to give an instance a unique custom name. Timeline renames are saved in the project and participate in Undo and Redo.
 
 ## Tracks and transitions
 
-VoiceOver focus in Timeline clips identifies the current clip or transition for timeline commands and loads the same item into Inspector. Change the Track picker, or press Option-Command-Up Arrow and Option-Command-Down Arrow, to move between tracks without turning the complete project into one long list. When track selection begins in Editor, Trimato announces the active track and its direct-edit clip without moving VoiceOver into Timeline.
+VoiceOver focus in Timeline clips identifies the target clip or transition for timeline commands and loads the same item into Inspector. It does not set the Current or Selected movement states. Change the Track picker, or press Option-Command-Up Arrow and Option-Command-Down Arrow, to move between tracks without turning the complete project into one long list. When track selection begins in Editor, Trimato announces the active track and its direct-edit clip without moving VoiceOver into Timeline.
 
 The direct-edit clip is remembered separately for each track. When no clip has been remembered, Trimato resolves the clip at the Editor playhead, preferring an incoming clip at an edit point, then a clip containing the playhead, the next clip, or the last earlier clip. Command-[ and Command-] trim that clip to the shared project playhead while VoiceOver stays in Editor. Plain [ and ] reposition the complete clip on an additional track without trimming its stored source. Press C from Editor to open the direct-edit clip. Timeline clipboard commands operate only on the focused track item and require matching video or audio track types.
 
@@ -137,6 +159,8 @@ Press Command-T in the Editor to add a transition at the playhead, or press it o
 Wipes affect video only. Crossfade Audio blends the outgoing and incoming audio during a Cross Dissolve. Fade Audio adds the matching fade behavior. A transition appears as its own Timeline clips element and can be reopened, changed, or deleted without changing the source edit.
 
 ## Export formats
+
+To silence a track, choose an audio track in Timeline and turn on Mute Track. Repeat for each audio track to exclude from the mix. Muting applies to preview and export, including audio transitions, and does not hide picture or change clip timing. The setting is saved with the project and participates in Undo and Redo. It affects the whole track, not only the clip beneath the playhead.
 
 Video exports include H.264 MP4, HEVC MP4, H.264 QuickTime, HEVC QuickTime, ProRes 422 LT, ProRes 422, and ProRes 422 HQ. Audio-only exports include M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, and 24-bit WAV. Audio-only choices are available when the edited clip or project contains exportable audio.
 

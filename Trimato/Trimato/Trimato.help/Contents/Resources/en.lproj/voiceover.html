@@ -17,7 +17,7 @@
         <li>Use Project to import, organize, open, place, and relink source clips.</li>
         <li>Use Editor for playback, project In and Out points, edit-point navigation, blading, transitions, and opening the clip at the playhead.</li>
         <li>Use Timeline to choose one track, then review, open, move, and delete its clips and transitions in order.</li>
-        <li>Use Inspector to read information about the selected item.</li>
+        <li>Use Inspector to read information about the focused source or timeline item.</li>
     </ul>
 
     <h2>Edit from the Editor group</h2>
@@ -41,9 +41,9 @@
     <h2>Select, open, and move timeline clips</h2>
     <p>In Timeline Clips, Enter or Return opens the focused clip in Clip Editor. Space picks up that clip; Space again drops it. On primary tracks, while a clip is selected for moving, Left Arrow or Up Arrow moves it one clip earlier and Right Arrow or Down Arrow moves it one clip later. Trimato announces positions only during pickup and movement. The list stays stable until you drop the clip. Escape also drops it, and Command-Z undoes the complete move. Turn Quick Nav off if it is using the plain arrow keys, or use the Move To… submenu for list ordering.</p>
     <p>On absolute-position tracks (additional video and audio tracks), plain Left Arrow or Up Arrow nudges the focused clip one project frame earlier, and Right Arrow or Down Arrow nudges it one frame later. Space is not required. If a clip is already picked up, the arrows nudge that clip’s proposed start time until drop. Trimato announces the start frame. Neighboring clips stay in place; a nudge cannot overlap or cross another clip on the same track. Linked audio collisions also block picture nudges. Clips with attached transitions must have those transitions removed before nudging.</p>
-    <p>Current means the clip under the project playhead. Selected means a clip picked up with Space or a held mouse press. Ordinary VoiceOver navigation changes neither state.</p>
+    <p>Current means the clip under the project playhead. In a gap, no clip is Current. Selected means a clip picked up with Space or a held mouse press. Ordinary VO-Arrow navigation changes neither state and does not announce list positions.</p>
     <p>You can also use VO-Command-Shift-Space to hold the mouse button on a clip, use arrows to choose its position, then repeat that command to release and drop. The app handles the resulting mouse events; it does not replace the VoiceOver command.</p>
-    <p>To place a clip at a specific destination, select the source for moving with Space, then focus the destination and open its context menu or Selected Element Actions. Choose Move To…, then Start, Before, After, or End. The source stays selected for moving while you navigate to the destination.</p>
+    <p>To place a clip at a specific destination, select the source for moving with Space, then focus the destination and open its context menu or Selected Element Actions. Choose Move To…, then Start, Before, After, or End. The source stays selected for moving while you navigate to the destination. Start and End also work on a focused clip without pickup. The context menu no longer has separate Move Earlier and Move Later items. The Timeline menu’s Move Clip Earlier and Move Clip Later commands remain available for a one-clip reorder on primary tracks or a one-frame nudge on additional tracks.</p>
     <p>Command-C copies the focused clip. Command-V pastes a copy after the focused destination. Command-Option-V moves the movement selection, or the copied clip when none is selected for moving, after the destination. Outside Timeline Clips, macOS keeps standard Copy and Paste behavior.</p>
     <p>For audio tracks, Mute Track is a native checkbox. Its checked state applies to preview and export, including transitions, and is saved with the project.</p>
 
