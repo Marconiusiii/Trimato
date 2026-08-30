@@ -194,16 +194,28 @@ struct TrimatoApp: App {
                     .keyboardShortcut(.downArrow, modifiers: [.command, .option])
                     .disabled(projectController?.project.tracks.isEmpty != false)
                 Divider()
-                Button("Move Clip to Beginning") { projectController?.moveSelectedClipToBeginning() }
-                    .disabled(projectController?.selectedTimelineClip == nil)
+                Menu("Move To…") {
+                    ForEach(TimelineMoveDestination.allCases, id: \.self) { destination in
+                        Button(destination.title) {
+                            guard let controller = projectController, let target = controller.selectedTimelineClip else { return }
+                            controller.moveClip(to: destination, targetID: target.id)
+                        }
+                        .disabled(projectController?.selectedTimelineClip.map { clip in
+                            projectController?.canMoveClip(to: destination, targetID: clip.id) != true
+                        } ?? true)
+                    }
+                }
                 Button("Move Clip Earlier") { projectController?.moveSelectedClip(by: -1) }
                     .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
                     .disabled(projectController?.selectedTimelineClip == nil)
                 Button("Move Clip Later") { projectController?.moveSelectedClip(by: 1) }
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
                     .disabled(projectController?.selectedTimelineClip == nil)
-                Button("Move Clip to End") { projectController?.moveSelectedClipToEnd() }
-                    .disabled(projectController?.selectedTimelineClip == nil)
+                Toggle("Mute Track", isOn: Binding(
+                    get: { projectController?.activeTimelineTrack?.isMuted ?? false },
+                    set: { projectController?.setActiveTrackMuted($0) }
+                ))
+                .disabled(projectController?.activeTimelineTrack?.kind != .audio)
             }
         }
 

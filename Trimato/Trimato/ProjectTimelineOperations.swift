@@ -87,6 +87,9 @@ extension TrimatoProject {
                 tracks[trackIndex].clips[clipIndex].linkedClipID = nil
             }
         }
+        for index in tracks.indices {
+            tracks[index].clips.removeAll { removedClipIDs.contains($0.id) }
+        }
         synchronizeLegacyTimelineToTracks()
         for folderIndex in folders.indices {
             folders[folderIndex].assetIDs.removeAll { $0 == assetID }
@@ -167,7 +170,11 @@ extension TrimatoProject {
                 (tracks[index].kind == .audio && asset.hasAudio) else {
             throw ProjectTimelineError.incompatibleTrackKind
         }
+        if tracks[index].role == .primaryVideo {
+            return try append(asset: asset, segments: segments)
+        }
         var clip = try makeTimelineClip(asset: asset, segments: segments)
+        clip.isIndependentAudio = tracks[index].role == .primaryAudio
         clip.timelineStart = tracks[index].end
         if tracks[index].kind == .audio, asset.hasVideo { clip.name = "\(clip.displayName) Audio" }
         tracks[index].clips.append(clip)
@@ -190,9 +197,13 @@ extension TrimatoProject {
                 (tracks[trackIndex].kind == .audio && asset.hasAudio) else {
             throw ProjectTimelineError.incompatibleTrackKind
         }
+        if tracks[trackIndex].role == .primaryVideo {
+            return try insert(asset: asset, segments: segments, at: playhead)
+        }
         guard playhead >= .zero, playhead <= duration else { throw ProjectTimelineError.invalidPlayhead }
         var incoming = try makeTimelineClip(asset: asset, segments: segments)
         incoming.timelineStart = playhead
+        incoming.isIndependentAudio = tracks[trackIndex].role == .primaryAudio
         if tracks[trackIndex].kind == .audio, asset.hasVideo { incoming.name = "\(incoming.displayName) Audio" }
         if let containingIndex = tracks[trackIndex].clips.firstIndex(where: {
             playhead > $0.timelineStart && playhead < $0.timelineEnd
@@ -237,9 +248,13 @@ extension TrimatoProject {
                 (tracks[trackIndex].kind == .audio && asset.hasAudio) else {
             throw ProjectTimelineError.incompatibleTrackKind
         }
+        if tracks[trackIndex].role == .primaryVideo {
+            return try replaceClipRemainder(with: asset, segments: segments, at: playhead)
+        }
         guard playhead >= .zero, playhead <= duration else { throw ProjectTimelineError.invalidPlayhead }
         var incoming = try makeTimelineClip(asset: asset, segments: segments)
         incoming.timelineStart = playhead
+        incoming.isIndependentAudio = tracks[trackIndex].role == .primaryAudio
         if tracks[trackIndex].kind == .audio, asset.hasVideo { incoming.name = "\(incoming.displayName) Audio" }
         if let containingIndex = tracks[trackIndex].clips.firstIndex(where: {
             playhead >= $0.timelineStart && playhead < $0.timelineEnd
@@ -258,7 +273,7 @@ extension TrimatoProject {
                 tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart + difference
             }
         } else {
-            _ = try insert(asset: asset, segments: segments, at: playhead, onTrack: trackID)
+            return try insert(asset: asset, segments: segments, at: playhead, onTrack: trackID)
         }
         if tracks[trackIndex].kind == .video { resolveAutomaticFormat(from: asset) }
         return incoming.id
@@ -407,25 +422,17 @@ extension TrimatoProject {
     }
 
     mutating func moveTrackClip(id: UUID, to destination: Int) throws {
-        if primaryTimeline.contains(where: { $0.id == id }) {
-            try moveClip(id: id, to: destination)
-            return
-        }
-        guard let trackIndex = tracks.firstIndex(where: { track in track.clips.contains { $0.id == id } }) else {
+        guard let track = tracks.first(where: { $0.clips.contains { $0.id == id } }) else {
             throw ProjectTimelineError.clipNotFound
         }
-        disconnectLinkedClip(id)
-        var ordered = tracks[trackIndex].sortedClips
-        guard let source = ordered.firstIndex(where: { $0.id == id }) else { throw ProjectTimelineError.clipNotFound }
-        let clip = ordered.remove(at: source)
-        ordered.insert(clip, at: min(max(destination, 0), ordered.count))
-        var cursor = ProjectTime.zero
-        for index in ordered.indices {
-            ordered[index].timelineStart = cursor
-            cursor = cursor + ordered[index].duration
+        let others = track.sortedClips.filter { $0.id != id }
+        if destination <= 0 {
+            try moveTrackClip(id: id, to: .start, targetID: id)
+        } else if destination >= others.count {
+            try moveTrackClip(id: id, to: .end, targetID: id)
+        } else {
+            try moveTrackClip(id: id, to: .before, targetID: others[destination].id)
         }
-        tracks[trackIndex].clips = ordered
-        removeInvalidBetweenTransitions(on: [tracks[trackIndex].id])
     }
 
     @discardableResult
@@ -443,6 +450,7 @@ extension TrimatoProject {
         var copied = source
         copied.id = UUID()
         copied.linkedClipID = nil
+        copied.isIndependentAudio = tracks[targetTrackIndex].role == .primaryAudio
         copied.timelineStart = .zero
         copied.customName = uniqueCopiedClipName(for: source)
 
@@ -451,60 +459,158 @@ extension TrimatoProject {
             throw ProjectTimelineError.clipNotFound
         }
         destinationClips.insert(copied, at: targetIndex + 1)
-        tracks[targetTrackIndex].clips = magnetized(destinationClips)
-        removeInvalidBetweenTransitions(on: [tracks[targetTrackIndex].id])
+        tracks[targetTrackIndex].clips = arranged(destinationClips, preservingGapsOf: tracks[targetTrackIndex].sortedClips)
+        if tracks[targetTrackIndex].role == .primaryVideo,
+           let linkedID = source.linkedClipID,
+           let sourceAudio = timelineClip(id: linkedID),
+           let audioIndex = tracks.firstIndex(where: { $0.role == .primaryAudio }) {
+            var audio = sourceAudio
+            audio.id = UUID()
+            audio.linkedClipID = copied.id
+            audio.timelineStart = timelineClip(id: copied.id)?.timelineStart ?? .zero
+            if let index = tracks[targetTrackIndex].clips.firstIndex(where: { $0.id == copied.id }) {
+                tracks[targetTrackIndex].clips[index].linkedClipID = audio.id
+            }
+            tracks[audioIndex].clips.append(audio)
+            for video in tracks[targetTrackIndex].clips {
+                if let index = tracks[audioIndex].clips.firstIndex(where: { $0.id == video.linkedClipID }) {
+                    tracks[audioIndex].clips[index].timelineStart = video.timelineStart
+                }
+            }
+        }
+        for transition in transitions {
+            guard let track = track(id: transition.trackID) else { continue }
+            try validateTransition(transition, on: track)
+        }
+        synchronizeTracksToLegacyTimeline()
         return copied.id
     }
 
     mutating func moveTrackClip(id sourceID: UUID, after targetID: UUID) throws {
-        ensureTrackModel()
-        guard let sourceTrackIndex = tracks.firstIndex(where: { $0.clips.contains { $0.id == sourceID } }),
-              let targetTrackIndex = tracks.firstIndex(where: { $0.clips.contains { $0.id == targetID } }) else {
-            throw ProjectTimelineError.clipNotFound
-        }
-        guard tracks[sourceTrackIndex].kind == tracks[targetTrackIndex].kind else {
-            throw ProjectTimelineError.incompatibleTrackKind
-        }
-        guard sourceID != targetID else { return }
-
-        disconnectLinkedClip(sourceID)
-        var sourceClips = tracks[sourceTrackIndex].sortedClips
-        guard let sourceIndex = sourceClips.firstIndex(where: { $0.id == sourceID }) else {
-            throw ProjectTimelineError.clipNotFound
-        }
-        let moving = sourceClips.remove(at: sourceIndex)
-
-        if sourceTrackIndex == targetTrackIndex {
-            guard let targetIndex = sourceClips.firstIndex(where: { $0.id == targetID }) else {
-                throw ProjectTimelineError.clipNotFound
-            }
-            sourceClips.insert(moving, at: targetIndex + 1)
-            tracks[sourceTrackIndex].clips = magnetized(sourceClips)
-        } else {
-            var destinationClips = tracks[targetTrackIndex].sortedClips
-            guard let targetIndex = destinationClips.firstIndex(where: { $0.id == targetID }) else {
-                throw ProjectTimelineError.clipNotFound
-            }
-            destinationClips.insert(moving, at: targetIndex + 1)
-            tracks[sourceTrackIndex].clips = magnetized(sourceClips)
-            tracks[targetTrackIndex].clips = magnetized(destinationClips)
-        }
-
-        let affectedTrackIDs = Set([tracks[sourceTrackIndex].id, tracks[targetTrackIndex].id])
-        transitions.removeAll { transition in
-            transition.leadingClipID == sourceID || transition.trailingClipID == sourceID
-        }
-        removeInvalidBetweenTransitions(on: affectedTrackIDs)
+        try moveTrackClip(id: sourceID, to: .after, targetID: targetID)
     }
 
-    private func magnetized(_ clips: [TimelineClip]) -> [TimelineClip] {
+    // Commit only after transition and linked-track validation succeeds.
+    mutating func moveTrackClip(id sourceID: UUID, to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID? = nil) throws {
+        var candidate = self
+        try candidate.performTrackMove(id: sourceID, to: destination, targetID: targetID, destinationTrackID: destinationTrackID)
+        self = candidate
+    }
+
+    private mutating func performTrackMove(id sourceID: UUID, to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID?) throws {
+        ensureTrackModel()
+        guard let sourceIndex = tracks.firstIndex(where: { $0.clips.contains { $0.id == sourceID } }),
+              let targetIndex = tracks.firstIndex(where: { track in
+                  if let destinationTrackID, destination == .start || destination == .end { return track.id == destinationTrackID }
+                  return track.clips.contains { $0.id == targetID }
+              }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        guard tracks[sourceIndex].kind == tracks[targetIndex].kind else {
+            throw ProjectTimelineError.incompatibleTrackKind
+        }
+        if sourceID == targetID && (destination == .before || destination == .after) { return }
+        let oldTracks = tracks
+        let sourceOrder = tracks[sourceIndex].sortedClips
+        guard let clip = sourceOrder.first(where: { $0.id == sourceID }) else { throw ProjectTimelineError.clipNotFound }
+        var remaining = sourceOrder.filter { $0.id != sourceID }
+        var destinationOrder = sourceIndex == targetIndex ? remaining : tracks[targetIndex].sortedClips
+        let insertion: Int
+        switch destination {
+        case .start: insertion = 0
+        case .end: insertion = destinationOrder.count
+        case .before, .after:
+            guard let index = destinationOrder.firstIndex(where: { $0.id == targetID }) else { throw ProjectTimelineError.clipNotFound }
+            insertion = index + (destination == .after ? 1 : 0)
+        }
+        destinationOrder.insert(clip, at: insertion)
+        if sourceIndex == targetIndex && destinationOrder.map(\.id) == sourceOrder.map(\.id) { return }
+
+        if sourceIndex == targetIndex {
+            tracks[sourceIndex].clips = arranged(destinationOrder, preservingGapsOf: sourceOrder)
+        } else {
+            for index in remaining.indices where remaining[index].timelineStart >= clip.timelineEnd {
+                remaining[index].timelineStart = remaining[index].timelineStart - clip.duration
+            }
+            tracks[sourceIndex].clips = remaining
+            tracks[targetIndex].clips = arranged(destinationOrder, preservingGapsOf: oldTracks[targetIndex].sortedClips)
+        }
+
+        // Picture movement carries linked audio, including picture moved between
+        // compatible tracks. Moving audio directly makes that audio independent.
+        if tracks[sourceIndex].kind == .video {
+            let videoClips = tracks.filter { $0.kind == .video }.flatMap(\.clips)
+            for video in videoClips {
+                guard let audioID = video.linkedClipID else { continue }
+                for audioTrack in tracks.indices {
+                    if let audioIndex = tracks[audioTrack].clips.firstIndex(where: { $0.id == audioID }) {
+                        tracks[audioTrack].clips[audioIndex].timelineStart = video.timelineStart
+                    }
+                }
+            }
+        } else {
+            // Ripple movement can reposition neighboring audio as well. Detach
+            // every changed audio instance so later picture edits cannot reset it.
+            let changedAudio = tracks.flatMap { track -> [UUID] in
+                guard track.kind == .audio else { return [] }
+                return track.clips.compactMap { audio in
+                    guard let oldTrack = oldTracks.first(where: { $0.clips.contains { $0.id == audio.id } }),
+                          let oldClip = oldTrack.clips.first(where: { $0.id == audio.id }),
+                          oldTrack.id != track.id || oldClip.timelineStart != audio.timelineStart else { return nil }
+                    return audio.id
+                }
+            }
+            for id in changedAudio {
+                disconnectLinkedClip(id)
+                if !primaryTimeline.contains(where: { $0.id == id }),
+                   let track = tracks.firstIndex(where: { $0.clips.contains { $0.id == id } }),
+                   let index = tracks[track].clips.firstIndex(where: { $0.id == id }) {
+                    tracks[track].clips[index].isIndependentAudio = true
+                }
+            }
+        }
+        let affectedTrackIDs = Set(tracks.filter { track in
+            oldTracks.first(where: { $0.id == track.id })?.clips != track.clips
+        }.map(\.id))
+        for track in tracks where affectedTrackIDs.contains(track.id) {
+            let ordered = track.sortedClips
+            for (left, right) in zip(ordered, ordered.dropFirst()) where left.timelineEnd > right.timelineStart {
+                throw ProjectTimelineError.transitionNotAvailable("This move would overlap clips on \(track.name). Move the linked audio or video clear first.")
+            }
+        }
+        for transition in transitions where affectedTrackIDs.contains(transition.trackID) {
+            guard let track = track(id: transition.trackID),
+                  [transition.leadingClipID, transition.trailingClipID].compactMap({ $0 }).allSatisfy({ id in track.clips.contains { $0.id == id } }) else {
+                throw ProjectTimelineError.transitionNotAvailable("This move would separate a clip from its transition. Remove the transition before moving the clip.")
+            }
+            try validateTransition(transition, on: track)
+        }
+        for index in cutaways.indices {
+            if let moved = timelineClip(id: cutaways[index].id) { cutaways[index].start = moved.timelineStart }
+        }
+        synchronizeTracksToLegacyTimeline()
+    }
+
+    private func arranged(_ clips: [TimelineClip], preservingGapsOf original: [TimelineClip]) -> [TimelineClip] {
         var result = clips
-        var cursor = ProjectTime.zero
+        let gaps = zip(original, original.dropFirst()).map { max($1.timelineStart - $0.timelineEnd, .zero) }
+        var cursor = original.first?.timelineStart ?? .zero
         for index in result.indices {
             result[index].timelineStart = cursor
             cursor = cursor + result[index].duration
+            if index < gaps.count { cursor = cursor + gaps[index] }
         }
         return result
+    }
+
+    mutating func synchronizeTracksToLegacyTimeline() {
+        primaryTimeline = tracks.flatMap { track -> [TimelineClip] in
+            if track.role == .primaryVideo { return track.sortedClips }
+            if track.role == .primaryAudio {
+                return track.sortedClips.filter { !$0.isIndependentAudio && asset(id: $0.assetID)?.hasVideo == false }
+            }
+            return []
+        }.sorted { $0.timelineStart < $1.timelineStart }
     }
 
     private mutating func disconnectLinkedClip(_ id: UUID) {
@@ -949,7 +1055,12 @@ extension TrimatoProject {
         let existingVideo = tracks.first { $0.role == .primaryVideo }
         let existingAudio = tracks.first { $0.role == .primaryAudio }
         var videoClips: [TimelineClip] = []
-        var audioClips: [TimelineClip] = []
+        var audioClips: [TimelineClip] = existingAudio?.clips.filter { audio in
+            audio.isIndependentAudio ||
+                audio.linkedClipID.map { linked in
+                    tracks.contains { $0.role == .additional && $0.kind == .video && $0.clips.contains { $0.id == linked } }
+                } == true
+        } ?? []
         var cursor = ProjectTime.zero
 
         for legacy in primaryTimeline {
@@ -960,10 +1071,10 @@ extension TrimatoProject {
                 video.timelineStart = cursor
                 video.customName = legacy.customName
                 video.labelOrdinal = legacy.labelOrdinal
-                if source.hasAudio {
+                if source.hasAudio && (existingVideo?.clips.contains(where: { $0.id == legacy.id }) != true || video.linkedClipID != nil) {
                     var audio: TimelineClip
                     if let linkedID = video.linkedClipID,
-                       let current = existingAudio?.clips.first(where: { $0.id == linkedID }) {
+                       let current = timelineClip(id: linkedID) {
                         audio = current
                     } else {
                         audio = TimelineClip(
@@ -979,7 +1090,12 @@ extension TrimatoProject {
                     audio.name = "\(legacy.displayName) Audio"
                     audio.linkedClipID = video.id
                     video.linkedClipID = audio.id
-                    audioClips.append(audio)
+                    if let otherTrack = tracks.firstIndex(where: { $0.role == .additional && $0.clips.contains { $0.id == audio.id } }),
+                       let otherClip = tracks[otherTrack].clips.firstIndex(where: { $0.id == audio.id }) {
+                        tracks[otherTrack].clips[otherClip] = audio
+                    } else {
+                        audioClips.append(audio)
+                    }
                 }
                 videoClips.append(video)
             } else if source.hasAudio {
@@ -999,7 +1115,8 @@ extension TrimatoProject {
                 name: existingVideo?.name ?? "Primary Video",
                 kind: .video,
                 role: .primaryVideo,
-                clips: videoClips
+                clips: videoClips,
+                isMuted: existingVideo?.isMuted ?? false
             ))
         }
         if !audioClips.isEmpty {
@@ -1008,10 +1125,71 @@ extension TrimatoProject {
                 name: existingAudio?.name ?? "Primary Audio",
                 kind: .audio,
                 role: .primaryAudio,
-                clips: audioClips
+                clips: audioClips,
+                isMuted: existingAudio?.isMuted ?? false
             ))
         }
         tracks = rebuilt + additional
+        ensureCutawayTracks()
+        for index in primaryTimeline.indices {
+            if let clip = tracks.flatMap(\.clips).first(where: { $0.id == primaryTimeline[index].id }) { primaryTimeline[index].timelineStart = clip.timelineStart }
+        }
+    }
+
+    nonisolated mutating func ensureCutawayTracks() {
+        // Legacy cutaways also need track entries, including audio, so mute and
+        // track-based composition see the same material as the placement command.
+        for cutaway in cutaways where asset(id: cutaway.assetID) != nil {
+            var videoTrackIndex = tracks.firstIndex { $0.clips.contains { $0.id == cutaway.id } }
+            let hadVideoEntry = videoTrackIndex != nil
+            if videoTrackIndex == nil {
+                let cutawayIDs = Set(cutaways.map(\.id))
+                if let existing = tracks.firstIndex(where: { $0.role == .additional && $0.kind == .video && !$0.clips.isEmpty && $0.clips.allSatisfy { cutawayIDs.contains($0.id) } }) {
+                    videoTrackIndex = existing
+                } else {
+                    let track = TimelineTrack(name: "Video \(tracks.filter { $0.kind == .video }.count + 1)", kind: .video)
+                    tracks.append(track)
+                    videoTrackIndex = tracks.count - 1
+                }
+                tracks[videoTrackIndex!].clips.append(TimelineClip(
+                    id: cutaway.id, assetID: cutaway.assetID, name: cutaway.name,
+                    segments: cutaway.segments, labelOrdinal: cutaway.labelOrdinal,
+                    customName: cutaway.customName, timelineStart: cutaway.start
+                ))
+            }
+            guard let videoTrackIndex,
+                  let videoIndex = tracks[videoTrackIndex].clips.firstIndex(where: { $0.id == cutaway.id }) else { continue }
+            tracks[videoTrackIndex].clips[videoIndex].segments = cutaway.segments
+            tracks[videoTrackIndex].clips[videoIndex].timelineStart = cutaway.start
+            if cutaway.audioMode == .sourceAudio, asset(id: cutaway.assetID)?.hasAudio == true {
+                let linkedID = tracks[videoTrackIndex].clips[videoIndex].linkedClipID
+                if let audioTrack = tracks.firstIndex(where: { track in
+                    track.kind == .audio && track.clips.contains { clip in
+                        clip.id == linkedID || (track.role == .additional && clip.linkedClipID == nil && !clip.isIndependentAudio && clip.assetID == cutaway.assetID && clip.timelineStart == cutaway.start && clip.segments == cutaway.segments)
+                    }
+                }), let audioIndex = tracks[audioTrack].clips.firstIndex(where: {
+                    $0.id == linkedID || ($0.assetID == cutaway.assetID && $0.timelineStart == cutaway.start && $0.segments == cutaway.segments)
+                }) {
+                    tracks[videoTrackIndex].clips[videoIndex].linkedClipID = tracks[audioTrack].clips[audioIndex].id
+                    tracks[audioTrack].clips[audioIndex].linkedClipID = cutaway.id
+                    tracks[audioTrack].clips[audioIndex].segments = cutaway.segments
+                    tracks[audioTrack].clips[audioIndex].timelineStart = cutaway.start
+                } else if !hadVideoEntry || linkedID != nil {
+                    let cutawayIDs = Set(cutaways.map(\.id))
+                    let audioTrack: Int
+                    if let existing = tracks.firstIndex(where: { $0.kind == .audio && $0.role == .additional && !$0.clips.isEmpty && $0.clips.allSatisfy { $0.linkedClipID.map(cutawayIDs.contains) == true } }) {
+                        audioTrack = existing
+                    } else {
+                        let track = TimelineTrack(name: "Audio \(tracks.filter { $0.kind == .audio }.count + 1)", kind: .audio)
+                        tracks.append(track)
+                        audioTrack = tracks.count - 1
+                    }
+                    let audio = TimelineClip(assetID: cutaway.assetID, name: "\(cutaway.displayName) Audio", segments: cutaway.segments, timelineStart: cutaway.start, linkedClipID: cutaway.id)
+                    tracks[audioTrack].clips.append(audio)
+                    tracks[videoTrackIndex].clips[videoIndex].linkedClipID = audio.id
+                }
+            }
+        }
     }
 
     private mutating func labelForInsertion(_ clip: TimelineClip) -> TimelineClip {
@@ -1170,9 +1348,12 @@ extension TrimatoProject {
         guard !leftSegments.isEmpty, !rightSegments.isEmpty else {
             throw ProjectTimelineError.cannotSplitAtBoundary
         }
-        return (
-            TimelineClip(assetID: clip.assetID, name: clip.name, segments: leftSegments, customName: clip.customName),
-            TimelineClip(assetID: clip.assetID, name: clip.name, segments: rightSegments, customName: clip.customName)
-        )
+        var left = TimelineClip(assetID: clip.assetID, name: clip.name, segments: leftSegments, customName: clip.customName,
+                                timelineStart: clip.timelineStart, audioSettings: clip.audioSettings)
+        var right = TimelineClip(assetID: clip.assetID, name: clip.name, segments: rightSegments, customName: clip.customName,
+                                 timelineStart: clip.timelineStart + offset, audioSettings: clip.audioSettings)
+        left.isIndependentAudio = clip.isIndependentAudio
+        right.isIndependentAudio = clip.isIndependentAudio
+        return (left, right)
     }
 }

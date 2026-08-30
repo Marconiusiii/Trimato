@@ -7,6 +7,188 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MultiTrackTimelineTests {
+    @Test func repeatedInsertionsAdvancePlayheadAndKeepSourceOrder() throws {
+        let asset = fixtureAsset(name: "Footage", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        _ = try project.append(asset: asset, segments: [segment(0, 8)])
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.timelinePlayhead = ProjectTime(seconds: 4)
+        var inserted: [UUID] = []
+        for sourceStart in [10.0, 12.0, 14.0] {
+            inserted.append(try controller.placeThrowing(.insert, editing: .asset(asset.id), segments: [segment(sourceStart, 2)]))
+        }
+        #expect(controller.timelinePlayhead == ProjectTime(seconds: 10))
+        #expect(Array(controller.project.primaryTimeline.dropFirst().prefix(3).map(\.id)) == inserted)
+        #expect(inserted.compactMap { controller.project.timelineClip(id: $0)?.timelineStart.seconds } == [4, 6, 8])
+    }
+
+    @Test func explicitAndNewTrackInsertionsAdvanceTheSharedPlayhead() throws {
+        let asset = fixtureAsset(name: "Music", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        let trackID = project.createTrack(kind: .audio)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.timelinePlayhead = ProjectTime(seconds: 4)
+        let first = try controller.placeThrowing(.insert, editing: .asset(asset.id), segments: [segment(0, 2)], onTrack: trackID)
+        let second = try controller.placeThrowing(.insert, editing: .asset(asset.id), segments: [segment(2, 2)], onTrack: trackID)
+        #expect(controller.project.track(id: trackID)?.sortedClips.map(\.id) == [first, second])
+        #expect(controller.timelinePlayhead == ProjectTime(seconds: 8))
+        _ = try controller.createTrackAndPlaceThrowing(.insert, editing: .asset(asset.id), segments: [segment(4, 2)], trackKind: .audio, trackName: "New music", audioSettings: nil)
+        #expect(controller.timelinePlayhead == ProjectTime(seconds: 10))
+        #expect(throws: ProjectTimelineError.emptyIncomingClip) {
+            try controller.placeThrowing(.insert, editing: .asset(asset.id), segments: [], onTrack: trackID)
+        }
+        #expect(controller.timelinePlayhead == ProjectTime(seconds: 10))
+    }
+
+    @Test func primaryMoveSurvivesLaterInsertionAndKeepsLinkedAudio() throws {
+        let asset = fixtureAsset(name: "Footage", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let first = try project.append(asset: asset, segments: [segment(0, 2)])
+        let second = try project.append(asset: asset, segments: [segment(2, 2)])
+        let third = try project.append(asset: asset, segments: [segment(4, 2)])
+        try project.moveTrackClip(id: first, after: third)
+        #expect(project.primaryTimeline.map(\.id) == [second, third, first])
+        let inserted = try project.insert(asset: asset, segments: [segment(6, 2)], at: ProjectTime(seconds: 6))
+        #expect(project.primaryTimeline.map(\.id) == [second, third, first, inserted])
+        for video in try #require(project.tracks.first { $0.role == .primaryVideo }).clips {
+            let audio = try #require(video.linkedClipID.flatMap { project.timelineClip(id: $0) })
+            #expect(audio.timelineStart == video.timelineStart)
+            #expect(audio.segments == video.segments)
+        }
+    }
+
+    @Test func movementSelectionDoesNotFollowDestinationFocusAndSupportsUndo() throws {
+        let asset = fixtureAsset(name: "Footage", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let first = try project.append(asset: asset, segments: [segment(0, 2)])
+        let second = try project.append(asset: asset, segments: [segment(2, 2)])
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        controller.installUndoManager(undo)
+        controller.toggleClipMovement(id: first)
+        controller.focusTimelineElement(.clip(second))
+        #expect(controller.movingTimelineClipID == first)
+        undo.beginUndoGrouping()
+        controller.moveClip(to: .after, targetID: second)
+        undo.endUndoGrouping()
+        #expect(controller.project.primaryTimeline.map(\.id) == [second, first])
+        undo.undo()
+        #expect(controller.project.primaryTimeline.map(\.id) == [first, second])
+        undo.redo()
+        #expect(controller.project.primaryTimeline.map(\.id) == [second, first])
+        controller.finishClipMovement()
+        #expect(controller.movingTimelineClipID == nil)
+    }
+
+    @Test func movingAdditionalClipsPreservesTrackOffsetAndGaps() throws {
+        let asset = fixtureAsset(name: "Music", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .audio)
+        let first = try project.append(asset: asset, segments: [segment(0, 2)], toTrack: track)
+        let second = try project.append(asset: asset, segments: [segment(2, 3)], toTrack: track)
+        project.tracks[0].clips[0].timelineStart = ProjectTime(seconds: 5)
+        project.tracks[0].clips[1].timelineStart = ProjectTime(seconds: 9)
+        try project.moveTrackClip(id: second, to: .start, targetID: first)
+        #expect(project.tracks[0].sortedClips.map(\.id) == [second, first])
+        #expect(project.timelineClip(id: second)?.timelineStart == ProjectTime(seconds: 5))
+        #expect(project.timelineClip(id: first)?.timelineStart == ProjectTime(seconds: 10))
+    }
+
+    @Test func moveThatSeparatesTransitionIsTransactional() throws {
+        let asset = fixtureAsset(name: "Music", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .audio)
+        let first = try project.append(asset: asset, segments: [segment(2, 3)], toTrack: track)
+        let second = try project.append(asset: asset, segments: [segment(8, 3)], toTrack: track)
+        let third = try project.append(asset: asset, segments: [segment(14, 3)], toTrack: track)
+        try project.addTransition(TimelineTransition(trackID: track, edge: .between, kind: .audio(.crossFade), duration: ProjectTime(seconds: 1), leadingClipID: first, trailingClipID: second))
+        let before = project
+        #expect(throws: (any Error).self) { try project.moveTrackClip(id: first, after: third) }
+        #expect(project == before)
+    }
+
+    @Test func trackMuteSurvivesInsertionAndUndo() throws {
+        let asset = fixtureAsset(name: "Footage", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let track = try #require(project.tracks.first { $0.kind == .audio })
+        controller.activeTimelineTrackID = track.id
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        controller.installUndoManager(undo)
+        undo.beginUndoGrouping()
+        controller.setActiveTrackMuted(true)
+        undo.endUndoGrouping()
+        #expect(controller.project.track(id: track.id)?.isMuted == true)
+        undo.undo()
+        #expect(controller.project.track(id: track.id)?.isMuted == false)
+        undo.redo()
+        undo.beginUndoGrouping()
+        _ = try controller.placeThrowing(.insert, editing: .asset(asset.id), segments: [segment(0, 2)])
+        undo.endUndoGrouping()
+        #expect(controller.project.track(id: track.id)?.isMuted == true)
+    }
+
+    @Test func moveToStartCanUseAnEmptyCompatibleTrack() throws {
+        let asset = fixtureAsset(name: "Music", duration: 4)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let source = project.createTrack(kind: .audio, name: "Music")
+        let destination = project.createTrack(kind: .audio, name: "Effects")
+        let clipID = try project.append(asset: asset, toTrack: source)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.toggleClipMovement(id: clipID)
+        controller.activeTimelineTrackID = destination
+        controller.moveClip(to: .start, targetID: clipID)
+        #expect(controller.project.track(id: source)?.clips.isEmpty == true)
+        #expect(controller.project.track(id: destination)?.clips.first?.id == clipID)
+        #expect(controller.project.timelineClip(id: clipID)?.timelineStart == .zero)
+    }
+
+    @Test func independentlyMovedAudioSurvivesLaterPictureInsertionAndSave() throws {
+        let asset = fixtureAsset(name: "Footage", duration: 12)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let first = try project.append(asset: asset, segments: [segment(0, 2)])
+        let second = try project.append(asset: asset, segments: [segment(2, 2)])
+        let firstAudio = try #require(project.timelineClip(id: first)?.linkedClipID)
+        let secondAudio = try #require(project.timelineClip(id: second)?.linkedClipID)
+        try project.moveTrackClip(id: firstAudio, after: secondAudio)
+        #expect(project.timelineClip(id: firstAudio)?.isIndependentAudio == true)
+        let saved = try ProjectDocument.manifestData(for: project)
+        project = try JSONDecoder().decode(TrimatoProject.self, from: saved)
+        _ = try project.append(asset: asset, segments: [segment(4, 2)])
+        #expect(project.timelineClip(id: firstAudio)?.timelineStart == ProjectTime(seconds: 2))
+        #expect(project.timelineClip(id: secondAudio)?.timelineStart == .zero)
+        #expect(project.timelineClip(id: first)?.linkedClipID == nil)
+        #expect(project.timelineClip(id: second)?.linkedClipID == nil)
+    }
+
+    @Test func primaryAudioSplitAndDeletionDoNotLeaveOldClipsBehind() throws {
+        var asset = fixtureAsset(name: "Audio", duration: 6)
+        asset.naturalWidth = nil
+        asset.naturalHeight = nil
+        var project = TrimatoProject()
+        project.media = [asset]
+        let original = try project.append(asset: asset)
+        let second = try project.splitClip(id: original, atTimelineTime: ProjectTime(seconds: 3))
+        #expect(project.tracks.flatMap(\.clips).count == 2)
+        #expect(project.timelineClip(id: original) == nil)
+        try project.removeTrackClip(id: second)
+        #expect(project.tracks.flatMap(\.clips).count == 1)
+        #expect(project.duration == ProjectTime(seconds: 3))
+    }
+
     @Test func legacyVideoAndAudioMigrateIntoLinkedPrimaryTracks() throws {
         let asset = fixtureAsset(name: "Interview", duration: 10)
         var legacy = TrimatoProject()

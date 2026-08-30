@@ -26,6 +26,7 @@ final class ProjectController: ObservableObject {
     @Published var selection: EditorSelection = .project
     @Published var timelinePlayhead = ProjectTime.zero
     @Published var activeTimelineTrackID: UUID?
+    @Published var timelineHasKeyboardFocus = false
     @Published var transitionRequest: TransitionRequest?
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
@@ -42,6 +43,7 @@ final class ProjectController: ObservableObject {
     @Published private(set) var exportProgress: Double?
     @Published private(set) var isPresentingExportPanel = false
     @Published private(set) var copiedTimelineClipID: UUID?
+    @Published private(set) var movingTimelineClipID: UUID?
     private(set) var timelineFocusRestoreTarget: TimelineElementSelection?
 
     private var cancellables: Set<AnyCancellable> = []
@@ -668,6 +670,94 @@ final class ProjectController: ObservableObject {
         return .timelineClip(clip.id)
     }
 
+    func toggleClipMovement(id: UUID) {
+        guard let clip = project.timelineClip(id: id) else { return }
+        if movingTimelineClipID == id {
+            finishClipMovement()
+        } else {
+            movingTimelineClipID = id
+            selection = .timelineClip(id)
+            announce("\(clip.displayName) selected for moving. Use arrows to move, or focus a destination and choose Move To.")
+        }
+    }
+
+    func finishClipMovement() {
+        guard movingTimelineClipID != nil else { return }
+        movingTimelineClipID = nil
+        announce("Clip movement finished")
+    }
+
+    var clipMovementSourceID: UUID? { movingTimelineClipID ?? copiedTimelineClipID }
+
+    func canMoveClip(to destination: TimelineMoveDestination, targetID: UUID) -> Bool {
+        guard let sourceID = clipMovementSourceID,
+              let source = project.tracks.first(where: { $0.clips.contains { $0.id == sourceID } }),
+              let target = (destination == .start || destination == .end) ? activeTimelineTrack : project.tracks.first(where: { $0.clips.contains { $0.id == targetID } }),
+              source.kind == target.kind else { return false }
+        return destination == .start || destination == .end || sourceID != targetID
+    }
+
+    func moveClip(to destination: TimelineMoveDestination, targetID: UUID) {
+        guard let sourceID = clipMovementSourceID else {
+            announce("Select a clip for moving with Space, or copy a clip first")
+            return
+        }
+        moveTimelineClip(id: sourceID, to: destination, targetID: targetID,
+                         destinationTrackID: (destination == .start || destination == .end) ? activeTimelineTrackID : nil)
+    }
+
+    func moveTimelineClip(id: UUID, to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID? = nil) {
+        do {
+            let wasLinked = project.timelineClip(id: id)?.linkedClipID != nil
+            try mutateProjectThrowing(actionName: "Move Timeline Clip") {
+                try $0.moveTrackClip(id: id, to: destination, targetID: targetID, destinationTrackID: destinationTrackID)
+            }
+            didMoveClip(id, becameIndependent: wasLinked && project.timelineClip(id: id)?.linkedClipID == nil)
+        } catch {
+            presentedError = ProjectPresentedError(title: "Clip Could Not Be Moved", message: error.localizedDescription)
+        }
+    }
+
+    func moveMarkedClip(by offset: Int) {
+        guard let id = movingTimelineClipID else { return }
+        moveTimelineClip(id: id, by: offset)
+    }
+
+    private func moveTimelineClip(id: UUID, by offset: Int) {
+        guard let track = project.tracks.first(where: { $0.clips.contains { $0.id == id } }),
+              let index = track.sortedClips.firstIndex(where: { $0.id == id }) else { return }
+        guard track.sortedClips.indices.contains(index + offset) else {
+            announce(offset < 0 ? "Clip is already at the start of the track" : "Clip is already at the end of the track")
+            return
+        }
+        moveTimelineClip(id: id, to: offset < 0 ? .before : .after, targetID: track.sortedClips[index + offset].id)
+    }
+
+    private func didMoveClip(_ id: UUID, becameIndependent: Bool = false) {
+        guard let track = project.tracks.first(where: { $0.clips.contains { $0.id == id } }),
+              let index = track.sortedClips.firstIndex(where: { $0.id == id }) else { return }
+        activeTimelineTrackID = track.id
+        selection = .timelineClip(id)
+        requestTimelineFocusRestore(to: .clip(id))
+        let independence = becameIndependent ? ". Audio now moves independently of its video" : ""
+        announce("\(track.sortedClips[index].displayName), position \(index + 1) of \(track.clips.count), \(track.name) track\(independence)")
+    }
+
+    func setActiveTrackMuted(_ muted: Bool) {
+        guard let track = activeTimelineTrack, track.kind == .audio else { return }
+        mutateProject(actionName: muted ? "Mute Track" : "Unmute Track") { project in
+            guard let index = project.tracks.firstIndex(where: { $0.id == track.id }) else { return }
+            project.tracks[index].isMuted = muted
+        }
+        announce("\(track.name) track \(muted ? "muted" : "unmuted")")
+    }
+
+    private func advanceAfterInsertion(_ placement: PlacementAction, clipID: UUID) {
+        guard placement == .insert, let clip = project.timelineClip(id: clipID) else { return }
+        timelinePlayhead = clip.timelineEnd
+        projectPlayer?.stageInsertionPlayhead(clip.timelineEnd, duration: project.duration)
+    }
+
     func copyTimelineClip(id: UUID) {
         guard project.timelineClip(id: id) != nil else {
             announce(ProjectTimelineError.clipNotFound.localizedDescription)
@@ -693,18 +783,7 @@ final class ProjectController: ObservableObject {
     }
 
     func moveCopiedTimelineClip(after targetID: UUID) {
-        guard let copiedTimelineClipID else {
-            announce("Copy a Timeline clip first")
-            return
-        }
-        do {
-            try mutateProjectThrowing(actionName: "Move Timeline Clip") {
-                try $0.moveTrackClip(id: copiedTimelineClipID, after: targetID)
-            }
-            announce("Clip moved")
-        } catch {
-            announce(error.localizedDescription)
-        }
+        moveClip(to: .after, targetID: targetID)
     }
 
     func resolveURL(for asset: MediaAssetRecord) -> URL? {
@@ -1080,6 +1159,7 @@ final class ProjectController: ObservableObject {
         }
         guard let selectedID else { throw ProjectTimelineError.unsupportedPlacement }
         selection = placement.isCutaway ? .cutaway(selectedID) : .timelineClip(selectedID)
+        advanceAfterInsertion(placement, clipID: selectedID)
         announce(placement.confirmation)
         return selectedID
     }
@@ -1110,6 +1190,7 @@ final class ProjectController: ObservableObject {
         guard let selectedID else { throw ProjectTimelineError.unsupportedPlacement }
         activeTimelineTrackID = trackID
         selection = .timelineClip(selectedID)
+        advanceAfterInsertion(placement, clipID: selectedID)
         announce(placement.confirmation)
         return selectedID
     }
@@ -1175,6 +1256,7 @@ final class ProjectController: ObservableObject {
         }
         activeTimelineTrackID = trackID
         selection = .timelineClip(clipID)
+        advanceAfterInsertion(placement, clipID: clipID)
         announce("\(placement.confirmation) to \(trackName)")
         return (trackID, clipID)
     }
@@ -1243,35 +1325,18 @@ final class ProjectController: ObservableObject {
     }
 
     func moveSelectedClip(by offset: Int) {
-        guard let clip = selectedTimelineClip,
-              let track = project.tracks.first(where: { $0.clips.contains { $0.id == clip.id } }),
-              let current = track.sortedClips.firstIndex(where: { $0.id == clip.id }) else { return }
-        do {
-            try mutateProjectThrowing(actionName: "Move Timeline Clip") {
-                try $0.moveTrackClip(id: clip.id, to: current + offset)
-            }
-            announce("Clip moved")
-        } catch { announce(error.localizedDescription) }
+        guard let clip = selectedTimelineClip else { return }
+        moveTimelineClip(id: clip.id, by: offset)
     }
 
     func moveSelectedClipToBeginning() {
-        moveSelectedClip(to: 0)
+        guard let clip = selectedTimelineClip else { return }
+        moveTimelineClip(id: clip.id, to: .start, targetID: clip.id)
     }
 
     func moveSelectedClipToEnd() {
-        guard let clip = selectedTimelineClip,
-              let track = project.tracks.first(where: { $0.clips.contains { $0.id == clip.id } }) else { return }
-        moveSelectedClip(to: max(track.clips.count - 1, 0))
-    }
-
-    private func moveSelectedClip(to destination: Int) {
         guard let clip = selectedTimelineClip else { return }
-        do {
-            try mutateProjectThrowing(actionName: "Move Timeline Clip") {
-                try $0.moveTrackClip(id: clip.id, to: destination)
-            }
-            announce("Clip moved")
-        } catch { announce(error.localizedDescription) }
+        moveTimelineClip(id: clip.id, to: .end, targetID: clip.id)
     }
 
     private func mutateProject(actionName: String, _ mutation: (inout TrimatoProject) -> Void) {
@@ -1294,6 +1359,7 @@ final class ProjectController: ObservableObject {
     private func apply(_ project: TrimatoProject, undoingTo previous: TrimatoProject, actionName: String) {
         guard project != previous else { return }
         document.project = project
+        if let id = movingTimelineClipID, project.timelineClip(id: id) == nil { movingTimelineClipID = nil }
         timelineContentRevision += 1
         updateCacheProtection(for: project)
         if let undoManager = projectUndoManager {

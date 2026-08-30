@@ -4,6 +4,22 @@ import UniformTypeIdentifiers
 @testable import Trimato
 
 struct ProjectDocumentTests {
+    @Test func trackMuteRoundTripsAndOlderTracksDefaultToUnmuted() throws {
+        var project = TrimatoProject()
+        let id = project.createTrack(kind: .audio, name: "Music")
+        project.tracks[0].isMuted = true
+        let encoded = try ProjectDocument.manifestData(for: project)
+        let decoded = try JSONDecoder().decode(TrimatoProject.self, from: encoded)
+        #expect(decoded.track(id: id)?.isMuted == true)
+        var manifest = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var tracks = try #require(manifest["tracks"] as? [[String: Any]])
+        tracks[0].removeValue(forKey: "isMuted")
+        manifest["tracks"] = tracks
+        let oldData = try JSONSerialization.data(withJSONObject: manifest)
+        let oldProject = try JSONDecoder().decode(TrimatoProject.self, from: oldData)
+        #expect(oldProject.track(id: id)?.isMuted == false)
+    }
+
     @Test func projectDocumentWritesAVersionedPackageManifest() throws {
         let project = TrimatoProject(name: "Saved Project")
         let manifest = try ProjectDocument.manifestData(for: project)

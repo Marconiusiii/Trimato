@@ -78,6 +78,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var presentedPreviewFailure: ProjectPreviewFailure?
     @Published private(set) var isPlaying = false
+    private var pendingInsertionPlayhead: ProjectTime?
     @Published private(set) var currentTime = ProjectTime.zero
     @Published private(set) var currentFrame = 0
     @Published private(set) var displayTimecode = "00:00:00.000"
@@ -165,7 +166,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             queue: .main
         ) { [weak self] time in
             MainActor.assumeIsolated {
-                self?.updateDisplayedTime(ProjectTime(time))
+                guard let self, !self.isPreparing, self.pendingInsertionPlayhead == nil else { return }
+                self.updateDisplayedTime(ProjectTime(time))
             }
         }
         setupKeyEventMonitor()
@@ -307,6 +309,8 @@ final class ProjectPlayerViewModel: ObservableObject {
                 temporaryMediaURLs = pendingTemporaryMediaURLs
                 pendingTemporaryMediaURLs.removeAll()
                 hasPreparedPlayerItem = true
+                pendingInsertionPlayhead = nil
+                updateDisplayedTime(boundedInitialTime)
                 isPreparing = false
                 currentPreviewFailure = nil
                 presentedPreviewFailure = nil
@@ -526,7 +530,16 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
+    func stageInsertionPlayhead(_ time: ProjectTime, duration: ProjectTime) {
+        pendingInsertionPlayhead = time
+        player.pause()
+        cancelFrameStepping()
+        projectDuration = duration
+        updateDisplayedTime(time)
+    }
+
     func seek(to time: ProjectTime) {
+        pendingInsertionPlayhead = nil
         clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         seekPrecisely(to: time)
@@ -969,6 +982,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             guard let self, self.canControlPlayback, NSApp.modalWindow == nil,
                   self.keyboardCommandsAreActive?() == true,
+                  !TimelineKeyboardFocus.isInTimeline,
                   !self.isEditingText(in: event.window) else { return event }
 
             let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]

@@ -154,12 +154,10 @@ enum ProjectCompositionBuilder {
         guard project.tracks.contains(where: { !$0.clips.isEmpty }) else { throw ProjectCompositionError.emptyTimeline }
         let composition = AVMutableComposition()
         var primaryVideo: AVMutableCompositionTrack?
-        var primaryAudio: AVMutableCompositionTrack?
         var cutawayVideo: AVMutableCompositionTrack?
-        var cutawayAudio: AVMutableCompositionTrack?
         var additionalVideoTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)])] = []
         var additionalAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
-        var transitionAudioTracks: [(track: AVMutableCompositionTrack, range: ProjectTimeRange)] = []
+        var transitionAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
 
         let renderSize: CGSize? = {
             guard let width = project.format.width, let height = project.format.height,
@@ -184,116 +182,6 @@ enum ProjectCompositionBuilder {
             }
         }
         var primaryTransforms: [(ProjectTimeRange, CGAffineTransform)] = []
-        var cursor = ProjectTime.zero
-
-        for clip in project.primaryTimeline {
-            let assetRecord = try requireAsset(clip.assetID, in: project)
-            let asset = try await preparedAsset(
-                assetRecord,
-                urls: mediaURLs,
-                purpose: purpose,
-                cache: &assets,
-                temporaryMediaURLs: &temporaryMediaURLs
-            )
-            let video = try await asset.loadTracks(withMediaType: .video).first
-            let audio = try await asset.loadTracks(withMediaType: .audio).first
-            let primaryAudioClip = project.tracks.first(where: { $0.role == .primaryAudio })?.clips.first(where: {
-                $0.id == clip.id || $0.linkedClipID == clip.id
-            })
-            var processedAudio: AVAssetTrack?
-            var processedAudioAsset: AVURLAsset?
-            if let primaryAudioClip, !primaryAudioClip.audioSettings.isNeutral,
-               let sourceURL = mediaURLs[clip.assetID] {
-                let renderedURL: URL
-                do {
-                    renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
-                        sourceURL: sourceURL,
-                        segments: clip.segments,
-                        settings: primaryAudioClip.audioSettings,
-                        progress: progressReporter?.beginJob()
-                    )
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    throw ProjectCompositionError.audioProcessingFailed(
-                        clip: primaryAudioClip.displayName,
-                        track: "Primary Audio",
-                        detail: ProjectCompositionError.failureDetail(for: error)
-                    )
-                }
-                progressReporter?.completeJob()
-                temporaryMediaURLs.append(renderedURL)
-                let retainedAsset = AVURLAsset(url: renderedURL)
-                processedAudioAsset = retainedAsset
-                processedAudio = try await retainedAsset.loadTracks(withMediaType: .audio).first
-                if primaryAudio == nil {
-                    primaryAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
-                }
-                if let processedAudio, let primaryAudio {
-                    let range = try await processedAudio.load(.timeRange)
-                    do {
-                        try primaryAudio.insertTimeRange(range, of: processedAudio, at: cursor.cmTime)
-                    } catch {
-                        throw ProjectCompositionError.audioInsertionFailed(
-                            clip: primaryAudioClip.displayName,
-                            track: "Primary Audio",
-                            detail: ProjectCompositionError.failureDetail(for: error)
-                        )
-                    }
-                    withExtendedLifetime(processedAudioAsset) {}
-                }
-            }
-            guard video != nil || audio != nil else {
-                throw ProjectCompositionError.missingMedia(assetRecord.name)
-            }
-            let transform: CGAffineTransform?
-            if let video {
-                guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
-                transform = try await displayTransform(for: video, renderSize: renderSize)
-                if primaryVideo == nil {
-                    primaryVideo = composition.addMutableTrack(
-                        withMediaType: .video,
-                        preferredTrackID: kCMPersistentTrackID_Invalid
-                    )
-                }
-                guard primaryVideo != nil else { throw ProjectCompositionError.cannotCreateTrack }
-            } else {
-                transform = nil
-            }
-            for segment in clip.segments {
-                let range = segment.sourceRange.cmTimeRange
-                if let video, let primaryVideo {
-                    try primaryVideo.insertTimeRange(range, of: video, at: cursor.cmTime)
-                }
-                if let audio, processedAudio == nil {
-                    let available = try await audio.load(.timeRange)
-                    let portion = CMTimeRangeGetIntersection(range, otherRange: available)
-                    if portion.isValid, !portion.isEmpty {
-                        if primaryAudio == nil {
-                            primaryAudio = composition.addMutableTrack(
-                                withMediaType: .audio,
-                                preferredTrackID: kCMPersistentTrackID_Invalid
-                            )
-                        }
-                        guard let primaryAudio else { throw ProjectCompositionError.cannotCreateTrack }
-                        let sourceOffset = CMTimeSubtract(portion.start, range.start)
-                        try primaryAudio.insertTimeRange(
-                            portion,
-                            of: audio,
-                            at: CMTimeAdd(cursor.cmTime, sourceOffset)
-                        )
-                    }
-                }
-                if let transform {
-                    primaryTransforms.append((
-                        ProjectTimeRange(start: cursor, duration: segment.duration),
-                        transform
-                    ))
-                }
-                cursor = cursor + segment.duration
-            }
-        }
-
         var cutawayTransforms: [(ProjectTimeRange, CGAffineTransform)] = []
         for cutaway in project.cutaways {
             let assetRecord = try requireAsset(cutaway.assetID, in: project)
@@ -315,33 +203,11 @@ enum ProjectCompositionBuilder {
                 )
             }
             guard let cutawayVideo else { throw ProjectCompositionError.cannotCreateTrack }
-            let audio = cutaway.audioMode == .sourceAudio
-                ? try await asset.loadTracks(withMediaType: .audio).first
-                : nil
             let transform = try await displayTransform(for: video, renderSize: renderSize)
             var cutawayCursor = cutaway.start
             for segment in cutaway.segments {
                 let range = segment.sourceRange.cmTimeRange
                 try cutawayVideo.insertTimeRange(range, of: video, at: cutawayCursor.cmTime)
-                if let audio {
-                    let available = try await audio.load(.timeRange)
-                    let portion = CMTimeRangeGetIntersection(range, otherRange: available)
-                    if portion.isValid, !portion.isEmpty {
-                        if cutawayAudio == nil {
-                            cutawayAudio = composition.addMutableTrack(
-                                withMediaType: .audio,
-                                preferredTrackID: kCMPersistentTrackID_Invalid
-                            )
-                        }
-                        guard let cutawayAudio else { throw ProjectCompositionError.cannotCreateTrack }
-                        let sourceOffset = CMTimeSubtract(portion.start, range.start)
-                        try cutawayAudio.insertTimeRange(
-                            portion,
-                            of: audio,
-                            at: CMTimeAdd(cutawayCursor.cmTime, sourceOffset)
-                        )
-                    }
-                }
                 cutawayTransforms.append((
                     ProjectTimeRange(start: cutawayCursor, duration: segment.duration),
                     transform
@@ -350,7 +216,7 @@ enum ProjectCompositionBuilder {
             }
         }
 
-        for timelineTrack in project.tracks where timelineTrack.role == .additional {
+        for timelineTrack in project.tracks {
             if timelineTrack.kind == .video {
                 guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
                 guard let compositionTrack = composition.addMutableTrack(
@@ -367,6 +233,10 @@ enum ProjectCompositionBuilder {
                         temporaryMediaURLs: &temporaryMediaURLs
                     )
                     guard let source = try await asset.loadTracks(withMediaType: .video).first else {
+                        // Older primary records can describe picture even when the
+                        // resolved source contains only audio. Keep that audio usable.
+                        if timelineTrack.role == .primaryVideo,
+                           try await !asset.loadTracks(withMediaType: .audio).isEmpty { continue }
                         throw ProjectCompositionError.missingVideo(record.name)
                     }
                     let transform = try await displayTransform(for: source, renderSize: renderSize)
@@ -377,17 +247,22 @@ enum ProjectCompositionBuilder {
                         destination = destination + segment.duration
                     }
                 }
-                additionalVideoTracks.append((compositionTrack, transforms))
+                if transforms.isEmpty {
+                    composition.removeTrack(compositionTrack)
+                    continue
+                }
+                if timelineTrack.role == .primaryVideo {
+                    primaryVideo = compositionTrack
+                    primaryTransforms = transforms
+                } else {
+                    additionalVideoTracks.append((compositionTrack, transforms))
+                }
             } else {
                 guard let compositionTrack = composition.addMutableTrack(
                     withMediaType: .audio,
                     preferredTrackID: kCMPersistentTrackID_Invalid
                 ) else { throw ProjectCompositionError.cannotCreateTrack }
                 for clip in timelineTrack.sortedClips {
-                    if project.cutaways.contains(where: {
-                        $0.audioMode == .sourceAudio && $0.assetID == clip.assetID &&
-                            $0.start == clip.timelineStart && $0.segments == clip.segments
-                    }) { continue }
                     guard clip.visibleDuration.isPositive else { continue }
                     let record = try requireAsset(clip.assetID, in: project)
                     let asset = try await preparedAsset(
@@ -518,7 +393,7 @@ enum ProjectCompositionBuilder {
             try transitionTrack.insertTimeRange(sourceRange, of: source, at: start.cmTime)
             transitionAudioTracks.append((
                 transitionTrack,
-                ProjectTimeRange(start: start, duration: transition.duration)
+                track
             ))
         }
 
@@ -613,47 +488,28 @@ enum ProjectCompositionBuilder {
 
         let sourceAudioCutaways = project.cutaways.filter { $0.audioMode == .sourceAudio }
         let audioMix: AVMutableAudioMix?
-        if primaryAudio == nil && cutawayAudio == nil && additionalAudioTracks.isEmpty && transitionAudioTracks.isEmpty {
+        if additionalAudioTracks.isEmpty && transitionAudioTracks.isEmpty {
             audioMix = nil
         } else {
             var parameters: [AVMutableAudioMixInputParameters] = []
-            if let primaryAudio {
-                let primaryParameters = AVMutableAudioMixInputParameters(track: primaryAudio)
-                if let primaryTrack = project.tracks.first(where: { $0.role == .primaryAudio }) {
-                    applyBaseAudioEnvelope(
-                        duration: project.duration,
-                        transitions: project.transitions.filter { $0.trackID == primaryTrack.id },
-                        on: primaryTrack,
-                        mutedRanges: sourceAudioCutaways.map {
-                            ProjectTimeRange(start: $0.start, duration: $0.duration)
-                        },
-                        parameters: primaryParameters
-                    )
-                }
-                parameters.append(primaryParameters)
-            }
-            if let cutawayAudio {
-                let cutawayParameters = AVMutableAudioMixInputParameters(track: cutawayAudio)
-                cutawayParameters.setVolume(0, at: .zero)
-                for cutaway in sourceAudioCutaways {
-                    cutawayParameters.setVolume(1, at: cutaway.start.cmTime)
-                    cutawayParameters.setVolume(0, at: cutaway.end.cmTime)
-                }
-                parameters.append(cutawayParameters)
-            }
             for item in additionalAudioTracks {
                 let input = AVMutableAudioMixInputParameters(track: item.track)
                 applyBaseAudioEnvelope(
                     duration: project.duration,
                     transitions: project.transitions.filter { $0.trackID == item.source.id },
                     on: item.source,
-                    mutedRanges: [],
+                    mutedRanges: item.source.isMuted
+                        ? [ProjectTimeRange(start: .zero, duration: project.duration)]
+                        : (item.source.role == .primaryAudio ? sourceAudioCutaways.map {
+                            ProjectTimeRange(start: $0.start, duration: $0.duration)
+                        } : []),
                     parameters: input
                 )
                 parameters.append(input)
             }
             for item in transitionAudioTracks {
                 let input = AVMutableAudioMixInputParameters(track: item.track)
+                input.setVolume(item.source.isMuted ? 0 : 1, at: .zero)
                 parameters.append(input)
             }
             let mix = AVMutableAudioMix()
@@ -690,14 +546,8 @@ enum ProjectCompositionBuilder {
     }
 
     private static func renderJobCount(project: TrimatoProject, hasRenderSize: Bool) -> Int {
-        let primaryAudio = project.tracks.first(where: { $0.role == .primaryAudio })
-        let adjustedPrimaryClips = project.primaryTimeline.filter { videoClip in
-            primaryAudio?.clips.first(where: {
-                $0.id == videoClip.id || $0.linkedClipID == videoClip.id
-            })?.audioSettings.isNeutral == false
-        }.count
-        let adjustedAdditionalAudioClips = project.tracks
-            .filter { $0.role == .additional && $0.kind == .audio }
+        let adjustedAudioClips = project.tracks
+            .filter { $0.kind == .audio }
             .flatMap(\.clips)
             .filter { !$0.audioSettings.isNeutral }
             .count
@@ -709,7 +559,7 @@ enum ProjectCompositionBuilder {
             guard $0.edge == .between, case .video(let type) = $0.kind else { return false }
             return type != .fade
         }.count : 0
-        return adjustedPrimaryClips + adjustedAdditionalAudioClips + audioTransitions + videoTransitions
+        return adjustedAudioClips + audioTransitions + videoTransitions
     }
 
     private static func requireAsset(_ id: UUID, in project: TrimatoProject) throws -> MediaAssetRecord {

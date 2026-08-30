@@ -38,8 +38,11 @@
     <h2>Trim or position the announced clip</h2>
     <p>While VoiceOver remains in Editor, press Command-[ to trim the announced clip's start to the shared project playhead, or Command-] to trim its end. A successful trim announces the clip, track, edge, and time. Plain [ and ] are different commands: on an additional track, they move the complete clip so its head or tail meets the playhead without trimming its stored source.</p>
 
-    <h2>Copy and move timeline clips</h2>
-    <p>Focus a clip and press Command-C. Focus the destination clip and press Command-V to paste a copy after it, or press Command-Option-V to move the copied clip after it. These commands work only while VoiceOver focus identifies a Timeline clip. Elsewhere, macOS retains its standard Copy and Paste behavior.</p>
+    <h2>Select, open, and move timeline clips</h2>
+    <p>In Timeline Clips, Enter or Return opens the focused clip in Clip Editor. Space toggles its selection for moving. While a clip is selected for moving, Left Arrow or Up Arrow moves it earlier and Right Arrow or Down Arrow moves it later. Trimato announces the clip’s position and track. Escape finishes movement mode without undoing completed moves. Command-Z undoes a move. Turn Quick Nav off if it is using the plain arrow keys, or use Move Earlier and Move Later from the clip’s menu.</p>
+    <p>To place a clip at a specific destination, select the source for moving with Space, then focus the destination and open its context menu or Selected Element Actions. Choose Move To…, then Start, Before, After, or End. The source stays selected for moving while you navigate to the destination.</p>
+    <p>Command-C copies the focused clip. Command-V pastes a copy after the focused destination. Command-Option-V moves the movement selection, or the copied clip when none is selected for moving, after the destination. Outside Timeline Clips, macOS keeps standard Copy and Paste behavior.</p>
+    <p>For audio tracks, Mute Track is a native checkbox. Its checked state applies to preview and export, including transitions, and is saved with the project.</p>
 
     <h2>Check export progress</h2>
     <ol>

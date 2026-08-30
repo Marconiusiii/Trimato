@@ -254,8 +254,9 @@ private struct ProjectViewerView: View {
         .focusedObject(viewModel)
         .onAppear {
             controller.installProjectPlayer(viewModel)
-            viewModel.scopeKeyboardCommands { [weak focusScope] in
-                focusScope?.containsAccessibilityFocus == true
+            viewModel.scopeKeyboardCommands { [weak focusScope, weak controller] in
+                (NSWorkspace.shared.isVoiceOverEnabled || controller?.timelineHasKeyboardFocus != true) &&
+                    focusScope?.containsAccessibilityFocus == true
             }
             viewModel.onBladeAtPlayhead { [weak controller] in
                 controller?.splitClipAtPlayhead()

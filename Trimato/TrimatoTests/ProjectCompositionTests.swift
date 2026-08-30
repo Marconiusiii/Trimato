@@ -402,6 +402,90 @@ struct ProjectCompositionTests {
         #expect(abs(segment.timeMapping.target.start.seconds) < 0.01)
     }
 
+    @Test(arguments: [ExportFormat.wav, .h264MP4])
+    func mutedPrimaryTrackExportsSilenceIncludingItsCrossfade(format: ExportFormat) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mov")
+        try await makeFixture(at: sourceURL, color: "green", frequency: 440, duration: 6)
+        var asset = fixtureAsset(name: "Footage", duration: 6)
+        asset.originalPath = sourceURL.path
+        var project = TrimatoProject()
+        project.format = ProjectFormat(mode: .custom, width: 320, height: 180, frameRate: 24)
+        project.media = [asset]
+        _ = try project.append(asset: asset, segments: [SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: 1), duration: ProjectTime(seconds: 2)))])
+        _ = try project.append(asset: asset, segments: [SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: 3), duration: ProjectTime(seconds: 2)))])
+        let audioIndex = try #require(project.tracks.firstIndex { $0.kind == .audio })
+        let audioTrack = project.tracks[audioIndex]
+        try project.addTransition(TimelineTransition(trackID: audioTrack.id, edge: .between, kind: .audio(.crossFade), duration: ProjectTime(seconds: 1), leadingClipID: audioTrack.sortedClips[0].id, trailingClipID: audioTrack.sortedClips[1].id))
+        project.tracks[audioIndex].isMuted = true
+        let mutedURL = directory.appendingPathComponent("muted").appendingPathExtension(format.fileExtension)
+        try await ProjectExporter.export(project: project, mediaURLs: [asset.id: sourceURL], format: format, to: mutedURL, progress: { _ in })
+        #expect(try await peakVolume(mutedURL) < -80)
+        #expect(abs(try await AVURLAsset(url: mutedURL).load(.duration).seconds - 4) < 0.1)
+        project.tracks[audioIndex].isMuted = false
+        let audibleURL = directory.appendingPathComponent("audible").appendingPathExtension(format.fileExtension)
+        try await ProjectExporter.export(project: project, mediaURLs: [asset.id: sourceURL], format: format, to: audibleURL, progress: { _ in })
+        #expect(try await peakVolume(audibleURL) > -40)
+    }
+
+    @Test func muteIsScopedToOneTrackAndCutawayAudioCanBeMuted() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mov")
+        try await makeFixture(at: sourceURL, color: "green", frequency: 440, duration: 4)
+        var asset = fixtureAsset(name: "Footage", duration: 4)
+        asset.originalPath = sourceURL.path
+        var project = TrimatoProject()
+        project.format = ProjectFormat(mode: .custom, width: 320, height: 180, frameRate: 24)
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        let cutawayID = try project.addCutaway(asset: asset, segments: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 2)))], at: ProjectTime(seconds: 1), audioMode: .sourceAudio)
+        let primary = try #require(project.tracks.firstIndex { $0.role == .primaryAudio })
+        let cutawayAudio = try #require(project.tracks.firstIndex { $0.kind == .audio && $0.role == .additional })
+        #expect(project.tracks[cutawayAudio].clips.first?.linkedClipID == cutawayID)
+        project.tracks[primary].isMuted = true
+        let output = directory.appendingPathComponent("audible.wav")
+        try await ProjectExporter.export(project: project, mediaURLs: [asset.id: sourceURL], format: .wav, to: output, progress: { _ in })
+        #expect(try await peakVolume(output) > -40)
+        project.tracks[cutawayAudio].isMuted = true
+        let silent = directory.appendingPathComponent("silent.wav")
+        try await ProjectExporter.export(project: project, mediaURLs: [asset.id: sourceURL], format: .wav, to: silent, progress: { _ in })
+        #expect(try await peakVolume(silent) < -80)
+    }
+
+    @Test func compositionUsesReorderedPrimaryTrackSourceRanges() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.mov")
+        try await makeFixture(at: sourceURL, color: "blue", frequency: 440, duration: 4)
+        var asset = fixtureAsset(name: "Footage", duration: 4)
+        asset.originalPath = sourceURL.path
+        var project = TrimatoProject()
+        project.format = ProjectFormat(mode: .custom, width: 320, height: 180, frameRate: 24)
+        project.media = [asset]
+        let first = try project.append(asset: asset, segments: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 1)))])
+        let second = try project.append(asset: asset, segments: [SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: 2), duration: ProjectTime(seconds: 1)))])
+        try project.moveTrackClip(id: first, after: second)
+        let result = try await ProjectCompositionBuilder.build(project: project, mediaURLs: [asset.id: sourceURL])
+        defer { for url in result.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }
+        let video = try #require(try await result.composition.loadTracks(withMediaType: .video).first)
+        let segments = try await video.load(.segments).filter { !$0.isEmpty }
+        #expect(segments.map { $0.timeMapping.source.start.seconds } == [2, 0])
+    }
+
+    private func peakVolume(_ url: URL) async throws -> Double {
+        let result = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-hide_banner", "-nostdin", "-i", url.path, "-af", "volumedetect", "-f", "null", "-"
+        ])
+        let line = try #require(result.standardError.components(separatedBy: "\n").first { $0.contains("max_volume:") })
+        let value = try #require(line.components(separatedBy: "max_volume:").last?.split(separator: " ").first)
+        return try #require(Double(value))
+    }
+
     private func makeFixture(
         at url: URL,
         color: String,

@@ -20,7 +20,7 @@
         <dt>Append to Timeline</dt>
         <dd>Adds the clip after the last timeline clip.</dd>
         <dt>Insert and Split</dt>
-        <dd>Splits the clip beneath the project playhead, inserts the new clip between the two parts, and moves later clips forward.</dd>
+        <dd>Splits the clip beneath the project playhead, inserts the new clip between the two parts, and moves later clips forward. After insertion, the project playhead moves to the incoming clip’s end so consecutive inserts remain in the order you make them.</dd>
         <dt>Insert and Overwrite</dt>
         <dd>Keeps the portion before the project playhead, replaces the remainder of that clip, and keeps later clips after the inserted clip.</dd>
         <dt>Insert on Top with Source Audio</dt>
@@ -47,12 +47,15 @@
 
     <h2>Arrange timeline clips</h2>
     <ol>
-        <li>Move to the Timeline group.</li>
-        <li>Select the timeline clip.</li>
-        <li>Press Control-Enter, use VoiceOver’s VO-Shift-M command, or open Selected Element Actions.</li>
-        <li>Choose an available action for the focused clip or transition.</li>
+        <li>Choose a track and focus a clip in Timeline Clips.</li>
+        <li>Press Space to select that clip for moving. Trimato announces Selected for moving.</li>
+        <li>Press Left Arrow or Up Arrow to move it one clip earlier. Press Right Arrow or Down Arrow to move it one clip later.</li>
+        <li>Press Space again on that clip, or Escape, to finish moving. Completed moves remain in place; Command-Z undoes a move.</li>
     </ol>
-    <p>Press Command-C on a focused clip, move to a destination clip, then press Command-V to paste a copy after it. Press Command-Option-V instead to move the copied clip after the destination. Video clips move among video tracks and audio clips move among audio tracks. Copying a clip does not copy its transitions.</p>
+    <p>For a specific destination, keep the source selected for moving and focus the destination clip. Open Selected Element Actions with Control-Enter, or the context menu with VoiceOver’s VO-Shift-M command. Choose Move To…, then Start, Before, After, or End. Before and After use the focused destination; Start and End use its track. Focusing another clip does not change the clip selected for moving. Move Earlier and Move Later also work directly from a clip’s action menu.</p>
+    <p>Press Enter or Return on a clip to open Clip Editor, matching a click or normal button activation. Space selects for moving only in Timeline Clips; Space still plays or pauses in Editor and Clip Editor. If VoiceOver Quick Nav is using the arrow keys, turn Quick Nav off for plain-arrow movement, or use the menu commands.</p>
+    <p>Clips also support drag and drop. Dropping on the upper part of a clip places the moving clip before it; dropping on the lower part places it after. Keyboard commands and drag and drop use the same project editing operation.</p>
+    <p>Press Command-C on a focused clip, focus a destination clip, then press Command-V to paste a copy after it. Command-Option-V moves the clip selected for moving, or the copied clip if no movement selection is active, after the destination. Video clips move among video tracks and audio clips move among audio tracks. Moving picture carries its linked audio. Moving audio directly makes it independent of its picture. Moves that would overlap linked material or invalidate a transition are rejected without changing the project. Copying does not copy transitions.</p>
 
     <h2>Trim a layered audio clip to the video ending</h2>
     <ol>

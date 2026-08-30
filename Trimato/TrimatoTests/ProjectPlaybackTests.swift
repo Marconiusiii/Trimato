@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 import Testing
@@ -6,6 +7,23 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
+    @Test func timelineKeysRespectMovementModeAndVoiceOverModifiers() {
+        #expect(TimelineKeyAction.resolve(keyCode: 49, modifiers: [], isMoving: false) == .toggleMovement)
+        #expect(TimelineKeyAction.resolve(keyCode: 36, modifiers: [], isMoving: false) == .openEditor)
+        #expect(TimelineKeyAction.resolve(keyCode: 76, modifiers: [], isMoving: true) == .openEditor)
+        for key: UInt16 in [123, 126] {
+            #expect(TimelineKeyAction.resolve(keyCode: key, modifiers: [], isMoving: true) == .earlier)
+            #expect(TimelineKeyAction.resolve(keyCode: key, modifiers: [], isMoving: false) == nil)
+        }
+        for key: UInt16 in [124, 125] {
+            #expect(TimelineKeyAction.resolve(keyCode: key, modifiers: [], isMoving: true) == .later)
+        }
+        #expect(TimelineKeyAction.resolve(keyCode: 49, modifiers: [.control, .option], isMoving: true) == nil)
+        #expect(TimelineKeyAction.resolve(keyCode: 124, modifiers: [.control, .option], isMoving: true) == nil)
+        #expect(TimelineKeyAction.resolve(keyCode: 9, modifiers: [.command, .option], isMoving: false) == .moveAfter)
+        #expect(TimelineKeyAction.resolve(keyCode: 53, modifiers: [], isMoving: false) == nil)
+    }
+
     @Test func editorKeyboardRoutingRecognizesTrackSelectionAndAbsolutePositioning() {
         #expect(ProjectPlayerViewModel.trackSelectionOffset(
             keyCode: 126,

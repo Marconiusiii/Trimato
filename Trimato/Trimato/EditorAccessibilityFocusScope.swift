@@ -14,6 +14,7 @@ final class EditorAccessibilityFocusScope: ObservableObject {
             return false
         }
 
+        if TimelineKeyboardFocus.isInTimeline { return false }
         if hasEditorIdentifier(focusedElement) { return true }
         if focusedElement === boundaryView { return true }
         let frameSelector = NSSelectorFromString("accessibilityFrame")

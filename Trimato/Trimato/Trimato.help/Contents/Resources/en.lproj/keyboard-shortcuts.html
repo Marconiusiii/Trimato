@@ -16,7 +16,7 @@
     <table>
         <thead><tr><th scope="col">Shortcut</th><th scope="col">Command</th></tr></thead>
         <tbody>
-            <tr><td><kbd>Space</kbd></td><td>Play or pause</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>Play or pause while focus is in Editor or Clip Editor</td></tr>
             <tr><td><kbd>J</kbd></td><td>Play backward; press again to increase speed</td></tr>
             <tr><td><kbd>K</kbd></td><td>Play or pause</td></tr>
             <tr><td><kbd>L</kbd></td><td>Play forward; press again to increase speed</td></tr>
@@ -43,9 +43,16 @@
     </table>
 
     <h2>Project timeline</h2>
+    <p>The Space, Enter, and plain-arrow commands below apply only in Timeline Clips. VoiceOver modifier commands, text fields, and native menus retain their usual behavior.</p>
     <table>
         <thead><tr><th scope="col">Shortcut</th><th scope="col">Command</th></tr></thead>
         <tbody>
+            <tr><td><kbd>Space</kbd></td><td>Toggle the focused clip’s selection for moving</td></tr>
+            <tr><td><kbd>Enter</kbd> or <kbd>Return</kbd></td><td>Open the focused clip in Clip Editor</td></tr>
+            <tr><td><kbd>Left Arrow</kbd> or <kbd>Up Arrow</kbd></td><td>Move the clip selected for moving one position earlier</td></tr>
+            <tr><td><kbd>Right Arrow</kbd> or <kbd>Down Arrow</kbd></td><td>Move the clip selected for moving one position later</td></tr>
+            <tr><td><kbd>Escape</kbd></td><td>Finish movement mode, keeping completed moves</td></tr>
+            <tr><td><kbd>Command-Z</kbd></td><td>Undo the last edit or move</td></tr>
             <tr><td><kbd>Command-B</kbd></td><td>Blade at the project playhead</td></tr>
             <tr><td><kbd>Command-T</kbd></td><td>Open Add Transition for the clip at the Editor playhead or the focused Timeline clips item</td></tr>
             <tr><td><kbd>Command-[</kbd></td><td>While focus is in Editor, trim the start of the active track's announced clip to the shared project playhead</td></tr>
@@ -55,7 +62,7 @@
             <tr><td><kbd>C</kbd></td><td>Open Clip Editor for the active-track clip at or immediately after the Editor playhead</td></tr>
             <tr><td><kbd>Command-C</kbd></td><td>Copy the focused Timeline clip</td></tr>
             <tr><td><kbd>Command-V</kbd></td><td>Paste a copy after the focused Timeline clip</td></tr>
-            <tr><td><kbd>Command-Option-V</kbd></td><td>Move the copied Timeline clip after the focused Timeline clip</td></tr>
+            <tr><td><kbd>Command-Option-V</kbd></td><td>Move the clip selected for moving, or the copied clip, after the focused Timeline clip</td></tr>
             <tr><td><kbd>Control-Enter</kbd></td><td>Open Selected Element Actions for the focused Timeline clips item</td></tr>
             <tr><td><kbd>Option-Command-Up Arrow</kbd></td><td>Select the previous timeline track and announce its direct-edit clip without moving VoiceOver focus from the Editor</td></tr>
             <tr><td><kbd>Option-Command-Down Arrow</kbd></td><td>Select the next timeline track and announce its direct-edit clip without moving VoiceOver focus from the Editor</td></tr>

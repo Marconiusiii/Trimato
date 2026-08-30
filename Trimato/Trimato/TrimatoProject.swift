@@ -135,6 +135,7 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
     var timelineStart: ProjectTime = .zero
     var linkedClipID: UUID? = nil
     var audioSettings: AudioClipSettings = .neutral
+    var isIndependentAudio = false
 
     var duration: ProjectTime {
         segments.reduce(.zero) { $0 + $1.duration }
@@ -207,7 +208,7 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, assetID, name, segments, labelOrdinal, customName
-        case timelineStart, linkedClipID, audioSettings
+        case timelineStart, linkedClipID, audioSettings, isIndependentAudio
     }
 
     init(from decoder: Decoder) throws {
@@ -221,6 +222,7 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
         timelineStart = try container.decodeIfPresent(ProjectTime.self, forKey: .timelineStart) ?? .zero
         linkedClipID = try container.decodeIfPresent(UUID.self, forKey: .linkedClipID)
         audioSettings = try container.decodeIfPresent(AudioClipSettings.self, forKey: .audioSettings) ?? .neutral
+        isIndependentAudio = try container.decodeIfPresent(Bool.self, forKey: .isIndependentAudio) ?? false
     }
 
     static func letterLabel(for ordinal: Int) -> String {
@@ -312,6 +314,16 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
                 media: media
             )
         }
+        let legacyIDs = Set(primaryTimeline.map(\.id))
+        for trackIndex in tracks.indices where tracks[trackIndex].role == .primaryAudio {
+            for clipIndex in tracks[trackIndex].clips.indices {
+                let clip = tracks[trackIndex].clips[clipIndex]
+                if clip.linkedClipID == nil && !legacyIDs.contains(clip.id) {
+                    tracks[trackIndex].clips[clipIndex].isIndependentAudio = true
+                }
+            }
+        }
+        ensureCutawayTracks()
         schemaVersion = Self.currentSchemaVersion
     }
 

@@ -20,6 +20,7 @@ nonisolated struct TimelineTrack: Codable, Equatable, Hashable, Identifiable, Se
     var kind: TimelineTrackKind
     var role: TimelineTrackRole = .additional
     var clips: [TimelineClip] = []
+    var isMuted = false
 
     var sortedClips: [TimelineClip] {
         clips.sorted {
@@ -36,4 +37,34 @@ nonisolated struct TimelineTrack: Codable, Equatable, Hashable, Identifiable, Se
 nonisolated enum TimelineElementSelection: Hashable, Sendable {
     case clip(UUID)
     case transition(UUID)
+}
+
+// Decode older projects without requiring the newly saved mute setting.
+nonisolated extension TimelineTrack {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, kind, role, clips, isMuted
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        kind = try values.decode(TimelineTrackKind.self, forKey: .kind)
+        role = try values.decode(TimelineTrackRole.self, forKey: .role)
+        clips = try values.decode([TimelineClip].self, forKey: .clips)
+        isMuted = try values.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+    }
+}
+
+nonisolated enum TimelineMoveDestination: CaseIterable {
+    case start, before, after, end
+
+    var title: String {
+        switch self {
+        case .start: "Start"
+        case .before: "Before"
+        case .after: "After"
+        case .end: "End"
+        }
+    }
 }
