@@ -122,7 +122,12 @@ struct AddTransitionView: View {
             } else {
                 labeledAudioPicker(edge: edge, selection: audioTypeBinding(edge), values: audioTypes(for: edge))
             }
-            TransitionDurationField(text: durationBinding(edge))
+            TransitionDurationField(
+                text: durationBinding(edge),
+                label: (track?.kind == .video ? videoTypeBinding(edge).wrappedValue == .fade : audioTypeBinding(edge).wrappedValue == .fade)
+                    ? (edge == .intro ? "Fade In Duration in Seconds" : "Fade Out Duration in Seconds")
+                    : (edge == .intro ? "Intro Duration in Seconds" : "Outro Duration in Seconds")
+            )
         }
         .padding(.leading, 12)
     }

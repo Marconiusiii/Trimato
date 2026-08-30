@@ -92,7 +92,7 @@ enum ProjectRenderMediaManager {
         }
     }
 
-    private static func requireAvailableSpace(
+    static func requireAvailableSpace(
         in directory: URL,
         duration: Double,
         width: Int?,

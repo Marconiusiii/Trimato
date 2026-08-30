@@ -4,15 +4,27 @@ import SwiftUI
 
 struct VideoPlayerView: NSViewRepresentable {
     let player: AVPlayer
+    var accessibleFrame = false
+    var frameDescription = ""
 
     func makeNSView(context: Context) -> PlayerNSView {
         let view = PlayerNSView()
         view.playerLayer.player = player
+        configureAccessibility(view)
         return view
     }
 
     func updateNSView(_ nsView: PlayerNSView, context: Context) {
         nsView.playerLayer.player = player
+        configureAccessibility(nsView)
+    }
+
+    private func configureAccessibility(_ view: PlayerNSView) {
+        view.setAccessibilityElement(accessibleFrame)
+        view.setAccessibilityRole(accessibleFrame ? .image : .unknown)
+        view.setAccessibilityLabel(accessibleFrame ? "Video frame" : nil)
+        view.setAccessibilityValue(accessibleFrame ? frameDescription : nil)
+        view.setAccessibilityIdentifier(accessibleFrame ? "trimato.editor.frame" : nil)
     }
 }
 

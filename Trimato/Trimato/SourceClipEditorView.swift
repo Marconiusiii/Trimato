@@ -9,6 +9,8 @@ nonisolated enum AudioClipPreviewPlan {
 struct SourceClipEditorView: View {
     @ObservedObject var controller: ProjectController
     let asset: MediaAssetRecord
+    private var currentAsset: MediaAssetRecord { controller.asset(for: editSelection) ?? asset }
+    @Environment(\.openWindow) private var openWindow
     let editSelection: EditorSelection
     let initialSegments: [SourceSegment]
     @ObservedObject var commandContext: ClipPlacementCommandContext
@@ -27,37 +29,48 @@ struct SourceClipEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if controller.resolveURL(for: asset) == nil {
+            if controller.resolveURL(for: currentAsset) == nil {
                 Text("This media file is offline. Relink it before editing.")
                     .padding()
             } else {
                 ContentView(
                     viewModel: viewModel,
                     allowsFileOpening: false,
-                    editorHeading: ClipEditorMediaKind.name(hasVideo: asset.hasVideo)
+                    editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo)
                 )
 
                 if commandContext.audioSettings != nil {
                     AudioClipControlsView(commandContext: commandContext)
+                        .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
                         .padding(.horizontal, 20)
-                    if let audioPreviewProgress {
-                        ProgressView(value: audioPreviewProgress) {
-                            Text("Updating Audio Preview")
-                        }
-                        .padding(.horizontal, 20)
-                    }
+                }
+                if let audioPreviewProgress {
+                    ProgressView("Updating Clip Preview", value: audioPreviewProgress).padding(.horizontal, 20)
+                }
+
+                if commandContext.isTimelineEntry, currentAsset.generator != nil {
+                    Button("Edit Generator…") {
+                        controller.requestGenerator(editing: editSelection)
+                        if let id = controller.generatorRequestID { openWindow(id: "generator", value: id) }
+                    }.padding(.horizontal, 20).disabled(commandContext.hasUncommittedChanges)
+                }
+                if commandContext.isTimelineEntry {
+                    ScrollView { ClipFiltersView(context: commandContext).padding(.horizontal, 20) }
+                        .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
+                        .frame(maxHeight: 250)
                 }
 
                 ClipExportControlsView(viewModel: viewModel)
                     .padding(.horizontal, 20)
 
                 placementControls
+                    .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
             }
         }
         .onAppear {
-            if let cacheKey = asset.proxyCacheKey {
+            if let cacheKey = currentAsset.proxyCacheKey {
                 let owner = cacheOwnerID
                 Task {
                     await MediaCacheManager.shared.updateProtectedKeys(owner: owner, keys: [cacheKey])
@@ -68,14 +81,24 @@ struct SourceClipEditorView: View {
             }
             loadIfNeeded()
         }
+        .onChange(of: controller.project) { commandContext.refreshCommittedEffects() }
+        .onChange(of: currentAsset.id) {
+            audioPreviewTask?.cancel()
+            preparationTask?.cancel()
+            commandContext.acceptExternalGeneratorUpdate()
+            viewModel.closeMedia()
+            loadIfNeeded()
+        }
         .onChange(of: viewModel.placementSourceSegments) { _, segments in
-            guard loadedAssetID == asset.id else { return }
+            guard loadedAssetID == currentAsset.id else { return }
             commandContext.setSegments(segments)
         }
         .onChange(of: viewModel.hasMedia) {
             guard viewModel.hasMedia else { return }
             scheduleAudioPreview(for: commandContext.audioSettings, debounce: false)
         }
+        .onChange(of: commandContext.filters) { scheduleAudioPreview(for: commandContext.audioSettings) }
+        .onChange(of: viewModel.audioPreviewSegments) { scheduleAudioPreview(for: commandContext.audioSettings) }
         .onChange(of: commandContext.audioSettings) { _, settings in
             scheduleAudioPreview(for: settings)
         }
@@ -87,8 +110,8 @@ struct SourceClipEditorView: View {
                 heading: audioOnly ? "Add Audio Only to Track" : "Add to Track",
                 audioOnly: audioOnly,
                 tracks: compatibleTracks(audioOnly: audioOnly),
-                canCreateAudioTrack: asset.hasAudio,
-                canCreateVideoTrack: asset.hasVideo && !audioOnly,
+                canCreateAudioTrack: currentAsset.hasAudio,
+                canCreateVideoTrack: currentAsset.hasVideo && !audioOnly,
                 addToTrack: { trackID in
                     guard commandContext.place(action, onTrack: trackID) != nil else { return }
                     commandContext.dismissTrackPlacement()
@@ -104,8 +127,8 @@ struct SourceClipEditorView: View {
             NewTrackFromSourceView(
                 kind: kind,
                 suggestedTrackName: kind.suggestedTrackName(
-                    sourceName: asset.name,
-                    sourceHasVideo: asset.hasVideo
+                    sourceName: currentAsset.name,
+                    sourceHasVideo: currentAsset.hasVideo
                 ),
                 presentedError: $commandContext.presentedError,
                 create: { name in
@@ -127,13 +150,13 @@ struct SourceClipEditorView: View {
             let owner = cacheOwnerID
             Task { await MediaCacheManager.shared.releaseProtectedKeys(owner: owner) }
         }
-        .alert("Audio Preview Could Not Be Updated", isPresented: Binding(
+        .alert("Clip Preview Could Not Be Updated", isPresented: Binding(
             get: { audioPreviewErrorMessage != nil },
             set: { if !$0 { audioPreviewErrorMessage = nil } }
         )) {
             Button("OK") { audioPreviewErrorMessage = nil }
         } message: {
-            Text(audioPreviewErrorMessage ?? "The audio preview could not be updated.")
+            Text(audioPreviewErrorMessage ?? "The clip preview could not be updated.")
         }
     }
 
@@ -158,7 +181,7 @@ struct SourceClipEditorView: View {
                 .keyboardShortcut("d", modifiers: [])
                 .disabled(!commandContext.canPlace)
                 .accessibilityFocused($focusedPlacementControl, equals: .replaceRemainder)
-            if asset.hasVideo {
+            if currentAsset.hasVideo {
                 Menu("Insert on Top") {
                     Button("With Source Audio") { place(.cutawaySourceAudio) }
                         .keyboardShortcut("q", modifiers: [])
@@ -167,7 +190,7 @@ struct SourceClipEditorView: View {
                 }
                 .disabled(!commandContext.canPlace)
             }
-            if asset.hasVideo && asset.hasAudio {
+            if currentAsset.hasVideo && currentAsset.hasAudio {
                 Menu("Audio Only") {
                     Button("Append Audio to Track…") {
                         commandContext.requestAudioOnlyTrackPlacement(.append)
@@ -183,8 +206,8 @@ struct SourceClipEditorView: View {
             }
             Menu("New Track") {
                 ForEach(NewTrackSourceKind.availableKinds(
-                    hasVideo: asset.hasVideo,
-                    hasAudio: asset.hasAudio
+                    hasVideo: currentAsset.hasVideo,
+                    hasAudio: currentAsset.hasAudio
                 )) { kind in
                     Button(kind.commandTitle) { newTrackKind = kind }
                 }
@@ -195,18 +218,18 @@ struct SourceClipEditorView: View {
     }
 
     private func loadIfNeeded() {
-        guard loadedAssetID != asset.id, let url = controller.resolveURL(for: asset) else { return }
-        loadedAssetID = asset.id
-        commandContext.setSegments(initialSegments)
+        guard loadedAssetID != currentAsset.id, let url = controller.resolveURL(for: currentAsset) else { return }
+        loadedAssetID = currentAsset.id
+        commandContext.setSegments(controller.segments(for: editSelection) ?? initialSegments)
         let opening = ClipEditorOpeningConfiguration.make(
-            segments: initialSegments,
-            sourceDuration: asset.duration
+            segments: controller.segments(for: editSelection) ?? initialSegments,
+            sourceDuration: currentAsset.duration
         )
         preparationTask = Task { @MainActor in
             do {
-                let source = try await controller.preparedMediaSource(for: asset)
+                let source = try await controller.preparedMediaSource(for: currentAsset)
                 try Task.checkCancellation()
-                if let cacheKey = controller.project.asset(id: asset.id)?.proxyCacheKey {
+                if let cacheKey = controller.project.asset(id: currentAsset.id)?.proxyCacheKey {
                     await MediaCacheManager.shared.updateProtectedKeys(
                         owner: cacheOwnerID,
                         keys: [cacheKey]
@@ -238,8 +261,8 @@ struct SourceClipEditorView: View {
 
     private func compatibleTracks(audioOnly: Bool) -> [TimelineTrack] {
         controller.project.tracks.filter { track in
-            if audioOnly { return track.kind == .audio && asset.hasAudio }
-            return (track.kind == .video && asset.hasVideo) || (track.kind == .audio && asset.hasAudio)
+            if audioOnly { return track.kind == .audio && currentAsset.hasAudio }
+            return (track.kind == .video && currentAsset.hasVideo) || (track.kind == .audio && currentAsset.hasAudio)
         }
     }
 
@@ -259,32 +282,40 @@ struct SourceClipEditorView: View {
         audioPreviewTask?.cancel()
         audioPreviewTask = nil
         audioPreviewErrorMessage = nil
-        guard commandContext.audioSettings != nil, viewModel.hasMedia else { return }
-        guard AudioClipPreviewPlan.requiresRender(for: settings), let settings else {
+        guard viewModel.hasMedia else { return }
+        let filters = commandContext.filters
+        let audio = commandContext.audioSettings != nil
+        guard AudioClipPreviewPlan.requiresRender(for: settings) || filters.contains(where: { $0.enabled }) else {
             audioPreviewProgress = nil
             viewModel.restoreUnprocessedAudioPreview()
+            commandContext.effectsReady = true
+            viewModel.clipEffectsReady = true
             return
         }
-        guard let sourceURL = controller.resolveURL(for: asset),
+        guard let sourceURL = controller.resolveURL(for: currentAsset),
               !viewModel.audioPreviewSegments.isEmpty else { return }
         let segments = viewModel.audioPreviewSegments
         audioPreviewProgress = 0
+        commandContext.effectsReady = false
+        viewModel.clipEffectsReady = false
         audioPreviewTask = Task { @MainActor in
             var generatedURL: URL?
             do {
                 if debounce {
                     try await Task.sleep(for: .milliseconds(250))
                 }
-                let outputURL = try await FFmpegTimelineEffectRenderer.renderAudio(
-                    sourceURL: sourceURL,
-                    segments: segments,
-                    settings: settings
+                let outputURL = try await ClipFilterRenderer.render(
+                    source: sourceURL, filters: filters, audio: audio,
+                    duration: segments.reduce(0) { $0 + $1.duration.seconds },
+                    segments: segments, audioSettings: settings
                 ) { progress in
                     audioPreviewProgress = progress
                 }
                 generatedURL = outputURL
                 try Task.checkCancellation()
-                try await viewModel.applyAudioPreview(at: outputURL)
+                try await viewModel.applyFilteredPreview(at: outputURL, audio: audio)
+                commandContext.effectsReady = true
+                viewModel.clipEffectsReady = true
                 generatedURL = nil
                 audioPreviewProgress = nil
                 audioPreviewTask = nil
@@ -472,44 +503,16 @@ private struct AudioClipControlsView: View {
                         step: AudioClipControlSpecification.decibelStep,
                         identifier: "gain"
                     )
-                    audioSlider(
-                        "Low EQ",
-                        value: binding(\.lowGainDecibels),
-                        range: AudioClipControlSpecification.equalizerRange,
-                        step: AudioClipControlSpecification.decibelStep,
-                        identifier: "low-eq"
-                    )
-                    audioSlider(
-                        "Mid EQ",
-                        value: binding(\.midGainDecibels),
-                        range: AudioClipControlSpecification.equalizerRange,
-                        step: AudioClipControlSpecification.decibelStep,
-                        identifier: "mid-eq"
-                    )
-                    audioSlider(
-                        "High EQ",
-                        value: binding(\.highGainDecibels),
-                        range: AudioClipControlSpecification.equalizerRange,
-                        step: AudioClipControlSpecification.decibelStep,
-                        identifier: "high-eq"
-                    )
                 }
-
-                HStack(spacing: 18) {
-                    Toggle("Reduce low rumble", isOn: binding(\.highPassEnabled))
-                    Toggle("Reduce high-frequency hiss", isOn: binding(\.lowPassEnabled))
-                    Spacer()
-                    Button("Reset Audio") { commandContext.resetAudioSettings() }
-                        .disabled(commandContext.audioSettings?.isNeutral != false)
-                }
+                Button("Reset Gain") { commandContext.resetAudioSettings() }
             }
             .padding(.top, 4)
         } label: {
-            Text("Audio Filters").accessibilityHidden(true)
+            Text("Audio").accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Audio Filters")
+        .accessibilityLabel("Audio")
         .accessibilityIdentifier("trimato.clip-editor.audio-filters")
     }
 

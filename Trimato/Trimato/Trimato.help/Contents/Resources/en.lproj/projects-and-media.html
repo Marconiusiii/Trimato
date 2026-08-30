@@ -90,6 +90,10 @@
         <li>Choose Relink Clip from Actions or activate Relink Media in the Inspector.</li>
         <li>Select the source file and activate Open.</li>
     </ol>
+    <h2>Create a generator</h2>
+    <p>In the project Editor, press Command-G or choose Timeline &gt; Generator. Playback pauses and the Generator window captures the current playhead position. Choose Black, Solid Color, Static Gradient, or Silence, then set its parameters and duration in seconds or whole project frames. Silence supports mono and stereo. Video uses the project dimensions and frame rate, or 1920 by 1080 at 30 frames per second if the project format is unresolved.</p>
+    <p>Choose a compatible Destination Track, or New Track and a name. Preview starts only when activated; Stop stops playback or cancels preparation. Choose Append, Insert and Split, or Insert and Overwrite. For video, Insert on Top in New Video Track creates an additional track at the captured playhead. Insert and Split advances the project playhead to the inserted clip's end. Adding the generator and a new track when requested is one undoable operation.</p>
+    <p>Generator settings are saved with the project. Internal playback files can be regenerated without an external source file. Open the generated timeline clip in Clip Editor and activate Edit Generator to change its settings or duration. Commit pending clip edits first. Update Generator changes only that instance, preserving other copies.</p>
 </main>
 <footer><p><a href="clip-editor.html">Next topic: Edit a clip</a></p></footer>
 </body>

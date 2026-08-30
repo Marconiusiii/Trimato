@@ -90,6 +90,7 @@ nonisolated struct MediaAssetRecord: Codable, Hashable, Identifiable, Sendable {
     var playbackMode: ProjectMediaPlaybackMode? = nil
     var proxyCacheKey: UUID? = nil
     var sourceFingerprint: SourceMediaFingerprint? = nil
+    var generator: GeneratorDefinition? = nil
 
     var editedDuration: ProjectTime {
         sourceEdit.reduce(.zero) { $0 + $1.duration }
@@ -136,6 +137,7 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
     var linkedClipID: UUID? = nil
     var audioSettings: AudioClipSettings = .neutral
     var isIndependentAudio = false
+    var filters: [ClipFilter] = []
 
     var duration: ProjectTime {
         segments.reduce(.zero) { $0 + $1.duration }
@@ -208,7 +210,7 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, assetID, name, segments, labelOrdinal, customName
-        case timelineStart, linkedClipID, audioSettings, isIndependentAudio
+        case timelineStart, linkedClipID, audioSettings, isIndependentAudio, filters
     }
 
     init(from decoder: Decoder) throws {
@@ -223,6 +225,7 @@ nonisolated struct TimelineClip: Codable, Hashable, Identifiable, Sendable {
         linkedClipID = try container.decodeIfPresent(UUID.self, forKey: .linkedClipID)
         audioSettings = try container.decodeIfPresent(AudioClipSettings.self, forKey: .audioSettings) ?? .neutral
         isIndependentAudio = try container.decodeIfPresent(Bool.self, forKey: .isIndependentAudio) ?? false
+        filters = try container.decodeIfPresent([ClipFilter].self, forKey: .filters) ?? []
     }
 
     static func letterLabel(for ordinal: Int) -> String {
@@ -268,7 +271,7 @@ nonisolated struct TimelineCutaway: Codable, Hashable, Identifiable, Sendable {
 }
 
 nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     var schemaVersion = currentSchemaVersion
     var id = UUID()

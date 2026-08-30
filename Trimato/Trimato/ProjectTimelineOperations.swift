@@ -1418,6 +1418,8 @@ extension TrimatoProject {
                                 timelineStart: clip.timelineStart, audioSettings: clip.audioSettings)
         var right = TimelineClip(assetID: clip.assetID, name: clip.name, segments: rightSegments, customName: clip.customName,
                                  timelineStart: clip.timelineStart + offset, audioSettings: clip.audioSettings)
+        left.filters = clip.filters
+        right.filters = clip.filters
         left.isIndependentAudio = clip.isIndependentAudio
         right.isIndependentAudio = clip.isIndependentAudio
         return (left, right)

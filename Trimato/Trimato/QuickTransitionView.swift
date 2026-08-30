@@ -12,6 +12,8 @@ struct QuickTransitionView: View {
     @State private var addOutro = true
     @State private var includeAudio = true
     @State private var durationText = TransitionDurationInput.defaultText
+    @State private var fadeInDurationText = TransitionDurationInput.defaultText
+    @State private var fadeOutDurationText = TransitionDurationInput.defaultText
     @State private var presentedError: TransitionPresentedError?
     @State private var isSubmitting = false
     @State private var submissionTask: Task<Void, Never>?
@@ -64,14 +66,16 @@ struct QuickTransitionView: View {
                     Text(clip?.displayName ?? "Timeline clip")
                         .foregroundStyle(.secondary)
                     Toggle("Intro", isOn: $addIntro)
+                    if addIntro { TransitionDurationField(text: $fadeInDurationText, label: "Fade In Duration in Seconds") }
                     Toggle("Outro", isOn: $addOutro)
+                    if addOutro { TransitionDurationField(text: $fadeOutDurationText, label: "Fade Out Duration in Seconds") }
                 }
 
                 if showsAudioToggle {
                     Toggle(request.mode == .quickFade ? "Fade Audio" : "Crossfade Audio", isOn: $includeAudio)
                 }
 
-                TransitionDurationField(text: $durationText)
+                if request.mode == .quickCross { TransitionDurationField(text: $durationText) }
             }
 
             HStack {
@@ -143,7 +147,7 @@ struct QuickTransitionView: View {
     }
 
     private func apply() {
-        guard let duration = TransitionDurationInput.parse(durationText) else {
+        guard let duration = TransitionDurationInput.parse(request.mode == .quickCross ? durationText : "1") else {
             showValidation("Enter a duration greater than zero, such as 1.0 or 1.25 seconds.")
             return
         }
@@ -152,12 +156,17 @@ struct QuickTransitionView: View {
             return
         }
         if request.mode == .quickFade {
+            guard let fadeIn = TransitionDurationInput.parse(addIntro ? fadeInDurationText : "1"),
+                  let fadeOut = TransitionDurationInput.parse(addOutro ? fadeOutDurationText : "1") else {
+                showValidation("Enter a duration greater than zero for each enabled fade.")
+                return
+            }
             var transitions: [TimelineTransition] = []
-            if addIntro { transitions.append(fade(edge: .intro, clip: clip, track: track, duration: duration)) }
-            if addOutro { transitions.append(fade(edge: .outro, clip: clip, track: track, duration: duration)) }
+            if addIntro { transitions.append(fade(edge: .intro, clip: clip, track: track, duration: fadeIn)) }
+            if addOutro { transitions.append(fade(edge: .outro, clip: clip, track: track, duration: fadeOut)) }
             if includeAudio, let context = linkedAudioContext {
-                if addIntro { transitions.append(fade(edge: .intro, clip: context.leading, track: context.track, duration: duration)) }
-                if addOutro { transitions.append(fade(edge: .outro, clip: context.leading, track: context.track, duration: duration)) }
+                if addIntro { transitions.append(fade(edge: .intro, clip: context.leading, track: context.track, duration: fadeIn)) }
+                if addOutro { transitions.append(fade(edge: .outro, clip: context.leading, track: context.track, duration: fadeOut)) }
             }
             submit(transitions)
             return

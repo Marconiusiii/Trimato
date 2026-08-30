@@ -53,6 +53,9 @@ struct EditorWorkspaceView: View {
                 }
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
+            .onChange(of: controller.generatorRequestID) { _, id in
+                if let id { openWindow(id: "generator", value: id) }
+            }
             .onChange(of: controller.isShowingProjectSettings) { _, isShowing in
                 if !isShowing { controller.requestEditorFocusRestore() }
             }
@@ -392,8 +395,11 @@ private struct ProjectViewerView: View {
     private var videoArea: some View {
         ZStack {
             Color.black
-            VideoPlayerView(player: viewModel.player)
-                .accessibilityHidden(true)
+            VideoPlayerView(
+                player: viewModel.player,
+                accessibleFrame: controller.project.hasTimelineVideo && !viewModel.isPreparing && viewModel.errorMessage == nil,
+                frameDescription: "Project time \(String(format: "%.3f", viewModel.currentTime.seconds)) seconds, frame \(Int((viewModel.currentTime.seconds * (controller.project.format.frameRate ?? 30)).rounded()))"
+            )
             if !controller.project.tracks.contains(where: { !$0.clips.isEmpty }) {
                 Text("Add a clip to the project timeline")
                     .foregroundStyle(.secondary)

@@ -27,6 +27,7 @@ final class ProjectController: ObservableObject {
     @Published var timelinePlayhead = ProjectTime.zero
     @Published var activeTimelineTrackID: UUID?
     @Published var timelineHasKeyboardFocus = false
+    @Published var generatorRequestID: UUID?
     @Published var transitionRequest: TransitionRequest?
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
@@ -75,6 +76,82 @@ final class ProjectController: ObservableObject {
         for url in accessedURLs { url.stopAccessingSecurityScopedResource() }
         let cacheOwnerID = cacheOwnerID
         Task { await MediaCacheManager.shared.releaseProtectedKeys(owner: cacheOwnerID) }
+    }
+
+    func requestGenerator(editing: EditorSelection? = nil) {
+        projectPlayer?.player.pause()
+        let session = GeneratorSession(controller: self, editing: editing)
+        GeneratorWindowRegistry.shared.sessions[session.id] = session
+        generatorRequestID = session.id
+    }
+
+    func updateGenerator(_ definition: GeneratorDefinition, editing: EditorSelection, expectedProject: TrimatoProject) throws {
+        try definition.validate()
+        guard project == expectedProject else { throw MediaSourceError.unreadable("The project changed while preparing the generator. Try updating again.") }
+        guard let source = asset(for: editing), source.generator != nil,
+              source.hasVideo == (definition.kind != .silence) else { throw ProjectTimelineError.incompatibleTrackKind }
+        let id: UUID
+        switch editing {
+        case .timelineClip(let clipID), .cutaway(let clipID): id = clipID
+        default: throw ProjectTimelineError.clipNotFound
+        }
+        let asset = definition.assetRecord()
+        try mutateProjectThrowing(actionName: "Update Generator") { project in
+            project.media.append(asset)
+            try project.updateTrackClip(id: id, segments: asset.sourceEdit)
+            for track in project.tracks.indices {
+                for clip in project.tracks[track].clips.indices where project.tracks[track].clips[clip].id == id {
+                    project.tracks[track].clips[clip].assetID = asset.id
+                }
+            }
+            if let index = project.cutaways.firstIndex(where: { $0.id == id }) {
+                project.cutaways[index].assetID = asset.id
+                project.cutaways[index].segments = asset.sourceEdit
+            }
+            project.synchronizeTracksToLegacyTimeline()
+            for transition in project.transitions where transition.leadingClipID == id || transition.trailingClipID == id {
+                guard transition.edge != .between else { throw ProjectTimelineError.transitionNotAvailable("Remove the generator’s cross transition before changing its source settings.") }
+                guard transition.duration < definition.duration else { throw ProjectTimelineError.transitionNotAvailable("The generator must be longer than its transition. Shorten or remove the transition first.") }
+            }
+        }
+        announce("Generator updated")
+    }
+
+    func placeGenerator(_ definition: GeneratorDefinition, placement: PlacementAction,
+                        at playhead: ProjectTime, trackID: UUID?, newTrackName: String,
+                        expectedProject: TrimatoProject) throws {
+        guard project == expectedProject else {
+            throw MediaSourceError.unreadable("The project changed while the generator was being prepared. Try adding it again.")
+        }
+        try definition.validate()
+        let asset = definition.assetRecord()
+        var placedID: UUID?
+        var destinationID: UUID?
+        try mutateProjectThrowing(actionName: "Add Generator") { project in
+            project.ensureTrackModel()
+            project.media.append(asset)
+            let target: UUID
+            if let trackID { target = trackID }
+            else {
+                guard !newTrackName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ProjectTimelineError.invalidName }
+                target = project.createTrack(kind: definition.kind.trackKind)
+                try project.renameTrack(id: target, to: newTrackName)
+            }
+            switch placement {
+            case .append: placedID = try project.append(asset: asset, segments: nil, toTrack: target)
+            case .insert: placedID = try project.insert(asset: asset, segments: nil, at: playhead, onTrack: target)
+            case .replaceRemainder: placedID = try project.replaceRemainder(with: asset, segments: nil, at: playhead, onTrack: target)
+            case .cutawayPrimaryAudio, .cutawaySourceAudio:
+                throw ProjectTimelineError.unsupportedPlacement
+            }
+            destinationID = target
+        }
+        if let placedID {
+            activeTimelineTrackID = destinationID
+            selection = .timelineClip(placedID)
+            advanceAfterInsertion(placement, clipID: placedID)
+            announce("Generator added")
+        }
     }
 
     func resolvedMediaURLs() -> [UUID: URL] {
@@ -911,6 +988,7 @@ final class ProjectController: ObservableObject {
     }
 
     func resolveURL(for asset: MediaAssetRecord) -> URL? {
+        if let generator = asset.generator { return try? GeneratorRenderer.cacheURL(for: generator) }
         guard let url = ProjectImportCoordinator.resolveURL(for: asset) else { return nil }
         if !accessedURLs.contains(url), url.startAccessingSecurityScopedResource() {
             accessedURLs.append(url)
@@ -921,6 +999,10 @@ final class ProjectController: ObservableObject {
     func preparedMediaSource(for requestedAsset: MediaAssetRecord) async throws -> MediaSource? {
         guard var asset = project.asset(id: requestedAsset.id),
               let originalURL = resolveURL(for: asset) else { return nil }
+        if let generator = asset.generator {
+            let url = try await GeneratorRenderer.ensure(generator)
+            return .native(url: url, asset: AVURLAsset(url: url), contentType: nil, mode: .nativePlaybackMP4Export, hasVideo: asset.hasVideo, hasAudio: asset.hasAudio)
+        }
         let currentFingerprint = try MediaCacheManager.sourceFingerprint(for: originalURL)
         if asset.playbackMode == nil || asset.sourceFingerprint != currentFingerprint {
             let previousCacheKey = asset.proxyCacheKey
@@ -1190,6 +1272,29 @@ final class ProjectController: ObservableObject {
         }
     }
 
+    func updateClipDraft(_ selection: EditorSelection, segments: [SourceSegment], audio: AudioClipSettings?, filters: [ClipFilter]) throws {
+        for filter in filters { try filter.validate() }
+        try mutateProjectThrowing(actionName: "Update Clip") { project in
+            let id: UUID
+            switch selection {
+            case .timelineClip(let clipID):
+                id = clipID
+                try project.updateTrackClip(id: id, segments: segments)
+            case .cutaway(let clipID):
+                id = clipID
+                try project.updateCutaway(id: id, segments: segments)
+            default: throw ProjectTimelineError.clipNotFound
+            }
+            for trackIndex in project.tracks.indices {
+                guard let index = project.tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) else { continue }
+                project.tracks[trackIndex].clips[index].filters = filters
+                if let audio { project.tracks[trackIndex].clips[index].audioSettings = audio }
+            }
+            project.synchronizeTracksToLegacyTimeline()
+        }
+        announce("Clip updated")
+    }
+
     func updateTimelineEntry(_ selection: EditorSelection, segments: [SourceSegment]) throws {
         switch selection {
         case .timelineClip(let id):
@@ -1261,7 +1366,8 @@ final class ProjectController: ObservableObject {
     func placeThrowing(
         _ placement: PlacementAction,
         editing editSelection: EditorSelection,
-        segments: [SourceSegment]? = nil
+        segments: [SourceSegment]? = nil,
+        audioSettings: AudioClipSettings? = nil, filters: [ClipFilter]? = nil
     ) throws -> UUID {
         guard let asset = asset(for: editSelection) else {
             throw ProjectTimelineError.sourceAssetNotFound
@@ -1280,6 +1386,7 @@ final class ProjectController: ObservableObject {
             case .cutawayPrimaryAudio:
                 selectedID = try project.addCutaway(asset: asset, segments: segments, at: timelinePlayhead, audioMode: .primaryAudio)
             }
+            if let selectedID { try project.setClipEffects(id: selectedID, audio: audioSettings, filters: filters) }
         }
         guard let selectedID else { throw ProjectTimelineError.unsupportedPlacement }
         selection = placement.isCutaway ? .cutaway(selectedID) : .timelineClip(selectedID)
@@ -1293,7 +1400,8 @@ final class ProjectController: ObservableObject {
         _ placement: PlacementAction,
         editing editSelection: EditorSelection,
         segments: [SourceSegment]?,
-        onTrack trackID: UUID
+        onTrack trackID: UUID,
+        audioSettings: AudioClipSettings? = nil, filters: [ClipFilter]? = nil
     ) throws -> UUID {
         guard let asset = asset(for: editSelection) else {
             throw ProjectTimelineError.sourceAssetNotFound
@@ -1310,6 +1418,7 @@ final class ProjectController: ObservableObject {
             case .cutawaySourceAudio, .cutawayPrimaryAudio:
                 throw ProjectTimelineError.unsupportedPlacement
             }
+            if let selectedID { try project.setClipEffects(id: selectedID, audio: audioSettings, filters: filters) }
         }
         guard let selectedID else { throw ProjectTimelineError.unsupportedPlacement }
         activeTimelineTrackID = trackID
@@ -1326,7 +1435,8 @@ final class ProjectController: ObservableObject {
         segments: [SourceSegment],
         trackKind: TimelineTrackKind,
         trackName requestedTrackName: String,
-        audioSettings: AudioClipSettings?
+        audioSettings: AudioClipSettings?,
+        filters: [ClipFilter] = []
     ) throws -> (trackID: UUID, clipID: UUID) {
         guard let asset = asset(for: editSelection) else {
             throw ProjectTimelineError.sourceAssetNotFound
@@ -1371,6 +1481,7 @@ final class ProjectController: ObservableObject {
             if trackKind == .audio, let audioSettings, !audioSettings.isNeutral {
                 try project.updateAudioSettings(clipID: clipID, settings: audioSettings)
             }
+            try project.setClipEffects(id: clipID, audio: nil, filters: filters)
             createdTrackID = trackID
             placedClipID = clipID
         }

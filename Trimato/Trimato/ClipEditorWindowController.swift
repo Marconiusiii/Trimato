@@ -18,8 +18,11 @@ final class ClipPlacementCommandContext: ObservableObject {
     @Published var trackPlacementAction: PlacementAction?
     @Published private(set) var trackPlacementIsAudioOnly = false
     private var draft: ClipEditorDraft
-    private let baselineAudioSettings: AudioClipSettings?
+    private var baselineAudioSettings: AudioClipSettings?
     @Published var audioSettings: AudioClipSettings?
+    @Published var filters: [ClipFilter] = []
+    @Published var effectsReady = true
+    private var baselineFilters: [ClipFilter] = []
 
     init(
         controller: ProjectController,
@@ -42,10 +45,24 @@ final class ClipPlacementCommandContext: ObservableObject {
             baselineAudioSettings = nil
             audioSettings = nil
         }
+        let clipID: UUID?
+        switch editSelection {
+        case .timelineClip(let id), .cutaway(let id): clipID = id
+        default: clipID = nil
+        }
+        filters = clipID.flatMap { controller.project.timelineClip(id: $0)?.filters } ?? []
+        if let settings = audioSettings, let tone = ClipFilter.legacyTone(settings) {
+            if !filters.contains(where: { $0.kind == .tone }) { filters.append(tone) }
+            var gainOnly = AudioClipSettings()
+            gainOnly.gainDecibels = settings.gainDecibels
+            audioSettings = gainOnly
+            baselineAudioSettings = gainOnly
+        }
+        baselineFilters = filters
     }
 
     var canPlace: Bool {
-        isKeyWindow && !segments.isEmpty && NSApp.modalWindow == nil
+        isKeyWindow && effectsReady && !segments.isEmpty && NSApp.modalWindow == nil
     }
 
     var isTimelineEntry: Bool {
@@ -56,11 +73,42 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     var hasUncommittedChanges: Bool {
-        isTimelineEntry && (draft.hasChanges || audioSettings != baselineAudioSettings)
+        isTimelineEntry && (draft.hasChanges || audioSettings != baselineAudioSettings || filters != baselineFilters)
     }
 
     var canUpdate: Bool {
-        isKeyWindow && hasUncommittedChanges && !segments.isEmpty && NSApp.modalWindow == nil
+        isKeyWindow && effectsReady && hasUncommittedChanges && !segments.isEmpty && NSApp.modalWindow == nil
+    }
+
+    func refreshCommittedEffects() {
+        guard isTimelineEntry, !hasUncommittedChanges else { return }
+        let id: UUID
+        switch editSelection {
+        case .timelineClip(let clipID), .cutaway(let clipID): id = clipID
+        default: return
+        }
+        guard let clip = controller.project.timelineClip(id: id) else { return }
+        var refreshed = clip.filters
+        if audioSettings != nil {
+            if let tone = ClipFilter.legacyTone(clip.audioSettings), !refreshed.contains(where: { $0.kind == .tone }) {
+                // Keep identity when refreshing an unchanged legacy Tone setting.
+                var migrated = tone
+                migrated.id = filters.first(where: { $0.kind == .tone })?.id ?? tone.id
+                refreshed.append(migrated)
+            }
+            var gain = AudioClipSettings()
+            gain.gainDecibels = clip.audioSettings.gainDecibels
+            if audioSettings != gain { audioSettings = gain }
+            baselineAudioSettings = gain
+        }
+        if filters != refreshed { filters = refreshed }
+        baselineFilters = refreshed
+    }
+
+    func acceptExternalGeneratorUpdate() {
+        guard let segments = controller.segments(for: editSelection) else { return }
+        self.segments = segments
+        draft = ClipEditorDraft(segments: segments)
     }
 
     func setSegments(_ segments: [SourceSegment]) {
@@ -98,18 +146,16 @@ final class ClipPlacementCommandContext: ObservableObject {
                     placement,
                     editing: editSelection,
                     segments: segments,
-                    onTrack: trackID
+                    onTrack: trackID, audioSettings: audioSettings, filters: filters
                 )
             } else {
                 placedID = try controller.placeThrowing(
                     placement,
                     editing: editSelection,
-                    segments: segments
+                    segments: segments, audioSettings: audioSettings, filters: filters
                 )
             }
-            if let audioSettings, !audioSettings.isNeutral {
-                try controller.updateAudioSettings(clipID: placedID, settings: audioSettings)
-            }
+
             return placedID
         } catch {
             presentPlacementError(placement, trackID: trackID, message: error.localizedDescription)
@@ -155,7 +201,7 @@ final class ClipPlacementCommandContext: ObservableObject {
                 segments: segments,
                 trackKind: kind,
                 trackName: name,
-                audioSettings: audioSettings
+                audioSettings: audioSettings, filters: filters
             ).clipID
         } catch {
             presentPlacementError(placement, trackID: nil, message: error.localizedDescription)
@@ -174,10 +220,9 @@ final class ClipPlacementCommandContext: ObservableObject {
             return false
         }
         do {
-            try controller.updateTimelineEntry(editSelection, segments: segments)
-            if case .timelineClip(let id) = editSelection, let audioSettings {
-                try controller.updateAudioSettings(clipID: id, settings: audioSettings)
-            }
+            try controller.updateClipDraft(editSelection, segments: segments, audio: audioSettings, filters: filters)
+            baselineAudioSettings = audioSettings
+            baselineFilters = filters
             objectWillChange.send()
             draft.commit()
             return true

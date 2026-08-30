@@ -155,6 +155,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var editTimeline: ClipEditTimeline?
     private var basePlaybackAsset: AVAsset?
     private var activeAudioPreviewURL: URL?
+    private var filteredPreviewIsAudio: Bool?
     private var editedFrameTimestamps: [CMTime] = []
     private var proxyURL: URL?
     private var timeObserver: Any?
@@ -536,6 +537,15 @@ final class VideoPlayerViewModel: ObservableObject {
         hasVideo = false
     }
 
+    func applyFilteredPreview(at url: URL, audio: Bool) async throws {
+        let asset = AVURLAsset(url: url)
+        guard try await asset.loadTracks(withMediaType: audio ? .audio : .video).first != nil else {
+            throw AudioPreviewPlaybackError.unavailable
+        }
+        filteredPreviewIsAudio = audio
+        replacePlaybackAsset(asset, previewURL: url)
+    }
+
     func applyAudioPreview(at url: URL) async throws {
         let asset = AVURLAsset(url: url)
         guard try await asset.loadTracks(withMediaType: .audio).first != nil else {
@@ -545,6 +555,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func restoreUnprocessedAudioPreview() {
+        filteredPreviewIsAudio = nil
         guard let basePlaybackAsset else { return }
         replacePlaybackAsset(basePlaybackAsset, previewURL: nil)
     }
@@ -697,9 +708,12 @@ final class VideoPlayerViewModel: ObservableObject {
         jump(to: point)
     }
 
+    var clipEffectsReady = true
+
     func exportTrimmedClip() {
+        guard clipEffectsReady else { announce("Wait for a valid clip preview before exporting"); return }
         guard NSApp.modalWindow == nil, !isExporting, !isPresentingExportPanel, !isApplyingEdit else { return }
-        guard let mediaSource, let editTimeline else {
+        guard var mediaSource, let editTimeline else {
             announce("Open a media file before exporting")
             return
         }
@@ -713,7 +727,12 @@ final class VideoPlayerViewModel: ObservableObject {
             announce("Set both In and Out, with In earlier than Out, or clear both markers")
             return
         }
-        let sourceRanges = editTimeline.sourceRanges(in: editedExportRange)
+        var sourceRanges = editTimeline.sourceRanges(in: editedExportRange)
+        if let previewURL = activeAudioPreviewURL {
+            let filteredAsset = AVURLAsset(url: previewURL)
+            mediaSource = .native(url: previewURL, asset: filteredAsset, contentType: .quickTimeMovie, mode: .nativePlaybackMP4Export, hasVideo: filteredPreviewIsAudio == false, hasAudio: filteredPreviewIsAudio == true)
+            sourceRanges = [editedExportRange ?? CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 60000))]
+        }
         guard !sourceRanges.isEmpty else {
             announce("The selected portion does not contain exportable media")
             return

@@ -181,6 +181,10 @@ struct TrimatoApp: App {
                 )
             }
             CommandMenu("Timeline") {
+                Button("Generator…") { projectController?.requestGenerator() }
+                    .keyboardShortcut("g", modifiers: .command)
+                    .disabled(projectController == nil)
+                Divider()
                 Button("Blade at Playhead (Command-B)") { projectController?.splitClipAtPlayhead() }
                     .disabled(projectController?.project.primaryTimeline.isEmpty != false)
                 Button("Add Transition…") { projectController?.requestTransitionForSelection() }
@@ -218,6 +222,15 @@ struct TrimatoApp: App {
                 .disabled(projectController?.activeTimelineTrack?.kind != .audio)
             }
         }
+
+        WindowGroup("Generator", id: "generator", for: UUID.self) { $id in
+            if let id, let session = GeneratorWindowRegistry.shared.sessions[id] {
+                GeneratorView(session: session)
+            } else {
+                Text("Open a Generator from the project Editor.").padding()
+            }
+        }
+        .defaultSize(width: 560, height: 650)
 
         WindowGroup("Clip Editor", for: URL.self) { $url in
             if let url {

@@ -270,7 +270,7 @@ enum FFmpegTimelineEffectRenderer {
             "asetpts=PTS-STARTPTS[outa]"
     }
 
-    static func audioFilter(for settings: AudioClipSettings) -> String? {
+    nonisolated static func audioFilter(for settings: AudioClipSettings) -> String? {
         var filters: [String] = []
         if settings.gainDecibels != 0 {
             filters.append("volume=\(number(settings.gainDecibels))dB")
@@ -356,7 +356,7 @@ enum FFmpegTimelineEffectRenderer {
         return number(stable)
     }
 
-    private static func number(_ value: Double) -> String {
+    nonisolated private static func number(_ value: Double) -> String {
         String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), value)
             .replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
     }

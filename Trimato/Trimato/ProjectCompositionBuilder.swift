@@ -152,10 +152,11 @@ enum ProjectCompositionBuilder {
         progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> ProjectCompositionResult {
         guard project.tracks.contains(where: { !$0.clips.isEmpty }) else { throw ProjectCompositionError.emptyTimeline }
+        let (project, mediaURLs, filteredURLs) = try await ClipFilterRenderer.prepare(project: project, urls: mediaURLs)
         let composition = AVMutableComposition()
         var primaryVideo: AVMutableCompositionTrack?
         var cutawayVideo: AVMutableCompositionTrack?
-        var additionalVideoTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)])] = []
+        var additionalVideoTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)], source: TimelineTrack?)] = []
         var additionalAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
         var transitionAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
 
@@ -172,7 +173,7 @@ enum ProjectCompositionBuilder {
             )
         }
         var assets: [UUID: AVURLAsset] = [:]
-        var temporaryMediaURLs: [URL] = []
+        var temporaryMediaURLs: [URL] = filteredURLs
         var shouldPreserveTemporaryMedia = false
         defer {
             if !shouldPreserveTemporaryMedia {
@@ -255,7 +256,7 @@ enum ProjectCompositionBuilder {
                     primaryVideo = compositionTrack
                     primaryTransforms = transforms
                 } else {
-                    additionalVideoTracks.append((compositionTrack, transforms))
+                    additionalVideoTracks.append((compositionTrack, transforms, timelineTrack))
                 }
             } else {
                 guard let compositionTrack = composition.addMutableTrack(
@@ -456,7 +457,7 @@ enum ProjectCompositionBuilder {
                 additionalVideoTracks.append((transitionTrack, [(
                     ProjectTimeRange(start: start, duration: transition.duration),
                     CGAffineTransform.identity
-                )]))
+                )], nil))
                 _ = renderSize
             }
         }
@@ -479,7 +480,8 @@ enum ProjectCompositionBuilder {
                 cutaways: project.cutaways,
                 additionalTracks: additionalVideoTracks,
                 transitions: project.transitions,
-                primaryTimelineTrack: project.tracks.first(where: { $0.role == .primaryVideo })
+                primaryTimelineTrack: project.tracks.first(where: { $0.role == .primaryVideo }),
+                timelineTracks: project.tracks
             )
             videoComposition = composition
         } else {
@@ -577,6 +579,11 @@ enum ProjectCompositionBuilder {
         temporaryMediaURLs: inout [URL]
     ) async throws -> AVURLAsset {
         if let cached = cache[record.id] { return cached }
+        if let generator = record.generator {
+            let asset = AVURLAsset(url: try await GeneratorRenderer.ensure(generator))
+            cache[record.id] = asset
+            return asset
+        }
         guard let url = urls[record.id] else { throw ProjectCompositionError.missingMedia(record.name) }
         if mediaSelection(for: record, purpose: purpose) == .playbackProxy,
            let cacheKey = record.proxyCacheKey {
@@ -650,29 +657,26 @@ enum ProjectCompositionBuilder {
         cutawayTrack: AVCompositionTrack?,
         cutawayTransforms: [(ProjectTimeRange, CGAffineTransform)],
         cutaways: [TimelineCutaway],
-        additionalTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)])],
+        additionalTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)], source: TimelineTrack?)],
         transitions: [TimelineTransition],
-        primaryTimelineTrack: TimelineTrack?
+        primaryTimelineTrack: TimelineTrack?,
+        timelineTracks: [TimelineTrack]
     ) -> [AVVideoCompositionInstructionProtocol] {
         var boundaries = [ProjectTime.zero, duration]
         boundaries.append(contentsOf: primaryTransforms.flatMap { [$0.0.start, $0.0.end] })
         boundaries.append(contentsOf: cutaways.flatMap { [$0.start, $0.end] })
         boundaries.append(contentsOf: additionalTracks.flatMap { $0.transforms.flatMap { [$0.0.start, $0.0.end] } })
-        if let primaryTimelineTrack {
-            for transition in transitions where transition.trackID == primaryTimelineTrack.id {
-                guard case .video(.fade) = transition.kind else { continue }
-                if transition.edge == .intro,
-                   let id = transition.trailingClipID,
-                   let clip = primaryTimelineTrack.clips.first(where: { $0.id == id }) {
-                    boundaries.append(contentsOf: [clip.timelineStart, clip.timelineStart + transition.duration])
-                } else if transition.edge == .outro,
-                          let id = transition.leadingClipID,
-                          let clip = primaryTimelineTrack.clips.first(where: { $0.id == id }) {
-                    boundaries.append(contentsOf: [clip.timelineEnd - transition.duration, clip.timelineEnd])
-                }
+        let sourceTracks = timelineTracks.filter { $0.kind == .video }
+        for source in sourceTracks {
+            for transition in transitions where transition.trackID == source.id {
+                guard case .video(.fade) = transition.kind,
+                      let id = transition.edge == .intro ? transition.trailingClipID : transition.leadingClipID,
+                      let clip = source.clips.first(where: { $0.id == id }) else { continue }
+                let fadeStart = transition.edge == .intro ? clip.timelineStart : clip.timelineEnd - transition.duration
+                boundaries.append(contentsOf: [fadeStart, fadeStart + transition.duration])
             }
         }
-        boundaries = Array(Set(boundaries)).sorted()
+        boundaries = Array(Set(boundaries.filter { $0 >= .zero && $0 <= duration })).sorted()
 
         return zip(boundaries, boundaries.dropFirst()).compactMap { start, end in
             guard end > start else { return nil }
@@ -686,47 +690,54 @@ enum ProjectCompositionBuilder {
             if let primaryLayer,
                let transform = primaryTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
                 primaryLayer.setTransform(transform, at: start.cmTime)
-                if let primaryTimelineTrack {
-                    for transition in transitions where transition.trackID == primaryTimelineTrack.id {
-                        guard case .video(.fade) = transition.kind else { continue }
-                        if transition.edge == .intro,
-                           let id = transition.trailingClipID,
-                           let clip = primaryTimelineTrack.clips.first(where: { $0.id == id }),
-                           start == clip.timelineStart {
-                            primaryLayer.setOpacityRamp(
-                                fromStartOpacity: 0,
-                                toEndOpacity: 1,
-                                timeRange: ProjectTimeRange(start: start, duration: transition.duration).cmTimeRange
-                            )
-                        } else if transition.edge == .outro,
-                                  let id = transition.leadingClipID,
-                                  let clip = primaryTimelineTrack.clips.first(where: { $0.id == id }),
-                                  start == clip.timelineEnd - transition.duration {
-                            primaryLayer.setOpacityRamp(
-                                fromStartOpacity: 1,
-                                toEndOpacity: 0,
-                                timeRange: ProjectTimeRange(start: start, duration: transition.duration).cmTimeRange
-                            )
-                        }
-                    }
-                }
+                applyVideoFades(to: primaryLayer, source: primaryTimelineTrack, transitions: transitions, start: start, end: end)
             }
             var layers: [AVVideoCompositionLayerInstruction] = []
             for item in additionalTracks.reversed() {
                 guard let transform = item.transforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 else { continue }
                 let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: item.track)
                 layer.setTransform(transform, at: start.cmTime)
+                applyVideoFades(to: layer, source: item.source, transitions: transitions, start: start, end: end)
                 layers.append(layer)
             }
             if let cutawayTrack,
                let cutawayTransform = cutawayTransforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 {
                 let cutawayLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: cutawayTrack)
                 cutawayLayer.setTransform(cutawayTransform, at: start.cmTime)
+                if let cutaway = cutaways.first(where: { start >= $0.start && start < $0.end }) {
+                    let source = timelineTracks.first { $0.clips.contains { $0.id == cutaway.id } }
+                    applyVideoFades(to: cutawayLayer, source: source, transitions: transitions, start: start, end: end)
+                }
                 layers.append(cutawayLayer)
             }
             layers.append(contentsOf: [primaryLayer].compactMap { $0 })
             instruction.layerInstructions = layers
             return instruction
+        }
+    }
+
+    // Each instruction covers only one interval, including boundaries introduced by other tracks.
+    // Continue the opacity envelope at the interval's actual position rather than restarting it.
+    private static func applyVideoFades(
+        to layer: AVMutableVideoCompositionLayerInstruction,
+        source: TimelineTrack?, transitions: [TimelineTransition],
+        start: ProjectTime, end: ProjectTime
+    ) {
+        guard let source else { return }
+        for transition in transitions where transition.trackID == source.id {
+            guard case .video(.fade) = transition.kind,
+                  let id = transition.edge == .intro ? transition.trailingClipID : transition.leadingClipID,
+                  let clip = source.clips.first(where: { $0.id == id }) else { continue }
+            let fadeStart = transition.edge == .intro ? clip.timelineStart : clip.timelineEnd - transition.duration
+            let fadeEnd = fadeStart + transition.duration
+            guard start >= fadeStart, end <= fadeEnd, transition.duration.isPositive else { continue }
+            let fractionStart = Float((start - fadeStart).seconds / transition.duration.seconds)
+            let fractionEnd = Float((end - fadeStart).seconds / transition.duration.seconds)
+            layer.setOpacityRamp(
+                fromStartOpacity: transition.edge == .intro ? fractionStart : 1 - fractionStart,
+                toEndOpacity: transition.edge == .intro ? fractionEnd : 1 - fractionEnd,
+                timeRange: ProjectTimeRange(start: start, duration: end - start).cmTimeRange
+            )
         }
     }
 

@@ -30,8 +30,9 @@ nonisolated enum TransitionDurationInput {
 
 struct TransitionDurationField: View {
     @Binding var text: String
+    var label: String = TransitionDurationInput.accessibilityLabel
 
     var body: some View {
-        TextField(TransitionDurationInput.accessibilityLabel, text: $text)
+        TextField(label, text: $text)
     }
 }

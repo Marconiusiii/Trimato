@@ -60,6 +60,8 @@
 
     <h2>After an unexpected shutdown</h2>
     <p>If Trimato, Xcode, or macOS stops the app abruptly, normal closing code may not run. macOS can remove files from the temporary folder later. Trimato also removes abandoned full-quality export preparation files older than one day when it prepares another such file. Trimato does not currently perform the same startup scan for abandoned transition or adjusted-audio renders.</p>
+    <h2>Generated and filtered media</h2>
+    <p>Generator definitions are part of the project. Their disposable playback files are stored in the application cache and regenerated when missing. Filter preparation uses temporary media that is removed when its preview or export is released. Long sources require additional preparation time and disk space. Existing playback proxy cache totals do not include generator playback files or filter intermediates.</p>
 </main>
 <footer><p><a href="troubleshooting.html">Related topic: Resolve common problems</a></p></footer>
 </body>

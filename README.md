@@ -22,7 +22,9 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Split, rename, delete, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
 - Pick up a Timeline clip with Space, choose its position with arrow keys, and drop it with Space as one undoable move. On additional tracks, plain arrows also nudge the focused clip one project frame without pickup and without overlapping neighboring clips.
 - Add, edit, and remove video fades, cross dissolves, directional wipes, audio fades, and cross fades as independent timeline elements.
-- Adjust gain, equalization, high-pass filtering, and low-pass filtering for clips on audio tracks.
+- Create saved Black, Solid Color, Static Gradient, and Silence generators from a native Generator window.
+- Apply curated video and audio filters to individual timeline clips, with editable parameters, bypass, reset, and removal. Basic audio gain remains separate.
+- Reach the displayed Video frame as a VoiceOver image above the Editor playhead slider.
 - Mute audio tracks for both preview and export without removing their clips or changing their timing.
 - Preview and export the complete arranged project as H.264 or HEVC MP4, H.264 or HEVC QuickTime, ProRes 422 LT, ProRes 422, ProRes 422 HQ, M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, or 24-bit WAV.
 - Open audio and video files from the File menu, Finder, drag and drop, or Command-O.
@@ -90,6 +92,7 @@ These commands apply while focus is in Editor or Clip Editor. Timeline Clips use
 - Option-Command-Down Arrow: Select the next timeline track and announce its direct-edit clip.
 - Option-Command-Left Arrow: Move the focused clip one position earlier on a primary track, or nudge it one frame earlier on an additional track. If a clip is picked up, adjust that clip instead.
 - Option-Command-Right Arrow: Move the focused clip one position later on a primary track, or nudge it one frame later on an additional track. If a clip is picked up, adjust that clip instead.
+- Command-G: Open Generator from the project Editor.
 - F: Open Quick Fade for the clip at the Editor playhead.
 - X: Open Quick Cross Dissolve or Quick Cross Fade for the edit at the Editor playhead.
 
@@ -110,6 +113,29 @@ The clip context menu provides a movement-selection toggle and one Move To… su
 Media can also be dragged from Finder into the Project Browser. Native menus provide placement, movement, and editing commands.
 
 Editor shortcuts remain available while focus is on any editor control. Native import, open, save, and export panels retain their own keyboard behavior.
+
+## Generators and clip filters
+
+With a project open, choose Timeline > Generator or press Command-G. The Generator window captures the project playhead and pauses Editor playback. Choose Black, Solid Color, Static Gradient, or Silence; set the relevant parameters and duration in seconds or whole project frames. Video generators use the project format, or 1920 by 1080 at 30 frames per second when it has not been resolved. Silence supports mono or stereo.
+
+Choose a compatible Destination Track or New Track and a name. Preview explicitly starts the generator preview; Stop stops preview or cancels preparation. Append, Insert and Split, and Insert and Overwrite use the captured playhead where applicable. Insert on Top in New Video Track creates an additional video track at that position. Insert and Split advances the project playhead to the new clip's end. Preparation must finish before the project changes; adding the source, track when needed, and clip is one Undo operation.
+
+Generator definitions are saved in the project. Their playback files are internal cache files and can be regenerated without relinking an external source. Open a generated timeline clip in Clip Editor and choose Edit Generator to change its settings or duration. Update any pending clip edits first. Updating a generator creates a separate source for that instance, leaving other copies unchanged.
+
+Open a timeline video or audio clip, then choose Add Filter. The Filters section appears only when at least one filter has been added, including disabled filters. Each filter has an Enable checkbox, relevant parameters, Reset, and Remove. Activate Update Clip to save the draft settings and edit together as one Undo operation. Other instances of the source are unaffected. Gain remains in the Audio group; existing EQ and frequency filtering appear as Tone.
+
+| Video filters | Audio filters |
+| --- | --- |
+| Brightness and Contrast | Tone |
+| Color Adjustment | Reduce Background Noise |
+| Black and White | Even Out Volume |
+| Sharpen | Match Loudness |
+| Reduce Video Noise | |
+| Crop and Orientation | |
+
+Filters use a fixed processing order and the same processing path for playback and export. Preparing filtered media can take time, especially with long sources and video noise reduction. No animation, keyframes, or general compositing controls are included.
+
+The Editor exposes its displayed picture as a Video frame image directly above the project playhead slider, with a project time and frame value. VoiceOver image-description commands remain macOS commands. The availability and quality of descriptions depend on macOS and require hands-on VoiceOver testing; focusing the image does not start playback or change the playhead.
 
 ## Editing model
 
@@ -142,10 +168,10 @@ VoiceOver focus in Timeline clips identifies the target clip or transition for t
 
 The direct-edit clip is remembered separately for each track. When no clip has been remembered, Trimato resolves the clip at the Editor playhead, preferring an incoming clip at an edit point, then a clip containing the playhead, the next clip, or the last earlier clip. Command-[ and Command-] trim that clip to the shared project playhead while VoiceOver stays in Editor. Plain [ and ] reposition the complete clip on an additional track without trimming its stored source. Press C from Editor to open the direct-edit clip. Timeline clipboard commands operate only on the focused track item and require matching video or audio track types.
 
-Press Command-T in the Editor to add a transition at the playhead, or press it on a focused Timeline clips item. In the Editor, press F to open Quick Fade for the clip at the playhead. Press X at an edit between clips to open Quick Cross Dissolve on a video track or Quick Cross Fade on an audio track. Duration is entered in seconds and accepts fractional values such as `1.25`. Video transition sheets can also apply a linked audio fade or cross fade when audio is available.
+Press Command-T in the Editor to add a transition at the playhead, or press it on a focused Timeline clips item. In the Editor, press F to open Quick Fade for the clip at the playhead. Press X at an edit between clips to open Quick Cross Dissolve on a video track or Quick Cross Fade on an audio track. Duration is entered in seconds and accepts fractional values such as `1.25`. For Fade, selecting Intro shows Fade In Duration in Seconds; selecting Outro shows Fade Out Duration in Seconds. These values are independent and remain available if a checkbox is cleared and checked again. Video transition sheets can also apply a linked audio fade or cross fade when audio is available.
 
-- Fade In: Gradually changes the selected video from black to the clip.
-- Fade Out: Gradually changes the selected video from the clip to black.
+- Fade In: Gradually reveals the clip. On additional video tracks, underlying video remains visible during the fade.
+- Fade Out: Gradually hides the clip, revealing underlying video on additional tracks. Where no picture is underneath, the background is black.
 - Audio Fade In: Gradually raises the clip audio from silence.
 - Audio Fade Out: Gradually lowers the clip audio to silence.
 - Cross Dissolve: Fades the incoming picture over the outgoing picture across their shared edit. Crossfade Audio blends both clips' audio at the same time.
