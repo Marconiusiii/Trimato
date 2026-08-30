@@ -44,6 +44,10 @@ final class ProjectController: ObservableObject {
     @Published private(set) var isPresentingExportPanel = false
     @Published private(set) var copiedTimelineClipID: UUID?
     @Published private(set) var movingTimelineClipID: UUID?
+    @Published private(set) var movementPreview: TrimatoProject?
+    private var movementBaseline: TrimatoProject?
+    private var movementNudgeOrigin: TrimatoProject?
+    private var movementNudgeFrames = 0
     private(set) var timelineFocusRestoreTarget: TimelineElementSelection?
 
     private var cancellables: Set<AnyCancellable> = []
@@ -670,40 +674,104 @@ final class ProjectController: ObservableObject {
         return .timelineClip(clip.id)
     }
 
-    func toggleClipMovement(id: UUID) {
-        guard let clip = project.timelineClip(id: id) else { return }
-        if movingTimelineClipID == id {
-            finishClipMovement()
-        } else {
-            movingTimelineClipID = id
-            selection = .timelineClip(id)
-            announce("\(clip.displayName) selected for moving. Use arrows to move, or focus a destination and choose Move To.")
+    func currentTimelineClip(at time: ProjectTime) -> TimelineClip? {
+        activeTimelineTrack?.sortedClips.first {
+            time >= $0.visibleTimelineStart && time < $0.visibleTimelineEnd
         }
     }
 
+    func toggleClipMovement(id: UUID) {
+        if movingTimelineClipID != nil { finishClipMovement() }
+        else { beginClipMovement(id: id) }
+    }
+
+    func beginClipMovement(id: UUID) {
+        guard movingTimelineClipID == nil, let clip = project.timelineClip(id: id) else { return }
+        movementBaseline = project
+        movementPreview = project
+        movementNudgeOrigin = project
+        movementNudgeFrames = 0
+        movingTimelineClipID = id
+        selection = .timelineClip(id)
+        announce("Moving \(clip.displayName). \(movementPositionDescription ?? "")")
+    }
+
+    var movementPositionDescription: String? {
+        guard let id = movingTimelineClipID, let preview = movementPreview,
+              let track = preview.tracks.first(where: { $0.clips.contains { $0.id == id } }),
+              let index = track.sortedClips.firstIndex(where: { $0.id == id }) else { return nil }
+        if track.role == .additional {
+            return Self.nudgePositionDescription(clip: track.sortedClips[index], track: track, project: preview)
+        }
+        return "Position \(index + 1) of \(track.clips.count), \(track.name) track"
+    }
+
     func finishClipMovement() {
+        guard let id = movingTimelineClipID, let preview = movementPreview,
+              let baseline = movementBaseline else { return }
+        let name = preview.timelineClip(id: id)?.displayName ?? "Clip"
+        clearClipMovement()
+        guard project == baseline else {
+            announce("Clip movement cancelled because the project changed")
+            return
+        }
+        apply(preview, undoingTo: baseline, actionName: "Move Timeline Clip")
+        if let track = project.tracks.first(where: { $0.clips.contains { $0.id == id } }) {
+            activeTimelineTrackID = track.id
+        }
+        selection = .timelineClip(id)
+        requestTimelineFocusRestore(to: .clip(id))
+        announce("Dropped \(name)")
+    }
+
+    func cancelClipMovement() {
         guard movingTimelineClipID != nil else { return }
+        clearClipMovement()
+        announce("Clip movement cancelled")
+    }
+
+    private func clearClipMovement() {
         movingTimelineClipID = nil
-        announce("Clip movement finished")
+        movementPreview = nil
+        movementBaseline = nil
+        movementNudgeOrigin = nil
+        movementNudgeFrames = 0
     }
 
     var clipMovementSourceID: UUID? { movingTimelineClipID ?? copiedTimelineClipID }
 
     func canMoveClip(to destination: TimelineMoveDestination, targetID: UUID) -> Bool {
-        guard let sourceID = clipMovementSourceID,
-              let source = project.tracks.first(where: { $0.clips.contains { $0.id == sourceID } }),
+        let sourceID = movingTimelineClipID ?? targetID
+        guard let source = project.tracks.first(where: { $0.clips.contains { $0.id == sourceID } }),
               let target = (destination == .start || destination == .end) ? activeTimelineTrack : project.tracks.first(where: { $0.clips.contains { $0.id == targetID } }),
               source.kind == target.kind else { return false }
         return destination == .start || destination == .end || sourceID != targetID
     }
 
-    func moveClip(to destination: TimelineMoveDestination, targetID: UUID) {
-        guard let sourceID = clipMovementSourceID else {
-            announce("Select a clip for moving with Space, or copy a clip first")
-            return
+    func previewClipMovement(to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID? = nil) -> Bool {
+        guard let id = movingTimelineClipID, var preview = movementBaseline else { return false }
+        guard project == movementBaseline else { cancelClipMovement(); return false }
+        do {
+            try preview.moveTrackClip(id: id, to: destination, targetID: targetID, destinationTrackID: destinationTrackID)
+            guard preview != movementPreview else { return true }
+            movementPreview = preview
+            movementNudgeOrigin = preview
+            movementNudgeFrames = 0
+            announce(movementPositionDescription)
+            return true
+        } catch {
+            announce(error.localizedDescription)
+            return false
         }
-        moveTimelineClip(id: sourceID, to: destination, targetID: targetID,
-                         destinationTrackID: (destination == .start || destination == .end) ? activeTimelineTrackID : nil)
+    }
+
+    func moveClip(to destination: TimelineMoveDestination, targetID: UUID) {
+        let trackID = (destination == .start || destination == .end) ? activeTimelineTrackID : nil
+        if movingTimelineClipID != nil {
+            if previewClipMovement(to: destination, targetID: targetID, destinationTrackID: trackID) { finishClipMovement() }
+        } else {
+            moveTimelineClip(id: targetID, to: destination, targetID: targetID, destinationTrackID: trackID)
+        }
     }
 
     func moveTimelineClip(id: UUID, to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID? = nil) {
@@ -719,8 +787,58 @@ final class ProjectController: ObservableObject {
     }
 
     func moveMarkedClip(by offset: Int) {
-        guard let id = movingTimelineClipID else { return }
-        moveTimelineClip(id: id, by: offset)
+        guard let id = movingTimelineClipID, let preview = movementPreview,
+              let track = preview.tracks.first(where: { $0.clips.contains { $0.id == id } }),
+              let index = track.sortedClips.firstIndex(where: { $0.id == id }) else { return }
+        if track.role == .additional {
+            nudgeTimelineClip(id: id, by: offset)
+            return
+        }
+        guard track.sortedClips.indices.contains(index + offset) else {
+            announce(offset < 0 ? "Start of track" : "End of track")
+            return
+        }
+        _ = previewClipMovement(to: offset < 0 ? .before : .after, targetID: track.sortedClips[index + offset].id)
+    }
+
+    func canNudgeTimelineClip(id: UUID) -> Bool {
+        project.tracks.contains { $0.role == .additional && $0.clips.contains { $0.id == id } }
+    }
+
+    func moveFocusedTimelineClip(id: UUID, by offset: Int) {
+        if movingTimelineClipID != nil { moveMarkedClip(by: offset) }
+        else if canNudgeTimelineClip(id: id) { nudgeTimelineClip(id: id, by: offset) }
+    }
+
+    private func nudgeTimelineClip(id: UUID, by offset: Int) {
+        guard offset != 0 else { return }
+        do {
+            if movingTimelineClipID == id {
+                guard project == movementBaseline else { cancelClipMovement(); return }
+                guard var preview = movementNudgeOrigin else { return }
+                let frames = movementNudgeFrames + offset
+                try preview.nudgeAdditionalTrackClip(id: id, byFrames: frames)
+                movementNudgeFrames = frames
+                movementPreview = preview
+                announce(movementPositionDescription)
+            } else {
+                try mutateProjectThrowing(actionName: "Nudge Timeline Clip") {
+                    try $0.nudgeAdditionalTrackClip(id: id, byFrames: offset)
+                }
+                guard let track = project.tracks.first(where: { $0.clips.contains { $0.id == id } }),
+                      let clip = track.clips.first(where: { $0.id == id }) else { return }
+                // Updating the time does not select the clip, move the playhead,
+                // or request a focus reset. Neighboring clips stay where they are.
+                announce("\(clip.displayName), \(Self.nudgePositionDescription(clip: clip, track: track, project: project))")
+            }
+        } catch { announce(error.localizedDescription) }
+    }
+
+    private static func nudgePositionDescription(clip: TimelineClip, track: TimelineTrack, project: TrimatoProject) -> String {
+        let rate = project.format.frameRate ?? 30
+        let frameRate = rate.isFinite && rate > 0 ? rate : 30
+        let frame = Int((clip.timelineStart.seconds * frameRate).rounded())
+        return "Start at frame \(frame), \(track.name) track"
     }
 
     private func moveTimelineClip(id: UUID, by offset: Int) {
@@ -783,7 +901,13 @@ final class ProjectController: ObservableObject {
     }
 
     func moveCopiedTimelineClip(after targetID: UUID) {
-        moveClip(to: .after, targetID: targetID)
+        if movingTimelineClipID != nil {
+            moveClip(to: .after, targetID: targetID)
+        } else if let copiedTimelineClipID {
+            moveTimelineClip(id: copiedTimelineClipID, to: .after, targetID: targetID)
+        } else {
+            announce("Copy a Timeline clip first")
+        }
     }
 
     func resolveURL(for asset: MediaAssetRecord) -> URL? {
@@ -1326,7 +1450,11 @@ final class ProjectController: ObservableObject {
 
     func moveSelectedClip(by offset: Int) {
         guard let clip = selectedTimelineClip else { return }
-        moveTimelineClip(id: clip.id, by: offset)
+        if movingTimelineClipID != nil || canNudgeTimelineClip(id: clip.id) {
+            moveFocusedTimelineClip(id: clip.id, by: offset)
+        } else {
+            moveTimelineClip(id: clip.id, by: offset)
+        }
     }
 
     func moveSelectedClipToBeginning() {
@@ -1358,8 +1486,8 @@ final class ProjectController: ObservableObject {
 
     private func apply(_ project: TrimatoProject, undoingTo previous: TrimatoProject, actionName: String) {
         guard project != previous else { return }
+        if movingTimelineClipID != nil { clearClipMovement() }
         document.project = project
-        if let id = movingTimelineClipID, project.timelineClip(id: id) == nil { movingTimelineClipID = nil }
         timelineContentRevision += 1
         updateCacheProtection(for: project)
         if let undoManager = projectUndoManager {

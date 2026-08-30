@@ -7,6 +7,239 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MultiTrackTimelineTests {
+    @Test(arguments: [24.0, 25.0, 30_000.0 / 1_001.0, 60.0])
+    func plainArrowsNudgeFocusedAdditionalClipOneProjectFrame(frameRate: Double) throws {
+        let asset = fixtureAsset(name: "Effect", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .audio, name: "Effects")
+        let first = try project.append(asset: asset, segments: [segment(0, 2)], toTrack: track)
+        let second = try project.append(asset: asset, segments: [segment(2, 2)], toTrack: track)
+        project.tracks[0].clips[0].timelineStart = ProjectTime(seconds: 1)
+        project.tracks[0].clips[1].timelineStart = ProjectTime(seconds: 5)
+        project.format.frameRate = frameRate
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.timelinePlayhead = ProjectTime(seconds: 3)
+        controller.focusTimelineElement(.clip(second))
+        let focusRequests = controller.timelineFocusRestoreRequest
+        // The event target wins even if the Inspector was on another clip.
+        controller.moveFocusedTimelineClip(id: first, by: 1)
+        #expect(controller.project.timelineClip(id: first)?.timelineStart == ProjectTime(seconds: 1) + ProjectTime(seconds: 1 / frameRate))
+        #expect(controller.project.timelineClip(id: second) == project.timelineClip(id: second))
+        #expect(controller.project.timelineClip(id: first)?.segments == project.timelineClip(id: first)?.segments)
+        #expect(controller.movingTimelineClipID == nil)
+        #expect(controller.timelinePlayhead == ProjectTime(seconds: 3))
+        #expect(controller.timelineFocusRestoreRequest == focusRequests)
+        controller.moveFocusedTimelineClip(id: first, by: -1)
+        #expect(controller.project == project)
+    }
+
+    @Test func nudgesStopAtNeighborsWithoutMovingOrOverwritingThem() throws {
+        let asset = fixtureAsset(name: "Effect", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .audio, name: "Effects")
+        let first = try project.append(asset: asset, segments: [segment(0, 2)], toTrack: track)
+        let second = try project.append(asset: asset, segments: [segment(2, 2)], toTrack: track)
+        project.format.frameRate = 25
+        project.tracks[0].clips[1].timelineStart = ProjectTime(seconds: 2.04)
+        try project.nudgeAdditionalTrackClip(id: second, byFrames: -1)
+        #expect(project.timelineClip(id: second)?.timelineStart == project.timelineClip(id: first)?.timelineEnd)
+        let touching = project
+        #expect(throws: ProjectTimelineError.clipPositionOverlap("Effects")) {
+            try project.nudgeAdditionalTrackClip(id: second, byFrames: -1)
+        }
+        #expect(project == touching)
+        #expect(throws: ProjectTimelineError.clipPositionOverlap("Effects")) {
+            try project.nudgeAdditionalTrackClip(id: first, byFrames: 1)
+        }
+        #expect(project == touching)
+        #expect(throws: ProjectTimelineError.clipNudgeBeforeTimeline) {
+            try project.nudgeAdditionalTrackClip(id: first, byFrames: -1)
+        }
+        #expect(project == touching)
+    }
+
+    @Test func aFrameNudgeCannotJumpAcrossASubframeNeighbor() throws {
+        let asset = fixtureAsset(name: "Tick", duration: 1)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .audio, name: "Ticks")
+        let first = try project.append(asset: asset, segments: [segment(0, 0.001)], toTrack: track)
+        _ = try project.append(asset: asset, segments: [segment(0.01, 0.001)], toTrack: track)
+        project.tracks[0].clips[1].timelineStart = ProjectTime(seconds: 0.01)
+        let before = project
+        #expect(throws: ProjectTimelineError.clipPositionOverlap("Ticks")) {
+            try project.nudgeAdditionalTrackClip(id: first, byFrames: 1)
+        }
+        #expect(project == before)
+    }
+
+    @Test func rejectedNudgesDoNotRegisterUndoAndSuccessfulNudgesDo() throws {
+        let asset = fixtureAsset(name: "Effect", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .audio)
+        let first = try project.append(asset: asset, segments: [segment(0, 2)], toTrack: track)
+        _ = try project.append(asset: asset, segments: [segment(2, 2)], toTrack: track)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        controller.installUndoManager(undo)
+        controller.moveFocusedTimelineClip(id: first, by: 1)
+        #expect(controller.project == project)
+        #expect(!undo.canUndo)
+        // The last clip can nudge into empty time without a movement selection.
+        let last = try #require(project.track(id: track)?.sortedClips.last?.id)
+        undo.beginUndoGrouping()
+        controller.moveFocusedTimelineClip(id: last, by: 1)
+        undo.endUndoGrouping()
+        #expect(controller.project.timelineClip(id: last)?.timelineStart == ProjectTime(seconds: 2) + ProjectTime(seconds: 1.0 / 30))
+        #expect(controller.movingTimelineClipID == nil)
+        undo.undo()
+        #expect(controller.project == project)
+    }
+
+    @Test func pickedUpAdditionalClipNudgesWithoutReorderingAndDropsAsOneUndo() throws {
+        let asset = fixtureAsset(name: "Effect", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .audio, name: "Effects")
+        let first = try project.append(asset: asset, segments: [segment(0, 2)], toTrack: track)
+        let second = try project.append(asset: asset, segments: [segment(2, 2)], toTrack: track)
+        project.tracks[0].clips[1].timelineStart = ProjectTime(seconds: 4)
+        project.format.frameRate = 25
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        controller.installUndoManager(undo)
+        controller.beginClipMovement(id: first)
+        controller.moveFocusedTimelineClip(id: second, by: 1)
+        controller.moveFocusedTimelineClip(id: second, by: 1)
+        #expect(controller.project == project)
+        #expect(controller.movementPreview?.timelineClip(id: first)?.timelineStart == ProjectTime(seconds: 0.08))
+        #expect(controller.movementPreview?.timelineClip(id: second) == project.timelineClip(id: second))
+        #expect(controller.movementPositionDescription == "Start at frame 2, Effects track")
+        undo.beginUndoGrouping()
+        controller.finishClipMovement()
+        undo.endUndoGrouping()
+        #expect(controller.project.timelineClip(id: first)?.timelineStart == ProjectTime(seconds: 0.08))
+        undo.undo()
+        #expect(controller.project == project)
+        #expect(!undo.canUndo)
+    }
+
+    @Test func linkedPictureNudgeChecksAudioCollisionBeforeCommittingEitherTrack() throws {
+        let asset = fixtureAsset(name: "Footage", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let picture = try project.append(asset: asset, segments: [segment(0, 2)])
+        let next = try project.append(asset: asset, segments: [segment(2, 2)])
+        let linkedAudio = try #require(project.timelineClip(id: picture)?.linkedClipID)
+        let nextAudio = try #require(project.timelineClip(id: next)?.linkedClipID)
+        // A picture clip moved onto an additional track still carries its audio.
+        let additional = project.createTrack(kind: .video)
+        let sourceIndex = try #require(project.tracks.firstIndex(where: { $0.role == .primaryVideo }))
+        let clip = project.tracks[sourceIndex].clips.removeFirst()
+        project.tracks[project.tracks.count - 1].clips.append(clip)
+        project.synchronizeTracksToLegacyTimeline()
+        let before = project
+        #expect(throws: ProjectTimelineError.clipPositionOverlap("Primary Audio")) {
+            try project.nudgeAdditionalTrackClip(id: picture, byFrames: 1)
+        }
+        #expect(project == before)
+        let audioTrackIndex = try #require(project.tracks.firstIndex(where: { $0.role == .primaryAudio }))
+        let nextAudioIndex = try #require(project.tracks[audioTrackIndex].clips.firstIndex(where: { $0.id == nextAudio }))
+        project.tracks[audioTrackIndex].clips[nextAudioIndex].timelineStart = ProjectTime(seconds: 5)
+        try project.nudgeAdditionalTrackClip(id: picture, byFrames: 1)
+        #expect(project.track(id: additional)?.clips.first?.timelineStart == ProjectTime(seconds: 1.0 / 30))
+        #expect(project.timelineClip(id: linkedAudio)?.timelineStart == project.timelineClip(id: picture)?.timelineStart)
+    }
+
+    @Test func pickupArrowsAndDropKeepRowsStableUntilOneCommittedMove() throws {
+        let asset = fixtureAsset(name: "Footage", duration: 12)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let first = try project.append(asset: asset, segments: [segment(0, 2)])
+        let second = try project.append(asset: asset, segments: [segment(2, 2)])
+        let third = try project.append(asset: asset, segments: [segment(4, 2)])
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.timelinePlayhead = ProjectTime(seconds: 3)
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        controller.installUndoManager(undo)
+        let focusRequests = controller.timelineFocusRestoreRequest
+        controller.beginClipMovement(id: first)
+        controller.moveMarkedClip(by: 1)
+        controller.moveMarkedClip(by: 1)
+        #expect(controller.project == project)
+        #expect(controller.movementPreview?.primaryTimeline.map(\.id) == [second, third, first])
+        #expect(controller.movementPositionDescription == "Position 3 of 3, Primary Video track")
+        #expect(controller.currentTimelineClip(at: controller.timelinePlayhead)?.id == second)
+        #expect(controller.movingTimelineClipID == first)
+        #expect(controller.timelineFocusRestoreRequest == focusRequests)
+        #expect(!undo.canUndo)
+        undo.beginUndoGrouping()
+        controller.toggleClipMovement(id: first)
+        undo.endUndoGrouping()
+        #expect(controller.project.primaryTimeline.map(\.id) == [second, third, first])
+        #expect(controller.movingTimelineClipID == nil)
+        #expect(controller.movementPositionDescription == nil)
+        undo.undo()
+        #expect(controller.project == project)
+        #expect(!undo.canUndo)
+    }
+
+    @Test func cancelledOrReturnedMovementDoesNotChangeTheProject() throws {
+        let asset = fixtureAsset(name: "Audio", duration: 6)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let first = try project.append(asset: asset, segments: [segment(0, 2)])
+        _ = try project.append(asset: asset, segments: [segment(2, 2)])
+        let audioID = try #require(project.timelineClip(id: first)?.linkedClipID)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.beginClipMovement(id: audioID)
+        controller.moveMarkedClip(by: 1)
+        controller.moveMarkedClip(by: -1)
+        controller.finishClipMovement()
+        #expect(controller.project == project)
+        controller.beginClipMovement(id: first)
+        controller.moveMarkedClip(by: 1)
+        controller.cancelClipMovement()
+        #expect(controller.project == project)
+        #expect(controller.movingTimelineClipID == nil)
+    }
+
+    @Test func currentClipDoesNotFollowFocusOrReachAcrossAGap() throws {
+        let asset = fixtureAsset(name: "Footage", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let trackID = project.createTrack(kind: .video)
+        let first = try project.append(asset: asset, segments: [segment(0, 2)], toTrack: trackID)
+        let second = try project.append(asset: asset, segments: [segment(2, 2)], toTrack: trackID)
+        project.tracks[0].clips[1].timelineStart = ProjectTime(seconds: 5)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = trackID
+        controller.focusTimelineElement(.clip(second))
+        #expect(controller.currentTimelineClip(at: ProjectTime(seconds: 1))?.id == first)
+        #expect(controller.currentTimelineClip(at: ProjectTime(seconds: 3)) == nil)
+        #expect(controller.currentTimelineClip(at: ProjectTime(seconds: 5))?.id == second)
+        #expect(controller.currentTimelineClip(at: ProjectTime(seconds: 7)) == nil)
+        #expect(controller.movingTimelineClipID == nil)
+    }
+
+    @Test func moveToTrackEdgesWorksForFocusedClipWithoutClipboardState() throws {
+        let asset = fixtureAsset(name: "Footage", duration: 6)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let first = try project.append(asset: asset, segments: [segment(0, 2)])
+        let second = try project.append(asset: asset, segments: [segment(2, 2)])
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        #expect(controller.canMoveClip(to: .end, targetID: first))
+        controller.moveClip(to: .end, targetID: first)
+        #expect(controller.project.primaryTimeline.map(\.id) == [second, first])
+    }
+
     @Test func repeatedInsertionsAdvancePlayheadAndKeepSourceOrder() throws {
         let asset = fixtureAsset(name: "Footage", duration: 20)
         var project = TrimatoProject()
@@ -532,6 +765,11 @@ struct MultiTrackTimelineTests {
                 at: ProjectTime(seconds: 4)
             )
         }
+        let beforeNudge = project
+        #expect(throws: ProjectTimelineError.clipPositionHasTransition) {
+            try project.nudgeAdditionalTrackClip(id: firstID, byFrames: 1)
+        }
+        #expect(project == beforeNudge)
     }
 
     @Test @MainActor func editorPositioningUsesTheActiveTracksRememberedClipWithoutTimelineFocus() throws {

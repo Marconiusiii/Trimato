@@ -19,6 +19,7 @@ enum ProjectTimelineError: LocalizedError, Equatable {
     case absolutePositioningRequiresAdditionalTrack
     case clipPositionOverlap(String)
     case clipPositionHasTransition
+    case clipNudgeBeforeTimeline
     case transitionNotAvailable(String)
 
     var errorDescription: String? {
@@ -41,6 +42,7 @@ enum ProjectTimelineError: LocalizedError, Equatable {
         case .absolutePositioningRequiresAdditionalTrack: "Absolute clip positioning is available only on additional video and audio tracks."
         case .clipPositionOverlap(let trackName): "That position would overlap another clip on the \(trackName) track."
         case .clipPositionHasTransition: "Remove the clip's transition before changing its absolute position."
+        case .clipNudgeBeforeTimeline: "The clip cannot be nudged before the start of the timeline."
         case .transitionNotAvailable(let message): message
         }
     }
@@ -381,6 +383,70 @@ extension TrimatoProject {
         }
 
         tracks[trackIndex].clips[clipIndex].timelineStart = positionedStart
+    }
+
+    // Unlike an ordered move, a nudge changes only this clip's absolute time
+    // (and linked sound for picture). Validate every affected track before commit.
+    mutating func nudgeAdditionalTrackClip(id: UUID, byFrames frames: Int) throws {
+        guard frames != 0 else { return }
+        guard let sourceTrack = tracks.first(where: { $0.clips.contains { $0.id == id } }),
+              let source = sourceTrack.clips.first(where: { $0.id == id }) else {
+            throw ProjectTimelineError.clipNotFound
+        }
+        guard sourceTrack.role == .additional else {
+            throw ProjectTimelineError.absolutePositioningRequiresAdditionalTrack
+        }
+        let rate = format.frameRate ?? 30
+        let frameRate = rate.isFinite && rate > 0 ? rate : 30
+        let delta = ProjectTime(seconds: Double(frames) / frameRate)
+        var movingIDs: Set<UUID> = [id]
+        if sourceTrack.kind == .video, let linkedID = source.linkedClipID {
+            movingIDs.insert(linkedID)
+        }
+        var candidate = self
+        for trackIndex in tracks.indices {
+            for clipIndex in tracks[trackIndex].clips.indices {
+                let clip = tracks[trackIndex].clips[clipIndex]
+                guard movingIDs.contains(clip.id) else { continue }
+                var positioned = clip
+                positioned.timelineStart = clip.timelineStart + delta
+                // Preserve existing pre-roll from tail alignment, but do not
+                // let a nudge create pre-roll or hide the entire clip.
+                guard (clip.timelineStart < .zero || positioned.timelineStart >= .zero),
+                      positioned.timelineEnd > .zero else {
+                    throw ProjectTimelineError.clipNudgeBeforeTimeline
+                }
+                guard !transitions.contains(where: {
+                    $0.leadingClipID == clip.id || $0.trailingClipID == clip.id
+                }) else { throw ProjectTimelineError.clipPositionHasTransition }
+                // Check the swept interval as well as the final position so a
+                // short neighbor cannot be jumped over in a single frame.
+                let occupiedStart = min(clip.visibleTimelineStart, positioned.visibleTimelineStart)
+                let occupiedEnd = max(clip.visibleTimelineEnd, positioned.visibleTimelineEnd)
+                guard !tracks[trackIndex].clips.contains(where: { other in
+                    !movingIDs.contains(other.id) && other.visibleDuration.isPositive &&
+                        occupiedStart < other.visibleTimelineEnd && other.visibleTimelineStart < occupiedEnd
+                }) else { throw ProjectTimelineError.clipPositionOverlap(tracks[trackIndex].name) }
+                candidate.tracks[trackIndex].clips[clipIndex] = positioned
+            }
+        }
+        if sourceTrack.kind == .audio, source.linkedClipID != nil {
+            candidate.disconnectLinkedClip(id)
+            if let trackIndex = candidate.tracks.firstIndex(where: { $0.id == sourceTrack.id }),
+               let clipIndex = candidate.tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) {
+                candidate.tracks[trackIndex].clips[clipIndex].isIndependentAudio = true
+            }
+        }
+        for index in candidate.cutaways.indices where movingIDs.contains(candidate.cutaways[index].id) {
+            if let clip = candidate.timelineClip(id: candidate.cutaways[index].id) {
+                guard clip.timelineStart >= .zero, clip.timelineEnd <= duration else {
+                    throw ProjectTimelineError.cutawayDoesNotFit
+                }
+                candidate.cutaways[index].start = clip.timelineStart
+            }
+        }
+        candidate.synchronizeTracksToLegacyTimeline()
+        self = candidate
     }
 
     mutating func renameTrackClip(id: UUID, to requestedName: String) throws {

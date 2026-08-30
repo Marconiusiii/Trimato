@@ -1,8 +1,16 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 nonisolated enum TimelineAccessibility {
+    static func clipValue(isCurrent: Bool, isSelected: Bool) -> String {
+        var values: [String] = []
+        if isCurrent { values.append("Current clip") }
+        if isSelected {
+            values.append("Selected")
+        }
+        return values.joined(separator: ", ")
+    }
+
     static func clipsListLabel(trackName: String?) -> String {
         guard let trackName else { return "Timeline Clips" }
         return "Timeline Clips, \(trackName) track"
@@ -26,8 +34,6 @@ struct ProjectTimelineView: View {
     let workspacePaneLinks: Namespace.ID
 
     @FocusState private var keyboardFocusedElement: TimelineElementSelection?
-    @State private var dragClipID: UUID?
-    @State private var focusRestoreID = UUID()
     @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
     @AccessibilityFocusState private var trackPickerFocused: Bool
     @AccessibilityFocusState private var timelineListFocused: Bool
@@ -102,13 +108,18 @@ struct ProjectTimelineView: View {
         }
         .accessibilityIdentifier("trimato.timeline.root")
         .background(TimelineKeyboardBridge(
+            accessibilitySelection: focusedElement,
             keyboardSelection: keyboardFocusedElement,
-            isMoving: controller.movingTimelineClipID != nil,
+            movingClipID: controller.movingTimelineClipID,
+            allowsNudging: { element in
+                guard case .clip(let id) = element else { return false }
+                return controller.canNudgeTimelineClip(id: id)
+            },
             perform: performTimelineKey
         ))
         .onChange(of: keyboardFocusedElement) { _, element in
             controller.timelineHasKeyboardFocus = element != nil
-            if let element { controller.focusTimelineElement(element) }
+            if !NSWorkspace.shared.isVoiceOverEnabled, let element { controller.focusTimelineElement(element) }
         }
         .onAppear {
             reconcileActiveTrack()
@@ -198,39 +209,35 @@ struct ProjectTimelineView: View {
 
     private var timelineScrollView: some View {
         ScrollViewReader { proxy in
-        ScrollView {
-            LazyVStack(spacing: 8) {
-            if timelineElements.isEmpty {
-                Text("No clips on this track")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-            } else {
-                ForEach(timelineElements) { element in
-                    switch element.content {
-                    case .clip(let clip):
-                        clipButton(clip)
-                    case .transition(let transition):
-                        transitionButton(transition)
+            ScrollView {
+                VStack(spacing: 8) {
+                    if timelineElements.isEmpty {
+                        Text("No clips on this track")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                    } else {
+                        ForEach(timelineElements) { element in
+                            switch element.content {
+                            case .clip(let clip): clipButton(clip)
+                            case .transition(let transition): transitionButton(transition)
+                            }
+                        }
                     }
                 }
+                .padding(8)
             }
-            }
-            .padding(8)
             .accessibilityLabel(timelineListAccessibilityLabel)
             .accessibilityIdentifier("trimato.timeline.clips")
             .accessibilityFocused($timelineListFocused)
-        }
-        .onChange(of: controller.timelineFocusRestoreRequest) {
-            if let target = controller.timelineFocusRestoreTarget {
-                let id: String
-                switch target {
-                case .clip(let idValue): id = "clip-" + idValue.uuidString
-                case .transition(let idValue): id = "transition-" + idValue.uuidString
+            .onChange(of: controller.timelineFocusRestoreRequest) {
+                if let target = controller.timelineFocusRestoreTarget {
+                    switch target {
+                    case .clip(let id): proxy.scrollTo("clip-" + id.uuidString)
+                    case .transition(let id): proxy.scrollTo("transition-" + id.uuidString)
+                    }
                 }
-                proxy.scrollTo(id)
             }
-        }
         }
     }
 
@@ -253,8 +260,8 @@ struct ProjectTimelineView: View {
         )
     }
 
-    private var currentSelection: TimelineElementSelection? {
-        controller.editorClip(at: controller.timelinePlayhead).map { .clip($0.id) }
+    private var currentClipID: UUID? {
+        controller.currentTimelineClip(at: controller.timelinePlayhead)?.id
     }
 
     private var activeTrackBinding: Binding<UUID?> {
@@ -288,11 +295,11 @@ struct ProjectTimelineView: View {
                 }
                 Spacer()
                 if controller.movingTimelineClipID == clip.id {
-                    Text("Selected for moving")
+                    Text(controller.movementPositionDescription ?? "Selected")
                         .font(.caption)
                         .accessibilityHidden(true)
                 }
-                if currentSelection == .clip(clip.id) {
+                if currentClipID == clip.id {
                     Text("Current")
                         .font(.caption)
                         .foregroundStyle(EditorTheme.accent)
@@ -314,16 +321,7 @@ struct ProjectTimelineView: View {
         .accessibilityFocused($focusedElement, equals: .clip(clip.id))
         .focused($keyboardFocusedElement, equals: .clip(clip.id))
         .contextMenu { clipActions(clip) }
-        .onDrag {
-            dragClipID = clip.id
-            return NSItemProvider(object: (controller.project.id.uuidString + ":" + clip.id.uuidString) as NSString)
-        }
-        .onDrop(of: [UTType.text], delegate: TimelineClipDropDelegate(
-            sourceID: dragClipID,
-            targetID: clip.id,
-            controller: controller,
-            finished: { dragClipID = nil }
-        ))
+        .background(TimelineRowEventAnchor(element: .clip(clip.id)))
     }
 
     private func transitionButton(_ transition: TimelineTransition) -> some View {
@@ -359,7 +357,12 @@ struct ProjectTimelineView: View {
     }
 
     private func selectionBackground(_ selection: EditorSelection) -> Color {
-        controller.selection == selection ? EditorTheme.accent.opacity(0.28) : EditorTheme.raisedSurface
+        let isSelected: Bool
+        switch selection {
+        case .timelineClip(let id): isSelected = controller.movingTimelineClipID == id
+        default: isSelected = controller.selection == selection
+        }
+        return isSelected ? EditorTheme.accent.opacity(0.28) : EditorTheme.raisedSurface
     }
 
     private var hasSelectedElement: Bool {
@@ -423,18 +426,14 @@ struct ProjectTimelineView: View {
     }
 
     private func restoreTimelineElementFocus(to target: TimelineElementSelection) {
-        let requestID = UUID()
-        focusRestoreID = requestID
-        focusedElement = nil
-        keyboardFocusedElement = target
-        trackPickerFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            guard focusRestoreID == requestID else { return }
-            focusedElement = target
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            guard focusRestoreID == requestID else { return }
-            focusedElement = target
+        // A movement keeps the same row alive. Restore once after the committed
+        // list update, never clear/reassert focus repeatedly during arrow presses.
+        DispatchQueue.main.async {
+            if NSWorkspace.shared.isVoiceOverEnabled {
+                if focusedElement != target { focusedElement = target }
+            } else {
+                keyboardFocusedElement = target
+            }
         }
     }
 
@@ -496,14 +495,6 @@ struct ProjectTimelineView: View {
                     .disabled(!controller.canMoveClip(to: destination, targetID: clip.id))
             }
         }
-        Button("Move Earlier") {
-            controller.selection = .timelineClip(clip.id)
-            controller.moveSelectedClip(by: -1)
-        }
-        Button("Move Later") {
-            controller.selection = .timelineClip(clip.id)
-            controller.moveSelectedClip(by: 1)
-        }
         Divider()
         Button("Delete from Timeline", role: .destructive) {
             deleteTimelineClip(clip.id)
@@ -511,14 +502,10 @@ struct ProjectTimelineView: View {
     }
 
     private func clipAccessibilityValue(_ clip: TimelineClip) -> String {
-        var values: [String] = []
-        if controller.movingTimelineClipID == clip.id { values.append("Selected for moving") }
-        if currentSelection == .clip(clip.id) { values.append("Current clip") }
-        if let track = controller.activeTimelineTrack,
-           let index = track.sortedClips.firstIndex(where: { $0.id == clip.id }) {
-            values.append("Position \(index + 1) of \(track.clips.count), \(track.name) track")
-        }
-        return values.joined(separator: ", ")
+        TimelineAccessibility.clipValue(
+            isCurrent: currentClipID == clip.id,
+            isSelected: controller.movingTimelineClipID == clip.id
+        )
     }
 
     private func performTimelineKey(_ action: TimelineKeyAction, _ target: TimelineElementSelection) {
@@ -526,12 +513,16 @@ struct ProjectTimelineView: View {
         guard case .clip(let id) = target else { return }
         switch action {
         case .toggleMovement: controller.toggleClipMovement(id: id)
+        case .beginMovement: controller.beginClipMovement(id: id)
         case .finishMovement: controller.finishClipMovement()
-        case .earlier: controller.moveMarkedClip(by: -1)
-        case .later: controller.moveMarkedClip(by: 1)
+        case .cancelMovement: controller.cancelClipMovement()
+        case .earlier: controller.moveFocusedTimelineClip(id: id, by: -1)
+        case .later: controller.moveFocusedTimelineClip(id: id, by: 1)
         case .copy: controller.copyTimelineClip(id: id)
         case .paste: controller.pasteCopiedTimelineClip(after: id)
         case .moveAfter: controller.moveCopiedTimelineClip(after: id)
+        case .previewBefore: _ = controller.previewClipMovement(to: .before, targetID: id)
+        case .previewAfter: _ = controller.previewClipMovement(to: .after, targetID: id)
         case .openEditor: break
         }
     }
@@ -855,38 +846,5 @@ enum ProjectTimecodeFormatter {
         let seconds = (milliseconds / 1_000) % 60
         let remainder = milliseconds % 1_000
         return String(format: "%02d:%02d:%02d.%03d", hours, minutes, seconds, remainder)
-    }
-}
-
-private struct TimelineClipDropDelegate: DropDelegate {
-    let sourceID: UUID?
-    let targetID: UUID
-    let controller: ProjectController
-    let finished: () -> Void
-
-    func validateDrop(info: DropInfo) -> Bool {
-        guard let sourceID, sourceID != targetID,
-              let source = controller.project.tracks.first(where: { $0.clips.contains { $0.id == sourceID } }),
-              let target = controller.project.tracks.first(where: { $0.clips.contains { $0.id == targetID } }) else { return false }
-        return source.kind == target.kind
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard validateDrop(info: info), let sourceID else { return false }
-        guard let provider = info.itemProviders(for: [UTType.text]).first,
-              provider.canLoadObject(ofClass: NSString.self) else { return false }
-        let expected = controller.project.id.uuidString + ":" + sourceID.uuidString
-        let destination: TimelineMoveDestination = info.location.y < 28 ? .before : .after
-        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-            let payload = object as? String
-            Task { @MainActor in
-                guard payload == expected else { return }
-                controller.moveTimelineClip(id: sourceID, to: destination, targetID: targetID)
-                finished()
-            }
-        }
-        return true
     }
 }

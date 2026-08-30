@@ -7,6 +7,73 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
+    @Test func absoluteTrackArrowsWorkWithoutPickupAndPreserveVoiceOverNavigation() throws {
+        for key: UInt16 in [123, 124, 125, 126] {
+            #expect(TimelineKeyAction.resolve(keyCode: key, modifiers: [], isMoving: false, allowsNudging: true) == (key == 123 || key == 126 ? .earlier : .later))
+            #expect(TimelineKeyAction.resolve(keyCode: key, modifiers: [.control, .option], isMoving: false, allowsNudging: true) == nil)
+            #expect(TimelineKeyAction.resolve(keyCode: key, modifiers: [], isMoving: false, allowsNudging: false) == nil)
+        }
+        let clip = TimelineElementSelection.clip(UUID())
+        let coordinator = TimelineKeyboardBridge.Coordinator()
+        var actions: [TimelineKeyAction] = []
+        coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: clip, keyboardSelection: .clip(UUID()), movingClipID: nil, allowsNudging: { $0 == clip }) { action, target in
+            #expect(target == clip)
+            actions.append(action)
+        }
+        let arrow = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 124))
+        #expect(coordinator.handleKey(arrow, voiceOver: true, editingText: true) == nil)
+        #expect(actions == [.later])
+    }
+
+    @Test func timelineRoutingUsesVoiceOverRowEvenWithAnotherKeyboardResponder() {
+        let voiceOverRow = TimelineElementSelection.clip(UUID())
+        let keyboardRow = TimelineElementSelection.clip(UUID())
+        #expect(TimelineKeyAction.target(voiceOver: true, accessibilityFocus: voiceOverRow, keyboardFocus: keyboardRow, editingText: true) == voiceOverRow)
+        #expect(TimelineKeyAction.target(voiceOver: true, accessibilityFocus: nil, keyboardFocus: keyboardRow, editingText: false) == nil)
+        #expect(TimelineKeyAction.target(voiceOver: false, accessibilityFocus: voiceOverRow, keyboardFocus: keyboardRow, editingText: true) == nil)
+        #expect(TimelineKeyAction.target(voiceOver: false, accessibilityFocus: voiceOverRow, keyboardFocus: keyboardRow, editingText: false) == keyboardRow)
+    }
+
+    @Test func positionsAreSpokenOnlyForThePickedUpClip() {
+        #expect(TimelineAccessibility.clipValue(isCurrent: false, isSelected: false).isEmpty)
+        #expect(TimelineAccessibility.clipValue(isCurrent: true, isSelected: false) == "Current clip")
+        #expect(TimelineAccessibility.clipValue(isCurrent: false, isSelected: true) == "Selected")
+    }
+
+    @Test func nativeMouseHoldArrowAndReleaseUseTheSameMovementSession() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: .borderless, backing: .buffered, defer: false)
+        let anchor = TimelineRowAnchorView(frame: NSRect(x: 0, y: 0, width: 300, height: 60))
+        let clip = TimelineElementSelection.clip(UUID())
+        anchor.element = clip
+        try #require(window.contentView).addSubview(anchor)
+        let coordinator = TimelineKeyboardBridge.Coordinator()
+        var actions: [TimelineKeyAction] = []
+        coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: clip, keyboardSelection: nil, movingClipID: nil) { action, target in
+            #expect(target == clip)
+            actions.append(action)
+        }
+        func mouse(_ type: NSEvent.EventType) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: 10, y: 20), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        #expect(coordinator.handleMouse(try mouse(.leftMouseDown), in: window) == nil)
+        let arrow = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 124))
+        #expect(coordinator.handleKey(arrow, voiceOver: true, editingText: true) == nil)
+        #expect(coordinator.handleMouse(try mouse(.leftMouseUp), in: window) == nil)
+        #expect(actions == [.beginMovement, .later, .finishMovement])
+        actions.removeAll()
+        #expect(coordinator.handleMouse(try mouse(.leftMouseDown), in: window) == nil)
+        #expect(coordinator.handleMouse(try mouse(.leftMouseUp), in: window) == nil)
+        #expect(actions == [.openEditor])
+        try await Task.sleep(for: .milliseconds(180))
+        #expect(actions == [.openEditor])
+        actions.removeAll()
+        #expect(coordinator.handleMouse(try mouse(.leftMouseDown), in: window) == nil)
+        try await Task.sleep(for: .milliseconds(180))
+        #expect(actions == [.beginMovement])
+        #expect(coordinator.handleMouse(try mouse(.leftMouseUp), in: window) == nil)
+        #expect(actions == [.beginMovement, .finishMovement])
+    }
+
     @Test func timelineKeysRespectMovementModeAndVoiceOverModifiers() {
         #expect(TimelineKeyAction.resolve(keyCode: 49, modifiers: [], isMoving: false) == .toggleMovement)
         #expect(TimelineKeyAction.resolve(keyCode: 36, modifiers: [], isMoving: false) == .openEditor)
