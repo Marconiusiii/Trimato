@@ -16,6 +16,53 @@ struct GeneratorFilterTests {
         return value
     }
 
+    @Test(arguments: [24.0, 30.0, 30_000.0 / 1_001.0, 60_000.0 / 1_001.0])
+    func durationUnitsConvertToUsableWholeFramesAndBack(frameRate: Double) {
+        var project = TrimatoProject()
+        project.format.frameRate = frameRate
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let session = GeneratorSession(controller: controller)
+        #expect(session.durationUnit == .seconds)
+        #expect(session.durationValue == 5)
+
+        let expectedFrames = (5 * frameRate).rounded()
+        session.setDurationUnit(.frames)
+        #expect(session.durationValue == expectedFrames)
+        #expect(session.durationValue.rounded() == session.durationValue)
+        session.setDurationUnit(.frames)
+        #expect(session.durationValue == expectedFrames)
+
+        session.setDurationUnit(.seconds)
+        #expect(abs(session.durationValue - expectedFrames / frameRate) < 0.000_001)
+        session.setDurationUnit(.frames)
+        #expect(session.durationValue == expectedFrames)
+    }
+
+    @Test func editedFrameCountConvertsBackToSeconds() {
+        var project = TrimatoProject()
+        project.format.frameRate = 24
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let session = GeneratorSession(controller: controller)
+        session.durationValue = 1.25
+        session.setDurationUnit(.frames)
+        #expect(session.durationValue == 30)
+        session.durationValue = 72
+        session.setDurationUnit(.seconds)
+        #expect(session.durationValue == 3)
+    }
+
+    @Test func shortPositiveDurationUsesOneFrameButZeroRemainsInvalid() {
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        let session = GeneratorSession(controller: controller)
+        session.durationValue = 0.001
+        session.setDurationUnit(.frames)
+        #expect(session.durationValue == 1)
+        session.setDurationUnit(.seconds)
+        session.durationValue = 0
+        session.setDurationUnit(.frames)
+        #expect(session.durationValue == 0)
+    }
+
     @Test func generatorPlacementIsAtomicAndAdvancesInsertionPlayhead() throws {
         let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
         let undo = UndoManager()

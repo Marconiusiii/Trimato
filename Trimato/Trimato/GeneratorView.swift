@@ -2,6 +2,14 @@ import AVFoundation
 import Combine
 import SwiftUI
 
+nonisolated enum GeneratorDurationUnit: String, CaseIterable, Identifiable {
+    case seconds, frames
+
+    var id: Self { self }
+    var title: String { self == .seconds ? "Seconds" : "Frames" }
+    var fieldLabel: String { "Duration in \(title)" }
+}
+
 @MainActor
 final class GeneratorWindowRegistry {
     static let shared = GeneratorWindowRegistry()
@@ -18,7 +26,8 @@ final class GeneratorSession: ObservableObject, Identifiable {
     @Published var trackID: UUID?
     @Published var newTrackName = "Generator"
     @Published var durationValue = 5.0
-    @Published var usesFrames = false
+    @Published private(set) var durationUnit: GeneratorDurationUnit = .seconds
+    var usesFrames: Bool { durationUnit == .frames }
     @Published var progress: Double?
     @Published var errorMessage: String?
     @Published var previewReady = false
@@ -45,6 +54,17 @@ final class GeneratorSession: ObservableObject, Identifiable {
 
     var compatibleTracks: [TimelineTrack] {
         controller?.project.tracks.filter { $0.kind == definition.kind.trackKind } ?? []
+    }
+
+    func setDurationUnit(_ unit: GeneratorDurationUnit) {
+        guard unit != durationUnit else { return }
+        if unit == .frames {
+            let converted = (durationValue * definition.frameRate).rounded()
+            durationValue = durationValue > 0 ? max(1, converted) : converted
+        } else {
+            durationValue /= definition.frameRate
+        }
+        durationUnit = unit
     }
 
     func kindChanged() {
@@ -147,11 +167,21 @@ struct GeneratorView: View {
                 }
                 GroupBox("Duration") {
                     VStack(alignment: .leading) {
-                        Toggle("Enter duration in project frames", isOn: $session.usesFrames)
-                            .onChange(of: session.usesFrames) { _, frames in
-                                session.durationValue = frames ? session.durationValue * session.definition.frameRate : session.durationValue / session.definition.frameRate
+                        Picker("Duration Units", selection: restoring(Binding(
+                            get: { session.durationUnit },
+                            set: { session.setDurationUnit($0) }
+                        ), "durationUnits")) {
+                            ForEach(GeneratorDurationUnit.allCases) { unit in
+                                Text(unit.title).tag(unit)
                             }
-                        TextField(session.usesFrames ? "Duration in Frames" : "Duration in Seconds", value: $session.durationValue, format: .number)
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityFocused($pickerFocus, equals: "durationUnits")
+
+                        LabeledContent(session.durationUnit.fieldLabel) {
+                            TextField(session.durationUnit.fieldLabel, value: $session.durationValue, format: .number)
+                                .labelsHidden()
+                        }
                     }
                 }
                 if session.editing == nil {
@@ -159,7 +189,12 @@ struct GeneratorView: View {
                     ForEach(session.compatibleTracks) { Text($0.name).tag(Optional($0.id)) }
                     Text("New Track").tag(UUID?.none)
                 }.accessibilityFocused($pickerFocus, equals: "track")
-                if session.trackID == nil { TextField("New Track Name", text: $session.newTrackName) }
+                if session.trackID == nil {
+                    LabeledContent("New Track Name") {
+                        TextField("New Track Name", text: $session.newTrackName)
+                            .labelsHidden()
+                    }
+                }
                 }
                 if session.previewReady, session.definition.kind != .silence {
                     VideoPlayerView(player: session.player).frame(height: 150).accessibilityHidden(true)
