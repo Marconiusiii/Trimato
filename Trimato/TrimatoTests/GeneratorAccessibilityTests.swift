@@ -21,16 +21,15 @@ struct GeneratorAccessibilityTests {
         @State private var duration = 5.0
 
         var body: some View {
-            VStack {
+            Form {
                 TextGeneratorControls(definition: $values.definition)
-                GeneratorControlRow("Duration in Seconds") {
-                    TextField("", value: $duration, format: .number)
-                }
+                TextField("Duration in Seconds", value: $duration, format: .number)
             }.padding().frame(width: 600)
         }
     }
 
-    // Inspect the native accessibility elements, not SwiftUI source modifiers.
+    // These checks cover native roles, relationships, and values only.
+    // They do not prove VoiceOver navigation order, speech, or menu dismissal behavior.
     private func attribute(_ element: NSObject, _ name: String) -> Any? {
         let selector = NSSelectorFromString(name)
         guard element.responds(to: selector) else { return nil }
@@ -42,7 +41,7 @@ struct GeneratorAccessibilityTests {
         return [root] + children.flatMap { elements(in: $0) }
     }
 
-    @Test func nativeControlsKeepRolesValuesAndVisibleLabelRelationships() async throws {
+    @Test func nativeFormExposesControlsAndDisclosureValues() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 800),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
