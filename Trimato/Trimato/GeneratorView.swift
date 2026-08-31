@@ -67,15 +67,20 @@ final class GeneratorSession: ObservableObject, Identifiable {
         durationUnit = unit
     }
 
-    func kindChanged() {
+    func definitionChanged(from previous: GeneratorDefinition) {
+        guard previous != definition else { return }
         stop()
-        if !compatibleTracks.contains(where: { $0.id == trackID }) { trackID = compatibleTracks.first?.id }
+        if previewReady { previewReady = false }
+        if player.currentItem != nil { player.replaceCurrentItem(with: nil) }
+        if previous.kind != definition.kind, !compatibleTracks.contains(where: { $0.id == trackID }) {
+            trackID = compatibleTracks.first?.id
+        }
     }
 
     func stop() {
         operation?.cancel()
         operation = nil
-        progress = nil
+        if progress != nil { progress = nil }
         player.pause()
     }
 
@@ -136,10 +141,10 @@ struct GeneratorView: View {
     @AccessibilityFocusState private var pickerFocus: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Generator").font(.title2).accessibilityAddTraits(.isHeader)
-                Text("Destination playhead: \(session.playhead.seconds, specifier: "%.3f") seconds")
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Generator").font(.title2).accessibilityAddTraits(.isHeader)
+            Text("Destination playhead: \(session.playhead.seconds, specifier: "%.3f") seconds")
+            Form {
                 Picker("Generator", selection: restoring($session.definition.kind, "kind")) {
                     ForEach(GeneratorKind.allCases) { Text($0.title).tag($0) }
                 }
@@ -185,28 +190,30 @@ struct GeneratorView: View {
                     }
                 }
                 if session.editing == nil {
-                Picker("Destination Track", selection: restoring($session.trackID, "track")) {
-                    ForEach(session.compatibleTracks) { Text($0.name).tag(Optional($0.id)) }
-                    Text("New Track").tag(UUID?.none)
-                }.accessibilityFocused($pickerFocus, equals: "track")
-                if session.trackID == nil {
-                    LabeledContent("New Track Name") {
-                        TextField("New Track Name", text: $session.newTrackName)
-                            .labelsHidden()
+                    Picker("Destination Track", selection: restoring($session.trackID, "track")) {
+                        ForEach(session.compatibleTracks) { Text($0.name).tag(Optional($0.id)) }
+                        Text("New Track").tag(UUID?.none)
+                    }.accessibilityFocused($pickerFocus, equals: "track")
+                    if session.trackID == nil {
+                        LabeledContent("New Track Name") {
+                            TextField("New Track Name", text: $session.newTrackName)
+                                .labelsHidden()
+                        }
                     }
                 }
-                }
-                if session.previewReady, session.definition.kind != .silence {
-                    VideoPlayerView(player: session.player).frame(height: 150).accessibilityHidden(true)
-                }
-                if let progress = session.progress { ProgressView("Preparing Generator", value: progress) }
-                HStack {
-                    Button("Preview") { session.prepare() }.disabled(session.progress != nil)
-                    Button("Stop") { session.stop() }
-                }
-                if session.editing != nil {
-                    Button("Update Generator") { place(.insert) }.disabled(session.progress != nil)
-                } else {
+            }
+            .formStyle(.columns)
+            if session.previewReady, session.definition.kind != .silence {
+                VideoPlayerView(player: session.player).frame(height: 150).accessibilityHidden(true)
+            }
+            if let progress = session.progress { ProgressView("Preparing Generator", value: progress) }
+            HStack {
+                Button("Preview") { session.prepare() }.disabled(session.progress != nil)
+                Button("Stop") { session.stop() }
+            }
+            if session.editing != nil {
+                Button("Update Generator") { place(.insert) }.disabled(session.progress != nil)
+            } else {
                 GroupBox("Add to Timeline") {
                     VStack(alignment: .leading) {
                         Button("Append") { place(.append) }
@@ -219,16 +226,15 @@ struct GeneratorView: View {
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.disabled(session.progress != nil)
-                }
-                Button("Cancel", role: .cancel) { session.stop(); dismiss() }.keyboardShortcut(.cancelAction)
-            }.padding(20)
+            }
+            Button("Cancel", role: .cancel) { session.stop(); dismiss() }.keyboardShortcut(.cancelAction)
         }
-        .onChange(of: session.definition) {
-            session.stop()
-            session.previewReady = false
-            session.player.replaceCurrentItem(with: nil)
+        .padding(20)
+        .frame(minWidth: 520, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .onChange(of: session.definition) { previous, _ in
+            session.definitionChanged(from: previous)
         }
-        .onChange(of: session.definition.kind) { session.kindChanged() }
         .onDisappear {
             session.stop()
             GeneratorWindowRegistry.shared.sessions.removeValue(forKey: session.id)

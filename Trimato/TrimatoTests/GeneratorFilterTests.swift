@@ -63,6 +63,34 @@ struct GeneratorFilterTests {
         #expect(session.durationValue == 0)
     }
 
+    @Test func changingGeneratorTypeClearsPreviewAndKeepsCompatibleDestination() {
+        var project = TrimatoProject()
+        let video = project.createTrack(kind: .video)
+        let audio = project.createTrack(kind: .audio)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let session = GeneratorSession(controller: controller)
+        session.trackID = video
+        session.durationValue = 2.5
+        session.previewReady = true
+        session.player.replaceCurrentItem(with: AVPlayerItem(asset: AVMutableComposition()))
+
+        var previous = session.definition
+        session.definition.kind = .gradient
+        session.definitionChanged(from: previous)
+        #expect(session.trackID == video)
+        #expect(!session.previewReady)
+        #expect(session.player.currentItem == nil)
+        #expect(session.player.rate == 0)
+        #expect(session.progress == nil)
+        #expect(session.durationValue == 2.5)
+
+        previous = session.definition
+        session.definition.kind = .silence
+        session.definitionChanged(from: previous)
+        #expect(session.trackID == audio)
+        #expect(session.durationValue == 2.5)
+    }
+
     @Test func generatorPlacementIsAtomicAndAdvancesInsertionPlayhead() throws {
         let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
         let undo = UndoManager()

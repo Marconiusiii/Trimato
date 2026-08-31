@@ -231,6 +231,7 @@ struct TrimatoApp: App {
             }
         }
         .defaultSize(width: 560, height: 650)
+        .windowResizability(.contentMinSize)
 
         WindowGroup("Clip Editor", for: URL.self) { $url in
             if let url {
