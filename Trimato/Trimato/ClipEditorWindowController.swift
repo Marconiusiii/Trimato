@@ -18,12 +18,96 @@ nonisolated enum ClipEditorLayout {
     }
 }
 
+enum ClipEditorPlacementCommand: CaseIterable, Identifiable {
+    case update, append, appendToTrack, insert, insertToTrack, overwrite, overwriteOnTrack
+    case insertOnTopWithAudio, insertOnTopOverAudio
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .update: "Update Clip"
+        case .append: PlacementAction.append.title
+        case .appendToTrack: "Append to Track…"
+        case .insert: PlacementAction.insert.title
+        case .insertToTrack: "Insert on Track…"
+        case .overwrite: PlacementAction.replaceRemainder.title
+        case .overwriteOnTrack: "Insert and Overwrite on Track…"
+        case .insertOnTopWithAudio: PlacementAction.cutawaySourceAudio.title
+        case .insertOnTopOverAudio: PlacementAction.cutawayPrimaryAudio.title
+        }
+    }
+    var key: KeyEquivalent {
+        switch self {
+        case .update: "u"
+        case .append, .appendToTrack: "e"
+        case .insert, .insertToTrack: "w"
+        case .overwrite, .overwriteOnTrack: "d"
+        case .insertOnTopWithAudio, .insertOnTopOverAudio: "q"
+        }
+    }
+    var modifiers: EventModifiers {
+        switch self {
+        case .update: .command
+        case .appendToTrack, .insertToTrack, .overwriteOnTrack, .insertOnTopOverAudio: .option
+        default: []
+        }
+    }
+}
+
+/// AppKit Clip Editor windows live outside a SwiftUI document scene. Publish their
+/// native key-window owner explicitly so the app menu does not depend on a child
+/// popup or a SwiftUI focused value crossing that scene boundary.
+@MainActor
+final class ClipEditorCommandRouter: ObservableObject {
+    static let shared = ClipEditorCommandRouter()
+    @Published private(set) var activeContext: ClipPlacementCommandContext?
+    private var changes: AnyCancellable?
+
+    func isAvailable(_ command: ClipEditorPlacementCommand) -> Bool {
+        guard let context = activeContext else { return false }
+        if command == .update { return context.canUpdate }
+        guard context.canPlace else { return false }
+        if command == .insertOnTopWithAudio || command == .insertOnTopOverAudio {
+            return context.controller.asset(for: context.editSelection)?.hasVideo == true
+        }
+        return true
+    }
+
+    func perform(_ command: ClipEditorPlacementCommand) {
+        guard isAvailable(command), let context = activeContext else { return }
+        switch command {
+        case .update: context.performUpdate()
+        case .append: context.place(.append)
+        case .appendToTrack: context.requestTrackPlacement(.append)
+        case .insert: context.place(.insert)
+        case .insertToTrack: context.requestTrackPlacement(.insert)
+        case .overwrite: context.place(.replaceRemainder)
+        case .overwriteOnTrack: context.requestTrackPlacement(.replaceRemainder)
+        case .insertOnTopWithAudio: context.place(.cutawaySourceAudio)
+        case .insertOnTopOverAudio: context.place(.cutawayPrimaryAudio)
+        }
+    }
+
+    func activate(_ context: ClipPlacementCommandContext) {
+        guard activeContext !== context else { return }
+        activeContext = context
+        changes = context.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
+    func deactivate(_ context: ClipPlacementCommandContext) {
+        guard activeContext === context else { return }
+        changes = nil
+        activeContext = nil
+    }
+}
+
 @MainActor
 final class ClipPlacementCommandContext: ObservableObject {
     let controller: ProjectController
     let editSelection: EditorSelection
     @Published private(set) var segments: [SourceSegment]
     @Published private(set) var isKeyWindow = false
+    weak var hostWindow: NSWindow?
     @Published var presentedError: ProjectPresentedError?
     @Published var trackPlacementAction: PlacementAction?
     @Published private(set) var trackPlacementIsAudioOnly = false
@@ -72,7 +156,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     var canPlace: Bool {
-        isKeyWindow && effectsReady && !segments.isEmpty && NSApp.modalWindow == nil
+        isKeyWindow && effectsReady && !segments.isEmpty && hostWindow?.attachedSheet == nil && NSApp.modalWindow == nil
     }
 
     var isTimelineEntry: Bool {
@@ -87,7 +171,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     var canUpdate: Bool {
-        isKeyWindow && effectsReady && hasUncommittedChanges && !segments.isEmpty && NSApp.modalWindow == nil
+        isKeyWindow && effectsReady && hasUncommittedChanges && !segments.isEmpty && hostWindow?.attachedSheet == nil && NSApp.modalWindow == nil
     }
 
     func refreshCommittedEffects() {
@@ -367,6 +451,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         window.center()
         super.init(window: window)
         window.delegate = self
+        commandContext.hostWindow = window
     }
 
     @available(*, unavailable)
@@ -393,11 +478,13 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
 
     func windowDidBecomeKey(_ notification: Notification) {
         commandContext.setKeyWindow(true)
+        ClipEditorCommandRouter.shared.activate(commandContext)
         ExternalMediaOpenCoordinator.shared.activate(controller: commandContext.controller)
     }
 
     func windowDidResignKey(_ notification: Notification) {
         commandContext.setKeyWindow(false)
+        ClipEditorCommandRouter.shared.deactivate(commandContext)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -435,6 +522,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
 
     func windowWillClose(_ notification: Notification) {
         commandContext.setKeyWindow(false)
+        ClipEditorCommandRouter.shared.deactivate(commandContext)
         let completion = pendingCloseCompletion
         pendingCloseCompletion = nil
         onClose?()

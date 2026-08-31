@@ -360,7 +360,7 @@ private struct ProjectViewerView: View {
             restoreProjectPlayheadFocus()
         }
         .operationProgress(viewModel.isPreparing && controller.applyingTransitionName == nil ?
-            OperationProgress(title: "Preparing Project Preview", cancel: viewModel.cancelPreparation) : nil,
+            OperationProgress(title: "Preparing Project Preview", cancel: viewModel.cancelPreparation, announceCompletion: false) : nil,
             outcome: viewModel.errorMessage == nil ? .completed : .failed,
             dismissed: { preparationChanged(false) })
         .alert(item: Binding(

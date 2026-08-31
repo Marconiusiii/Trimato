@@ -38,7 +38,8 @@ struct SourceClipEditorView: View {
                     allowsFileOpening: false,
                     editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo),
                     compact: true,
-                    preparation: sourcePreparation
+                    preparation: sourcePreparation,
+                    isPreparingClipPreview: preview.state == .preparing
                 )
 
                 TabView(selection: $selectedTab) {
@@ -85,7 +86,7 @@ struct SourceClipEditorView: View {
         .operationProgress(preview.state == .preparing ? OperationProgress(
             title: "Updating Clip Preview", progress: preview.progress,
             detail: "Preparing filters and audio. Your previous preview is preserved until this finishes.",
-            cancel: preview.cancel
+            cancel: preview.cancel, announceCompletion: false
         ) : nil, outcome: previewOutcome)
         .sheet(isPresented: $addingFilter, onDismiss: {
             if let pendingFilter {
@@ -207,25 +208,19 @@ struct SourceClipEditorView: View {
         HStack {
             if commandContext.isTimelineEntry {
                 Button("Update Clip") { commandContext.performUpdate() }
-                    .keyboardShortcut("u", modifiers: .command)
                     .disabled(!commandContext.canUpdate)
             }
             Menu("Add to Timeline") {
                 Button(PlacementAction.append.title) { place(.append) }
-                    .keyboardShortcut("e", modifiers: [])
                     .disabled(!commandContext.canPlace)
                 Button(PlacementAction.insert.title) { place(.insert) }
-                    .keyboardShortcut("w", modifiers: [])
                     .disabled(!commandContext.canPlace)
                 Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
-                    .keyboardShortcut("d", modifiers: [])
                     .disabled(!commandContext.canPlace)
                 if currentAsset.hasVideo {
                     Menu("Insert on Top") {
                         Button("With Source Audio") { place(.cutawaySourceAudio) }
-                            .keyboardShortcut("q", modifiers: [])
                         Button("Over Primary Audio") { place(.cutawayPrimaryAudio) }
-                            .keyboardShortcut("q", modifiers: [.option])
                     }
                     .disabled(!commandContext.canPlace)
                 }
@@ -255,7 +250,6 @@ struct SourceClipEditorView: View {
             }.disabled(!commandContext.canPlace)
         }
     }
-
     private func loadIfNeeded() {
         guard loadedAssetID != currentAsset.id, let url = controller.resolveURL(for: currentAsset) else { return }
         loadedAssetID = currentAsset.id

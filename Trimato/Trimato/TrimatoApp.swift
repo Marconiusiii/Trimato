@@ -7,7 +7,6 @@ struct TrimatoApp: App {
     @FocusedObject private var viewModel: VideoPlayerViewModel?
     @FocusedObject private var projectPlayer: ProjectPlayerViewModel?
     @FocusedObject private var projectController: ProjectController?
-    @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
@@ -139,47 +138,7 @@ struct TrimatoApp: App {
                 }
                 .disabled(projectPlayer?.outMarker == nil && viewModel?.outMarker == nil)
             }
-            CommandMenu("Clip") {
-                Button("Update Clip") { clipPlacement?.performUpdate() }
-                    .keyboardShortcut("u", modifiers: .command)
-                    .disabled(clipPlacement?.canUpdate != true)
-                Divider()
-                Button(PlacementAction.append.title) { clipPlacement?.place(.append) }
-                    .keyboardShortcut("e", modifiers: [])
-                    .disabled(clipPlacement?.canPlace != true)
-                Button("Append to Track…") { clipPlacement?.requestTrackPlacement(.append) }
-                    .keyboardShortcut("e", modifiers: [.option])
-                    .disabled(clipPlacement?.canPlace != true)
-                Button(PlacementAction.insert.title) { clipPlacement?.place(.insert) }
-                    .keyboardShortcut("w", modifiers: [])
-                    .disabled(clipPlacement?.canPlace != true)
-                Button("Insert on Track…") { clipPlacement?.requestTrackPlacement(.insert) }
-                    .keyboardShortcut("w", modifiers: [.option])
-                    .disabled(clipPlacement?.canPlace != true)
-                Button(PlacementAction.replaceRemainder.title) { clipPlacement?.place(.replaceRemainder) }
-                    .keyboardShortcut("d", modifiers: [])
-                    .disabled(clipPlacement?.canPlace != true)
-                Button("Insert and Overwrite on Track…") { clipPlacement?.requestTrackPlacement(.replaceRemainder) }
-                    .keyboardShortcut("d", modifiers: [.option])
-                    .disabled(clipPlacement?.canPlace != true)
-                Divider()
-                Button(PlacementAction.cutawaySourceAudio.title) {
-                    clipPlacement?.place(.cutawaySourceAudio)
-                }
-                .keyboardShortcut("q", modifiers: [])
-                .disabled(
-                    clipPlacement?.canPlace != true ||
-                        clipPlacement.flatMap { $0.controller.asset(for: $0.editSelection) }?.hasVideo != true
-                )
-                Button(PlacementAction.cutawayPrimaryAudio.title) {
-                    clipPlacement?.place(.cutawayPrimaryAudio)
-                }
-                .keyboardShortcut("q", modifiers: [.option])
-                .disabled(
-                    clipPlacement?.canPlace != true ||
-                        clipPlacement.flatMap { $0.controller.asset(for: $0.editSelection) }?.hasVideo != true
-                )
-            }
+            ClipPlacementCommands()
             CommandMenu("Timeline") {
                 Button("Generator…") { projectController?.requestGenerator() }
                     .keyboardShortcut("g", modifiers: .command)
@@ -257,6 +216,21 @@ struct TrimatoApp: App {
     }
 }
 
+private struct ClipPlacementCommands: Commands {
+    @ObservedObject private var clipCommands = ClipEditorCommandRouter.shared
+
+    var body: some Commands {
+        CommandMenu("Clip") {
+            ForEach(ClipEditorPlacementCommand.allCases) { command in
+                if command == .append || command == .insertOnTopWithAudio { Divider() }
+                Button(command.title) { clipCommands.perform(command) }
+                    .keyboardShortcut(command.key, modifiers: command.modifiers)
+                    .disabled(!clipCommands.isAvailable(command))
+            }
+        }
+    }
+}
+
 private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !Self.isRunningTests else { return }
@@ -274,7 +248,8 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
 private struct ProjectFileCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     @FocusedObject private var projectController: ProjectController?
-    @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
+    @ObservedObject private var clipCommands = ClipEditorCommandRouter.shared
+    private var clipPlacement: ClipPlacementCommandContext? { clipCommands.activeContext }
     @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
 
     private var controller: ProjectController? {
@@ -329,7 +304,8 @@ nonisolated enum ExportCommandDestination: Equatable {
 
 private struct ContextualExportCommands: Commands {
     @FocusedObject private var projectController: ProjectController?
-    @FocusedObject private var clipPlacement: ClipPlacementCommandContext?
+    @ObservedObject private var clipCommands = ClipEditorCommandRouter.shared
+    private var clipPlacement: ClipPlacementCommandContext? { clipCommands.activeContext }
     @FocusedObject private var viewModel: VideoPlayerViewModel?
     @FocusedObject private var projectCreation: StandaloneClipCommandContext?
     @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared

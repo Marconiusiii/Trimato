@@ -1,3 +1,5 @@
+import AppKit
+import Combine
 import AVFoundation
 import SwiftUI
 
@@ -7,19 +9,25 @@ struct ContentView: View {
     private let editorHeading: String?
     private let compact: Bool
     private let preparation: OperationProgress?
+    private let isPreparingClipPreview: Bool
+    @StateObject private var entryFocus = ClipEditorEntryFocus()
+    @FocusState private var playheadKeyboardFocused: Bool
+    @AccessibilityFocusState private var playheadVoiceOverFocused: Bool
 
     init(
         viewModel: VideoPlayerViewModel,
         allowsFileOpening: Bool = true,
         editorHeading: String? = nil,
         compact: Bool = false,
-        preparation: OperationProgress? = nil
+        preparation: OperationProgress? = nil,
+        isPreparingClipPreview: Bool = false
     ) {
         self.viewModel = viewModel
         self.allowsFileOpening = allowsFileOpening
         self.editorHeading = editorHeading
         self.compact = compact
         self.preparation = preparation
+        self.isPreparingClipPreview = isPreparingClipPreview
     }
 
     var body: some View {
@@ -41,6 +49,11 @@ struct ContentView: View {
         .tint(EditorTheme.accent)
         .preferredColorScheme(.dark)
         .focusedObject(viewModel)
+        .background(ClipEditorEntryFocusBridge(owner: entryFocus, ready: entryFocusReady))
+        .onChange(of: entryFocus.request) {
+            playheadKeyboardFocused = true
+            playheadVoiceOverFocused = true
+        }
         .toolbar {
             ToolbarItemGroup {
                 Button { viewModel.goToStart() } label: {
@@ -99,13 +112,20 @@ struct ContentView: View {
         }
     }
 
+    private var entryFocusReady: Bool {
+        viewModel.hasMedia && viewModel.duration > 0 && mediaOperation == nil && !isPreparingClipPreview
+    }
+
     private var mediaOperation: OperationProgress? {
-        if let preparation { return preparation }
+        if var preparation {
+            preparation.announceCompletion = false
+            return preparation
+        }
         guard viewModel.isLoadingMedia || viewModel.isPreparingWaveform else { return nil }
         return OperationProgress(title: "Preparing Media",
                                  progress: viewModel.isLoadingMedia ? viewModel.mediaProgress : nil,
                                  detail: viewModel.isLoadingMedia ? viewModel.mediaStatus : "Preparing audio waveform",
-                                 cancel: viewModel.cancelMediaLoad)
+                                 cancel: viewModel.cancelMediaLoad, announceCompletion: false)
     }
 
     // MARK: - Video area
@@ -168,6 +188,8 @@ struct ContentView: View {
             .accessibilityLabel("Clip playhead")
             .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.playhead)
+            .focused($playheadKeyboardFocused)
+            .accessibilityFocused($playheadVoiceOverFocused)
 
             playbackControls
             if !compact { ClipMarkerControlsView(viewModel: viewModel) }
@@ -331,4 +353,115 @@ struct ClipMarkerControlsView: View {
         .accessibilityIdentifier("trimato.clip-editor.markers")
     }
 
+}
+
+/// Entry focus is a single pending request. Sheets may delay it, but dismissing
+/// later dialogs must not create a new request while the user is editing.
+nonisolated struct ClipEditorEntryFocusPolicy {
+    private(set) var pending = true
+    private var returningFromSheet = false
+
+    mutating func sheetBegan() { returningFromSheet = true }
+
+    mutating func becameKey() {
+        if returningFromSheet { returningFromSheet = false }
+        else { pending = true }
+    }
+
+    mutating func consume(ready: Bool, isKeyWindow: Bool, hasSheet: Bool) -> Bool {
+        guard pending, ready, isKeyWindow, !hasSheet else { return false }
+        pending = false
+        return true
+    }
+}
+
+@MainActor
+final class ClipEditorEntryFocus: ObservableObject {
+    @Published private(set) var request = 0
+    private var policy = ClipEditorEntryFocusPolicy()
+    private weak var window: NSWindow?
+    private var ready = false
+    private var observers: [NSObjectProtocol] = []
+    private var delivery: Task<Void, Never>?
+
+    func update(ready: Bool, window: NSWindow?) {
+        self.ready = ready
+        attach(window)
+        schedule()
+    }
+
+    func attach(_ window: NSWindow?) {
+        guard self.window !== window else { return }
+        disconnect()
+        self.window = window
+        policy = ClipEditorEntryFocusPolicy()
+        guard let window else { return }
+        observe(NSWindow.didBecomeKeyNotification, window: window) { owner in
+            owner.policy.becameKey()
+            owner.schedule()
+        }
+        observe(NSWindow.willBeginSheetNotification, window: window) { owner in
+            owner.policy.sheetBegan()
+            owner.delivery?.cancel()
+            owner.delivery = nil
+        }
+        observe(NSWindow.didEndSheetNotification, window: window) { $0.schedule() }
+        schedule()
+    }
+
+    private func observe(_ name: Notification.Name, window: NSWindow,
+                         action: @escaping @MainActor (ClipEditorEntryFocus) -> Void) {
+        observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) {
+            [weak self] _ in
+            // These AppKit window notifications are delivered on the main thread.
+            MainActor.assumeIsolated { if let self { action(self) } }
+        })
+    }
+
+    private func schedule() {
+        guard delivery == nil else { return }
+        delivery = Task { @MainActor [weak self] in
+            // Let the native window event and SwiftUI's readiness updates finish.
+            // There are no timed retries or requests after this entry is consumed.
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.delivery = nil
+            guard let window = self.window,
+                  self.policy.consume(ready: self.ready, isKeyWindow: window.isKeyWindow,
+                                      hasSheet: window.attachedSheet != nil) else { return }
+            self.request += 1
+        }
+    }
+
+    func disconnect() {
+        delivery?.cancel()
+        delivery = nil
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        window = nil
+    }
+}
+
+private struct ClipEditorEntryFocusBridge: NSViewRepresentable {
+    let owner: ClipEditorEntryFocus
+    let ready: Bool
+
+    func makeNSView(context: Context) -> Anchor {
+        let view = Anchor()
+        view.owner = owner
+        view.setAccessibilityElement(false)
+        return view
+    }
+
+    func updateNSView(_ view: Anchor, context: Context) { owner.update(ready: ready, window: view.window) }
+
+    static func dismantleNSView(_ view: Anchor, coordinator: ()) { view.owner?.disconnect() }
+
+    final class Anchor: NSView {
+        weak var owner: ClipEditorEntryFocus?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            owner?.attach(window)
+        }
+    }
 }

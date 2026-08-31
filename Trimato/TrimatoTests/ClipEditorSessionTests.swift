@@ -1,9 +1,148 @@
+import AppKit
+import SwiftUI
 import CoreMedia
 import Testing
 @testable import Trimato
 
 @Suite("Clip editor sessions")
 struct ClipEditorSessionTests {
+    @Test func entryFocusWaitsForLoadingAndSheetsAndDoesNotRepeatDuringEditing() {
+        var focus = ClipEditorEntryFocusPolicy()
+        focus.becameKey()
+        let loading = focus.consume(ready: false, isKeyWindow: true, hasSheet: false)
+        #expect(!loading)
+        focus.sheetBegan()
+        let sheet = focus.consume(ready: true, isKeyWindow: false, hasSheet: true)
+        #expect(!sheet)
+        focus.becameKey()
+        let entry = focus.consume(ready: true, isKeyWindow: true, hasSheet: false)
+        #expect(entry)
+        let editing = focus.consume(ready: true, isKeyWindow: true, hasSheet: false)
+        #expect(!editing)
+        focus.sheetBegan()
+        focus.becameKey()
+        let laterDialog = focus.consume(ready: true, isKeyWindow: true, hasSheet: false)
+        #expect(!laterDialog)
+        focus.becameKey()
+        let reentry = focus.consume(ready: true, isKeyWindow: true, hasSheet: false)
+        #expect(reentry)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["TRIMATO_INTERACTION_TESTS"] == "1",
+                   "Requires an unlocked interactive macOS session; set TRIMATO_INTERACTION_TESTS=1."))
+    @MainActor func nativeClipMenuDispatchesToTheActiveEditor() async throws {
+        var project = TrimatoProject()
+        let source = MediaAssetRecord(name: "Keyboard test", originalPath: "/tmp/keyboard-test.mov",
+                                     duration: ProjectTime(seconds: 5), naturalWidth: 640, naturalHeight: 480,
+                                     frameRate: 30, hasAudio: true,
+                                     sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(
+                                        start: .zero, duration: ProjectTime(seconds: 5)))])
+        project.media = [source]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(source.id),
+                                                  segments: source.sourceEdit)
+        let router = ClipEditorCommandRouter.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { context.setKeyWindow(false); router.deactivate(context); window.close() }
+        window.contentViewController = NSHostingController(rootView: Text("Clip command test"))
+        // AppKit enables key equivalents only for an active application window.
+        // This window and its project belong exclusively to the disposable test host.
+        window.title = "Trimato keyboard regression test"
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        for _ in 0..<100 {
+            if window.isKeyWindow { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        context.hostWindow = window
+        try #require(window.isKeyWindow, "The macOS session did not allow the test window to become key.")
+        context.setKeyWindow(true)
+        router.activate(context)
+        #expect(context.canPlace)
+        var menu = try #require(NSApp.mainMenu?.items.first { $0.title == "Clip" }?.submenu)
+        // SwiftUI updates the native menu after receiving the active-owner change.
+        for _ in 0..<100 {
+            menu = try #require(NSApp.mainMenu?.items.first { $0.title == "Clip" }?.submenu)
+            menu.update()
+            if menu.items.contains(where: { $0.keyEquivalent == "e" && $0.keyEquivalentModifierMask.isEmpty && $0.isEnabled }) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let append = try #require(menu.items.first { $0.keyEquivalent == "e" && $0.keyEquivalentModifierMask.isEmpty })
+        try #require(append.isEnabled)
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                 windowNumber: window.windowNumber, context: nil, characters: "e",
+                                                 charactersIgnoringModifiers: "e", isARepeat: false, keyCode: 14))
+        #expect(menu.performKeyEquivalent(with: event))
+        #expect(controller.project.primaryTimeline.count == 1)
+    }
+
+    @Test @MainActor func clipMenuCommandsUseOnlyTheCurrentEditorAndRecoverAfterPreparation() throws {
+        func makeContext() -> ClipPlacementCommandContext {
+            var project = TrimatoProject()
+            let source = MediaAssetRecord(name: "Imported", originalPath: "/tmp/imported.mov",
+                duration: ProjectTime(seconds: 5), naturalWidth: 640, naturalHeight: 480, frameRate: 30,
+                hasAudio: true, sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(
+                    start: .zero, duration: ProjectTime(seconds: 5)))])
+            project.media = [source]
+            let controller = ProjectController(document: ProjectDocument(project: project))
+            return ClipPlacementCommandContext(controller: controller, editSelection: .asset(source.id),
+                                                segments: source.sourceEdit)
+        }
+        let router = ClipEditorCommandRouter()
+        let first = makeContext()
+        let second = makeContext()
+        first.setKeyWindow(true)
+        router.activate(first)
+        router.perform(.append)
+        #expect(first.controller.project.primaryTimeline.count == 1)
+        first.setKeyWindow(false)
+        second.setKeyWindow(true)
+        router.activate(second)
+        router.deactivate(first)
+        second.effectsReady = false
+        #expect(!router.isAvailable(.append))
+        router.perform(.append)
+        #expect(second.controller.project.primaryTimeline.isEmpty)
+        second.effectsReady = true
+        #expect(router.isAvailable(.append))
+        router.perform(.append)
+        #expect(second.controller.project.primaryTimeline.count == 1)
+        #expect(first.controller.project.primaryTimeline.count == 1)
+        for (command, action) in [(ClipEditorPlacementCommand.appendToTrack, PlacementAction.append),
+                                  (.insertToTrack, .insert), (.overwriteOnTrack, .replaceRemainder)] {
+            router.perform(command)
+            #expect(second.trackPlacementAction == action)
+            second.dismissTrackPlacement()
+        }
+        second.setKeyWindow(false)
+        router.deactivate(second)
+        #expect(ClipEditorPlacementCommand.allCases.allSatisfy { !router.isAvailable($0) })
+    }
+
+    @Test(arguments: [ClipEditorPlacementCommand.insert, .overwrite, .insertOnTopWithAudio, .insertOnTopOverAudio])
+    @MainActor func clipMenuPlacementCommandsDispatchTheirActions(command: ClipEditorPlacementCommand) throws {
+        var project = TrimatoProject()
+        let source = MediaAssetRecord(name: "Imported", originalPath: "/tmp/imported.mov",
+            duration: ProjectTime(seconds: 5), naturalWidth: 640, naturalHeight: 480, frameRate: 30,
+            hasAudio: true, sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(
+                start: .zero, duration: ProjectTime(seconds: 5)))])
+        project.media = [source]
+        _ = try project.append(asset: source)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(source.id),
+                                                 segments: [SourceSegment(sourceRange: ProjectTimeRange(
+                                                    start: .zero, duration: ProjectTime(seconds: 1)))])
+        let router = ClipEditorCommandRouter()
+        context.setKeyWindow(true)
+        router.activate(context)
+        let before = controller.project
+        router.perform(command)
+        #expect(context.presentedError == nil)
+        #expect(controller.project != before)
+    }
+
     @Test func newTrackCommandsMatchTheSourceMediaStreams() {
         #expect(NewTrackSourceKind.availableKinds(hasVideo: true, hasAudio: true) == [.video, .audio])
         #expect(NewTrackSourceKind.availableKinds(hasVideo: true, hasAudio: false) == [.video])

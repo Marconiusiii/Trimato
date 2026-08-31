@@ -22,11 +22,13 @@ nonisolated struct OperationProgressAnnouncements {
         return "\(title), \(next) percent."
     }
 
-    mutating func finish(title: String, outcome: OperationProgressOutcome) -> String? {
+    mutating func finish(title: String, outcome: OperationProgressOutcome, announceCompletion: Bool = true) -> String? {
         guard !finished else { return nil }
         finished = true
         switch outcome {
-        case .completed: return determinate ? "\(title), 100 percent, complete." : "\(title), complete."
+        case .completed:
+            guard announceCompletion else { return nil }
+            return determinate ? "\(title), 100 percent, complete." : "\(title), complete."
         case .cancelled: return "\(title), cancelled."
         case .failed: return "\(title), failed."
         }
@@ -40,6 +42,7 @@ struct OperationProgress {
     var progress: Double? = nil
     var detail: String? = nil
     var cancel: (() -> Void)? = nil
+    var announceCompletion = true
 }
 
 extension View {
@@ -114,6 +117,7 @@ private struct OperationProgressBridge: NSViewRepresentable {
         private var hosting: NSHostingController<OperationProgressContent>?
         private var pending: OperationProgress?
         private var activeTitle: String?
+        private var announceCompletion = true
         private var activeDetail: String?
         private var announcements = OperationProgressAnnouncements()
         private var observer: NSObjectProtocol?
@@ -145,10 +149,12 @@ private struct OperationProgressBridge: NSViewRepresentable {
                 }
                 activeTitle = nil
                 closePanel()
-                speak(announcements.finish(title: title, outcome: cancelled ? .cancelled : outcome))
+                speak(announcements.finish(title: title, outcome: cancelled ? .cancelled : outcome,
+                                           announceCompletion: announceCompletion))
                 Task { @MainActor in dismissed() }
                 return
             }
+            announceCompletion = operation.announceCompletion
             if activeTitle == nil {
                 activeTitle = operation.title
                 activeDetail = operation.detail

@@ -35,4 +35,17 @@ struct OperationProgressTests {
         #expect(speech.update(title: "Preparing Waveform", progress: .infinity) == nil)
         #expect(speech.finish(title: "Preparing Waveform", outcome: .completed) == "Preparing Waveform, complete.")
     }
+    @Test func routinePreviewCompletionIsSilentButProgressAndFailuresRemainAvailable() {
+        var preview = OperationProgressAnnouncements()
+        #expect(preview.update(title: "Updating Clip Preview", progress: 0.4) == "Updating Clip Preview, 40 percent.")
+        #expect(preview.finish(title: "Updating Clip Preview", outcome: .completed, announceCompletion: false) == nil)
+        #expect(preview.update(title: "Updating Clip Preview", progress: 1) == nil)
+        var failed = OperationProgressAnnouncements()
+        #expect(failed.finish(title: "Updating Clip Preview", outcome: .failed, announceCompletion: false) ==
+                "Updating Clip Preview, failed.")
+        var cancelled = OperationProgressAnnouncements()
+        #expect(cancelled.finish(title: "Updating Clip Preview", outcome: .cancelled, announceCompletion: false) ==
+                "Updating Clip Preview, cancelled.")
+    }
+
 }
