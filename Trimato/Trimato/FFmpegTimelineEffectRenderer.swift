@@ -62,6 +62,9 @@ enum FFmpegTimelineEffectRenderer {
             .appendingPathComponent("TrimatoTimelineEffects", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let outputURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
+        let leadingReport = try await FFmpegMediaProbe.inspect(url: leadingURL)
+        let trailingReport = try await FFmpegMediaProbe.inspect(url: trailingURL)
+        let hasAlpha = leadingReport.hasAlpha || trailingReport.hasAlpha
         let graph: String
         if type == .fadeOutIn {
             graph = videoFadeOutInGraph(
@@ -70,7 +73,8 @@ enum FFmpegTimelineEffectRenderer {
                 duration: duration.seconds,
                 width: width,
                 height: height,
-                frameRate: frameRate
+                frameRate: frameRate,
+                hasAlpha: hasAlpha
             )
         } else if let transitionName = videoTransitionName(type) {
             graph = videoTransitionGraph(
@@ -80,16 +84,20 @@ enum FFmpegTimelineEffectRenderer {
                 duration: duration.seconds,
                 width: width,
                 height: height,
-                frameRate: frameRate
+                frameRate: frameRate,
+                hasAlpha: hasAlpha
             )
         } else {
             throw ProjectTimelineError.transitionNotAvailable("The transition media is no longer available.")
         }
-        let arguments = [
-            "-hide_banner", "-nostdin", "-y",
-            "-i", leadingURL.path, "-i", trailingURL.path,
+        var arguments = ["-hide_banner", "-nostdin", "-y"]
+        if leadingReport.hasAlpha, leadingReport.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
+        arguments += ["-i", leadingURL.path]
+        if trailingReport.hasAlpha, trailingReport.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
+        arguments += ["-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outv]", "-an", "-sn", "-dn",
-            "-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le",
+            "-c:v", "prores_ks", "-profile:v", hasAlpha ? "4" : "3", "-pix_fmt", hasAlpha ? "yuva444p10le" : "yuv422p10le",
+            "-alpha_mode", hasAlpha ? "premultiplied" : "unknown",
             "-video_track_timescale", "60000", "-t", number(duration.seconds),
             "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
@@ -187,15 +195,19 @@ enum FFmpegTimelineEffectRenderer {
         duration: Double,
         width: Int,
         height: Int,
-        frameRate: Double
+        frameRate: Double,
+        hasAlpha: Bool = false
     ) -> String {
         let normalized = "fps=\(frameRateExpression(frameRate)),settb=AVTB,setpts=PTS-STARTPTS," +
+            (hasAlpha ? "format=yuva444p," : "") +
             "scale=\(width):\(height):force_original_aspect_ratio=decrease," +
-            "pad=\(width):\(height):(ow-iw)/2:(oh-ih)/2:black,setsar=1,format=yuv444p"
-        return "[0:v:0]trim=start=\(number(leadingStart)):duration=\(number(duration)),\(normalized)[v0];" +
-            "[1:v:0]trim=start=\(number(trailingStart)):duration=\(number(duration)),\(normalized)[v1];" +
+            "pad=\(width):\(height):(ow-iw)/2:(oh-ih)/2:\(hasAlpha ? "black@0" : "black"),setsar=1,format=\(hasAlpha ? "yuva444p" : "yuv444p")"
+        let association = hasAlpha ? ",premultiply=inplace=1" : ""
+        let restore = hasAlpha ? "unpremultiply=inplace=1," : ""
+        return "[0:v:0]trim=start=\(number(leadingStart)):duration=\(number(duration)),\(normalized)\(association)[v0];" +
+            "[1:v:0]trim=start=\(number(trailingStart)):duration=\(number(duration)),\(normalized)\(association)[v1];" +
             "[v0][v1]xfade=transition=\(type):duration=\(number(duration)):offset=0," +
-            "trim=duration=\(number(duration)),setpts=PTS-STARTPTS[outv]"
+            "\(restore)trim=duration=\(number(duration)),setpts=PTS-STARTPTS[outv]"
     }
 
     static func videoFadeOutInGraph(
@@ -204,16 +216,18 @@ enum FFmpegTimelineEffectRenderer {
         duration: Double,
         width: Int,
         height: Int,
-        frameRate: Double
+        frameRate: Double,
+        hasAlpha: Bool = false
     ) -> String {
         let half = duration / 2
         let normalized = "fps=\(frameRateExpression(frameRate)),settb=AVTB,setpts=PTS-STARTPTS," +
+            (hasAlpha ? "format=yuva444p," : "") +
             "scale=\(width):\(height):force_original_aspect_ratio=decrease," +
-            "pad=\(width):\(height):(ow-iw)/2:(oh-ih)/2:black,setsar=1,format=yuv444p"
+            "pad=\(width):\(height):(ow-iw)/2:(oh-ih)/2:\(hasAlpha ? "black@0" : "black"),setsar=1,format=\(hasAlpha ? "yuva444p:alpha_modes=straight" : "yuv444p")"
         return "[0:v:0]trim=start=\(number(leadingStart)):duration=\(number(half)),\(normalized)," +
-            "fade=t=out:st=0:d=\(number(half))[v0];" +
+            "fade=t=out:st=0:d=\(number(half))\(hasAlpha ? ":alpha=1" : "")[v0];" +
             "[1:v:0]trim=start=\(number(trailingStart)):duration=\(number(half)),\(normalized)," +
-            "fade=t=in:st=0:d=\(number(half))[v1];" +
+            "fade=t=in:st=0:d=\(number(half))\(hasAlpha ? ":alpha=1" : "")[v1];" +
             "[v0][v1]concat=n=2:v=1:a=0,trim=duration=\(number(duration))," +
             "setpts=PTS-STARTPTS[outv]"
     }

@@ -143,6 +143,9 @@ struct GeneratorView: View {
                 .accessibilityFocused($pickerFocus, equals: "kind")
                 .disabled(session.editing != nil)
                 Text(session.definition.kind.description)
+                if session.definition.kind == .text {
+                    TextGeneratorControls(definition: $session.definition)
+                }
                 if session.definition.kind == .solidColor || session.definition.kind == .gradient {
                     Picker(session.definition.kind == .gradient ? "First Color" : "Color", selection: restoring($session.definition.color, "color")) {
                         ForEach(GeneratorColor.allCases) { Text($0.title).tag($0) }

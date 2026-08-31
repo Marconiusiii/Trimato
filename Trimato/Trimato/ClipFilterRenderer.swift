@@ -25,7 +25,9 @@ enum ClipFilterRenderer {
         if audio, let settings = audioSettings, let gain = FFmpegTimelineEffectRenderer.audioFilter(for: settings) {
             graph = [graph, gain].filter { !$0.isEmpty }.joined(separator: ",")
         }
-        var arguments = ["-hide_banner", "-nostdin", "-y", "-i", source.path]
+        var arguments = ["-hide_banner", "-nostdin", "-y"]
+        if report.hasAlpha, report.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
+        arguments += ["-i", source.path]
         if let segments {
             let prefix = audio ? "a" : "v"
             let trim = audio ? "atrim" : "trim"
@@ -37,11 +39,20 @@ enum ClipFilterRenderer {
             let effects = graph.isEmpty ? (audio ? "anull" : "null") : graph
             chains.append("\(inputs)concat=n=\(segments.count):v=\(audio ? 0 : 1):a=\(audio ? 1 : 0),\(effects)[out]")
             arguments += ["-filter_complex", chains.joined(separator: ";"), "-map", "[out]"]
+        } else if !audio, report.hasAlpha, !active.isEmpty {
+            // Color filters may negotiate a format without alpha. Keep the original mask
+            // on a separate branch, applying the same geometry before joining it again.
+            let geometry = active.filter { $0.kind == .cropOrientation }.map(\.graph).joined(separator: ",")
+            let mask = geometry.isEmpty ? "alphaextract" : "alphaextract,\(geometry)"
+            let chains = "[0:v:0]format=yuva444p:alpha_modes=straight,split[picture][mask];[picture]format=yuv444p,\(graph)[color];[mask]\(mask)[alpha];[color][alpha]alphamerge[out]"
+            arguments += ["-filter_complex", chains, "-map", "[out]"]
         } else {
             arguments += ["-map", audio ? "0:a:0" : "0:v:0", audio ? "-af" : "-vf", graph.isEmpty ? (audio ? "anull" : "null") : graph]
         }
         if audio { arguments += ["-vn", "-c:a", "pcm_s16le", "-ar", "48000"] }
-        else { arguments += ["-an", "-c:v", "prores_ks", "-profile:v", "1", "-pix_fmt", "yuv422p10le"] }
+        else { arguments += ["-an", "-c:v", "prores_ks", "-profile:v", report.hasAlpha ? "4" : "1",
+                             "-pix_fmt", report.hasAlpha ? "yuva444p10le" : "yuv422p10le"] }
+        if !audio, report.hasAlpha { arguments += ["-alpha_mode", "premultiplied"] }
         arguments += ["-sn", "-dn", "-progress", "pipe:1", "-nostats", output.path]
         do {
             _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: arguments, progress: progress, expectedDuration: duration)

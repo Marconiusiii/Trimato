@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated enum GeneratorKind: String, Codable, CaseIterable, Identifiable, Sendable {
-    case black, solidColor, gradient, silence
+    case black, solidColor, gradient, silence, text
     var id: Self { self }
     var title: String {
         switch self {
@@ -9,6 +9,7 @@ nonisolated enum GeneratorKind: String, Codable, CaseIterable, Identifiable, Sen
         case .solidColor: "Solid Color"
         case .gradient: "Static Gradient"
         case .silence: "Silence"
+        case .text: "Text"
         }
     }
     var description: String {
@@ -17,6 +18,7 @@ nonisolated enum GeneratorKind: String, Codable, CaseIterable, Identifiable, Sen
         case .solidColor: "One color fills the entire frame, with no audio."
         case .gradient: "Two colors blend in a fixed direction. The image does not move and has no audio."
         case .silence: "An audio clip containing no sound."
+        case .text: "Editable titles, lower thirds, captions, and subtitles, on black or over underlying video."
         }
     }
     var trackKind: TimelineTrackKind { self == .silence ? .audio : .video }
@@ -50,6 +52,13 @@ nonisolated struct GeneratorDefinition: Codable, Hashable, Sendable {
     var width = 1920
     var height = 1080
     var frameRate = 30.0
+    // Optional so existing generator definitions decode without migration.
+    var text: TextGeneratorSettings?
+    var textSettings: TextGeneratorSettings {
+        get { text ?? TextGeneratorSettings() }
+        set { text = newValue }
+    }
+    var hasAlpha: Bool { kind == .text && textSettings.background == .transparent }
 
     func validate() throws {
         guard duration.seconds.isFinite, duration.isPositive, duration.seconds <= 86_400,
@@ -57,6 +66,7 @@ nonisolated struct GeneratorDefinition: Codable, Hashable, Sendable {
               frameRate.isFinite, frameRate > 0, frameRate <= 240 else {
             throw MediaSourceError.unreadable("Choose a duration greater than zero and no more than 24 hours, and a supported project video format.")
         }
+        if kind == .text { try textSettings.validate() }
     }
 
     var sourceFilter: String {
@@ -69,6 +79,9 @@ nonisolated struct GeneratorDefinition: Codable, Hashable, Sendable {
             return "gradients=s=\(width)x\(height):r=\(frameRate):c0=\(color.rawValue):c1=\(secondColor.rawValue):n=2:x0=0:y0=0:x1=\(x):y1=\(y):speed=0:seed=0"
         case .silence:
             return "anullsrc=r=48000:cl=\(channels.rawValue)"
+        case .text:
+            // Text uses a native rendered image, not a lavfi source.
+            return ""
         }
     }
 

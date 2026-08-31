@@ -22,7 +22,7 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Split, rename, delete, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
 - Pick up a Timeline clip with Space, choose its position with arrow keys, and drop it with Space as one undoable move. On additional tracks, plain arrows also nudge the focused clip one project frame without pickup and without overlapping neighboring clips.
 - Add, edit, and remove video fades, cross dissolves, directional wipes, audio fades, and cross fades as independent timeline elements.
-- Create saved Black, Solid Color, Static Gradient, and Silence generators from a native Generator window.
+- Create saved Black, Solid Color, Static Gradient, Silence, and Text generators from a native Generator window.
 - Apply curated video and audio filters to individual timeline clips, with editable parameters, bypass, reset, and removal. Basic audio gain remains separate.
 - Reach the displayed Video frame as a VoiceOver image above the Editor playhead slider.
 - Mute audio tracks for both preview and export without removing their clips or changing their timing.
@@ -116,11 +116,19 @@ Editor shortcuts remain available while focus is on any editor control. Native i
 
 ## Generators and clip filters
 
-With a project open, choose Timeline > Generator or press Command-G. The Generator window captures the project playhead and pauses Editor playback. Choose Black, Solid Color, Static Gradient, or Silence; set the relevant parameters and duration in seconds or whole project frames. Video generators use the project format, or 1920 by 1080 at 30 frames per second when it has not been resolved. Silence supports mono or stereo.
+With a project open, choose Timeline > Generator or press Command-G. The Generator window captures the project playhead and pauses Editor playback. Choose Black, Solid Color, Static Gradient, Silence, or Text; set the relevant parameters and duration in seconds or whole project frames. Video generators use the project format, or 1920 by 1080 at 30 frames per second when it has not been resolved. Silence supports mono or stereo.
 
 Choose a compatible Destination Track or New Track and a name. The window opens at the Generator heading. Review the generated clip in the Editor after placement. Cancel Preparation stops processing and closes the Generator without changing the project. Append, Insert and Split, and Insert and Overwrite use the captured playhead where applicable. Insert on Top in New Video Track creates an additional video track at that position. Insert and Split advances the project playhead to the new clip's end. Preparation must finish before the project changes; adding the source, track when needed, and clip is one Undo operation.
 
 Generator definitions are saved in the project. Their playback files are internal cache files and can be regenerated without relinking an external source. Open a generated timeline clip in Clip Editor and choose Edit Generator to change its settings or duration. Update any pending clip edits first. Updating a generator creates a separate source for that instance, leaving other copies unchanged.
+
+Text provides Center Title, Title and Subtitle, Lower Third Center/Left/Right, Name and Role, Caption, and Subtitle templates. Enter text in the multiline editor; Return inserts a line break. Title and Subtitle and Name and Role provide a second text editor with smaller supporting text. Changing templates or choosing Reset Style preserves both text fields.
+
+Expand Typography for System Sans, Rounded Sans, Serif, or Monospaced fonts; weight, size, alignment, and line spacing. Expand Appearance for named or hexadecimal colors, a Black or Transparent full-frame background, outline, shadow, and a separate text backing panel with adjustable opacity. Expand Layout for screen position, safe margins, maximum text width, and horizontal or vertical offsets. One detailed group opens at a time. Sizes and offsets are percentages of the video frame or text size, as labeled, so styles scale with resolution.
+
+Check Text Fit reports the line count and whether text fits within the safe area. It also warns about small text and low contrast against a known opaque background. It does not assess contrast over changing footage. Overflow prevents placement with an explanation; text is not silently clipped or resized. Place transparent text on a video track above the footage to retain the underlying picture. The existing transitions apply, including separately timed intro and outro fades. Project exports contain the composed picture; this does not add a standalone transparent-video export format.
+
+Caption and Subtitle are static appearance templates for individually timed text clips. They do not import subtitle files or transcribe audio. Text and styling remain editable in the saved generator definition. Text layout uses macOS fonts and native text rendering; generated media preserves alpha through the supported filters and transitions.
 
 Open a timeline video or audio clip, then choose Add Filter. The Filters section appears only when at least one filter has been added, including disabled filters. Each filter has an Enable checkbox, relevant parameters, Reset, and Remove. Activate Update Clip to save the draft settings and edit together as one Undo operation. Other instances of the source are unaffected. Gain remains in the Audio group; existing EQ and frequency filtering appear as Tone.
 

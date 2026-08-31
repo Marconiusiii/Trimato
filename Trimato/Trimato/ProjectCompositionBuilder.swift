@@ -158,6 +158,7 @@ enum ProjectCompositionBuilder {
         var cutawayVideo: AVMutableCompositionTrack?
         var additionalVideoTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)], source: TimelineTrack?)] = []
         var additionalAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
+        var transitionVideoTracks: [(track: AVMutableCompositionTrack, range: ProjectTimeRange, sourceID: UUID)] = []
         var transitionAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
 
         let renderSize: CGSize? = {
@@ -454,10 +455,8 @@ enum ProjectCompositionBuilder {
                 )
                 let start = max(trailing.timelineStart - ProjectTime(seconds: transition.duration.seconds / 2), .zero)
                 try transitionTrack.insertTimeRange(sourceRange, of: source, at: start.cmTime)
-                additionalVideoTracks.append((transitionTrack, [(
-                    ProjectTimeRange(start: start, duration: transition.duration),
-                    CGAffineTransform.identity
-                )], nil))
+                transitionVideoTracks.append((transitionTrack,
+                    ProjectTimeRange(start: start, duration: transition.duration), track.id))
                 _ = renderSize
             }
         }
@@ -467,6 +466,11 @@ enum ProjectCompositionBuilder {
             guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
             let composition = AVMutableVideoComposition()
             composition.renderSize = renderSize
+            // Use the same SDR color space for live composition and encoded exports.
+            // Otherwise the image-generator preview can be tagged as legacy NTSC.
+            composition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
+            composition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
+            composition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
             composition.frameDuration = CMTime(
                 seconds: 1 / projectFrameRate,
                 preferredTimescale: ProjectTime.defaultTimescale
@@ -479,6 +483,7 @@ enum ProjectCompositionBuilder {
                 cutawayTransforms: cutawayTransforms,
                 cutaways: project.cutaways,
                 additionalTracks: additionalVideoTracks,
+                transitionTracks: transitionVideoTracks,
                 transitions: project.transitions,
                 primaryTimelineTrack: project.tracks.first(where: { $0.role == .primaryVideo }),
                 timelineTracks: project.tracks
@@ -658,6 +663,7 @@ enum ProjectCompositionBuilder {
         cutawayTransforms: [(ProjectTimeRange, CGAffineTransform)],
         cutaways: [TimelineCutaway],
         additionalTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)], source: TimelineTrack?)],
+        transitionTracks: [(track: AVMutableCompositionTrack, range: ProjectTimeRange, sourceID: UUID)],
         transitions: [TimelineTransition],
         primaryTimelineTrack: TimelineTrack?,
         timelineTracks: [TimelineTrack]
@@ -666,6 +672,7 @@ enum ProjectCompositionBuilder {
         boundaries.append(contentsOf: primaryTransforms.flatMap { [$0.0.start, $0.0.end] })
         boundaries.append(contentsOf: cutaways.flatMap { [$0.start, $0.end] })
         boundaries.append(contentsOf: additionalTracks.flatMap { $0.transforms.flatMap { [$0.0.start, $0.0.end] } })
+        boundaries.append(contentsOf: transitionTracks.flatMap { [$0.range.start, $0.range.end] })
         let sourceTracks = timelineTracks.filter { $0.kind == .video }
         for source in sourceTracks {
             for transition in transitions where transition.trackID == source.id {
@@ -684,6 +691,15 @@ enum ProjectCompositionBuilder {
             instruction.timeRange = ProjectTimeRange(start: start, duration: end - start).cmTimeRange
             instruction.backgroundColor = CGColor(gray: 0, alpha: 1)
 
+            // Replace only the transitioning track, at its original stacking position.
+            // An alpha transition must not reveal a duplicate of either source beneath it.
+            func transitionLayer(for sourceID: UUID?) -> AVMutableVideoCompositionLayerInstruction? {
+                guard let item = transitionTracks.first(where: { $0.sourceID == sourceID && start >= $0.range.start && end <= $0.range.end }) else { return nil }
+                let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: item.track)
+                layer.setTransform(.identity, at: start.cmTime)
+                return layer
+            }
+            let primaryTransition = transitionLayer(for: primaryTimelineTrack?.id)
             let primaryLayer: AVMutableVideoCompositionLayerInstruction? = primaryTrack.map {
                 AVMutableVideoCompositionLayerInstruction(assetTrack: $0)
             }
@@ -694,6 +710,10 @@ enum ProjectCompositionBuilder {
             }
             var layers: [AVVideoCompositionLayerInstruction] = []
             for item in additionalTracks.reversed() {
+                if let transition = transitionLayer(for: item.source?.id) {
+                    layers.append(transition)
+                    continue
+                }
                 guard let transform = item.transforms.first(where: { start >= $0.0.start && start < $0.0.end })?.1 else { continue }
                 let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: item.track)
                 layer.setTransform(transform, at: start.cmTime)
@@ -706,11 +726,17 @@ enum ProjectCompositionBuilder {
                 cutawayLayer.setTransform(cutawayTransform, at: start.cmTime)
                 if let cutaway = cutaways.first(where: { start >= $0.start && start < $0.end }) {
                     let source = timelineTracks.first { $0.clips.contains { $0.id == cutaway.id } }
-                    applyVideoFades(to: cutawayLayer, source: source, transitions: transitions, start: start, end: end)
+                    if let transition = transitionLayer(for: source?.id) {
+                        layers.append(transition)
+                    } else {
+                        applyVideoFades(to: cutawayLayer, source: source, transitions: transitions, start: start, end: end)
+                        layers.append(cutawayLayer)
+                    }
+                } else {
+                    layers.append(cutawayLayer)
                 }
-                layers.append(cutawayLayer)
             }
-            layers.append(contentsOf: [primaryLayer].compactMap { $0 })
+            layers.append(contentsOf: [primaryTransition ?? primaryLayer].compactMap { $0 })
             instruction.layerInstructions = layers
             return instruction
         }

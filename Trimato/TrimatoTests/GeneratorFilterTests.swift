@@ -13,6 +13,7 @@ struct GeneratorFilterTests {
         value.height = 48
         value.duration = ProjectTime(seconds: 0.5)
         value.frameRate = 24
+        if kind == .text { value.textSettings.text = "Title" }
         return value
     }
 
