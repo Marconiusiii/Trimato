@@ -230,7 +230,7 @@ struct OperationProgressBridge: NSViewRepresentable {
             guard let message, let application = NSApp else { return }
             NSAccessibility.post(element: application, notification: .announcementRequested,
                                  userInfo: [.announcement: message,
-                                            .priority: NSAccessibilityPriorityLevel.high.rawValue])
+                                            .priority: NSAccessibilityPriorityLevel.low.rawValue])
         }
     }
 }

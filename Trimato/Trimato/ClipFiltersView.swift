@@ -72,7 +72,6 @@ struct AddClipFilterView: View {
                     Text(selection.description)
                     ClipFilterParameters(filter: $draft)
                 }
-                Text("Add prepares a clip preview. Choose Update Clip in the Clip Editor to save the filter to the timeline.")
             }
             HStack {
                 Button("Cancel", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)

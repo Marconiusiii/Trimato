@@ -1,6 +1,8 @@
 import AVFoundation
+import AppKit
 import Combine
 import Foundation
+import SwiftUI
 import Testing
 @testable import Trimato
 
@@ -912,7 +914,85 @@ struct MultiTrackTimelineTests {
                 "Remove Interview from the timeline? This can be undone.")
     }
 
-    @Test func clipDeletionFocusChoosesTheNextThenPreviousElement() throws {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["TRIMATO_INTERACTION_TESTS"] == "1",
+                   "Requires an unlocked macOS session with VoiceOver."),
+          arguments: ["first", "middle", "last", "only", "cancel"])
+    func nativeDeletionReturnsInsideTimelineClips(scenario: String) async throws {
+        let asset = fixtureAsset(name: "Deletion test", duration: 9)
+        var project = TrimatoProject()
+        project.media = [asset]
+        var ids: [UUID] = []
+        for index in 0..<(scenario == "only" ? 1 : 3) {
+            ids.append(try project.append(asset: asset, segments: [segment(Double(index * 3), 3)]))
+        }
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 700),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = NSHostingController(rootView: TimelineDeletionTestView(controller: controller))
+        defer { window.close() }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        for _ in 0..<100 {
+            if window.isKeyWindow { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(window.isKeyWindow, "macOS did not allow the test window to become key.")
+        try #require(NSWorkspace.shared.isVoiceOverEnabled, "VoiceOver must be running.")
+        let deletedIndex = scenario == "last" ? 2 : (scenario == "middle" || scenario == "cancel" ? 1 : 0)
+        let originalID = ids[deletedIndex]
+        let expectedID: UUID? = scenario == "only" ? nil
+            : (scenario == "cancel" ? originalID : ids[deletedIndex == 0 ? 1 : deletedIndex - 1])
+        func focusedIdentifier() -> String? {
+            guard let element = NSApp.accessibilityFocusedUIElement as? NSObject,
+                  element.responds(to: NSSelectorFromString("accessibilityIdentifier")) else { return nil }
+            return element.value(forKey: "accessibilityIdentifier") as? String
+        }
+        controller.requestTimelineFocusRestore(to: .clip(originalID))
+        for _ in 0..<200 {
+            if focusedIdentifier() == TimelineElementAccessibilityIdentifier.clip(originalID) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(focusedIdentifier() == TimelineElementAccessibilityIdentifier.clip(originalID))
+        func key(_ characters: String, code: UInt16) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                isARepeat: false, keyCode: code))
+            NSApp.sendEvent(event)
+        }
+        try key("\u{7f}", code: 51)
+        for _ in 0..<200 {
+            if window.attachedSheet != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let sheet = try #require(window.attachedSheet)
+        func button(in view: NSView, title: String) -> NSButton? {
+            if let button = view as? NSButton, button.title == title { return button }
+            for child in view.subviews {
+                if let found = button(in: child, title: title) { return found }
+            }
+            return nil
+        }
+        let content = try #require(sheet.contentView)
+        let action = try #require(button(in: content, title: scenario == "cancel" ? "Cancel" : "Delete Clip"))
+        action.performClick(nil)
+        let expectedIdentifier = expectedID.map(TimelineElementAccessibilityIdentifier.clip) ?? "trimato.timeline.empty"
+        for _ in 0..<200 {
+            if window.attachedSheet == nil && focusedIdentifier() == expectedIdentifier { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(window.isKeyWindow && window.attachedSheet == nil)
+        try #require(focusedIdentifier() == expectedIdentifier)
+        #expect((controller.project.timelineClip(id: originalID) != nil) == (scenario == "cancel"))
+        if let expectedID {
+            // The restored row must accept the next command without re-entering the pane.
+            try key(" ", code: 49)
+            #expect(controller.movingTimelineClipID == expectedID)
+        }
+    }
+
+    @Test func clipDeletionFocusChoosesThePreviousThenNextClip() throws {
         var audio = fixtureAsset(name: "Music", duration: 12)
         audio.naturalWidth = nil
         audio.naturalHeight = nil
@@ -926,7 +1006,7 @@ struct MultiTrackTimelineTests {
         let elements = TimelineElementSequence.elements(track: track, transitions: [])
 
         #expect(TimelineElementSequence.focusTargetAfterDeletingClip(firstID, from: elements) == .clip(middleID))
-        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(middleID, from: elements) == .clip(lastID))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(middleID, from: elements) == .clip(firstID))
         #expect(TimelineElementSequence.focusTargetAfterDeletingClip(lastID, from: elements) == .clip(middleID))
         #expect(TimelineElementSequence.focusTargetAfterDeletingClip(
             firstID,
@@ -958,6 +1038,31 @@ struct MultiTrackTimelineTests {
         ]
 
         #expect(TimelineElementSequence.focusTargetAfterDeletingClip(firstID, from: elements) == .clip(secondID))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(secondID, from: elements) == .clip(firstID))
+    }
+
+    @Test func clipDeletionFocusSkipsSurvivingTransitionsAsWellAsRemovedTransitions() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 9)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let firstID = try project.append(asset: asset, segments: [segment(0, 3)])
+        let middleID = try project.append(asset: asset, segments: [segment(3, 3)])
+        let lastID = try project.append(asset: asset, segments: [segment(6, 3)])
+        let trackID = try #require(project.tracks.first(where: { $0.clips.contains { $0.id == firstID } })?.id)
+        let outro = TimelineTransition(trackID: trackID, edge: .outro, kind: .video(.fade),
+            duration: ProjectTime(seconds: 1), leadingClipID: firstID, trailingClipID: nil)
+        let intro = TimelineTransition(trackID: trackID, edge: .intro, kind: .video(.fade),
+            duration: ProjectTime(seconds: 1), leadingClipID: nil, trailingClipID: lastID)
+        let elements = [
+            TimelineListElement(content: .clip(try #require(project.timelineClip(id: firstID)))),
+            TimelineListElement(content: .transition(outro)),
+            TimelineListElement(content: .clip(try #require(project.timelineClip(id: middleID)))),
+            TimelineListElement(content: .transition(intro)),
+            TimelineListElement(content: .clip(try #require(project.timelineClip(id: lastID)))),
+        ]
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(middleID, from: elements) == .clip(firstID))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(firstID, from: elements) == .clip(middleID))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(UUID(), from: elements) == nil)
     }
 
     @Test func ffmpegFiltersUseAccessibleEditorValues() {
@@ -1628,4 +1733,13 @@ private func meanVolume(
 
 private enum CrossFadeFixtureError: Error {
     case missingMeanVolume
+}
+
+private struct TimelineDeletionTestView: View {
+    let controller: ProjectController
+    @Namespace private var links
+
+    var body: some View {
+        ProjectTimelineView(controller: controller, openClipEditor: { _ in }, workspacePaneLinks: links)
+    }
 }

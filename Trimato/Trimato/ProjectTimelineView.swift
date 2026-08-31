@@ -36,6 +36,8 @@ struct ProjectTimelineView: View {
     @FocusState private var keyboardFocusedElement: TimelineElementSelection?
     @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
     @AccessibilityFocusState private var timelineListFocused: Bool
+    @AccessibilityFocusState private var emptyTimelineFocused: Bool
+    @FocusState private var emptyTimelineKeyboardFocused: Bool
     @State private var renamedClipName = ""
     @State private var isRenamingClip = false
     @State private var isRenamingTrack = false
@@ -44,6 +46,7 @@ struct ProjectTimelineView: View {
     @State private var editingTransition: TimelineTransition?
     @State private var transitionFocusReturn: TimelineElementSelection?
     @State private var clipPendingDeletion: TimelineClip?
+    @State private var deletionFocusRequest: TimelineDeletionFocusRequest?
     @State private var errorMessage: String?
     @State private var errorTitle = "Timeline Change Failed"
 
@@ -173,12 +176,7 @@ struct ProjectTimelineView: View {
         } message: {
             Text(errorMessage ?? "The timeline could not be updated.")
         }
-        .alert(TimelineClipDeletionConfirmation.title, isPresented: deleteClipConfirmationPresented) {
-            Button("Cancel", role: .cancel) { cancelClipDeletion() }
-            Button("Delete Clip", role: .destructive) { confirmClipDeletion() }
-        } message: {
-            Text(deleteClipConfirmationMessage)
-        }
+        .background(TimelineClipDeletionAlertBridge(clip: clipPendingDeletion, completed: finishClipDeletion))
     }
 
     @ViewBuilder
@@ -211,6 +209,10 @@ struct ProjectTimelineView: View {
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(8)
+                            .focusable()
+                            .focused($emptyTimelineKeyboardFocused)
+                            .accessibilityFocused($emptyTimelineFocused)
+                            .accessibilityIdentifier("trimato.timeline.empty")
                     } else {
                         ForEach(timelineElements) { element in
                             switch element.content {
@@ -225,6 +227,31 @@ struct ProjectTimelineView: View {
             .accessibilityLabel(timelineListAccessibilityLabel)
             .accessibilityIdentifier("trimato.timeline.clips")
             .accessibilityFocused($timelineListFocused)
+            .onChange(of: deletionFocusRequest?.id) {
+                guard let request = deletionFocusRequest else { return }
+                if case .clip(let id) = request.target { proxy.scrollTo("clip-" + id.uuidString) }
+                // The native alert has ended and this view contains the updated
+                // rows. Let scrolling settle, then make one focus request.
+                DispatchQueue.main.async {
+                    guard deletionFocusRequest?.id == request.id else { return }
+                    deletionFocusRequest = nil
+                    guard request.window?.isKeyWindow == true,
+                          request.window?.attachedSheet == nil,
+                          controller.activeTimelineTrackID == request.trackID else { return }
+                    timelineListFocused = false
+                    if let target = request.target,
+                       timelineElements.contains(where: { element in
+                           if case .clip(let clip) = element.content { return target == .clip(clip.id) }
+                           return false
+                       }) {
+                        keyboardFocusedElement = target
+                        focusedElement = target
+                    } else if timelineElements.isEmpty {
+                        emptyTimelineKeyboardFocused = true
+                        emptyTimelineFocused = true
+                    }
+                }
+            }
             .onChange(of: controller.timelineFocusRestoreRequest) {
                 if let target = controller.timelineFocusRestoreTarget {
                     switch target {
@@ -457,6 +484,13 @@ struct ProjectTimelineView: View {
     private func deleteTimelineClip(_ id: UUID) {
         guard let clip = controller.project.timelineClip(id: id) else { return }
         controller.selection = .timelineClip(id)
+        // Clear the prior request while the native confirmation takes focus.
+        // Cancellation can then request the same row once after dismissal.
+        focusedElement = nil
+        keyboardFocusedElement = nil
+        timelineListFocused = false
+        emptyTimelineFocused = false
+        emptyTimelineKeyboardFocused = false
         clipPendingDeletion = clip
     }
 
@@ -521,38 +555,19 @@ struct ProjectTimelineView: View {
         }
     }
 
-    private var deleteClipConfirmationPresented: Binding<Bool> {
-        Binding(
-            get: { clipPendingDeletion != nil },
-            set: { presented in
-                if !presented, clipPendingDeletion != nil {
-                    cancelClipDeletion()
-                }
-            }
-        )
-    }
-
-    private var deleteClipConfirmationMessage: String {
-        TimelineClipDeletionConfirmation.message(clipName: clipPendingDeletion?.displayName)
-    }
-
-    private func cancelClipDeletion() {
-        guard let clip = clipPendingDeletion else { return }
+    private func finishClipDeletion(_ clipID: UUID, confirmed: Bool, window: NSWindow) {
+        guard let clip = clipPendingDeletion, clip.id == clipID else { return }
+        let fallback = fallbackFocusAfterDeletingClip(clipID)
         clipPendingDeletion = nil
-        restoreTimelineElementFocus(to: .clip(clip.id))
-    }
-
-    private func confirmClipDeletion() {
-        guard let clip = clipPendingDeletion else { return }
-        let focusTarget = fallbackFocusAfterDeletingClip(clip.id)
-        clipPendingDeletion = nil
-        controller.selection = .timelineClip(clip.id)
-        controller.deleteSelection()
-        if let focusTarget {
-            restoreTimelineElementFocus(to: focusTarget)
-        } else {
-            restoreTimelineListFocus()
+        if confirmed {
+            controller.selection = .timelineClip(clipID)
+            controller.deleteSelection()
         }
+        // A cancelled or failed deletion returns to the original row.
+        let target: TimelineElementSelection? = controller.project.timelineClip(id: clipID) != nil
+            ? .clip(clipID) : fallback
+        deletionFocusRequest = TimelineDeletionFocusRequest(target: target,
+            trackID: controller.activeTimelineTrackID, window: window)
     }
 
     private func fallbackFocusAfterDeletingClip(_ id: UUID) -> TimelineElementSelection? {
@@ -657,6 +672,90 @@ struct ProjectTimelineView: View {
     }
 }
 
+private struct TimelineDeletionFocusRequest {
+    let id = UUID()
+    let target: TimelineElementSelection?
+    let trackID: UUID?
+    weak var window: NSWindow?
+}
+
+/// NSAlert supplies a completion callback after its native sheet ends; SwiftUI's
+/// alert button action runs before that dismissal has finished.
+struct TimelineClipDeletionAlertBridge: NSViewRepresentable {
+    let clip: TimelineClip?
+    let completed: (UUID, Bool, NSWindow) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> Anchor {
+        let view = Anchor()
+        view.owner = context.coordinator
+        view.setAccessibilityElement(false)
+        return view
+    }
+
+    func updateNSView(_ view: Anchor, context: Context) {
+        context.coordinator.update(clip: clip, parent: view.window, completed: completed)
+    }
+
+    static func dismantleNSView(_ view: Anchor, coordinator: Coordinator) {
+        coordinator.invalidate()
+    }
+
+    final class Anchor: NSView {
+        weak var owner: Coordinator?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            owner?.parent = window
+            owner?.presentIfPossible()
+        }
+    }
+
+    @MainActor final class Coordinator {
+        weak var parent: NSWindow?
+        private var clip: TimelineClip?
+        private var presentedClipID: UUID?
+        private var alert: NSAlert?
+        private var completed: ((UUID, Bool, NSWindow) -> Void)?
+
+        func update(clip: TimelineClip?, parent: NSWindow?, completed: @escaping (UUID, Bool, NSWindow) -> Void) {
+            self.clip = clip
+            self.parent = parent
+            self.completed = completed
+            if clip == nil { presentedClipID = nil }
+            presentIfPossible()
+        }
+
+        func presentIfPossible() {
+            guard alert == nil, let clip, presentedClipID != clip.id,
+                  let parent, parent.isKeyWindow, parent.attachedSheet == nil else { return }
+            let alert = NSAlert()
+            alert.messageText = TimelineClipDeletionConfirmation.title
+            alert.informativeText = TimelineClipDeletionConfirmation.message(clipName: clip.displayName)
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Delete Clip").hasDestructiveAction = true
+            self.alert = alert
+            presentedClipID = clip.id
+            alert.beginSheetModal(for: parent) { [weak self, weak parent] response in
+                guard let self, let parent, self.presentedClipID == clip.id else { return }
+                self.alert = nil
+                self.completed?(clip.id, response == .alertSecondButtonReturn, parent)
+            }
+        }
+
+        func invalidate() {
+            presentedClipID = nil
+            completed = nil
+            clip = nil
+            if let alert {
+                alert.window.sheetParent?.endSheet(alert.window)
+                alert.window.orderOut(nil)
+            }
+            alert = nil
+        }
+    }
+}
+
 private struct AddTrackView: View {
     let add: (TimelineTrackKind, String) -> Void
     let cancel: () -> Void
@@ -716,20 +815,13 @@ enum TimelineElementSequence {
             if case .clip(let clip) = $0.content { return clip.id == clipID }
             return false
         }) else { return nil }
-        let remaining = elements.enumerated().compactMap { offset, element -> TimelineListElement? in
-            guard offset != index else { return nil }
-            if case .transition(let transition) = element.content,
-               transition.leadingClipID == clipID || transition.trailingClipID == clipID {
-                return nil
-            }
-            return element
+        for element in elements[..<index].reversed() {
+            if case .clip(let clip) = element.content { return .clip(clip.id) }
         }
-        guard !remaining.isEmpty else { return nil }
-        let targetIndex = min(index, remaining.count - 1)
-        switch remaining[targetIndex].content {
-        case .clip(let clip): return .clip(clip.id)
-        case .transition(let transition): return .transition(transition.id)
+        for element in elements.dropFirst(index + 1) {
+            if case .clip(let clip) = element.content { return .clip(clip.id) }
         }
+        return nil
     }
 
     static func transitions(
