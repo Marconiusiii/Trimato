@@ -38,5 +38,15 @@ struct HelpBookTests {
         #expect(TrimatoHelp.quickStartPage == "quickstart.html")
         #expect(quickStart.contains("<h1 id=\"trimato-quickstart\">Trimato QuickStart guide</h1>"))
         #expect(quickStart.contains("<link rel=\"stylesheet\" href=\"trimato-help.css\">"))
+        #expect(!indexPage.contains("getting-started.html"))
+        #expect(!FileManager.default.fileExists(atPath: helpBundle.appendingPathComponent(
+            "Contents/Resources/en.lproj/getting-started.html"
+        ).path))
+    }
+
+    @Test func builtApplicationResolvesTheBundledQuickStartPage() throws {
+        let pageURL = try #require(TrimatoHelp.quickStartURL(in: .main))
+        #expect(pageURL.lastPathComponent == TrimatoHelp.quickStartPage)
+        #expect(FileManager.default.fileExists(atPath: pageURL.path))
     }
 }
