@@ -114,6 +114,44 @@ struct ProjectSourceItemTests {
         ) == .clips(projectID))
     }
 
+    @Test func generatorsAppearOnlyInTheirOwnFolderIncludingOlderFolderAssignments() {
+        let imported = makeAsset(name: "Interview")
+        let generated = GeneratorDefinition().assetRecord()
+        var project = TrimatoProject()
+        project.media = [imported, generated]
+        let folder = ProjectFolder(name: "User Folder", assetIDs: [imported.id, generated.id])
+        project.folders = [folder]
+        let root = ProjectSourceItem.hierarchy(for: project)
+        #expect(root.item(withID: .clips(project.id))?.children.isEmpty == true)
+        #expect(root.item(withID: .folder(folder.id))?.children.map(\.id) == [.asset(imported.id)])
+        #expect(root.item(withID: .generators(project.id))?.children.map(\.id) == [.asset(generated.id)])
+        #expect(ProjectSourceItem.importedAssets(in: project) == [imported])
+    }
+
+    @Test func addingTransitionsDoesNotAddSourceRowsOrMediaRecords() throws {
+        var project = TrimatoProject()
+        let asset = makeAsset(name: "Imported")
+        project.media = [asset]
+        let trackID = project.createTrack(kind: .audio)
+        let clipID = try project.append(asset: asset, segments: nil, toTrack: trackID)
+        let before = ProjectSourceItem.hierarchy(for: project)
+        try project.addTransition(TimelineTransition(trackID: trackID, edge: .intro, kind: .audio(.fade),
+                                                     duration: ProjectTime(seconds: 1), leadingClipID: nil,
+                                                     trailingClipID: clipID))
+        #expect(ProjectSourceItem.hierarchy(for: project) == before)
+        #expect(project.media == [asset])
+    }
+
+    @Test func deletionFocusDoesNotJumpBetweenImportedAndGeneratedClips() {
+        let imported = makeAsset(name: "Interview")
+        let first = GeneratorDefinition().assetRecord()
+        let second = GeneratorDefinition().assetRecord()
+        var project = TrimatoProject()
+        project.media = [first, imported, second]
+        #expect(ProjectSourceItem.deletionFocus(afterDeleting: first.id, in: project) == .asset(second.id))
+        #expect(ProjectSourceItem.deletionFocus(afterDeleting: imported.id, in: project) == .clips(project.id))
+    }
+
     private func makeAsset(name: String) -> MediaAssetRecord {
         MediaAssetRecord(
             name: name,

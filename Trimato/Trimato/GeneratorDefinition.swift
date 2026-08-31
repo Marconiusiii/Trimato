@@ -97,3 +97,63 @@ nonisolated struct GeneratorDefinition: Codable, Hashable, Sendable {
         )
     }
 }
+
+/// Generator sources have their own stable names, independent of timeline copies.
+nonisolated enum GeneratorSourceNaming {
+    static func nextName(base: String, usedNames: [String]) -> String {
+        let used = Set(usedNames.map { $0.lowercased() })
+        guard used.contains(base.lowercased()) else { return base }
+        var ordinal = 0
+        while used.contains("\(base) \(TimelineClip.letterLabel(for: ordinal))".lowercased()) {
+            ordinal += 1
+        }
+        return "\(base) \(TimelineClip.letterLabel(for: ordinal))"
+    }
+
+    static func usedNames(in project: TrimatoProject) -> [String] {
+        project.media.map(\.name) + project.tracks.flatMap(\.clips).map(\.displayName)
+            + project.primaryTimeline.map(\.displayName) + project.cutaways.map(\.displayName)
+    }
+
+    /// Older projects saved each generated source with its unsuffixed kind title.
+    /// Preserve all other source names and every explicit timeline customName.
+    static func normalize(in project: inout TrimatoProject) {
+        let original = Dictionary(uniqueKeysWithValues: project.media.map { ($0.id, $0) })
+        var reserved = project.media.filter { $0.generator?.kind.title != $0.name }.map(\.name)
+        reserved += project.tracks.flatMap(\.clips).compactMap(\.customName)
+        reserved += project.primaryTimeline.compactMap(\.customName) + project.cutaways.compactMap(\.customName)
+        var names: [UUID: String] = [:]
+        for index in project.media.indices {
+            guard let generator = project.media[index].generator else { continue }
+            if project.media[index].name == generator.kind.title {
+                project.media[index].name = nextName(base: generator.kind.title, usedNames: reserved)
+                reserved.append(project.media[index].name)
+            }
+            names[project.media[index].id] = project.media[index].name
+        }
+        var instances: [UUID: Set<UUID>] = [:]
+        for clip in project.tracks.flatMap(\.clips) + project.primaryTimeline {
+            instances[clip.assetID, default: []].insert(clip.id)
+        }
+        for clip in project.cutaways { instances[clip.assetID, default: []].insert(clip.id) }
+        func renamed(_ clip: TimelineClip) -> TimelineClip {
+            guard clip.customName == nil, let name = names[clip.assetID],
+                  clip.name == original[clip.assetID]?.name else { return clip }
+            var clip = clip
+            clip.name = name
+            if instances[clip.assetID]?.count == 1 { clip.labelOrdinal = nil }
+            return clip
+        }
+        for track in project.tracks.indices {
+            project.tracks[track].clips = project.tracks[track].clips.map(renamed)
+        }
+        project.primaryTimeline = project.primaryTimeline.map(renamed)
+        for index in project.cutaways.indices {
+            let clip = project.cutaways[index]
+            guard clip.customName == nil, let name = names[clip.assetID],
+                  clip.name == original[clip.assetID]?.name else { continue }
+            project.cutaways[index].name = name
+            if instances[clip.assetID]?.count == 1 { project.cutaways[index].labelOrdinal = nil }
+        }
+    }
+}

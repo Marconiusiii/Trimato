@@ -165,7 +165,7 @@ struct ProjectBrowserView: View {
         switch sourceSelection {
         case .asset: true
         case .folder(let id): controller.project.folders.contains { $0.id == id }
-        case .project, .timeline, .clips, .none: false
+        case .project, .timeline, .clips, .generators, .none: false
         }
     }
 
@@ -213,13 +213,15 @@ struct ProjectBrowserView: View {
                     }
                 }
                 Divider()
-                Menu("Move Clip") {
-                    Button("Project Root") { controller.moveAsset(id, toFolder: nil) }
-                    ForEach(controller.project.folders) { folder in
-                        Button(folder.name) { controller.moveAsset(id, toFolder: folder.id) }
+                if controller.project.asset(id: id)?.generator == nil {
+                    Menu("Move Clip") {
+                        Button("Project Root") { controller.moveAsset(id, toFolder: nil) }
+                        ForEach(controller.project.folders) { folder in
+                            Button(folder.name) { controller.moveAsset(id, toFolder: folder.id) }
+                        }
                     }
                 }
-                if let asset = controller.project.asset(id: id), controller.resolveURL(for: asset) == nil {
+                if let asset = controller.project.asset(id: id), asset.generator == nil, controller.resolveURL(for: asset) == nil {
                     Button("Relink Clip\u{2026}") {
                         controller.selection = .asset(id)
                         controller.relinkSelectedAsset()
@@ -229,7 +231,7 @@ struct ProjectBrowserView: View {
                 Button("Delete Source Clip", role: .destructive) {
                     beginDeletingAsset(id)
                 }
-            case .project, .timeline, .clips, .none:
+            case .project, .timeline, .clips, .generators, .none:
                 Text("No Actions Available")
             }
         }
@@ -267,11 +269,7 @@ struct ProjectBrowserView: View {
 
     private func confirmAssetDeletion() {
         guard let asset = assetPendingDeletion else { return }
-        let target = ProjectSourceDeletionFocus.target(
-            afterDeleting: asset.id,
-            from: controller.project.media,
-            projectID: controller.project.id
-        )
+        let target = ProjectSourceItem.deletionFocus(afterDeleting: asset.id, in: controller.project)
         assetPendingDeletion = nil
         sourceSelection = target
         controller.deleteSourceAsset(asset.id)

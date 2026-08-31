@@ -70,6 +70,46 @@ private nonisolated final class ProjectPreviewOperationWaiter: @unchecked Sendab
     }
 }
 
+/// Source selections and browser organization do not change timeline playback.
+/// Keep a value snapshot so Undo/Redo follows the same invalidation rules as edits.
+nonisolated struct ProjectPreviewInput: Equatable {
+    private let playback: TrimatoProject
+
+    init(_ project: TrimatoProject) {
+        var value = project
+        value.name = ""
+        value.folders = []
+        value.targetDuration = nil
+        let used = Set((value.tracks.flatMap(\.clips) + value.primaryTimeline).map(\.assetID)
+                       + value.cutaways.map(\.assetID))
+        value.media = value.media.filter { used.contains($0.id) }.map { asset in
+            var asset = asset
+            asset.sourceEdit = []
+            asset.name = ""
+            return asset
+        }.sorted { $0.id.uuidString < $1.id.uuidString }
+        for track in value.tracks.indices {
+            value.tracks[track].name = ""
+            value.tracks[track].clips = value.tracks[track].clips.map(Self.withoutDisplayName)
+        }
+        value.primaryTimeline = value.primaryTimeline.map(Self.withoutDisplayName)
+        for index in value.cutaways.indices {
+            value.cutaways[index].name = ""
+            value.cutaways[index].customName = nil
+            value.cutaways[index].labelOrdinal = nil
+        }
+        playback = value
+    }
+
+    private static func withoutDisplayName(_ clip: TimelineClip) -> TimelineClip {
+        var clip = clip
+        clip.name = ""
+        clip.customName = nil
+        clip.labelOrdinal = nil
+        return clip
+    }
+}
+
 @MainActor
 final class ProjectPlayerViewModel: ObservableObject {
     let player = AVPlayer()

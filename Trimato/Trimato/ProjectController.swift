@@ -69,6 +69,9 @@ final class ProjectController: ObservableObject {
     private let cacheOwnerID = UUID()
 
     init(document: ProjectDocument) {
+        var normalized = document.project
+        GeneratorSourceNaming.normalize(in: &normalized)
+        if normalized != document.project { document.project = normalized }
         self.document = document
         document.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
@@ -101,17 +104,39 @@ final class ProjectController: ObservableObject {
         case .timelineClip(let clipID), .cutaway(let clipID): id = clipID
         default: throw ProjectTimelineError.clipNotFound
         }
-        let asset = definition.assetRecord()
+        let usedElsewhere = project.tracks.flatMap(\.clips).contains { $0.id != id && $0.assetID == source.id }
+            || project.primaryTimeline.contains { $0.id != id && $0.assetID == source.id }
+            || project.cutaways.contains { $0.id != id && $0.assetID == source.id }
+        var asset = definition.assetRecord()
+        asset.name = usedElsewhere
+            ? GeneratorSourceNaming.nextName(base: definition.kind.title,
+                                             usedNames: GeneratorSourceNaming.usedNames(in: project))
+            : source.name
         try mutateProjectThrowing(actionName: "Update Generator") { project in
-            project.media.append(asset)
+            if !usedElsewhere, let index = project.media.firstIndex(where: { $0.id == source.id }) {
+                project.media[index] = asset
+                for folder in project.folders.indices {
+                    project.folders[folder].assetIDs.removeAll { $0 == source.id }
+                }
+            } else {
+                project.media.append(asset)
+            }
             try project.updateTrackClip(id: id, segments: asset.sourceEdit)
             for track in project.tracks.indices {
                 for clip in project.tracks[track].clips.indices where project.tracks[track].clips[clip].id == id {
                     project.tracks[track].clips[clip].assetID = asset.id
+                    if project.tracks[track].clips[clip].customName == nil {
+                        project.tracks[track].clips[clip].name = asset.name
+                        project.tracks[track].clips[clip].labelOrdinal = nil
+                    }
                 }
             }
             if let index = project.cutaways.firstIndex(where: { $0.id == id }) {
                 project.cutaways[index].assetID = asset.id
+                if project.cutaways[index].customName == nil {
+                    project.cutaways[index].name = asset.name
+                    project.cutaways[index].labelOrdinal = nil
+                }
                 project.cutaways[index].segments = asset.sourceEdit
             }
             project.synchronizeTracksToLegacyTimeline()
@@ -130,7 +155,9 @@ final class ProjectController: ObservableObject {
             throw MediaSourceError.unreadable("The project changed while the generator was being prepared. Try adding it again.")
         }
         try definition.validate()
-        let asset = definition.assetRecord()
+        var asset = definition.assetRecord()
+        asset.name = GeneratorSourceNaming.nextName(base: definition.kind.title,
+                                                   usedNames: GeneratorSourceNaming.usedNames(in: project))
         var placedID: UUID?
         var destinationID: UUID?
         try mutateProjectThrowing(actionName: "Add Generator") { project in
@@ -1237,6 +1264,7 @@ final class ProjectController: ObservableObject {
     }
 
     func moveAsset(_ assetID: UUID, toFolder folderID: UUID?) {
+        guard project.asset(id: assetID)?.generator == nil else { return }
         mutateProject(actionName: "Move Media") { project in
             for index in project.folders.indices {
                 project.folders[index].assetIDs.removeAll { $0 == assetID }

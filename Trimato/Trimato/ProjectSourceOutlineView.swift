@@ -52,7 +52,7 @@ struct ProjectSourceOutlineView: View {
         self.requestNewTrack = requestNewTrack
         self.focusRequest = focusRequest
         _expandedItems = State(initialValue: Set(
-            [.project(controller.project.id), .clips(controller.project.id)] +
+            [.project(controller.project.id), .clips(controller.project.id), .generators(controller.project.id)] +
                 controller.project.folders.map { .folder($0.id) }
         ))
     }
@@ -103,6 +103,7 @@ struct ProjectSourceOutlineView: View {
             ForEach(controller.project.folders) { folder in
                 folderGroup(folder)
             }
+            if !generatorAssets.isEmpty { generatorsGroup }
         } label: {
             Text(controller.project.name)
         }
@@ -137,11 +138,26 @@ struct ProjectSourceOutlineView: View {
         .accessibilityFocused($focusedItem, equals: .clips(controller.project.id))
     }
 
+    private var generatorAssets: [MediaAssetRecord] {
+        controller.project.media.filter { $0.generator != nil }
+    }
+
+    private var generatorsGroup: some View {
+        DisclosureGroup(isExpanded: expansionBinding(for: .generators(controller.project.id))) {
+            ForEach(generatorAssets) { asset in assetRow(asset) }
+        } label: {
+            Text("Generators")
+        }
+        .tag(ProjectSourceItemID.generators(controller.project.id))
+        .id(ProjectSourceItemID.generators(controller.project.id))
+        .accessibilityFocused($focusedItem, equals: .generators(controller.project.id))
+    }
+
     private func folderGroup(_ folder: ProjectFolder) -> some View {
         DisclosureGroup(
             isExpanded: expansionBinding(for: .folder(folder.id))
         ) {
-            ForEach(folder.assetIDs.compactMap(controller.project.asset(id:))) { asset in
+            ForEach(folder.assetIDs.compactMap(controller.project.asset(id:)).filter { $0.generator == nil }) { asset in
                 assetRow(asset)
             }
         } label: {
@@ -225,19 +241,21 @@ struct ProjectSourceOutlineView: View {
             }
         }
         Divider()
-        Menu("Move to Folder") {
-            Button("Project Root") {
-                select(.asset(asset.id))
-                controller.moveAsset(asset.id, toFolder: nil)
-            }
-            ForEach(controller.project.folders) { folder in
-                Button(folder.name) {
+        if asset.generator == nil {
+            Menu("Move to Folder") {
+                Button("Project Root") {
                     select(.asset(asset.id))
-                    controller.moveAsset(asset.id, toFolder: folder.id)
+                    controller.moveAsset(asset.id, toFolder: nil)
+                }
+                ForEach(controller.project.folders) { folder in
+                    Button(folder.name) {
+                        select(.asset(asset.id))
+                        controller.moveAsset(asset.id, toFolder: folder.id)
+                    }
                 }
             }
         }
-        if controller.resolveURL(for: asset) == nil {
+        if asset.generator == nil, controller.resolveURL(for: asset) == nil {
             Button("Relink Clip\u{2026}") {
                 select(.asset(asset.id))
                 controller.relinkSelectedAsset()
@@ -252,7 +270,7 @@ struct ProjectSourceOutlineView: View {
 
     private var unfiledAssets: [MediaAssetRecord] {
         let filedIDs = Set(controller.project.folders.flatMap(\.assetIDs))
-        return controller.project.media.filter { !filedIDs.contains($0.id) }
+        return ProjectSourceItem.importedAssets(in: controller.project).filter { !filedIDs.contains($0.id) }
     }
 
     private var trackPlacementActions: [PlacementAction] {
@@ -301,7 +319,7 @@ struct ProjectSourceOutlineView: View {
             controller.selection = .asset(id)
         case .project, .timeline, .clips:
             controller.selection = .project
-        case .folder, .none:
+        case .folder, .generators, .none:
             break
         }
     }
@@ -400,7 +418,9 @@ struct ProjectSourceOutlineView: View {
     private func prepareExpansion(for target: ProjectSourceItemID) {
         expandedItems.insert(.project(controller.project.id))
         guard case .asset(let assetID) = target else { return }
-        if let folder = controller.project.folders.first(where: { $0.assetIDs.contains(assetID) }) {
+        if controller.project.asset(id: assetID)?.generator != nil {
+            expandedItems.insert(.generators(controller.project.id))
+        } else if let folder = controller.project.folders.first(where: { $0.assetIDs.contains(assetID) }) {
             expandedItems.insert(.folder(folder.id))
         } else {
             expandedItems.insert(.clips(controller.project.id))

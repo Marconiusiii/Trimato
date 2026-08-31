@@ -112,6 +112,79 @@ struct GeneratorFilterTests {
         #expect(controller.project == unchanged)
     }
 
+    @Test func generatorNamesUseLettersAndMatchTimelineEntries() throws {
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        for _ in 0..<3 {
+            try controller.placeGenerator(definition(), placement: .append, at: .zero,
+                                          trackID: controller.project.tracks.first?.id,
+                                          newTrackName: "Generated", expectedProject: controller.project)
+        }
+        #expect(controller.project.media.map(\.name) == ["Black", "Black A", "Black B"])
+        #expect(controller.project.tracks.flatMap(\.clips).map(\.displayName) == ["Black", "Black A", "Black B"])
+        let names = ["Black"] + (0..<26).map { "Black \(TimelineClip.letterLabel(for: $0))" }
+        #expect(GeneratorSourceNaming.nextName(base: "Black", usedNames: names) == "Black AA")
+    }
+
+    @Test func olderGeneratorNamesNormalizeOnceAndPreserveCustomNames() throws {
+        var project = TrimatoProject()
+        let first = definition().assetRecord()
+        let second = definition().assetRecord()
+        var custom = definition().assetRecord()
+        custom.name = "Custom backdrop"
+        project.media = [first, second, custom]
+        let firstID = try project.append(asset: first)
+        let secondID = try project.append(asset: second)
+        try project.renameTrackClip(id: firstID, to: "Opening")
+        GeneratorSourceNaming.normalize(in: &project)
+        #expect(project.media.map(\.name) == ["Black", "Black A", "Custom backdrop"])
+        #expect(project.timelineClip(id: firstID)?.displayName == "Opening")
+        #expect(project.timelineClip(id: secondID)?.displayName == "Black A")
+        let before = project
+        GeneratorSourceNaming.normalize(in: &project)
+        #expect(project == before)
+        let reopened = try JSONDecoder().decode(TrimatoProject.self, from: JSONEncoder().encode(project))
+        let controller = ProjectController(document: ProjectDocument(project: reopened))
+        #expect(controller.project == reopened)
+    }
+
+    @Test func updatingGeneratorKeepsNameAndDoesNotLeaveAnObsoleteSourceRow() throws {
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        try controller.placeGenerator(definition(), placement: .append, at: .zero, trackID: nil,
+                                      newTrackName: "Generated", expectedProject: controller.project)
+        let id = try #require(controller.project.tracks.first?.clips.first?.id)
+        var changed = definition()
+        changed.duration = ProjectTime(seconds: 1)
+        try controller.updateGenerator(changed, editing: .timelineClip(id), expectedProject: controller.project)
+        #expect(controller.project.media.count == 1)
+        #expect(controller.project.media[0].name == "Black")
+        #expect(controller.project.timelineClip(id: id)?.displayName == "Black")
+    }
+
+    @Test func updatingSharedGeneratorPreservesOtherInstancesCustomNamesAndUndo() throws {
+        var project = TrimatoProject()
+        let asset = definition().assetRecord()
+        project.media = [asset]
+        let first = try project.append(asset: asset)
+        let second = try project.append(asset: asset)
+        try project.renameTrackClip(id: first, to: "Opening")
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let before = controller.project
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        controller.installUndoManager(undo)
+        var changed = definition()
+        changed.duration = ProjectTime(seconds: 1)
+        undo.beginUndoGrouping()
+        try controller.updateGenerator(changed, editing: .timelineClip(first), expectedProject: before)
+        undo.endUndoGrouping()
+        #expect(controller.project.media.count == 2)
+        #expect(controller.project.timelineClip(id: first)?.displayName == "Opening")
+        #expect(controller.project.timelineClip(id: second)?.assetID == asset.id)
+        #expect(controller.project.asset(id: asset.id)?.generator == definition())
+        undo.undo()
+        #expect(controller.project == before)
+    }
+
     @Test func filtersStayWithSplitClipsAndDoNotChangeAnotherInstance() throws {
         let asset = definition().assetRecord()
         var project = TrimatoProject()

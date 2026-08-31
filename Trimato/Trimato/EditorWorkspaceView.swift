@@ -344,8 +344,10 @@ private struct ProjectViewerView: View {
             }
             prepare()
         }
-        .onChange(of: controller.project) { _, project in
-            if !controller.consumePreparedTransitionPreview(for: project) { prepare() }
+        .onChange(of: controller.project) { previous, project in
+            guard !controller.consumePreparedTransitionPreview(for: project),
+                  ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
+            prepare()
         }
         .onChange(of: controller.timelinePlayhead) { _, time in
             guard abs(viewModel.currentTime.seconds - time.seconds) > 0.02 else { return }
