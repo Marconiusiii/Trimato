@@ -51,6 +51,7 @@ struct FFmpegMediaProbe {
         struct Stream: Decodable, Equatable {
             let codecType: String?
             let codecName: String?
+            let codecLongName: String?
             let pixelFormat: String?
             let colorTransfer: String?
             let width: Int?
@@ -64,6 +65,7 @@ struct FFmpegMediaProbe {
             init(
                 codecType: String? = nil,
                 codecName: String? = nil,
+                codecLongName: String? = nil,
                 pixelFormat: String? = nil,
                 colorTransfer: String? = nil,
                 width: Int? = nil,
@@ -76,6 +78,7 @@ struct FFmpegMediaProbe {
             ) {
                 self.codecType = codecType
                 self.codecName = codecName
+                self.codecLongName = codecLongName
                 self.pixelFormat = pixelFormat
                 self.colorTransfer = colorTransfer
                 self.width = width
@@ -90,6 +93,7 @@ struct FFmpegMediaProbe {
             enum CodingKeys: String, CodingKey {
                 case codecType = "codec_type"
                 case codecName = "codec_name"
+                case codecLongName = "codec_long_name"
                 case pixelFormat = "pix_fmt"
                 case colorTransfer = "color_transfer"
                 case width
@@ -103,13 +107,40 @@ struct FFmpegMediaProbe {
         }
 
         struct Format: Decodable, Equatable {
+            struct Tags: Decodable, Equatable {
+                let encoder: String?
+            }
+
             let duration: String?
             let formatName: String?
+            let formatLongName: String?
+            let tags: Tags?
+
+            init(
+                duration: String? = nil,
+                formatName: String? = nil,
+                formatLongName: String? = nil,
+                tags: Tags? = nil
+            ) {
+                self.duration = duration
+                self.formatName = formatName
+                self.formatLongName = formatLongName
+                self.tags = tags
+            }
 
             enum CodingKeys: String, CodingKey {
                 case duration
                 case formatName = "format_name"
+                case formatLongName = "format_long_name"
+                case tags
             }
+        }
+
+        struct TechnicalDetails: Equatable, Sendable {
+            let container: String?
+            let videoCodec: String?
+            let audioCodec: String?
+            let encoder: String?
         }
 
         let streams: [Stream]
@@ -119,6 +150,15 @@ struct FFmpegMediaProbe {
         var audioStream: Stream? { streams.first { $0.codecType == "audio" } }
         var hasAudio: Bool { streams.contains { $0.codecType == "audio" } }
         var duration: Double { Double(format?.duration ?? "") ?? 0 }
+
+        var technicalDetails: TechnicalDetails {
+            TechnicalDetails(
+                container: useful(format?.formatLongName) ?? useful(format?.formatName),
+                videoCodec: codecDescription(videoStream),
+                audioCodec: codecDescription(audioStream),
+                encoder: useful(format?.tags?.encoder)
+            )
+        }
 
         var frameRate: Double? {
             guard let raw = videoStream?.averageFrameRate else { return nil }
@@ -137,6 +177,16 @@ struct FFmpegMediaProbe {
             return pixelFormat.contains("yuva") || pixelFormat.contains("rgba") ||
                 pixelFormat.contains("bgra") || pixelFormat.contains("argb") ||
                 pixelFormat.contains("abgr") || pixelFormat.contains("gbrap")
+        }
+
+        private func codecDescription(_ stream: Stream?) -> String? {
+            useful(stream?.codecLongName) ?? useful(stream?.codecName)
+        }
+
+        private func useful(_ value: String?) -> String? {
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else { return nil }
+            return value
         }
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import SwiftUI
 
 @main
@@ -241,8 +242,8 @@ private struct GetInfoCommands: Commands {
         if let viewModel {
             let filename = viewModel.sourceFilename ?? "Clip"
             return ProjectInfoSnapshot(title: "\(filename) Info", rows: [
-                ProjectInfoRow("Current Time", ProjectTimecodeFormatter.string(ProjectTime(seconds: viewModel.currentTime))),
-                ProjectInfoRow("Length", ProjectTimecodeFormatter.string(ProjectTime(seconds: viewModel.duration)))
+                ProjectInfoRow("Current Time", ProjectInfoTimeFormatter.string(ProjectTime(seconds: viewModel.currentTime))),
+                ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(ProjectTime(seconds: viewModel.duration)))
             ])
         }
         return activeProjects.activeProjectController?.projectInfoSnapshot()
@@ -252,7 +253,21 @@ private struct GetInfoCommands: Commands {
         CommandGroup(after: .pasteboard) {
             Divider()
             Button("Get Info") {
-                if let snapshot { openWindow(id: "get-info", value: snapshot) }
+                if let context = clipCommands.activeContext {
+                    Task { @MainActor in
+                        let snapshot = await context.controller.projectInfoSnapshotWithTechnicalDetails(
+                            selection: context.editSelection
+                        )
+                        openWindow(id: "get-info", value: snapshot)
+                    }
+                } else if let projectController {
+                    Task { @MainActor in
+                        let snapshot = await projectController.projectInfoSnapshotWithTechnicalDetails()
+                        openWindow(id: "get-info", value: snapshot)
+                    }
+                } else if let snapshot {
+                    openWindow(id: "get-info", value: snapshot)
+                }
             }
             .keyboardShortcut("i", modifiers: .command)
             .disabled(snapshot == nil)
@@ -437,12 +452,21 @@ private struct FeedbackCommands: Commands {
 enum TrimatoHelp {
     static let bookIdentifier = "com.marconius.trimato.help"
     static let quickStartAnchor = "trimato-quickstart-guide"
+    static let quickStartPage = "quickstart.html"
 
     @MainActor
     static func openQuickStart(bundle: Bundle = .main) {
         let manager = NSHelpManager.shared
         _ = manager.registerBooks(in: bundle)
         let book = bundle.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String
-        manager.openHelpAnchor(quickStartAnchor, inBook: book ?? bookIdentifier)
+        let resolvedBook = book ?? bookIdentifier
+        let result = AHGotoPage(
+            resolvedBook as CFString,
+            quickStartPage as CFString,
+            quickStartAnchor as CFString
+        )
+        if result != noErr {
+            manager.openHelpAnchor(quickStartAnchor, inBook: resolvedBook)
+        }
     }
 }

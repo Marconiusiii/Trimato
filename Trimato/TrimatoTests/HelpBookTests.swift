@@ -21,11 +21,21 @@ struct HelpBookTests {
             ),
             encoding: .utf8
         )
+        let indexPage = try String(
+            contentsOf: helpBundle.appendingPathComponent(
+                "Contents/Resources/en.lproj/index.html"
+            ),
+            encoding: .utf8
+        )
 
         #expect(helpInfo["CFBundleIdentifier"] as? String == TrimatoHelp.bookIdentifier)
         #expect(appInfo["CFBundleHelpBookName"] as? String == TrimatoHelp.bookIdentifier)
-        #expect((helpInfo["CFBundleVersion"] as? String).flatMap(Int.init) ?? 0 > 8)
+        #expect(indexPage.contains(
+            "<meta name=\"AppleTitle\" content=\"\(TrimatoHelp.bookIdentifier)\">"
+        ))
+        #expect((helpInfo["CFBundleVersion"] as? String).flatMap(Int.init) ?? 0 > 9)
         #expect(quickStart.contains("<a name=\"\(TrimatoHelp.quickStartAnchor)\"></a>"))
+        #expect(TrimatoHelp.quickStartPage == "quickstart.html")
         #expect(quickStart.contains("<h1 id=\"trimato-quickstart\">Trimato QuickStart guide</h1>"))
         #expect(quickStart.contains("<link rel=\"stylesheet\" href=\"trimato-help.css\">"))
     }

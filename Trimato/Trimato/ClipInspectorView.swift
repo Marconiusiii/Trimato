@@ -61,7 +61,8 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
     }
 
     static func make(target: ProjectInfoTarget, project: TrimatoProject,
-                     playhead: ProjectTime, activeTrackID: UUID?) -> Self {
+                     playhead: ProjectTime, activeTrackID: UUID?,
+                     technicalDetails: FFmpegMediaProbe.Report.TechnicalDetails? = nil) -> Self {
         switch target {
         case .editor:
             let activeTrack = activeTrackID.flatMap(project.track(id:))
@@ -69,7 +70,7 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
                 track.sortedClips.first(where: { $0.timelineStart == playhead }) ??
                     track.sortedClips.first(where: { playhead >= $0.timelineStart && playhead < $0.timelineEnd })
             }
-            var rows = [ProjectInfoRow("Project Time", ProjectTimecodeFormatter.string(playhead))]
+            var rows = [ProjectInfoRow("Project Time", ProjectInfoTimeFormatter.string(playhead))]
             if let activeTrack { rows.append(ProjectInfoRow("Track", activeTrack.name)) }
             if let directClip { rows.append(ProjectInfoRow("Clip", directClip.displayName)) }
             rows.append(ProjectInfoRow("Project", project.name))
@@ -83,20 +84,24 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
                 ProjectInfoRow("Clips", "\(folder.assetIDs.count)")
             ])
         case .selection(let selection):
-            return selectionSnapshot(selection, project: project)
+            return selectionSnapshot(selection, project: project, technicalDetails: technicalDetails)
         }
     }
 
-    private static func selectionSnapshot(_ selection: EditorSelection, project: TrimatoProject) -> Self {
+    private static func selectionSnapshot(
+        _ selection: EditorSelection,
+        project: TrimatoProject,
+        technicalDetails: FFmpegMediaProbe.Report.TechnicalDetails?
+    ) -> Self {
         switch selection {
         case .asset(let id):
             guard let asset = project.asset(id: id) else { return projectSnapshot(project) }
-            return assetSnapshot(asset, project: project)
+            return assetSnapshot(asset, project: project, technicalDetails: technicalDetails)
         case .timelineClip(let id):
             guard let clip = project.timelineClip(id: id) else { return projectSnapshot(project) }
             var rows = clipRows(clip, project: project)
             if let asset = project.asset(id: clip.assetID) {
-                rows.append(contentsOf: mediaRows(asset, project: project))
+                rows.append(contentsOf: mediaRows(asset, project: project, technicalDetails: technicalDetails))
             }
             return Self(title: infoTitle(clip.displayName), rows: rows)
         case .cutaway(let id):
@@ -104,12 +109,12 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
                 return projectSnapshot(project)
             }
             var rows = [
-                ProjectInfoRow("Timeline Start", ProjectTimecodeFormatter.string(cutaway.start)),
-                ProjectInfoRow("Length", ProjectTimecodeFormatter.string(cutaway.duration)),
+                ProjectInfoRow("Timeline Start", ProjectInfoTimeFormatter.string(cutaway.start)),
+                ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(cutaway.duration)),
                 ProjectInfoRow("Audio", cutaway.audioMode == .sourceAudio ? "Source Audio" : "Primary Audio")
             ]
             if let asset = project.asset(id: cutaway.assetID) {
-                rows.append(contentsOf: mediaRows(asset, project: project))
+                rows.append(contentsOf: mediaRows(asset, project: project, technicalDetails: technicalDetails))
             }
             return Self(title: infoTitle(cutaway.displayName), rows: rows)
         case .transition(let id):
@@ -121,7 +126,7 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
             case .between: position = "Between Clips"
             }
             return Self(title: infoTitle(transition.displayName), rows: [
-                ProjectInfoRow("Duration", ProjectTimecodeFormatter.string(transition.duration)),
+                ProjectInfoRow("Duration", ProjectInfoTimeFormatter.string(transition.duration)),
                 ProjectInfoRow("Position", position)
             ])
         case .track(let id):
@@ -138,10 +143,10 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
     private static func projectSnapshot(_ project: TrimatoProject) -> Self {
         var rows = [
             ProjectInfoRow("Name", project.name),
-            ProjectInfoRow("Length", ProjectTimecodeFormatter.string(project.duration))
+            ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(project.duration))
         ]
         if let target = project.targetDuration {
-            rows.append(ProjectInfoRow("Target Length", ProjectTimecodeFormatter.string(target)))
+            rows.append(ProjectInfoRow("Target Length", ProjectInfoTimeFormatter.string(target)))
         }
         if let width = project.format.width, let height = project.format.height {
             rows.append(ProjectInfoRow("Resolution", "\(width) by \(height)"))
@@ -155,24 +160,28 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
         return Self(title: infoTitle(project.name), rows: rows)
     }
 
-    private static func assetSnapshot(_ asset: MediaAssetRecord, project: TrimatoProject) -> Self {
-        var rows = [ProjectInfoRow("Length", ProjectTimecodeFormatter.string(asset.editedDuration))]
-        rows.append(contentsOf: mediaRows(asset, project: project))
+    private static func assetSnapshot(
+        _ asset: MediaAssetRecord,
+        project: TrimatoProject,
+        technicalDetails: FFmpegMediaProbe.Report.TechnicalDetails?
+    ) -> Self {
+        var rows = [ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(asset.editedDuration))]
+        rows.append(contentsOf: mediaRows(asset, project: project, technicalDetails: technicalDetails))
         return Self(title: infoTitle(asset.name), rows: rows)
     }
 
     private static func clipRows(_ clip: TimelineClip, project: TrimatoProject) -> [ProjectInfoRow] {
-        var rows = [ProjectInfoRow("Length", ProjectTimecodeFormatter.string(clip.duration))]
+        var rows = [ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(clip.duration))]
         if project.tracks.contains(where: {
             $0.role == .additional && $0.clips.contains { $0.id == clip.id }
         }) {
-            rows.append(ProjectInfoRow("Timeline Start", ProjectTimecodeFormatter.string(clip.visibleTimelineStart)))
+            rows.append(ProjectInfoRow("Timeline Start", ProjectInfoTimeFormatter.string(clip.visibleTimelineStart)))
             if clip.hiddenBeforeTimeline.isPositive {
-                rows.append(ProjectInfoRow("Hidden Before Timeline", ProjectTimecodeFormatter.string(clip.hiddenBeforeTimeline)))
-                rows.append(ProjectInfoRow("Visible Length", ProjectTimecodeFormatter.string(clip.visibleDuration)))
+                rows.append(ProjectInfoRow("Hidden Before Timeline", ProjectInfoTimeFormatter.string(clip.hiddenBeforeTimeline)))
+                rows.append(ProjectInfoRow("Visible Length", ProjectInfoTimeFormatter.string(clip.visibleDuration)))
             }
         } else if let start = project.startTime(of: clip.id) {
-            rows.append(ProjectInfoRow("Timeline Start", ProjectTimecodeFormatter.string(start)))
+            rows.append(ProjectInfoRow("Timeline Start", ProjectInfoTimeFormatter.string(start)))
         }
         rows.append(ProjectInfoRow("Source Segments", "\(clip.segments.count)"))
         if project.tracks.contains(where: { $0.kind == .audio && $0.clips.contains { $0.id == clip.id } }) {
@@ -181,8 +190,24 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
         return rows
     }
 
-    private static func mediaRows(_ asset: MediaAssetRecord, project: TrimatoProject) -> [ProjectInfoRow] {
+    private static func mediaRows(
+        _ asset: MediaAssetRecord,
+        project: TrimatoProject,
+        technicalDetails: FFmpegMediaProbe.Report.TechnicalDetails?
+    ) -> [ProjectInfoRow] {
         var rows: [ProjectInfoRow] = []
+        if let container = technicalDetails?.container {
+            rows.append(ProjectInfoRow("Container", container))
+        }
+        if let videoCodec = technicalDetails?.videoCodec {
+            rows.append(ProjectInfoRow("Video Codec", videoCodec))
+        }
+        if let audioCodec = technicalDetails?.audioCodec {
+            rows.append(ProjectInfoRow("Audio Codec", audioCodec))
+        }
+        if let encoder = technicalDetails?.encoder {
+            rows.append(ProjectInfoRow("Encoder", encoder))
+        }
         if let width = asset.naturalWidth, let height = asset.naturalHeight {
             rows.append(ProjectInfoRow("Resolution", "\(width) by \(height)"))
         }
@@ -202,6 +227,16 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+enum ProjectInfoTimeFormatter {
+    static func string(_ time: ProjectTime) -> String {
+        ProjectPlayerViewModel.accessibilityTimeLabel(
+            time: time,
+            showingFrames: false,
+            frameRate: 30
+        )
+    }
+}
+
 struct ProjectInfoView: View {
     let snapshot: ProjectInfoSnapshot
     @AccessibilityFocusState private var headingFocused: Bool
@@ -213,14 +248,8 @@ struct ProjectInfoView: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($headingFocused)
             ForEach(snapshot.rows) { row in
-                LabeledContent {
-                    Text(row.value)
-                        .accessibilityLabel(row.label)
-                        .accessibilityValue(row.value)
-                } label: {
-                    Text(row.label)
-                        .accessibilityHidden(true)
-                }
+                Text("\(row.label): \(row.value)")
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(24)

@@ -130,7 +130,7 @@ Check Text Fit reports the line count and whether text fits within the safe area
 
 Caption and Subtitle are static appearance templates for individually timed text clips. They do not import subtitle files or transcribe audio. Text and styling remain editable in the saved generator definition. Text layout uses macOS fonts and native text rendering; generated media preserves alpha through the supported filters and transitions.
 
-Open a timeline video or audio clip, then choose Add Filter. The Filters section appears only when at least one filter has been added, including disabled filters. Each filter has an Enable checkbox, relevant parameters, Reset, and Remove. Activate Update Clip to save the draft settings and edit together as one Undo operation. Other instances of the source are unaffected. Gain remains in the Audio group; existing EQ and frequency filtering appear as Tone.
+Open a timeline video or audio clip and choose the Filters tab. Choose Add Filter, select an effect, and choose Add. Filter preparation runs in a separate progress window with a Cancel button and restrained VoiceOver percentage announcements. Review the preview, then choose Update Clip to save the filter to that timeline clip. Use Edit Filter, Reset, Enable, and Remove to manage existing filters. Gain remains in the Audio group; existing EQ and frequency filtering appear as Tone.
 
 | Video filters | Audio filters |
 | --- | --- |
@@ -141,7 +141,7 @@ Open a timeline video or audio clip, then choose Add Filter. The Filters section
 | Reduce Video Noise | |
 | Crop and Orientation | |
 
-Filters use a fixed processing order and the same processing path for playback and export. Preparing filtered media can take time, especially with long sources and video noise reduction. No animation, keyframes, or general compositing controls are included.
+Filters run in the displayed order for playback and export. Preparing filtered media can take time, especially with long sources and video noise reduction.
 
 The Editor exposes its displayed picture as a Video frame image directly above the project playhead slider, with a project time and frame value. VoiceOver image-description commands remain macOS commands. The availability and quality of descriptions depend on macOS and require hands-on VoiceOver testing; focusing the image does not start playback or change the playhead.
 
@@ -280,7 +280,7 @@ Accessibility is part of Trimato's editing model rather than an additional mode.
 - Timeline list items expose names and positions without continuously speaking start, end, and duration values. Press Command-I for exact timing and other information about the focused item.
 - Timecode updates do not continuously interrupt VoiceOver speech.
 - Import preparation appears in a native modal sheet so the inactive editor does not remain in the active VoiceOver context.
-- Import and export operations provide status, progress, cancellation, and restrained spoken announcements.
+- Import, export, transition, generator, and filter operations use separate progress windows with cancellation and restrained spoken percentage announcements.
 - In, Out, navigation, editing, completion, and failure actions provide spoken feedback.
 - The interface uses a dark charcoal editor workspace with high-contrast text and teal accents.
 - Color is not the only indication of marker, progress, selection, or disabled states.

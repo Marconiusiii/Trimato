@@ -426,6 +426,53 @@ final class ProjectController: ObservableObject {
 
     func projectInfoSnapshot(editorFocused: Bool = false,
                              selection selectionOverride: EditorSelection? = nil) -> ProjectInfoSnapshot {
+        projectInfoSnapshot(
+            editorFocused: editorFocused,
+            selection: selectionOverride,
+            technicalDetails: nil
+        )
+    }
+
+    func projectInfoSnapshotWithTechnicalDetails(
+        editorFocused: Bool = false,
+        selection selectionOverride: EditorSelection? = nil
+    ) async -> ProjectInfoSnapshot {
+        let target = resolvedProjectInfoTarget(
+            editorFocused: editorFocused,
+            selection: selectionOverride
+        )
+        let details = await technicalDetails(for: target)
+        return ProjectInfoSnapshot.make(
+            target: target,
+            project: project,
+            playhead: timelinePlayhead,
+            activeTrackID: activeTimelineTrackID,
+            technicalDetails: details
+        )
+    }
+
+    private func projectInfoSnapshot(
+        editorFocused: Bool,
+        selection selectionOverride: EditorSelection?,
+        technicalDetails: FFmpegMediaProbe.Report.TechnicalDetails?
+    ) -> ProjectInfoSnapshot {
+        let target = resolvedProjectInfoTarget(
+            editorFocused: editorFocused,
+            selection: selectionOverride
+        )
+        return ProjectInfoSnapshot.make(
+            target: target,
+            project: project,
+            playhead: timelinePlayhead,
+            activeTrackID: activeTimelineTrackID,
+            technicalDetails: technicalDetails
+        )
+    }
+
+    private func resolvedProjectInfoTarget(
+        editorFocused: Bool,
+        selection selectionOverride: EditorSelection?
+    ) -> ProjectInfoTarget {
         let target: ProjectInfoTarget
         if let selectionOverride {
             target = .selection(selectionOverride)
@@ -434,8 +481,27 @@ final class ProjectController: ObservableObject {
         } else {
             target = projectInfoTarget
         }
-        return ProjectInfoSnapshot.make(target: target, project: project,
-                                        playhead: timelinePlayhead, activeTrackID: activeTimelineTrackID)
+        return target
+    }
+
+    private func technicalDetails(
+        for target: ProjectInfoTarget
+    ) async -> FFmpegMediaProbe.Report.TechnicalDetails? {
+        let asset: MediaAssetRecord?
+        switch target {
+        case .selection(.asset(let id)):
+            asset = project.asset(id: id)
+        case .selection(.timelineClip(let id)):
+            asset = project.timelineClip(id: id).flatMap { project.asset(id: $0.assetID) }
+        case .selection(.cutaway(let id)):
+            asset = project.cutaways.first(where: { $0.id == id }).flatMap { project.asset(id: $0.assetID) }
+        default:
+            asset = nil
+        }
+        guard let asset, asset.generator == nil, let url = resolveURL(for: asset) else { return nil }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return try? await FFmpegMediaProbe.inspect(url: url).technicalDetails
     }
 
     func trimTimelineClipEnd(id: UUID) throws {

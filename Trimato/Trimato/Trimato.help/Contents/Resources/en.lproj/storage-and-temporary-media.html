@@ -10,14 +10,14 @@
 <header><p><a href="index.html">Trimato Help</a></p></header>
 <main>
     <h1>Understand storage and temporary media</h1>
-    <p>Trimato uses original media, reusable playback copies, and short-lived render files for different jobs. Settings reports only the reusable playback copies.</p>
+    <p>This page shows what Trimato stores and which files you can clear.</p>
 
     <h2>Know what a project saves</h2>
     <p>A Trimato project saves your editing choices and references to the original audio and video files. It does not copy those original files into the project.</p>
     <p>Keep every original file available. A playback proxy or temporary render is not a backup and cannot replace a missing original during final export.</p>
 
     <h2>Use original media directly</h2>
-    <p>Trimato uses an original file for playback when macOS can play it. This is why you can do substantial editing while Settings continues to report zero playback proxy storage.</p>
+    <p>Trimato uses an original file for playback when macOS can play it. Settings may report zero playback proxy storage during that project.</p>
     <p>If the original can play but needs conversion for export, Trimato still uses the original while you edit and performs the required conversion during export.</p>
 
     <h2>Understand playback proxies</h2>
@@ -34,7 +34,7 @@
         <li>Read Storage used, Proxy files, Storage limit, and Stored in.</li>
         <li>Activate Refresh storage usage when you want Trimato to read the folder again.</li>
     </ol>
-    <p>The reported size does not include projects, original media, completed exports, transition renders, audio previews, export intermediates, or Xcode build files.</p>
+    <p>The reported size does not include projects, original media, completed exports, transition previews, audio previews, or files prepared for export.</p>
 
     <h2>Clear playback proxies</h2>
     <dl>
@@ -45,11 +45,10 @@
     </dl>
     <p>Both commands leave original media, projects, and completed exports unchanged. Trimato recreates a cleared proxy when it is needed again and the original remains available.</p>
 
-    <h2>Understand temporary renders</h2>
-    <p>Some edits need a new file before Trimato can play the result. Trimato temporarily renders video transitions, audio transitions, and adjusted clip audio for the current preview. These files are stored separately in macOS temporary storage. They support the open editor; they are not reusable playback proxies and do not count toward the 10 GB proxy limit.</p>
-    <p>Final export can also require a temporary full-quality copy when macOS cannot use an original directly. Trimato creates that copy for the export and does not add it to the playback proxy total.</p>
+    <h2>Understand temporary files</h2>
+    <p>Transitions, filters, audio changes, and exports can create temporary files. These files do not count toward the playback proxy total.</p>
 
-    <h2>Know when temporary renders are removed</h2>
+    <h2>Know when temporary files are removed</h2>
     <ul>
         <li>Rebuilding a project preview removes the files used by the previous preview.</li>
         <li>Cancelling or failing a preview rebuild removes the new files created by that attempt.</li>
@@ -59,9 +58,9 @@
     </ul>
 
     <h2>After an unexpected shutdown</h2>
-    <p>If Trimato, Xcode, or macOS stops the app abruptly, normal closing code may not run. macOS can remove files from the temporary folder later. Trimato also removes abandoned full-quality export preparation files older than one day when it prepares another such file. Trimato does not currently perform the same startup scan for abandoned transition or adjusted-audio renders.</p>
+    <p>If Trimato or macOS closes unexpectedly, macOS can remove files from the temporary folder later. Trimato removes older unfinished export files when it prepares another export.</p>
     <h2>Generated and filtered media</h2>
-    <p>Generator definitions are part of the project. Their disposable playback files are stored in the application cache and regenerated when missing. Filter preparation uses temporary media that is removed when its preview or export is released. Long sources require additional preparation time and disk space. Existing playback proxy cache totals do not include generator playback files or filter intermediates.</p>
+    <p>Generated items and filters can use additional temporary space. Their files are not included in the playback proxy total.</p>
 </main>
 <footer><p><a href="troubleshooting.html">Related topic: Resolve common problems</a></p></footer>
 </body>
