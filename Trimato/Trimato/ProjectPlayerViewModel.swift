@@ -389,7 +389,8 @@ final class ProjectPlayerViewModel: ObservableObject {
                     }
                     errorMessage = failure.message
                     currentPreviewFailure = failure
-                    presentedPreviewFailure = failure
+                    // Keep background failures available through Show Preview
+                    // Error. Only that explicit action may present the alert.
                 }
             }
         }

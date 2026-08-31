@@ -8,7 +8,7 @@ struct ContentView: View {
     private let allowsFileOpening: Bool
     private let editorHeading: String?
     private let compact: Bool
-    private let preparation: OperationProgress?
+    private let isPreparingSource: Bool
     private let isPreparingClipPreview: Bool
     @StateObject private var entryFocus = ClipEditorEntryFocus()
     @FocusState private var playheadKeyboardFocused: Bool
@@ -19,14 +19,14 @@ struct ContentView: View {
         allowsFileOpening: Bool = true,
         editorHeading: String? = nil,
         compact: Bool = false,
-        preparation: OperationProgress? = nil,
+        isPreparingSource: Bool = false,
         isPreparingClipPreview: Bool = false
     ) {
         self.viewModel = viewModel
         self.allowsFileOpening = allowsFileOpening
         self.editorHeading = editorHeading
         self.compact = compact
-        self.preparation = preparation
+        self.isPreparingSource = isPreparingSource
         self.isPreparingClipPreview = isPreparingClipPreview
     }
 
@@ -92,8 +92,6 @@ struct ContentView: View {
             guard url.isFileURL else { return }
             viewModel.load(url: url)
         }
-        .operationProgress(mediaOperation,
-                           outcome: viewModel.hasMedia ? .completed : .failed)
         .operationProgress(viewModel.isExporting ? OperationProgress(
             title: "Exporting Clip", progress: viewModel.exportProgress, cancel: viewModel.cancelExport
         ) : nil, outcome: viewModel.exportErrorMessage == nil ? .completed : .failed)
@@ -113,19 +111,8 @@ struct ContentView: View {
     }
 
     private var entryFocusReady: Bool {
-        viewModel.hasMedia && viewModel.duration > 0 && mediaOperation == nil && !isPreparingClipPreview
-    }
-
-    private var mediaOperation: OperationProgress? {
-        if var preparation {
-            preparation.announceCompletion = false
-            return preparation
-        }
-        guard viewModel.isLoadingMedia || viewModel.isPreparingWaveform else { return nil }
-        return OperationProgress(title: "Preparing Media",
-                                 progress: viewModel.isLoadingMedia ? viewModel.mediaProgress : nil,
-                                 detail: viewModel.isLoadingMedia ? viewModel.mediaStatus : "Preparing audio waveform",
-                                 cancel: viewModel.cancelMediaLoad, announceCompletion: false)
+        viewModel.hasMedia && viewModel.duration > 0 && !isPreparingSource &&
+            !viewModel.isLoadingMedia && !viewModel.isPreparingWaveform && !isPreparingClipPreview
     }
 
     // MARK: - Video area
@@ -359,14 +346,6 @@ struct ClipMarkerControlsView: View {
 /// later dialogs must not create a new request while the user is editing.
 nonisolated struct ClipEditorEntryFocusPolicy {
     private(set) var pending = true
-    private var returningFromSheet = false
-
-    mutating func sheetBegan() { returningFromSheet = true }
-
-    mutating func becameKey() {
-        if returningFromSheet { returningFromSheet = false }
-        else { pending = true }
-    }
 
     mutating func consume(ready: Bool, isKeyWindow: Bool, hasSheet: Bool) -> Bool {
         guard pending, ready, isKeyWindow, !hasSheet else { return false }
@@ -397,11 +376,9 @@ final class ClipEditorEntryFocus: ObservableObject {
         policy = ClipEditorEntryFocusPolicy()
         guard let window else { return }
         observe(NSWindow.didBecomeKeyNotification, window: window) { owner in
-            owner.policy.becameKey()
             owner.schedule()
         }
         observe(NSWindow.willBeginSheetNotification, window: window) { owner in
-            owner.policy.sheetBegan()
             owner.delivery?.cancel()
             owner.delivery = nil
         }

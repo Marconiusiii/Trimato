@@ -1,7 +1,30 @@
+import AppKit
 import Testing
 @testable import Trimato
 
 struct OperationProgressTests {
+    @Test @MainActor func inactiveWindowNeverPresentsProgressAndCompletedWorkIsNotReplayed() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let coordinator = OperationProgressBridge.Coordinator()
+        defer { coordinator.invalidate(); window.close() }
+        try #require(!window.isKeyWindow)
+
+        coordinator.update(OperationProgress(title: "Applying Clip Effects", progress: 0.1),
+                           outcome: .completed, completionPending: false, dismissed: {}, parent: window)
+        #expect(window.attachedSheet == nil)
+        coordinator.update(OperationProgress(title: "Applying Clip Effects", progress: 0.8),
+                           outcome: .completed, completionPending: false, dismissed: {}, parent: window)
+        #expect(window.attachedSheet == nil)
+        coordinator.update(nil, outcome: .completed, completionPending: false, dismissed: {}, parent: window)
+
+        // A queued native notification must not resurrect an already finished operation.
+        NotificationCenter.default.post(name: NSWindow.didEndSheetNotification, object: window)
+        await Task.yield()
+        #expect(window.attachedSheet == nil)
+    }
+
     @Test func speaksMilestonesWithoutAWindowOrFocusedControl() {
         var speech = OperationProgressAnnouncements()
         let messages = [0.0, 0.02, 0.1, 0.19, 0.35, 0.34, 0.9, 1.0].compactMap {

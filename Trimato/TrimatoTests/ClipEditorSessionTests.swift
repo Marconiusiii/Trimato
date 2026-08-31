@@ -4,78 +4,149 @@ import CoreMedia
 import Testing
 @testable import Trimato
 
-@Suite("Clip editor sessions")
+@Suite("Clip editor sessions", .serialized)
 struct ClipEditorSessionTests {
     @Test func entryFocusWaitsForLoadingAndSheetsAndDoesNotRepeatDuringEditing() {
         var focus = ClipEditorEntryFocusPolicy()
-        focus.becameKey()
         let loading = focus.consume(ready: false, isKeyWindow: true, hasSheet: false)
         #expect(!loading)
-        focus.sheetBegan()
         let sheet = focus.consume(ready: true, isKeyWindow: false, hasSheet: true)
         #expect(!sheet)
-        focus.becameKey()
         let entry = focus.consume(ready: true, isKeyWindow: true, hasSheet: false)
         #expect(entry)
         let editing = focus.consume(ready: true, isKeyWindow: true, hasSheet: false)
         #expect(!editing)
-        focus.sheetBegan()
-        focus.becameKey()
+        let inactive = focus.consume(ready: true, isKeyWindow: false, hasSheet: false)
+        #expect(!inactive)
         let laterDialog = focus.consume(ready: true, isKeyWindow: true, hasSheet: false)
         #expect(!laterDialog)
-        focus.becameKey()
         let reentry = focus.consume(ready: true, isKeyWindow: true, hasSheet: false)
-        #expect(reentry)
+        #expect(!reentry)
+        let rebuilding = focus.consume(ready: false, isKeyWindow: true, hasSheet: false)
+        #expect(!rebuilding)
+        let rebuilt = focus.consume(ready: true, isKeyWindow: true, hasSheet: false)
+        #expect(!rebuilt)
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["TRIMATO_INTERACTION_TESTS"] == "1",
-                   "Requires an unlocked interactive macOS session; set TRIMATO_INTERACTION_TESTS=1."))
-    @MainActor func nativeClipMenuDispatchesToTheActiveEditor() async throws {
+                   "Requires an unlocked macOS session with VoiceOver; set TRIMATO_INTERACTION_TESTS=1."),
+          arguments: [true, false], ["source", "timeline", "editor"])
+    @MainActor func nativeClipCommandsPreserveFocusThroughPreviewRebuilds(hasVideo: Bool, origin: String) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mediaURL = directory.appendingPathComponent(hasVideo ? "clip.mov" : "clip.m4a")
+        var arguments = ["-hide_banner", "-nostdin", "-y"]
+        if hasVideo { arguments += ["-f", "lavfi", "-i", "color=c=red:size=320x180:rate=24"] }
+        arguments += ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1"]
+        if hasVideo { arguments += ["-c:v", "mpeg4"] }
+        arguments += ["-c:a", "aac", mediaURL.path]
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: arguments)
+
         var project = TrimatoProject()
-        let source = MediaAssetRecord(name: "Keyboard test", originalPath: "/tmp/keyboard-test.mov",
-                                     duration: ProjectTime(seconds: 5), naturalWidth: 640, naturalHeight: 480,
-                                     frameRate: 30, hasAudio: true,
-                                     sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(
-                                        start: .zero, duration: ProjectTime(seconds: 5)))])
+        project.format = ProjectFormat(mode: .custom, width: 320, height: 180, frameRate: 24)
+        let source = MediaAssetRecord(name: "Focus regression", originalPath: mediaURL.path,
+                                     duration: ProjectTime(seconds: 1), naturalWidth: hasVideo ? 320 : nil,
+                                     naturalHeight: hasVideo ? 180 : nil, frameRate: hasVideo ? 24 : nil,
+                                     hasAudio: true, sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(
+                                        start: .zero, duration: ProjectTime(seconds: 1)))])
         project.media = [source]
+        let clipID = try project.append(asset: source)
         let controller = ProjectController(document: ProjectDocument(project: project))
-        let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(source.id),
-                                                  segments: source.sourceEdit)
-        let router = ClipEditorCommandRouter.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { context.setKeyWindow(false); router.deactivate(context); window.close() }
-        window.contentViewController = NSHostingController(rootView: Text("Clip command test"))
-        // AppKit enables key equivalents only for an active application window.
-        // This window and its project belong exclusively to the disposable test host.
-        window.title = "Trimato keyboard regression test"
-        window.makeKeyAndOrderFront(nil)
+        let editors = ClipEditorWindowCoordinator(controller: controller)
+        let projectPreview = ProjectPlayerViewModel()
+        let projectWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 700),
+                                     styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        projectWindow.isReleasedWhenClosed = false
+        projectWindow.contentViewController = NSHostingController(rootView: ClipSessionProjectViewer(
+            controller: controller, preview: projectPreview, openClipEditor: editors.open))
+        defer { projectWindow.close() }
+        projectWindow.makeKeyAndOrderFront(nil)
         NSApp.activate()
         for _ in 0..<100 {
-            if window.isKeyWindow { break }
+            if projectWindow.isKeyWindow { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        context.hostWindow = window
-        try #require(window.isKeyWindow, "The macOS session did not allow the test window to become key.")
-        context.setKeyWindow(true)
-        router.activate(context)
-        #expect(context.canPlace)
-        var menu = try #require(NSApp.mainMenu?.items.first { $0.title == "Clip" }?.submenu)
-        // SwiftUI updates the native menu after receiving the active-owner change.
-        for _ in 0..<100 {
-            menu = try #require(NSApp.mainMenu?.items.first { $0.title == "Clip" }?.submenu)
-            menu.update()
-            if menu.items.contains(where: { $0.keyEquivalent == "e" && $0.keyEquivalentModifierMask.isEmpty && $0.isEnabled }) { break }
+        // Do not bypass macOS shielding or count an inactive-window test as interaction proof.
+        try #require(projectWindow.isKeyWindow, "macOS did not allow the test window to become key.")
+        try #require(NSWorkspace.shared.isVoiceOverEnabled, "VoiceOver must be running for this interaction test.")
+        let selection: EditorSelection
+        switch origin {
+        case "source": selection = .asset(source.id)
+        case "timeline": selection = .timelineClip(clipID)
+        default: selection = try #require(controller.editorClipSelection(at: .zero))
+        }
+        let existingWindows = Set(NSApp.windows.map(\.windowNumber))
+        defer {
+            for window in NSApp.windows where !existingWindows.contains(window.windowNumber) { window.close() }
+        }
+        editors.open(selection)
+        let router = ClipEditorCommandRouter.shared
+        for _ in 0..<1000 {
+            if router.activeContext?.canPlace == true,
+               focusedAccessibilityIdentifier() == ClipEditorAccessibilityIdentifier.playhead { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        let append = try #require(menu.items.first { $0.keyEquivalent == "e" && $0.keyEquivalentModifierMask.isEmpty })
-        try #require(append.isEnabled)
-        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                 windowNumber: window.windowNumber, context: nil, characters: "e",
-                                                 charactersIgnoringModifiers: "e", isARepeat: false, keyCode: 14))
-        #expect(menu.performKeyEquivalent(with: event))
-        #expect(controller.project.primaryTimeline.count == 1)
+        let context = try #require(router.activeContext)
+        let editorWindow = try #require(context.hostWindow)
+        try #require(context.editSelection == selection && context.canPlace)
+        try #require(focusedAccessibilityIdentifier() == ClipEditorAccessibilityIdentifier.playhead)
+        let responder = try #require(editorWindow.firstResponder)
+
+        func checkFocus() throws {
+            try #require(editorWindow.isKeyWindow)
+            try #require(editorWindow.firstResponder === responder)
+            try #require(focusedAccessibilityIdentifier() == ClipEditorAccessibilityIdentifier.playhead)
+            try #require(projectWindow.attachedSheet == nil && editorWindow.attachedSheet == nil)
+            try #require(router.activeContext === context && context.canPlace)
+        }
+        func key(_ characters: String, code: UInt16, modifiers: NSEvent.ModifierFlags = []) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: editorWindow.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+            NSApp.sendEvent(event)
+        }
+        // Exercise native shuttling and markers before repeating native menu placements.
+        try key("l", code: 37)
+        try key("k", code: 40)
+        try key("j", code: 38)
+        try key("k", code: 40)
+        try key("", code: 126, modifiers: .command)
+        try await Task.sleep(for: .milliseconds(50))
+        try key("i", code: 34)
+        try key("", code: 125, modifiers: .command)
+        try await Task.sleep(for: .milliseconds(50))
+        try key("o", code: 31)
+        try checkFocus()
+
+        for (characters, code) in [("e", UInt16(14)), ("w", UInt16(13)), ("e", UInt16(14)), ("w", UInt16(13))] {
+            let before = controller.project.tracks.flatMap(\.clips).count
+            try key(characters, code: code)
+            try #require(controller.project.tracks.flatMap(\.clips).count > before)
+            // Sample throughout the rebuild, including SwiftUI's delayed updates.
+            for tick in 0..<500 {
+                try checkFocus()
+                if tick >= 10 && !projectPreview.isPreparing { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try #require(!projectPreview.isPreparing && projectPreview.errorMessage == nil)
+        }
+        projectPreview.prepare(project: controller.project, mediaURLs: [:])
+        for _ in 0..<500 {
+            try checkFocus()
+            if !projectPreview.isPreparing { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(!projectPreview.isPreparing && projectPreview.errorMessage != nil)
+        #expect(projectPreview.presentedPreviewFailure == nil)
+        try checkFocus()
+    }
+
+    @MainActor private func focusedAccessibilityIdentifier() -> String? {
+        guard let element = NSApp.accessibilityFocusedUIElement as? NSObject,
+              element.responds(to: NSSelectorFromString("accessibilityIdentifier")) else { return nil }
+        return element.value(forKey: "accessibilityIdentifier") as? String
     }
 
     @Test @MainActor func clipMenuCommandsUseOnlyTheCurrentEditorAndRecoverAfterPreparation() throws {
@@ -458,5 +529,17 @@ struct ClipEditorSessionTests {
 
         draft.commit()
         #expect(!draft.hasChanges)
+    }
+}
+
+private struct ClipSessionProjectViewer: View {
+    let controller: ProjectController
+    let preview: ProjectPlayerViewModel
+    let openClipEditor: (EditorSelection) -> Void
+    @Namespace private var links
+
+    var body: some View {
+        ProjectViewerView(controller: controller, openClipEditor: openClipEditor,
+                          workspacePaneLinks: links, viewModel: preview)
     }
 }

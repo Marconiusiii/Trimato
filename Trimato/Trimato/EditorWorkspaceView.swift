@@ -266,14 +266,22 @@ struct EditorWorkspaceView: View {
     }
 }
 
-private struct ProjectViewerView: View {
+struct ProjectViewerView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
     let workspacePaneLinks: Namespace.ID
-    @StateObject private var viewModel = ProjectPlayerViewModel()
+    @StateObject private var viewModel: ProjectPlayerViewModel
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
     @AccessibilityFocusState private var projectPlayheadFocused: Bool
     @State private var pendingProjectPlayheadFocus = false
+
+    init(controller: ProjectController, openClipEditor: @escaping (EditorSelection) -> Void,
+         workspacePaneLinks: Namespace.ID, viewModel: ProjectPlayerViewModel? = nil) {
+        self.controller = controller
+        self.openClipEditor = openClipEditor
+        self.workspacePaneLinks = workspacePaneLinks
+        _viewModel = StateObject(wrappedValue: viewModel ?? ProjectPlayerViewModel())
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -359,10 +367,11 @@ private struct ProjectViewerView: View {
         .onChange(of: controller.editorFocusRestoreRequest) {
             restoreProjectPlayheadFocus()
         }
-        .operationProgress(viewModel.isPreparing && controller.applyingTransitionName == nil ?
-            OperationProgress(title: "Preparing Project Preview", cancel: viewModel.cancelPreparation, announceCompletion: false) : nil,
-            outcome: viewModel.errorMessage == nil ? .completed : .failed,
-            dismissed: { preparationChanged(false) })
+        // Timeline edits rebuild playback in the background. They must never
+        // present a sheet or announce preparation over the active Clip Editor.
+        .onChange(of: viewModel.isPreparing) { _, preparing in
+            preparationChanged(preparing)
+        }
         .alert(item: Binding(
             get: { viewModel.presentedPreviewFailure },
             set: { failure in
@@ -382,6 +391,10 @@ private struct ProjectViewerView: View {
     }
 
     private func restoreProjectPlayheadFocus() {
+        guard focusScope.boundaryView?.window?.isKeyWindow == true else {
+            pendingProjectPlayheadFocus = false
+            return
+        }
         guard viewModel.canControlPlayback else {
             pendingProjectPlayheadFocus = true
             return

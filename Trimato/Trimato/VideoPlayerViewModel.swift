@@ -402,7 +402,6 @@ final class VideoPlayerViewModel: ObservableObject {
         announcedImportProgress = 0
         let operationID = UUID()
         loadID = operationID
-        announce("Preparing \(url.lastPathComponent)")
         loadTask = Task { @MainActor in
             var preparedProxyURL: URL?
             do {
@@ -473,8 +472,6 @@ final class VideoPlayerViewModel: ObservableObject {
                 if source.hasAudio && !source.hasVideo {
                     self.prepareWaveform(asset: source.playbackAsset)
                 }
-                let mediaKind = source.hasVideo ? "Video" : "Audio"
-                self.announce(source.usesProxy ? "\(mediaKind) ready using a playback proxy" : "\(mediaKind) ready")
             } catch is CancellationError {
                 ProxyMediaManager.removeProxy(at: preparedProxyURL)
                 guard self.loadID == operationID else { return }

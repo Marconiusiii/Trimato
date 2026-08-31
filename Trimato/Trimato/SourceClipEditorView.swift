@@ -20,8 +20,12 @@ struct SourceClipEditorView: View {
     @State private var preparingSource = false
     @State private var preparationID = UUID()
     @State private var preparationTask: Task<Void, Never>?
+    @State private var sourcePreparationError: String?
     @State private var cacheOwnerID = UUID()
     @StateObject private var preview = ClipPreviewCoordinator()
+    @State private var previewRequest: ClipPreviewCoordinator.Request?
+    @State private var showsPreviewProgress = false
+    @State private var showsPreviewError = false
     @State private var addingFilter = false
     @State private var pendingFilter: ClipFilter?
     @State private var selectedTab = "Markers"
@@ -38,7 +42,7 @@ struct SourceClipEditorView: View {
                     allowsFileOpening: false,
                     editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo),
                     compact: true,
-                    preparation: sourcePreparation,
+                    isPreparingSource: preparingSource,
                     isPreparingClipPreview: preview.state == .preparing
                 )
 
@@ -70,6 +74,9 @@ struct SourceClipEditorView: View {
                     }.padding(.horizontal, 20)
                 }
                 if !preparingSource, loadedAssetID == nil {
+                    if let sourcePreparationError {
+                        Text(sourcePreparationError).padding(.horizontal, 20)
+                    }
                     Button("Retry Clip Preparation", action: loadIfNeeded).padding(.horizontal, 20)
                 }
                 previewStatus.padding(.horizontal, 20)
@@ -83,10 +90,9 @@ struct SourceClipEditorView: View {
                     .padding(.bottom, 12)
             }
         }
-        .operationProgress(preview.state == .preparing ? OperationProgress(
-            title: "Updating Clip Preview", progress: preview.progress,
-            detail: "Preparing filters and audio. Your previous preview is preserved until this finishes.",
-            cancel: preview.cancel, announceCompletion: false
+        .operationProgress(showsPreviewProgress && preview.state == .preparing ? OperationProgress(
+            title: "Applying Clip Effects", progress: preview.progress,
+            cancel: preview.cancel
         ) : nil, outcome: previewOutcome)
         .sheet(isPresented: $addingFilter, onDismiss: {
             if let pendingFilter {
@@ -116,6 +122,8 @@ struct SourceClipEditorView: View {
         .onChange(of: controller.project) { commandContext.refreshCommittedEffects() }
         .onChange(of: currentAsset.id) {
             preview.reset()
+            previewRequest = nil
+            showsPreviewProgress = false
             preparationTask?.cancel()
             commandContext.acceptExternalGeneratorUpdate()
             viewModel.closeMedia()
@@ -132,10 +140,14 @@ struct SourceClipEditorView: View {
         .onChange(of: viewModel.isPreparingWaveform) {
             if !viewModel.isPreparingWaveform { scheduleAudioPreview(for: commandContext.audioSettings, debounce: false) }
         }
-        .onChange(of: commandContext.filters) { scheduleAudioPreview(for: commandContext.audioSettings) }
+        .onChange(of: commandContext.filters) {
+            scheduleAudioPreview(for: commandContext.audioSettings,
+                                 userInitiated: commandContext.hasUncommittedChanges)
+        }
         .onChange(of: viewModel.audioPreviewSegments) { scheduleAudioPreview(for: commandContext.audioSettings) }
         .onChange(of: commandContext.audioSettings) { _, settings in
-            scheduleAudioPreview(for: settings)
+            scheduleAudioPreview(for: settings,
+                                 userInitiated: !commandContext.isTimelineEntry || commandContext.hasUncommittedChanges)
         }
         .sheet(item: $commandContext.trackPlacementAction) { action in
             let audioOnly = commandContext.trackPlacementIsAudioOnly
@@ -183,24 +195,11 @@ struct SourceClipEditorView: View {
             let owner = cacheOwnerID
             Task { await MediaCacheManager.shared.releaseProtectedKeys(owner: owner) }
         }
-        .alert("Clip Preview Could Not Be Updated", isPresented: Binding(
-            get: { preview.errorMessage != nil },
-            set: { if !$0 { preview.errorMessage = nil } }
-        )) {
-            Button("OK") { preview.errorMessage = nil }
+        .alert("Clip Preview Could Not Be Updated", isPresented: $showsPreviewError) {
+            Button("OK") {}
         } message: {
             Text(preview.errorMessage ?? "The clip preview could not be updated.")
         }
-    }
-
-    private var sourcePreparation: OperationProgress? {
-        guard preparingSource else { return nil }
-        return OperationProgress(title: "Preparing Clip", detail: "Preparing source media", cancel: {
-            preparationTask?.cancel()
-            preparationID = UUID()
-            preparingSource = false
-            loadedAssetID = nil
-        })
     }
 
     @ViewBuilder
@@ -261,6 +260,7 @@ struct SourceClipEditorView: View {
         let requestID = UUID()
         preparationID = requestID
         preparingSource = true
+        sourcePreparationError = nil
         preparationTask = Task { @MainActor in
             defer {
                 if preparationID == requestID {
@@ -292,10 +292,7 @@ struct SourceClipEditorView: View {
             } catch {
                 guard preparationID == requestID else { return }
                 loadedAssetID = nil
-                controller.presentedError = ProjectPresentedError(
-                    title: "Clip Preparation Failed",
-                    message: error.localizedDescription
-                )
+                sourcePreparationError = error.localizedDescription
             }
         }
     }
@@ -331,8 +328,12 @@ struct SourceClipEditorView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(preview.state == .cancelled ? "Clip preview preparation cancelled." : "Clip preview could not be updated.")
                 Menu("Preview Recovery") {
+                    if preview.errorMessage != nil {
+                        Button("Show Preview Error") { showsPreviewError = true }
+                    }
                     Button("Retry Clip Preview") {
-                        scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true)
+                        scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true,
+                                             userInitiated: true)
                     }
                     Button(preview.lastSuccessfulRequest == nil ? "Remove Filters and Reset Gain" : "Revert Filter and Gain Changes") {
                         revertPreviewChanges()
@@ -356,19 +357,22 @@ struct SourceClipEditorView: View {
         if commandContext.audioSettings != nil {
             commandContext.audioSettings = previous?.audioSettings ?? .neutral
         }
-        scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true)
+        scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true, userInitiated: true)
     }
 
     private func scheduleAudioPreview(
         for settings: AudioClipSettings?,
         debounce: Bool = true,
-        force: Bool = false
+        force: Bool = false,
+        userInitiated: Bool = false
     ) {
         guard !viewModel.isLoadingMedia, !viewModel.isPreparingWaveform else { return }
         guard viewModel.hasMedia,
               let sourceURL = controller.resolveURL(for: currentAsset),
               !viewModel.audioPreviewSegments.isEmpty else {
             preview.reset()
+            previewRequest = nil
+            showsPreviewProgress = false
             commandContext.effectsReady = false
             viewModel.clipEffectsReady = false
             return
@@ -378,6 +382,11 @@ struct SourceClipEditorView: View {
             audio: commandContext.audioSettings != nil,
             segments: viewModel.audioPreviewSegments, audioSettings: settings
         )
+        // Loading an existing clip and rebuilding after a source edit are
+        // automatic. Only an explicit effects change or recovery opens progress.
+        guard force || previewRequest != request else { return }
+        previewRequest = request
+        showsPreviewProgress = userInitiated
         preview.update(request, debounce: debounce, force: force, readiness: { ready in
             commandContext.effectsReady = ready
             viewModel.clipEffectsReady = ready

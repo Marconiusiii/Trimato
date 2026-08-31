@@ -80,7 +80,7 @@ private struct OperationProgressContent: View {
 
 /// A document-modal NSPanel is a separate window, never an overlay in the editor.
 /// If a configuration sheet is closing, wait for its native end-sheet notification.
-private struct OperationProgressBridge: NSViewRepresentable {
+struct OperationProgressBridge: NSViewRepresentable {
     let operation: OperationProgress?
     let outcome: OperationProgressOutcome
     let completionPending: Bool
@@ -120,19 +120,22 @@ private struct OperationProgressBridge: NSViewRepresentable {
         private var announceCompletion = true
         private var activeDetail: String?
         private var announcements = OperationProgressAnnouncements()
-        private var observer: NSObjectProtocol?
+        private var observers: [NSObjectProtocol] = []
         private var cancelled = false
 
         func attach(_ parent: NSWindow?) {
             guard self.parent !== parent else { presentIfPossible(); return }
-            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers.removeAll()
             self.parent = parent
             if let parent {
-                observer = NotificationCenter.default.addObserver(
-                    forName: NSWindow.didEndSheetNotification, object: parent, queue: .main
-                ) { [weak self] _ in
-                    // Run after AppKit has finished removing the old sheet.
-                    Task { @MainActor [weak self] in self?.presentIfPossible() }
+                for name in [NSWindow.didEndSheetNotification, NSWindow.didBecomeKeyNotification] {
+                    observers.append(NotificationCenter.default.addObserver(
+                        forName: name, object: parent, queue: .main
+                    ) { [weak self] _ in
+                        // Recheck ownership after native sheet dismissal or activation.
+                        Task { @MainActor [weak self] in self?.presentIfPossible() }
+                    })
                 }
             }
             presentIfPossible()
@@ -148,9 +151,12 @@ private struct OperationProgressBridge: NSViewRepresentable {
                     return
                 }
                 activeTitle = nil
+                let shouldAnnounce = ownsInteraction
                 closePanel()
-                speak(announcements.finish(title: title, outcome: cancelled ? .cancelled : outcome,
-                                           announceCompletion: announceCompletion))
+                if shouldAnnounce {
+                    speak(announcements.finish(title: title, outcome: cancelled ? .cancelled : outcome,
+                                               announceCompletion: announceCompletion))
+                }
                 Task { @MainActor in dismissed() }
                 return
             }
@@ -164,13 +170,17 @@ private struct OperationProgressBridge: NSViewRepresentable {
             if activeDetail != operation.detail {
                 activeDetail = operation.detail
                 announcements = OperationProgressAnnouncements()
-                if panel != nil { speak(operation.detail) }
+                if ownsInteraction { speak(operation.detail) }
             }
             attach(parent)
             presentIfPossible()
             panel?.title = operation.title
             hosting?.rootView = OperationProgressContent(operation: displayed(operation))
-            if panel != nil { speak(announcements.update(title: operation.title, progress: operation.progress)) }
+            if ownsInteraction { speak(announcements.update(title: operation.title, progress: operation.progress)) }
+        }
+
+        private var ownsInteraction: Bool {
+            panel != nil && NSApp.isActive && (panel?.isKeyWindow == true || parent?.isKeyWindow == true)
         }
 
         private func displayed(_ operation: OperationProgress) -> OperationProgress {
@@ -187,7 +197,7 @@ private struct OperationProgressBridge: NSViewRepresentable {
 
         private func presentIfPossible() {
             guard panel == nil, let operation = pending, let parent,
-                  parent.attachedSheet == nil else { return }
+                  NSApp.isActive, parent.isKeyWindow, parent.attachedSheet == nil else { return }
             let hosting = NSHostingController(rootView: OperationProgressContent(operation: displayed(operation)))
             let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 448, height: 180),
                                 styleMask: [.titled], backing: .buffered, defer: false)
@@ -212,8 +222,8 @@ private struct OperationProgressBridge: NSViewRepresentable {
             pending = nil
             activeTitle = nil
             closePanel()
-            if let observer { NotificationCenter.default.removeObserver(observer) }
-            observer = nil
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers.removeAll()
         }
 
         private func speak(_ message: String?) {

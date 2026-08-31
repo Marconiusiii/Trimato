@@ -772,6 +772,30 @@ struct ProjectPlaybackTests {
         #expect(committedItem.audioMix != nil)
     }
 
+    @Test func backgroundPreviewFailureWaitsForAnExplicitErrorRequest() async throws {
+        let asset = fixtureAsset(name: "Unavailable", duration: 1)
+        var project = TrimatoProject(name: "Background failure")
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        let viewModel = ProjectPlayerViewModel()
+
+        viewModel.prepare(project: project, mediaURLs: [:])
+        await waitForPreviewPreparation(viewModel)
+        #expect(viewModel.errorMessage != nil)
+        #expect(viewModel.presentedPreviewFailure == nil)
+
+        viewModel.showPreviewFailure()
+        #expect(viewModel.presentedPreviewFailure?.message == viewModel.errorMessage)
+        viewModel.dismissPreviewFailure()
+        #expect(viewModel.presentedPreviewFailure == nil)
+
+        // A second failed rebuild must also stay in the background.
+        viewModel.prepare(project: project, mediaURLs: [:])
+        await waitForPreviewPreparation(viewModel)
+        #expect(viewModel.errorMessage != nil)
+        #expect(viewModel.presentedPreviewFailure == nil)
+    }
+
     @Test @MainActor func emptyProjectSupersedesEarlierPreviewPreparation() async throws {
         let asset = fixtureAsset(name: "Unavailable", duration: 1)
         var project = TrimatoProject(name: "Superseded")
