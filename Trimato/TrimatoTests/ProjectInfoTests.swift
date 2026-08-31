@@ -19,7 +19,7 @@ struct ProjectInfoTests {
         project.name = "Revised Interview"
         project.targetDuration = nil
 
-        #expect(snapshot.title == "Project Info")
+        #expect(snapshot.title == "Interview Info")
         #expect(snapshot.rows.contains(ProjectInfoRow("Name", "Interview")))
         #expect(snapshot.rows.contains(ProjectInfoRow("Target Length", "00:01:30.000")))
         #expect(!snapshot.rows.contains { $0.value == "Revised Interview" })
@@ -39,9 +39,9 @@ struct ProjectInfoTests {
             playhead: ProjectTime(seconds: 12), activeTrackID: nil
         )
 
-        #expect(folderSnapshot.title == "Interviews")
+        #expect(folderSnapshot.title == "Interviews Info")
         #expect(folderSnapshot.rows.contains(ProjectInfoRow("Clips", "2")))
-        #expect(editorSnapshot.title == "Editor")
+        #expect(editorSnapshot.title == "Documentary Info")
         #expect(editorSnapshot.rows.contains(ProjectInfoRow("Project", "Documentary")))
     }
 }

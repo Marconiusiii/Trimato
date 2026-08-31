@@ -126,6 +126,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published var playbackRate: Float = 0
     @Published var duration: Double = 0
     @Published var currentTime: Double = 0
+    @Published private(set) var sourceFilename: String?
     @Published private(set) var hasMedia = false
     @Published private(set) var hasVideo = false
     @Published private(set) var waveformSamples: [Float] = []
@@ -356,6 +357,7 @@ final class VideoPlayerViewModel: ObservableObject {
         initialInMarker: ProjectTime? = nil,
         initialOutMarker: ProjectTime? = nil
     ) {
+        sourceFilename = url.lastPathComponent
         loadID = nil
         loadTask?.cancel()
         frameIndexTask?.cancel()

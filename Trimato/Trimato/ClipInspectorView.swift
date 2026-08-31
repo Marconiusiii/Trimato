@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 nonisolated struct ProjectMediaConformance: Equatable, Sendable {
@@ -74,12 +73,12 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
             if let activeTrack { rows.append(ProjectInfoRow("Track", activeTrack.name)) }
             if let directClip { rows.append(ProjectInfoRow("Clip", directClip.displayName)) }
             rows.append(ProjectInfoRow("Project", project.name))
-            return Self(title: "Editor", rows: rows)
+            return Self(title: infoTitle(project.name), rows: rows)
         case .folder(let id):
             guard let folder = project.folders.first(where: { $0.id == id }) else {
                 return projectSnapshot(project)
             }
-            return Self(title: folder.name, rows: [
+            return Self(title: infoTitle(folder.name), rows: [
                 ProjectInfoRow("Type", "Folder"),
                 ProjectInfoRow("Clips", "\(folder.assetIDs.count)")
             ])
@@ -99,7 +98,7 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
             if let asset = project.asset(id: clip.assetID) {
                 rows.append(contentsOf: mediaRows(asset, project: project))
             }
-            return Self(title: clip.displayName, rows: rows)
+            return Self(title: infoTitle(clip.displayName), rows: rows)
         case .cutaway(let id):
             guard let cutaway = project.cutaways.first(where: { $0.id == id }) else {
                 return projectSnapshot(project)
@@ -112,7 +111,7 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
             if let asset = project.asset(id: cutaway.assetID) {
                 rows.append(contentsOf: mediaRows(asset, project: project))
             }
-            return Self(title: cutaway.displayName, rows: rows)
+            return Self(title: infoTitle(cutaway.displayName), rows: rows)
         case .transition(let id):
             guard let transition = project.transition(id: id) else { return projectSnapshot(project) }
             let position: String
@@ -121,13 +120,13 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
             case .outro: position = "Fade Out"
             case .between: position = "Between Clips"
             }
-            return Self(title: transition.displayName, rows: [
+            return Self(title: infoTitle(transition.displayName), rows: [
                 ProjectInfoRow("Duration", ProjectTimecodeFormatter.string(transition.duration)),
                 ProjectInfoRow("Position", position)
             ])
         case .track(let id):
             guard let track = project.track(id: id) else { return projectSnapshot(project) }
-            return Self(title: track.name, rows: [
+            return Self(title: infoTitle(track.name), rows: [
                 ProjectInfoRow("Type", track.kind.title),
                 ProjectInfoRow("Clips", "\(track.clips.count)")
             ])
@@ -153,13 +152,13 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
             rows.append(ProjectInfoRow("Frame Rate", frameRate.formatted()))
         }
         rows.append(ProjectInfoRow("Total Clips", "\(project.tracks.reduce(0) { $0 + $1.clips.count })"))
-        return Self(title: "Project Info", rows: rows)
+        return Self(title: infoTitle(project.name), rows: rows)
     }
 
     private static func assetSnapshot(_ asset: MediaAssetRecord, project: TrimatoProject) -> Self {
         var rows = [ProjectInfoRow("Length", ProjectTimecodeFormatter.string(asset.editedDuration))]
         rows.append(contentsOf: mediaRows(asset, project: project))
-        return Self(title: asset.name, rows: rows)
+        return Self(title: infoTitle(asset.name), rows: rows)
     }
 
     private static func clipRows(_ clip: TimelineClip, project: TrimatoProject) -> [ProjectInfoRow] {
@@ -197,6 +196,10 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
         }
         return rows
     }
+
+    private static func infoTitle(_ name: String) -> String {
+        "\(name) Info"
+    }
 }
 
 struct ProjectInfoView: View {
@@ -210,16 +213,19 @@ struct ProjectInfoView: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($headingFocused)
             ForEach(snapshot.rows) { row in
-                LabeledContent(row.label, value: row.value)
-            }
-            HStack {
-                Spacer()
-                Button("Close") { NSApp.keyWindow?.performClose(nil) }
-                    .keyboardShortcut(.cancelAction)
+                LabeledContent {
+                    Text(row.value)
+                        .accessibilityLabel(row.label)
+                        .accessibilityValue(row.value)
+                } label: {
+                    Text(row.label)
+                        .accessibilityHidden(true)
+                }
             }
         }
         .padding(24)
         .frame(width: 440)
+        .navigationTitle(snapshot.title)
         .task {
             await Task.yield()
             headingFocused = true

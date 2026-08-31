@@ -757,14 +757,14 @@ final class ProjectController: ObservableObject {
 
     func deleteTransition(id: UUID, selecting selectionAfterDeletion: EditorSelection = .project) {
         mutateProject(actionName: "Delete Transition") { $0.removeTransition(id: id) }
-        selection = selectionAfterDeletion
+        if selection != selectionAfterDeletion { selection = selectionAfterDeletion }
         projectInfoTarget = .selection(selectionAfterDeletion)
     }
 
     func deleteTimelineClip(id: UUID, selecting selectionAfterDeletion: EditorSelection) {
         do {
             try mutateProjectThrowing(actionName: "Delete Timeline Clip") { try $0.removeTrackClip(id: id) }
-            selection = selectionAfterDeletion
+            if selection != selectionAfterDeletion { selection = selectionAfterDeletion }
             projectInfoTarget = .selection(selectionAfterDeletion)
             announce("Timeline clip deleted")
         } catch {

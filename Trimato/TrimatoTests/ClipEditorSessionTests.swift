@@ -6,6 +6,14 @@ import Testing
 
 @Suite("Clip editor sessions", .serialized)
 struct ClipEditorSessionTests {
+    @Test @MainActor func standaloneGetInfoRetainsTheOpenedFilenameImmediately() {
+        let viewModel = VideoPlayerViewModel()
+
+        viewModel.load(url: URL(fileURLWithPath: "/tmp/Interview Take 3.mov"))
+
+        #expect(viewModel.sourceFilename == "Interview Take 3.mov")
+    }
+
     @Test func entryFocusWaitsForLoadingAndSheetsAndDoesNotRepeatDuringEditing() {
         var focus = ClipEditorEntryFocusPolicy()
         let loading = focus.consume(ready: false, isKeyWindow: true, hasSheet: false)

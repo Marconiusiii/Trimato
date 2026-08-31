@@ -275,6 +275,7 @@ Accessibility is part of Trimato's editing model rather than an additional mode.
 - Visible section headings include VoiceOver heading traits.
 - The Project Browser, Editor, and Timeline clips are labeled sections in structural source order. Linked regions support VoiceOver's linked-item navigation.
 - The Track picker changes the track context for the linear Timeline clips list. VoiceOver focus on a clip or transition makes it the target for timeline commands and Command-I Get Info.
+- Get Info opens a standard macOS window titled for the focused item. Each field is exposed to VoiceOver as one qualified label and value, and the window closes with the standard window controls or Command-W.
 - Quick transition sheets return VoiceOver focus to the Editor after applying or canceling so repeated playback and editing remain in context.
 - Timeline list items expose names and positions without continuously speaking start, end, and duration values. Press Command-I for exact timing and other information about the focused item.
 - Timecode updates do not continuously interrupt VoiceOver speech.

@@ -239,7 +239,8 @@ private struct GetInfoCommands: Commands {
             return projectController.projectInfoSnapshot()
         }
         if let viewModel {
-            return ProjectInfoSnapshot(title: "Clip Info", rows: [
+            let filename = viewModel.sourceFilename ?? "Clip"
+            return ProjectInfoSnapshot(title: "\(filename) Info", rows: [
                 ProjectInfoRow("Current Time", ProjectTimecodeFormatter.string(ProjectTime(seconds: viewModel.currentTime))),
                 ProjectInfoRow("Length", ProjectTimecodeFormatter.string(ProjectTime(seconds: viewModel.duration)))
             ])
@@ -422,8 +423,7 @@ private struct FeedbackCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .help) {
             Button("Trimato QuickStart Guide") {
-                guard let book = Bundle.main.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String else { return }
-                NSHelpManager.shared.openHelpAnchor("trimato-quickstart-guide", inBook: book)
+                TrimatoHelp.openQuickStart()
             }
             Divider()
             Button("Send Trimato Feedback\u{2026}") {
@@ -431,5 +431,18 @@ private struct FeedbackCommands: Commands {
                 openURL(url)
             }
         }
+    }
+}
+
+enum TrimatoHelp {
+    static let bookIdentifier = "com.marconius.trimato.help"
+    static let quickStartAnchor = "trimato-quickstart-guide"
+
+    @MainActor
+    static func openQuickStart(bundle: Bundle = .main) {
+        let manager = NSHelpManager.shared
+        _ = manager.registerBooks(in: bundle)
+        let book = bundle.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String
+        manager.openHelpAnchor(quickStartAnchor, inBook: book ?? bookIdentifier)
     }
 }

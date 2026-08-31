@@ -45,8 +45,8 @@ struct ProjectTimelineView: View {
     @State private var isAddingTrack = false
     @State private var editingTransition: TimelineTransition?
     @State private var transitionFocusReturn: TimelineElementSelection?
+    @State private var transitionPendingDeletion: TimelineTransition?
     @State private var clipPendingDeletion: TimelineClip?
-    @State private var deletionFocusRequest: TimelineDeletionFocusRequest?
     @State private var errorMessage: String?
     @State private var errorTitle = "Timeline Change Failed"
 
@@ -150,7 +150,7 @@ struct ProjectTimelineView: View {
                 cancel: { isAddingTrack = false }
             )
         }
-        .sheet(item: $editingTransition, onDismiss: restoreTimelineElementFocus) { transition in
+        .sheet(item: $editingTransition, onDismiss: finishTransitionEditing) { transition in
             TransitionEditorView(
                 transition: transition,
                 contextDescription: transitionContextDescription(transition),
@@ -162,10 +162,7 @@ struct ProjectTimelineView: View {
                 },
                 delete: {
                     transitionFocusReturn = fallbackFocusAfterDeleting(transition)
-                    controller.deleteTransition(
-                        id: transition.id,
-                        selecting: editorSelection(for: transitionFocusReturn) ?? .project
-                    )
+                    transitionPendingDeletion = transition
                     editingTransition = nil
                 },
                 cancel: { editingTransition = nil }
@@ -230,31 +227,6 @@ struct ProjectTimelineView: View {
             .accessibilityLabel(timelineListAccessibilityLabel)
             .accessibilityIdentifier("trimato.timeline.clips")
             .accessibilityFocused($timelineListFocused)
-            .onChange(of: deletionFocusRequest?.id) {
-                guard let request = deletionFocusRequest else { return }
-                if case .clip(let id) = request.target { proxy.scrollTo("clip-" + id.uuidString) }
-                // The native alert has ended and this view contains the updated
-                // rows. Let scrolling settle, then make one focus request.
-                DispatchQueue.main.async {
-                    guard deletionFocusRequest?.id == request.id else { return }
-                    deletionFocusRequest = nil
-                    guard request.window?.isKeyWindow == true,
-                          request.window?.attachedSheet == nil,
-                          controller.activeTimelineTrackID == request.trackID else { return }
-                    timelineListFocused = false
-                    if let target = request.target,
-                       timelineElements.contains(where: { element in
-                           if case .clip(let clip) = element.content { return target == .clip(clip.id) }
-                           return false
-                       }) {
-                        keyboardFocusedElement = target
-                        focusedElement = target
-                    } else if timelineElements.isEmpty {
-                        emptyTimelineKeyboardFocused = true
-                        emptyTimelineFocused = true
-                    }
-                }
-            }
             .onChange(of: controller.timelineFocusRestoreRequest) {
                 if let target = controller.timelineFocusRestoreTarget {
                     switch target {
@@ -457,6 +429,22 @@ struct ProjectTimelineView: View {
         restoreTimelineElementFocus(to: target)
     }
 
+    private func finishTransitionEditing() {
+        guard let transition = transitionPendingDeletion else {
+            restoreTimelineElementFocus()
+            return
+        }
+        transitionPendingDeletion = nil
+        let target = transitionFocusReturn
+        transitionFocusReturn = nil
+        deleteAfterFocusing(target, in: NSApp.keyWindow) {
+            controller.deleteTransition(
+                id: transition.id,
+                selecting: editorSelection(for: target) ?? .project
+            )
+        }
+    }
+
     private func restoreTimelineElementFocus(to target: TimelineElementSelection) {
         // A movement keeps the same row alive. Restore once after the committed
         // list update, never clear/reassert focus repeatedly during arrow presses.
@@ -508,9 +496,8 @@ struct ProjectTimelineView: View {
     private func deleteTimelineTransition(_ id: UUID) {
         guard let transition = controller.project.transition(id: id) else { return }
         let target = fallbackFocusAfterDeleting(transition)
-        controller.deleteTransition(id: id, selecting: editorSelection(for: target) ?? .project)
-        if let target {
-            restoreTimelineElementFocus(to: target)
+        deleteAfterFocusing(target, in: NSApp.keyWindow) {
+            controller.deleteTransition(id: id, selecting: editorSelection(for: target) ?? .project)
         }
     }
 
@@ -571,16 +558,35 @@ struct ProjectTimelineView: View {
         let fallback = fallbackFocusAfterDeletingClip(clipID)
         clipPendingDeletion = nil
         if confirmed {
-            controller.deleteTimelineClip(
-                id: clipID,
-                selecting: editorSelection(for: fallback) ?? .project
-            )
+            deleteAfterFocusing(fallback, in: window) {
+                controller.deleteTimelineClip(
+                    id: clipID,
+                    selecting: editorSelection(for: fallback) ?? .project
+                )
+            }
+        } else {
+            restoreTimelineElementFocus(to: .clip(clipID))
         }
-        // A cancelled or failed deletion returns to the original row.
-        let target: TimelineElementSelection? = controller.project.timelineClip(id: clipID) != nil
-            ? .clip(clipID) : fallback
-        deletionFocusRequest = TimelineDeletionFocusRequest(target: target,
-            trackID: controller.activeTimelineTrackID, window: window)
+    }
+
+    private func deleteAfterFocusing(
+        _ target: TimelineElementSelection?,
+        in window: NSWindow?,
+        commit: @escaping () -> Void
+    ) {
+        if let target {
+            timelineListFocused = false
+            keyboardFocusedElement = target
+            focusedElement = target
+        }
+        DispatchQueue.main.async {
+            commit()
+            if target == nil, window?.isKeyWindow == true,
+               window?.attachedSheet == nil, timelineElements.isEmpty {
+                emptyTimelineKeyboardFocused = true
+                emptyTimelineFocused = true
+            }
+        }
     }
 
     private func fallbackFocusAfterDeletingClip(_ id: UUID) -> TimelineElementSelection? {
@@ -683,13 +689,6 @@ struct ProjectTimelineView: View {
     private func restoreTimelineListFocus() {
         if !timelineListFocused { timelineListFocused = true }
     }
-}
-
-private struct TimelineDeletionFocusRequest {
-    let id = UUID()
-    let target: TimelineElementSelection?
-    let trackID: UUID?
-    weak var window: NSWindow?
 }
 
 /// NSAlert supplies a completion callback after its native sheet ends; SwiftUI's

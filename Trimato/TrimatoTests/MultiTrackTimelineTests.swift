@@ -22,7 +22,7 @@ struct MultiTrackTimelineTests {
 
         #expect(controller.project.timelineClip(id: second) == nil)
         #expect(controller.selection == .timelineClip(first))
-        #expect(controller.projectInfoSnapshot().title == controller.project.timelineClip(id: first)?.displayName)
+        #expect(controller.projectInfoSnapshot().title == "\(controller.project.timelineClip(id: first)?.displayName ?? "Clip") Info")
     }
 
     @Test func deletingTransitionCanSelectItsSurvivingTimelineClipWithoutProjectInterim() throws {
@@ -43,7 +43,7 @@ struct MultiTrackTimelineTests {
 
         #expect(controller.project.transition(id: transition.id) == nil)
         #expect(controller.selection == .timelineClip(second))
-        #expect(controller.projectInfoSnapshot().title == controller.project.timelineClip(id: second)?.displayName)
+        #expect(controller.projectInfoSnapshot().title == "\(controller.project.timelineClip(id: second)?.displayName ?? "Clip") Info")
     }
 
     @Test(arguments: [24.0, 25.0, 30_000.0 / 1_001.0, 60.0])
