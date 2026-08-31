@@ -197,4 +197,22 @@ struct ClipPreviewCoordinatorTests {
         #expect(h.ready)
         #expect(h.coordinator.errorMessage == nil)
     }
+    @Test func invalidOrRegressingProgressCannotCorruptTheCurrentOperation() async throws {
+        let h = Harness()
+        let changed = request()
+        h.update(changed)
+        try await waitFor { h.renders[changed.source] != nil }
+        h.progress[changed.source]?(0.6)
+        h.progress[changed.source]?(.nan)
+        h.progress[changed.source]?(.infinity)
+        h.progress[changed.source]?(0.2)
+        #expect(h.coordinator.progress == 0.6)
+        h.coordinator.cancel()
+        h.progress[changed.source]?(1)
+        #expect(h.coordinator.progress == 0.6)
+        h.finish(changed, result: .success(changed.source))
+        try await waitFor { h.removed == [changed.source] }
+        #expect(h.committed.isEmpty)
+    }
+
 }

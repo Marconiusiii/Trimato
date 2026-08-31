@@ -4,8 +4,7 @@ import SwiftUI
 struct QuickTransitionView: View {
     let project: TrimatoProject
     let request: TransitionRequest
-    let progress: Double
-    let add: ([TimelineTransition]) async throws -> Void
+    let add: ([TimelineTransition]) -> Void
     let finished: () -> Void
 
     @State private var addIntro = true
@@ -15,37 +14,9 @@ struct QuickTransitionView: View {
     @State private var fadeInDurationText = TransitionDurationInput.defaultText
     @State private var fadeOutDurationText = TransitionDurationInput.defaultText
     @State private var presentedError: TransitionPresentedError?
-    @State private var isSubmitting = false
-    @State private var submissionTask: Task<Void, Never>?
-    @AccessibilityFocusState private var progressFocused: Bool
 
     var body: some View {
-        Group {
-            if isSubmitting {
-                VStack(spacing: 16) {
-                    ProgressView(value: boundedProgress, total: 1) {
-                        Text("Applying \(transitionName)…")
-                    }
-                        .accessibilityLabel("Applying \(transitionName)")
-                        .accessibilityValue(TransitionProgressAccessibility.value(progress))
-                        .accessibilityFocused($progressFocused)
-                        .onChange(of: TransitionProgressAccessibility.milestone(progress)) { _, milestone in
-                            TransitionProgressAccessibility.announce(milestone, transitionName: transitionName)
-                        }
-                    Button("Cancel", role: .cancel) {
-                        submissionTask?.cancel()
-                    }
-                    .keyboardShortcut(.cancelAction)
-                }
-                .padding(32)
-                .frame(width: 430)
-                .frame(minHeight: 180)
-            } else {
-                form
-            }
-        }
-        .interactiveDismissDisabled(isSubmitting)
-        .onDisappear { submissionTask?.cancel() }
+        form
         .alert(presentedError?.title ?? "Transition error", isPresented: errorIsPresented) {
             Button("OK") { presentedError = nil }
         } message: {
@@ -82,7 +53,7 @@ struct QuickTransitionView: View {
                 Button("Cancel", role: .cancel, action: finished)
                 Button(applyTitle, action: apply)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(isSubmitting || (request.mode == .quickFade && !addIntro && !addOutro))
+                    .disabled(request.mode == .quickFade && !addIntro && !addOutro)
             }
         }
         .padding(20)
@@ -94,7 +65,6 @@ struct QuickTransitionView: View {
         return track?.kind == .audio ? "Cross Fade" : "Cross Dissolve"
     }
 
-    private var boundedProgress: Double { min(max(progress, 0), 1) }
 
     private var errorIsPresented: Binding<Bool> {
         Binding(
@@ -197,29 +167,7 @@ struct QuickTransitionView: View {
     }
 
     private func submit(_ transitions: [TimelineTransition]) {
-        isSubmitting = true
-        submissionTask = Task { @MainActor in
-            await Task.yield()
-            progressFocused = true
-            do {
-                try await add(transitions)
-                submissionTask = nil
-                finished()
-            } catch is CancellationError {
-                submissionTask = nil
-                progressFocused = false
-                isSubmitting = false
-                finished()
-            } catch {
-                submissionTask = nil
-                progressFocused = false
-                isSubmitting = false
-                presentedError = .applicationFailed(
-                    transitionName: transitionName,
-                    message: error.localizedDescription
-                )
-            }
-        }
+        add(transitions)
     }
 
     private func showValidation(_ message: String) {

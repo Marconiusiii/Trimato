@@ -30,6 +30,17 @@ final class GeneratorSession: ObservableObject, Identifiable {
     @Published var progress: Double?
     @Published var errorMessage: String?
     private var operation: Task<Void, Never>?
+    private var operationID = UUID()
+    @Published private(set) var hasPreparedPlacement = false
+    private var completionAction: (() -> Void)?
+
+    func progressWindowDismissed() {
+        guard progress == nil else { return }
+        let action = completionAction
+        completionAction = nil
+        hasPreparedPlacement = false
+        action?()
+    }
 
     init(controller: ProjectController, editing: EditorSelection? = nil) {
         self.editing = editing
@@ -78,6 +89,9 @@ final class GeneratorSession: ObservableObject, Identifiable {
     }
 
     func cancelPreparation() {
+        operationID = UUID()
+        completionAction = nil
+        hasPreparedPlacement = false
         operation?.cancel()
         operation = nil
         if progress != nil { progress = nil }
@@ -108,11 +122,17 @@ final class GeneratorSession: ObservableObject, Identifiable {
             while names.contains(suffix == 1 ? "Generator" : "Generator \(suffix)") { suffix += 1 }
             name = suffix == 1 ? "Generator" : "Generator \(suffix)"
         }
+        let requestID = operationID
+        errorMessage = nil
         progress = 0
         operation = Task { @MainActor in
             do {
-                _ = try await GeneratorRenderer.ensure(definition) { [weak self] value in self?.progress = value }
+                _ = try await GeneratorRenderer.ensure(definition) { [weak self] value in
+                    guard let self, self.operationID == requestID else { return }
+                    self.progress = value
+                }
                 try Task.checkCancellation()
+                guard operationID == requestID else { return }
                 if let editing {
                     try controller.updateGenerator(definition, editing: editing, expectedProject: expected)
                 } else {
@@ -121,10 +141,12 @@ final class GeneratorSession: ObservableObject, Identifiable {
                 }
                 progress = nil
                 operation = nil
-                finished()
+                completionAction = finished
+                hasPreparedPlacement = true
             } catch is CancellationError {
                 return
             } catch {
+                guard operationID == requestID else { return }
                 progress = nil
                 errorMessage = error.localizedDescription
             }
@@ -185,9 +207,6 @@ struct GeneratorView: View {
             }
             .disabled(session.progress != nil)
 
-            if let progress = session.progress {
-                ProgressView("Preparing Generator", value: progress)
-            }
             placementControls
                 .disabled(session.progress != nil)
             Button(session.progress == nil ? "Cancel" : "Cancel Preparation", role: .cancel) {
@@ -196,6 +215,11 @@ struct GeneratorView: View {
             }
             .keyboardShortcut(.cancelAction)
         }
+        .operationProgress(session.progress.map { OperationProgress(
+            title: "Preparing Generator", progress: $0, cancel: session.cancelPreparation
+        ) }, outcome: session.errorMessage == nil ? .completed : .failed,
+                           completionPending: session.hasPreparedPlacement,
+                           dismissed: session.progressWindowDismissed)
         .padding(20)
         .frame(minWidth: 560, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)

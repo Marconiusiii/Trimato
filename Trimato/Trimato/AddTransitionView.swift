@@ -3,8 +3,7 @@ import SwiftUI
 struct AddTransitionView: View {
     let project: TrimatoProject
     let request: TransitionRequest
-    let progress: Double
-    let add: ([TimelineTransition]) async throws -> Void
+    let add: ([TimelineTransition]) -> Void
     let cancel: () -> Void
 
     @State private var addIntro = false
@@ -18,37 +17,9 @@ struct AddTransitionView: View {
     @State private var includeIntroAudio = false
     @State private var includeOutroAudio = false
     @State private var presentedError: TransitionPresentedError?
-    @State private var isSubmitting = false
-    @State private var submissionTask: Task<Void, Never>?
-    @AccessibilityFocusState private var progressFocused: Bool
 
     var body: some View {
-        Group {
-            if isSubmitting {
-                VStack(spacing: 16) {
-                    ProgressView(value: boundedProgress, total: 1) {
-                        Text("Applying \(applicationName)…")
-                    }
-                        .accessibilityLabel("Applying \(applicationName)")
-                        .accessibilityValue(TransitionProgressAccessibility.value(progress))
-                        .accessibilityFocused($progressFocused)
-                        .onChange(of: TransitionProgressAccessibility.milestone(progress)) { _, milestone in
-                            TransitionProgressAccessibility.announce(milestone, transitionName: applicationName)
-                        }
-                    Button("Cancel", role: .cancel) {
-                        submissionTask?.cancel()
-                    }
-                    .keyboardShortcut(.cancelAction)
-                }
-                .padding(32)
-                .frame(width: 440)
-                .frame(minHeight: 180)
-            } else {
-                form
-            }
-        }
-        .interactiveDismissDisabled(isSubmitting)
-        .onDisappear { submissionTask?.cancel() }
+        form
         .alert(presentedError?.title ?? "Transition error", isPresented: errorIsPresented) {
             Button("OK") { presentedError = nil }
         } message: {
@@ -89,7 +60,6 @@ struct AddTransitionView: View {
         return "Transitions"
     }
 
-    private var boundedProgress: Double { min(max(progress, 0), 1) }
 
     private var errorIsPresented: Binding<Bool> {
         Binding(
@@ -202,29 +172,7 @@ struct AddTransitionView: View {
         var result: [TimelineTransition] = []
         if let intro { result.append(contentsOf: makeTransitions(edge: .intro, duration: intro)) }
         if let outro { result.append(contentsOf: makeTransitions(edge: .outro, duration: outro)) }
-        isSubmitting = true
-        submissionTask = Task { @MainActor in
-            await Task.yield()
-            progressFocused = true
-            do {
-                try await add(result)
-                submissionTask = nil
-                cancel()
-            } catch is CancellationError {
-                submissionTask = nil
-                progressFocused = false
-                isSubmitting = false
-                cancel()
-            } catch {
-                submissionTask = nil
-                progressFocused = false
-                isSubmitting = false
-                presentedError = .applicationFailed(
-                    transitionName: applicationName,
-                    message: error.localizedDescription
-                )
-            }
-        }
+        add(result)
     }
 
     private func showValidation(_ message: String) {

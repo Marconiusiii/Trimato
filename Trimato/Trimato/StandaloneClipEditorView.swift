@@ -47,6 +47,8 @@ struct StandaloneClipEditorView: View {
     @StateObject private var viewModel: VideoPlayerViewModel
     @StateObject private var commandContext: StandaloneClipCommandContext
     @State private var loadedURL: URL?
+    @State private var creationTask: Task<Void, Never>?
+    @State private var pendingProject: TrimatoProject?
 
     init(url: URL) {
         self.url = url
@@ -76,17 +78,18 @@ struct StandaloneClipEditorView: View {
                 .buttonStyle(.bordered)
                 .disabled(!commandContext.canCreateProject)
 
-                if commandContext.isCreatingProject {
-                    ProgressView("Creating Project")
-                        .controlSize(.small)
-                }
-
                 Spacer()
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .background(EditorTheme.controlSurface)
         }
+        .operationProgress(commandContext.isCreatingProject ? OperationProgress(
+            title: "Creating Project", cancel: { creationTask?.cancel() }
+        ) : nil, outcome: commandContext.creationError == nil ? .completed : .failed,
+                           completionPending: pendingProject != nil,
+                           dismissed: finishProjectPresentation)
+        .onDisappear { creationTask?.cancel() }
         .focusedObject(viewModel)
         .focusedObject(commandContext)
         .navigationTitle("\(url.deletingPathExtension().lastPathComponent) — \(editorName)")
@@ -111,16 +114,25 @@ struct StandaloneClipEditorView: View {
     }
 
     private func createProject() {
-        Task { @MainActor in
+        creationTask = Task { @MainActor in
             do {
                 let project = try await viewModel.makeProjectFromCurrentClip()
-                newDocument { ProjectDocument(project: project, isExplicitlySaved: false) }
+                try Task.checkCancellation()
+                pendingProject = project
                 commandContext.finishCreatingProject()
-                dismissWindow(value: url)
+            } catch is CancellationError {
+                commandContext.finishCreatingProject()
             } catch {
                 commandContext.failCreatingProject(error)
             }
         }
+    }
+
+    private func finishProjectPresentation() {
+        guard !commandContext.isCreatingProject, let project = pendingProject else { return }
+        pendingProject = nil
+        newDocument { ProjectDocument(project: project, isExplicitlySaved: false) }
+        dismissWindow(value: url)
     }
 
     private var editorName: String {

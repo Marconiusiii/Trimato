@@ -2,46 +2,44 @@ import SwiftUI
 
 struct ClipFiltersView: View {
     @ObservedObject var context: ClipPlacementCommandContext
-    @State private var adding = false
-    @State private var pendingFilter: ClipFilter?
-    @AccessibilityFocusState private var addFocused: Bool
+    @State private var selection: UUID?
+    @State private var editing: ClipFilter?
+    @State private var pending: ClipFilter?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button("Add Filter…") { adding = true }
-                .accessibilityFocused($addFocused)
-            if !context.filters.isEmpty {
-                Text("Filters").font(.headline).accessibilityAddTraits(.isHeader)
-                Text("Filters process in the listed order. Disabled filters keep their settings.")
-                ForEach(ClipFilterKind.allCases) { kind in
-                    if let index = context.filters.firstIndex(where: { $0.kind == kind }) {
-                        ClipFilterControls(filter: $context.filters[index], remove: {
-                            context.filters.removeAll { $0.kind == kind }
-                            addFocused = true
-                        })
-                    }
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            List(context.filters, selection: $selection) { filter in
+                Text("\(filter.kind.title), \(filter.enabled ? "Enabled" : "Disabled")")
+                    .tag(filter.id)
+            }
+            .accessibilityLabel("Applied Filters")
+            HStack {
+                Button("Edit Filter…") { editing = selectedFilter }
+                    .disabled(selectedFilter == nil)
+                Button("Remove Filter") {
+                    guard let selection else { return }
+                    context.filters.removeAll { $0.id == selection }
+                    self.selection = nil
+                }.disabled(selectedFilter == nil)
             }
         }
-        .sheet(isPresented: $adding, onDismiss: {
-            // Do not start preparing a preview while the modal sheet is closing.
-            if let pendingFilter {
-                context.filters.append(pendingFilter)
-                self.pendingFilter = nil
+        .sheet(item: $editing, onDismiss: {
+            if let pending, let index = context.filters.firstIndex(where: { $0.id == pending.id }) {
+                context.filters[index] = pending
             }
-        }) {
-            AddClipFilterView(audio: context.audioSettings != nil, existing: context.filters.map(\.kind)) { filter in
-                pendingFilter = filter
-                adding = false
-            } cancel: {
-                pendingFilter = nil
-                adding = false
-            }
+            pending = nil
+        }) { filter in
+            EditClipFilterView(filter: filter) { updated in
+                pending = updated
+                editing = nil
+            } cancel: { editing = nil }
         }
     }
+
+    private var selectedFilter: ClipFilter? { context.filters.first { $0.id == selection } }
 }
 
-private struct AddClipFilterView: View {
+struct AddClipFilterView: View {
     let available: [ClipFilterKind]
     let add: (ClipFilter) -> Void
     let cancel: () -> Void
@@ -91,30 +89,32 @@ private struct AddClipFilterView: View {
     }
 }
 
-private struct ClipFilterControls: View {
-    @Binding var filter: ClipFilter
-    let remove: () -> Void
+private struct EditClipFilterView: View {
+    @State var filter: ClipFilter
+    let apply: (ClipFilter) -> Void
+    let cancel: () -> Void
 
     var body: some View {
-        GroupBox(filter.kind.title) {
-            VStack(alignment: .leading, spacing: 10) {
-                Form {
-                    Toggle("Enable \(filter.kind.title)", isOn: $filter.enabled)
-                    Text(filter.kind.description)
-                    ClipFilterParameters(filter: $filter)
+        VStack(alignment: .leading, spacing: 16) {
+            Text(filter.kind.title).font(.headline).accessibilityAddTraits(.isHeader)
+            Form {
+                Toggle("Enable \(filter.kind.title)", isOn: $filter.enabled)
+                Text(filter.kind.description)
+                ClipFilterParameters(filter: $filter)
+            }
+            HStack {
+                Button("Reset \(filter.kind.title)") {
+                    let id = filter.id
+                    let enabled = filter.enabled
+                    filter = ClipFilter(kind: filter.kind)
+                    filter.id = id
+                    filter.enabled = enabled
                 }
-                HStack {
-                    Button("Reset \(filter.kind.title)") {
-                        let id = filter.id
-                        let enabled = filter.enabled
-                        filter = ClipFilter(kind: filter.kind)
-                        filter.id = id
-                        filter.enabled = enabled
-                    }
-                    Button("Remove \(filter.kind.title)", action: remove)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-        }
+                Spacer()
+                Button("Cancel", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
+                Button("Apply") { apply(filter) }.keyboardShortcut(.defaultAction)
+            }
+        }.padding(20).frame(width: 520)
     }
 }
 

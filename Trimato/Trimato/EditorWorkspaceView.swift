@@ -8,6 +8,10 @@ struct EditorWorkspaceView: View {
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var restoresEditorFocusAfterTransitionSheet = false
     @State private var timelineFocusAfterTransitionSheet: TimelineElementSelection?
+    @State private var pendingTransitions: [TimelineTransition]?
+    @State private var transitionTask: Task<Void, Never>?
+    @State private var transitionOutcome = OperationProgressOutcome.completed
+    @State private var transitionFinished = false
     @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
@@ -20,7 +24,7 @@ struct EditorWorkspaceView: View {
     }
 
     var body: some View {
-        editor
+        progressEditor
             .background(EditorTheme.workspace)
             .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
             .preferredColorScheme(.dark)
@@ -78,18 +82,6 @@ struct EditorWorkspaceView: View {
                     cancel: controller.dismissProjectSettings
                 )
             }
-            .sheet(isPresented: Binding(
-                get: { controller.isExporting },
-                set: { presented in
-                    if !presented, controller.isExporting { controller.cancelExport() }
-                }
-            )) {
-                ExportProgressSheet(
-                    title: "Exporting Project",
-                    progress: controller.exportProgress,
-                    cancel: controller.cancelExport
-                )
-            }
             .sheet(item: $controller.transitionRequest, onDismiss: transitionSheetDismissed) { request in
                 transitionSheet(for: request)
             }
@@ -100,6 +92,33 @@ struct EditorWorkspaceView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
+    }
+
+    private var progressEditor: some View {
+        editor
+            .operationProgress(exportOperation, outcome: controller.presentedError == nil ? .completed : .failed)
+            .operationProgress(importOperation, outcome: controller.presentedError == nil ? .completed : .failed)
+            .operationProgress(transitionOperation, outcome: transitionOutcome,
+                               completionPending: transitionFinished, dismissed: restoreTransitionFocus)
+    }
+
+    private var exportOperation: OperationProgress? {
+        guard controller.isExporting else { return nil }
+        return OperationProgress(title: "Exporting Project", progress: controller.exportProgress,
+                                 cancel: { controller.cancelExport() })
+    }
+
+    private var importOperation: OperationProgress? {
+        guard controller.isImporting else { return nil }
+        var operation = OperationProgress(title: "Importing Clips")
+        if controller.canCancelImport { operation.cancel = { controller.cancelImport() } }
+        return operation
+    }
+
+    private var transitionOperation: OperationProgress? {
+        guard let name = controller.applyingTransitionName else { return nil }
+        return OperationProgress(title: "Applying \(name)", progress: controller.applyingTransitionProgress,
+                                 cancel: { transitionTask?.cancel() })
     }
 
     private var editor: some View {
@@ -162,7 +181,6 @@ struct EditorWorkspaceView: View {
             AddTransitionView(
                 project: controller.project,
                 request: request,
-                progress: controller.applyingTransitionProgress ?? 0,
                 add: addTransitions,
                 cancel: dismissStandardTransition
             )
@@ -170,21 +188,15 @@ struct EditorWorkspaceView: View {
             QuickTransitionView(
                 project: controller.project,
                 request: request,
-                progress: controller.applyingTransitionProgress ?? 0,
-                add: { transitions in
-                    try await addTransitions(transitions)
-                },
+                add: addTransitions,
                 finished: dismissQuickTransition
             )
         }
     }
 
-    private func addTransitions(_ transitions: [TimelineTransition]) async throws {
-        let returnsToEditor = controller.transitionRequestReturnsToEditor
-        try await controller.applyTransitions(
-            transitions,
-            selectAddedTransition: !returnsToEditor
-        )
+    private func addTransitions(_ transitions: [TimelineTransition]) {
+        pendingTransitions = transitions
+        dismissTransitionSheet()
     }
 
     private func dismissStandardTransition() {
@@ -213,6 +225,37 @@ struct EditorWorkspaceView: View {
     }
 
     private func transitionSheetDismissed() {
+        guard let transitions = pendingTransitions else { restoreTransitionFocus(); return }
+        pendingTransitions = nil
+        let returnsToEditor = restoresEditorFocusAfterTransitionSheet
+        transitionOutcome = .completed
+        transitionFinished = false
+        transitionTask = Task { @MainActor in
+            do {
+                try await controller.applyTransitions(transitions, selectAddedTransition: !returnsToEditor)
+                if !returnsToEditor, case .transition(let id) = controller.selection {
+                    timelineFocusAfterTransitionSheet = .transition(id)
+                }
+            } catch is CancellationError {
+                transitionOutcome = .cancelled
+            } catch {
+                transitionOutcome = .failed
+                controller.presentedError = ProjectPresentedError(title: "Transition Could Not Be Applied",
+                                                                 message: error.localizedDescription)
+            }
+            transitionTask = nil
+            transitionFinished = true
+        }
+    }
+
+    private func restoreTransitionFocus() {
+        guard transitionTask == nil else { return }
+        transitionFinished = false
+        if controller.presentedError != nil {
+            restoresEditorFocusAfterTransitionSheet = false
+            timelineFocusAfterTransitionSheet = nil
+            return
+        }
         if restoresEditorFocusAfterTransitionSheet {
             restoresEditorFocusAfterTransitionSheet = false
             controller.requestEditorFocusRestore()
@@ -314,9 +357,10 @@ private struct ProjectViewerView: View {
         .onChange(of: controller.editorFocusRestoreRequest) {
             restoreProjectPlayheadFocus()
         }
-        .onChange(of: viewModel.isPreparing) { _, isPreparing in
-            preparationChanged(isPreparing)
-        }
+        .operationProgress(viewModel.isPreparing && controller.applyingTransitionName == nil ?
+            OperationProgress(title: "Preparing Project Preview", cancel: viewModel.cancelPreparation) : nil,
+            outcome: viewModel.errorMessage == nil ? .completed : .failed,
+            dismissed: { preparationChanged(false) })
         .alert(item: Binding(
             get: { viewModel.presentedPreviewFailure },
             set: { failure in
@@ -398,9 +442,9 @@ private struct ProjectViewerView: View {
                 Text("Add a clip to the project timeline")
                     .foregroundStyle(.secondary)
             } else if viewModel.isPreparing {
-                ProgressView("Preparing Project Preview")
-                    .padding()
-                    .accessibilityHidden(true)
+                EmptyView()
+            } else if viewModel.preparationWasCancelled {
+                Button("Retry Project Preview", action: prepare)
             } else if viewModel.errorMessage != nil {
                 VStack(spacing: 12) {
                     Text("Project preview unavailable")

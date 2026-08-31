@@ -31,10 +31,7 @@ struct AudioWaveformView: View {
                     .fill(Color.white.opacity(0.25))
                     .frame(height: 1)
 
-                if isLoading, samples.isEmpty {
-                    ProgressView("Preparing waveform")
-                        .controlSize(.small)
-                } else if samples.isEmpty {
+                if !isLoading, samples.isEmpty {
                     Text("Waveform unavailable")
                         .foregroundStyle(.secondary)
                 }

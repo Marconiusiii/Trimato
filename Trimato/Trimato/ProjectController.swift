@@ -37,6 +37,13 @@ final class ProjectController: ObservableObject {
     @Published private(set) var applyingTransitionName: String?
     @Published private(set) var applyingTransitionProgress: Double?
     @Published var isImporting = false
+    @Published private(set) var canCancelImport = false
+    private var importTask: Task<Void, Never>?
+
+    func cancelImport() {
+        guard canCancelImport else { return }
+        importTask?.cancel()
+    }
     @Published var isShowingProjectSettings = false
     @Published var presentedError: ProjectPresentedError?
     @Published private(set) var isExporting = false
@@ -647,7 +654,6 @@ final class ProjectController: ObservableObject {
             if selectAddedTransition, let transition = primaryTransition(in: added) {
                 selection = .transition(transition.id)
             }
-            try? await Task.sleep(for: .milliseconds(150))
             finishApplyingTransition()
         } catch {
             finishApplyingTransition()
@@ -1077,7 +1083,13 @@ final class ProjectController: ObservableObject {
     func importFiles(at urls: [URL], into folderID: UUID? = nil) {
         guard !isImporting, !urls.isEmpty else { return }
         isImporting = true
-        Task { @MainActor in
+        canCancelImport = true
+        importTask = Task { @MainActor in
+            defer {
+                isImporting = false
+                canCancelImport = false
+                importTask = nil
+            }
             struct ImportGroup {
                 var folderName: String?
                 var assets: [MediaAssetRecord]
@@ -1088,6 +1100,7 @@ final class ProjectController: ObservableObject {
                 URL(fileURLWithPath: $0.originalPath).standardizedFileURL.path
             })
             for selectedURL in urls {
+                guard !Task.isCancelled else { return }
                 let scoped = selectedURL.startAccessingSecurityScopedResource()
                 defer { if scoped { selectedURL.stopAccessingSecurityScopedResource() } }
                 do {
@@ -1099,6 +1112,7 @@ final class ProjectController: ObservableObject {
                     }
                     var assets: [MediaAssetRecord] = []
                     for candidate in candidates {
+                        guard !Task.isCancelled else { return }
                         let standardizedPath = candidate.standardizedFileURL.path
                         guard importPaths.insert(standardizedPath).inserted else { continue }
                         do {
@@ -1119,6 +1133,7 @@ final class ProjectController: ObservableObject {
                     failures.append((selectedURL.lastPathComponent, error.localizedDescription))
                 }
             }
+            guard !Task.isCancelled else { return }
             let additions = groups.flatMap(\.assets)
             if !additions.isEmpty {
                 mutateProject(actionName: "Import Media") { project in

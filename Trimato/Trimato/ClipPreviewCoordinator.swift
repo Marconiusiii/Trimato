@@ -91,8 +91,8 @@ final class ClipPreviewCoordinator: ObservableObject {
                 if debounce { try await Task.sleep(for: .milliseconds(250)) }
                 try Task.checkCancellation()
                 let url = try await self.render(request) { [weak self] value in
-                    guard let self, self.requestID == id else { return }
-                    self.progress = min(max(value, 0), 1)
+                    guard let self, self.requestID == id, value.isFinite else { return }
+                    self.progress = max(self.progress, min(max(value, 0), 1))
                 }
                 output = url
                 try Task.checkCancellation()

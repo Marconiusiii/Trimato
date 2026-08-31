@@ -8,6 +8,16 @@ nonisolated enum ClipEditorMediaKind {
     }
 }
 
+nonisolated enum ClipEditorLayout {
+    static func fitting(_ frame: CGRect, in visibleFrame: CGRect) -> CGRect {
+        let width = min(frame.width, visibleFrame.width)
+        let height = min(frame.height, visibleFrame.height)
+        return CGRect(x: min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - width),
+                      y: min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - height),
+                      width: width, height: height)
+    }
+}
+
 @MainActor
 final class ClipPlacementCommandContext: ObservableObject {
     let controller: ProjectController
@@ -343,7 +353,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         self.commandContext = commandContext
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1080, height: 920),
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -353,7 +363,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         window.collectionBehavior.insert(.participatesInCycle)
         window.isExcludedFromWindowsMenu = false
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 900, height: 760)
+        window.minSize = NSSize(width: 760, height: 620)
         window.center()
         super.init(window: window)
         window.delegate = self
@@ -365,6 +375,9 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
     }
 
     func showAndFocus() {
+        if let window, let screen = window.screen ?? NSScreen.main {
+            window.setFrame(ClipEditorLayout.fitting(window.frame, in: screen.visibleFrame), display: false)
+        }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
     }
@@ -461,7 +474,7 @@ private struct ClipEditorWindowView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-        .frame(minWidth: 900, minHeight: 760)
+        .frame(minWidth: 740, minHeight: 580)
     }
 }
 

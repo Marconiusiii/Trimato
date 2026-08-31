@@ -111,10 +111,6 @@ struct MediaCacheSettingsView: View {
                 }
                 .disabled(model.isRefreshing || model.isWorking)
 
-                if model.isRefreshing {
-                    ProgressView("Refreshing storage usage")
-                        .controlSize(.small)
-                }
             }
 
             Section("Manage playback proxies") {
@@ -132,12 +128,11 @@ struct MediaCacheSettingsView: View {
                 Text("Removes every playback proxy except those required by an open project or editor.")
                     .foregroundStyle(.secondary)
 
-                if model.isWorking {
-                    ProgressView("Clearing playback proxies")
-                        .controlSize(.small)
-                }
             }
         }
+        .operationProgress(model.isWorking || model.isRefreshing ? OperationProgress(
+            title: model.isWorking ? "Clearing playback proxies" : "Refreshing storage usage"
+        ) : nil, outcome: model.errorMessage == nil ? .completed : .failed)
         .formStyle(.grouped)
         .frame(width: 600, height: 600)
         .onAppear {

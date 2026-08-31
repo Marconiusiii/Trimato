@@ -197,6 +197,7 @@ final class VideoPlayerViewModel: ObservableObject {
         exportTask?.cancel()
         loadTask?.cancel()
         frameIndexTask?.cancel()
+        waveformID = UUID()
         waveformTask?.cancel()
         editTask?.cancel()
         editID = nil
@@ -359,6 +360,7 @@ final class VideoPlayerViewModel: ObservableObject {
         loadTask?.cancel()
         frameIndexTask?.cancel()
         frameIndexTask = nil
+        waveformID = UUID()
         waveformTask?.cancel()
         waveformTask = nil
         sourceWaveform = nil
@@ -494,7 +496,11 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func cancelMediaLoad() {
-        guard isLoadingMedia else { return }
+        guard isLoadingMedia || isPreparingWaveform else { return }
+        waveformID = UUID()
+        waveformTask?.cancel()
+        waveformTask = nil
+        isPreparingWaveform = false
         loadID = nil
         loadTask?.cancel()
         loadTask = nil
@@ -510,6 +516,7 @@ final class VideoPlayerViewModel: ObservableObject {
         loadTask = nil
         frameIndexTask?.cancel()
         frameIndexTask = nil
+        waveformID = UUID()
         waveformTask?.cancel()
         waveformTask = nil
         editTask?.cancel()
@@ -1230,10 +1237,12 @@ final class VideoPlayerViewModel: ObservableObject {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             guard let self, !self.isLoadingMedia, !self.isExporting, !self.isApplyingEdit,
                   self.hasMedia, NSApp.modalWindow == nil,
+                  event.window?.sheetParent == nil, event.window?.attachedSheet == nil,
                   self.keyboardCommandsAreActive?() != false else {
                 return event
             }
 
+            if let editor = event.window?.firstResponder as? NSTextView, editor.isEditable { return event }
             let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
             let commandModifiers = event.modifierFlags.intersection(commandSet)
             let unmodified = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
@@ -1356,7 +1365,11 @@ final class VideoPlayerViewModel: ObservableObject {
         }
     }
 
+    private var waveformID = UUID()
+
     private func prepareWaveform(asset: AVAsset) {
+        let requestID = UUID()
+        waveformID = requestID
         waveformTask?.cancel()
         sourceWaveform = nil
         waveformSamples = []
@@ -1365,15 +1378,17 @@ final class VideoPlayerViewModel: ObservableObject {
             do {
                 let waveform = try await AudioWaveformAnalyzer.analyze(asset: asset)
                 try Task.checkCancellation()
-                guard let self else { return }
+                guard let self, self.waveformID == requestID else { return }
                 self.sourceWaveform = waveform
                 self.refreshWaveformSamples()
                 self.isPreparingWaveform = false
                 self.waveformTask = nil
             } catch is CancellationError {
+                guard self?.waveformID == requestID else { return }
                 self?.isPreparingWaveform = false
                 self?.waveformTask = nil
             } catch {
+                guard self?.waveformID == requestID else { return }
                 self?.waveformSamples = []
                 self?.isPreparingWaveform = false
                 self?.waveformTask = nil
@@ -1511,18 +1526,10 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private func updateFrameIndexProgress(_ progress: Double) {
         mediaProgress = progress
-        let milestone = Self.importProgressMilestone(for: progress)
-        guard milestone > announcedImportProgress else { return }
-        announcedImportProgress = milestone
-        announce("Frame indexing \(milestone) percent complete")
     }
 
     private func updateImportProgress(_ progress: Double) {
         mediaProgress = progress
-        let milestone = Self.importProgressMilestone(for: progress)
-        guard milestone > announcedImportProgress else { return }
-        announcedImportProgress = milestone
-        announce("Import \(milestone) percent complete")
     }
 
     static func importProgressMilestone(for progress: Double) -> Int {

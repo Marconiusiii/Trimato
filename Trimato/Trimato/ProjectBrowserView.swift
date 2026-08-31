@@ -75,11 +75,9 @@ struct ProjectBrowserView: View {
                 HStack(spacing: 8) {
                     sourceImportControls
                     Spacer()
-                    importProgress
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     sourceImportControls
-                    importProgress
                 }
             }
             .padding(8)
@@ -161,15 +159,6 @@ struct ProjectBrowserView: View {
     private var sourceImportControls: some View {
         Button("Import Clips\u{2026}") { controller.importFiles() }
         Button("New Folder") { showingNewFolder = true }
-    }
-
-    @ViewBuilder
-    private var importProgress: some View {
-        if controller.isImporting {
-            ProgressView()
-                .controlSize(.small)
-                .accessibilityLabel("Importing Clips")
-        }
     }
 
     private var hasSourceActions: Bool {

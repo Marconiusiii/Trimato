@@ -74,6 +74,7 @@ private nonisolated final class ProjectPreviewOperationWaiter: @unchecked Sendab
 final class ProjectPlayerViewModel: ObservableObject {
     let player = AVPlayer()
     @Published private(set) var isPreparing = false
+    @Published private(set) var preparationWasCancelled = false
     @Published private(set) var hasPreparedPlayerItem = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var presentedPreviewFailure: ProjectPreviewFailure?
@@ -244,6 +245,11 @@ final class ProjectPlayerViewModel: ObservableObject {
         presentedPreviewFailure = currentPreviewFailure
     }
 
+    func cancelPreparation() {
+        guard isPreparing else { return }
+        buildTask?.cancel()
+    }
+
     func prepare(
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
@@ -275,6 +281,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             return
         }
         isPreparing = true
+        preparationWasCancelled = false
         errorMessage = nil
         currentPreviewFailure = nil
         presentedPreviewFailure = nil
@@ -317,6 +324,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             } catch is CancellationError {
                 Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
                 if self.preparationID == preparationID {
+                    preparationWasCancelled = true
                     isPreparing = false
                 }
             } catch {

@@ -17,9 +17,14 @@ struct SourceClipEditorView: View {
 
     @StateObject private var viewModel = VideoPlayerViewModel()
     @State private var loadedAssetID: UUID?
+    @State private var preparingSource = false
+    @State private var preparationID = UUID()
     @State private var preparationTask: Task<Void, Never>?
     @State private var cacheOwnerID = UUID()
     @StateObject private var preview = ClipPreviewCoordinator()
+    @State private var addingFilter = false
+    @State private var pendingFilter: ClipFilter?
+    @State private var selectedTab = "Markers"
     @State private var newTrackKind: NewTrackSourceKind?
 
     var body: some View {
@@ -31,28 +36,42 @@ struct SourceClipEditorView: View {
                 ContentView(
                     viewModel: viewModel,
                     allowsFileOpening: false,
-                    editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo)
+                    editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo),
+                    compact: true,
+                    preparation: sourcePreparation
                 )
 
-                if commandContext.audioSettings != nil {
-                    AudioClipControlsView(commandContext: commandContext)
-                        .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
-                        .padding(.horizontal, 20)
+                TabView(selection: $selectedTab) {
+                    ClipMarkerControlsView(viewModel: viewModel)
+                        .padding(8).tabItem { Text("Markers") }.tag("Markers")
+                    if commandContext.audioSettings != nil {
+                        AudioClipControlsView(commandContext: commandContext)
+                            .padding(8).tabItem { Text("Audio") }.tag("Audio")
+                    }
+                    if commandContext.isTimelineEntry {
+                        ClipFiltersView(context: commandContext)
+                            .padding(8).tabItem { Text("Filters") }.tag("Filters")
+                    }
                 }
-                previewStatus
-                    .padding(.horizontal, 20)
+                .frame(height: 170)
+                .padding(.horizontal, 20)
+                .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
 
-                if commandContext.isTimelineEntry, currentAsset.generator != nil {
-                    Button("Edit Generator…") {
-                        controller.requestGenerator(editing: editSelection)
-                        if let id = controller.generatorRequestID { openWindow(id: "generator", value: id) }
-                    }.padding(.horizontal, 20).disabled(commandContext.hasUncommittedChanges)
-                }
                 if commandContext.isTimelineEntry {
-                    ScrollView { ClipFiltersView(context: commandContext).padding(.horizontal, 20) }
-                        .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
-                        .frame(maxHeight: 250)
+                    HStack {
+                        Button("Add Filter…") { addingFilter = true }
+                        if currentAsset.generator != nil {
+                            Button("Edit Generator…") {
+                                controller.requestGenerator(editing: editSelection)
+                                if let id = controller.generatorRequestID { openWindow(id: "generator", value: id) }
+                            }.disabled(commandContext.hasUncommittedChanges)
+                        }
+                    }.padding(.horizontal, 20)
                 }
+                if !preparingSource, loadedAssetID == nil {
+                    Button("Retry Clip Preparation", action: loadIfNeeded).padding(.horizontal, 20)
+                }
+                previewStatus.padding(.horizontal, 20)
 
                 ClipExportControlsView(viewModel: viewModel)
                     .padding(.horizontal, 20)
@@ -62,6 +81,24 @@ struct SourceClipEditorView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
             }
+        }
+        .operationProgress(preview.state == .preparing ? OperationProgress(
+            title: "Updating Clip Preview", progress: preview.progress,
+            detail: "Preparing filters and audio. Your previous preview is preserved until this finishes.",
+            cancel: preview.cancel
+        ) : nil, outcome: previewOutcome)
+        .sheet(isPresented: $addingFilter, onDismiss: {
+            if let pendingFilter {
+                commandContext.filters.append(pendingFilter)
+                self.pendingFilter = nil
+                selectedTab = "Filters"
+            }
+        }) {
+            AddClipFilterView(audio: commandContext.audioSettings != nil,
+                              existing: commandContext.filters.map(\.kind)) { filter in
+                pendingFilter = filter
+                addingFilter = false
+            } cancel: { addingFilter = false }
         }
         .onAppear {
             if let cacheKey = currentAsset.proxyCacheKey {
@@ -90,6 +127,9 @@ struct SourceClipEditorView: View {
         .onChange(of: viewModel.hasMedia) {
             guard viewModel.hasMedia else { return }
             scheduleAudioPreview(for: commandContext.audioSettings, debounce: false)
+        }
+        .onChange(of: viewModel.isPreparingWaveform) {
+            if !viewModel.isPreparingWaveform { scheduleAudioPreview(for: commandContext.audioSettings, debounce: false) }
         }
         .onChange(of: commandContext.filters) { scheduleAudioPreview(for: commandContext.audioSettings) }
         .onChange(of: viewModel.audioPreviewSegments) { scheduleAudioPreview(for: commandContext.audioSettings) }
@@ -152,6 +192,16 @@ struct SourceClipEditorView: View {
         }
     }
 
+    private var sourcePreparation: OperationProgress? {
+        guard preparingSource else { return nil }
+        return OperationProgress(title: "Preparing Clip", detail: "Preparing source media", cancel: {
+            preparationTask?.cancel()
+            preparationID = UUID()
+            preparingSource = false
+            loadedAssetID = nil
+        })
+    }
+
     @ViewBuilder
     private var placementControls: some View {
         HStack {
@@ -159,49 +209,50 @@ struct SourceClipEditorView: View {
                 Button("Update Clip") { commandContext.performUpdate() }
                     .keyboardShortcut("u", modifiers: .command)
                     .disabled(!commandContext.canUpdate)
-                Divider()
             }
-            Button(PlacementAction.append.title) { place(.append) }
-                .keyboardShortcut("e", modifiers: [])
-                .disabled(!commandContext.canPlace)
-            Button(PlacementAction.insert.title) { place(.insert) }
-                .keyboardShortcut("w", modifiers: [])
-                .disabled(!commandContext.canPlace)
-            Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
-                .keyboardShortcut("d", modifiers: [])
-                .disabled(!commandContext.canPlace)
-            if currentAsset.hasVideo {
-                Menu("Insert on Top") {
-                    Button("With Source Audio") { place(.cutawaySourceAudio) }
-                        .keyboardShortcut("q", modifiers: [])
-                    Button("Over Primary Audio") { place(.cutawayPrimaryAudio) }
-                        .keyboardShortcut("q", modifiers: [.option])
+            Menu("Add to Timeline") {
+                Button(PlacementAction.append.title) { place(.append) }
+                    .keyboardShortcut("e", modifiers: [])
+                    .disabled(!commandContext.canPlace)
+                Button(PlacementAction.insert.title) { place(.insert) }
+                    .keyboardShortcut("w", modifiers: [])
+                    .disabled(!commandContext.canPlace)
+                Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
+                    .keyboardShortcut("d", modifiers: [])
+                    .disabled(!commandContext.canPlace)
+                if currentAsset.hasVideo {
+                    Menu("Insert on Top") {
+                        Button("With Source Audio") { place(.cutawaySourceAudio) }
+                            .keyboardShortcut("q", modifiers: [])
+                        Button("Over Primary Audio") { place(.cutawayPrimaryAudio) }
+                            .keyboardShortcut("q", modifiers: [.option])
+                    }
+                    .disabled(!commandContext.canPlace)
+                }
+                if currentAsset.hasVideo && currentAsset.hasAudio {
+                    Menu("Audio Only") {
+                        Button("Append Audio to Track…") {
+                            commandContext.requestAudioOnlyTrackPlacement(.append)
+                        }
+                        Button("Insert Audio at Playhead on Track…") {
+                            commandContext.requestAudioOnlyTrackPlacement(.insert)
+                        }
+                        Button("Insert and Overwrite Audio on Track…") {
+                            commandContext.requestAudioOnlyTrackPlacement(.replaceRemainder)
+                        }
+                    }
+                    .disabled(!commandContext.canPlace)
+                }
+                Menu("New Track") {
+                    ForEach(NewTrackSourceKind.availableKinds(
+                        hasVideo: currentAsset.hasVideo,
+                        hasAudio: currentAsset.hasAudio
+                    )) { kind in
+                        Button(kind.commandTitle) { newTrackKind = kind }
+                    }
                 }
                 .disabled(!commandContext.canPlace)
-            }
-            if currentAsset.hasVideo && currentAsset.hasAudio {
-                Menu("Audio Only") {
-                    Button("Append Audio to Track…") {
-                        commandContext.requestAudioOnlyTrackPlacement(.append)
-                    }
-                    Button("Insert Audio at Playhead on Track…") {
-                        commandContext.requestAudioOnlyTrackPlacement(.insert)
-                    }
-                    Button("Insert and Overwrite Audio on Track…") {
-                        commandContext.requestAudioOnlyTrackPlacement(.replaceRemainder)
-                    }
-                }
-                .disabled(!commandContext.canPlace)
-            }
-            Menu("New Track") {
-                ForEach(NewTrackSourceKind.availableKinds(
-                    hasVideo: currentAsset.hasVideo,
-                    hasAudio: currentAsset.hasAudio
-                )) { kind in
-                    Button(kind.commandTitle) { newTrackKind = kind }
-                }
-            }
-            .disabled(!commandContext.canPlace)
+            }.disabled(!commandContext.canPlace)
         }
     }
 
@@ -213,16 +264,28 @@ struct SourceClipEditorView: View {
             segments: controller.segments(for: editSelection) ?? initialSegments,
             sourceDuration: currentAsset.duration
         )
+        let requestID = UUID()
+        preparationID = requestID
+        preparingSource = true
         preparationTask = Task { @MainActor in
+            defer {
+                if preparationID == requestID {
+                    preparingSource = false
+                    preparationTask = nil
+                }
+            }
             do {
                 let source = try await controller.preparedMediaSource(for: currentAsset)
                 try Task.checkCancellation()
+                guard preparationID == requestID else { return }
                 if let cacheKey = controller.project.asset(id: currentAsset.id)?.proxyCacheKey {
                     await MediaCacheManager.shared.updateProtectedKeys(
                         owner: cacheOwnerID,
                         keys: [cacheKey]
                     )
                 }
+                try Task.checkCancellation()
+                guard preparationID == requestID else { return }
                 viewModel.load(
                     url: url,
                     sourceSegments: opening.playbackSegments,
@@ -233,13 +296,13 @@ struct SourceClipEditorView: View {
             } catch is CancellationError {
                 return
             } catch {
+                guard preparationID == requestID else { return }
                 loadedAssetID = nil
                 controller.presentedError = ProjectPresentedError(
                     title: "Clip Preparation Failed",
                     message: error.localizedDescription
                 )
             }
-            preparationTask = nil
         }
     }
 
@@ -269,16 +332,11 @@ struct SourceClipEditorView: View {
         case .ready:
             EmptyView()
         case .preparing:
-            VStack(alignment: .leading, spacing: 8) {
-                ProgressView("Updating Clip Preview", value: preview.progress)
-                Text("The previous preview remains available. Update Clip and Export will be available when preparation finishes.")
-                Button("Cancel Preview Preparation") { preview.cancel() }
-            }
+            EmptyView()
         case .cancelled, .failed:
             VStack(alignment: .leading, spacing: 8) {
                 Text(preview.state == .cancelled ? "Clip preview preparation cancelled." : "Clip preview could not be updated.")
-                Text("The preview does not include your latest changes. Retry preparation or revert the filter and gain changes before updating or exporting the clip.")
-                HStack {
+                Menu("Preview Recovery") {
                     Button("Retry Clip Preview") {
                         scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true)
                     }
@@ -287,6 +345,14 @@ struct SourceClipEditorView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var previewOutcome: OperationProgressOutcome {
+        switch preview.state {
+        case .cancelled: .cancelled
+        case .failed: .failed
+        default: .completed
         }
     }
 
@@ -304,6 +370,7 @@ struct SourceClipEditorView: View {
         debounce: Bool = true,
         force: Bool = false
     ) {
+        guard !viewModel.isLoadingMedia, !viewModel.isPreparingWaveform else { return }
         guard viewModel.hasMedia,
               let sourceURL = controller.resolveURL(for: currentAsset),
               !viewModel.audioPreviewSegments.isEmpty else {
@@ -436,6 +503,7 @@ private extension PlacementAction {
 }
 
 private struct AudioClipControlsView: View {
+    @State private var draft = AudioClipSettings.neutral
     @ObservedObject var commandContext: ClipPlacementCommandContext
 
     var body: some View {
@@ -450,7 +518,9 @@ private struct AudioClipControlsView: View {
                         identifier: "gain"
                     )
                 }
-                Button("Reset Gain") { commandContext.resetAudioSettings() }
+                Button("Apply") { commandContext.audioSettings = draft }
+                    .disabled(draft == commandContext.audioSettings)
+                Button("Reset Gain") { draft = .neutral }
             }
             .padding(.top, 4)
         } label: {
@@ -460,6 +530,8 @@ private struct AudioClipControlsView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Audio")
         .accessibilityIdentifier("trimato.clip-editor.audio-filters")
+        .onAppear { draft = commandContext.audioSettings ?? .neutral }
+        .onChange(of: commandContext.audioSettings) { draft = commandContext.audioSettings ?? .neutral }
     }
 
     private func audioSlider(
@@ -486,11 +558,11 @@ private struct AudioClipControlsView: View {
 
     private func binding<T>(_ keyPath: WritableKeyPath<AudioClipSettings, T>) -> Binding<T> {
         Binding(
-            get: { commandContext.audioSettings?[keyPath: keyPath] ?? AudioClipSettings.neutral[keyPath: keyPath] },
+            get: { draft[keyPath: keyPath] },
             set: { value in
-                var settings = commandContext.audioSettings ?? .neutral
+                var settings = draft
                 settings[keyPath: keyPath] = value
-                commandContext.audioSettings = settings
+                draft = settings
             }
         )
     }

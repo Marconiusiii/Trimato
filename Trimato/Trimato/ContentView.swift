@@ -5,15 +5,21 @@ struct ContentView: View {
     @ObservedObject private var viewModel: VideoPlayerViewModel
     private let allowsFileOpening: Bool
     private let editorHeading: String?
+    private let compact: Bool
+    private let preparation: OperationProgress?
 
     init(
         viewModel: VideoPlayerViewModel,
         allowsFileOpening: Bool = true,
-        editorHeading: String? = nil
+        editorHeading: String? = nil,
+        compact: Bool = false,
+        preparation: OperationProgress? = nil
     ) {
         self.viewModel = viewModel
         self.allowsFileOpening = allowsFileOpening
         self.editorHeading = editorHeading
+        self.compact = compact
+        self.preparation = preparation
     }
 
     var body: some View {
@@ -30,7 +36,7 @@ struct ContentView: View {
             videoArea
             controlsArea
         }
-        .frame(minWidth: 640, minHeight: 480)
+        .frame(minWidth: 640, minHeight: compact ? 280 : 480)
         .background(EditorTheme.workspace)
         .tint(EditorTheme.accent)
         .preferredColorScheme(.dark)
@@ -73,31 +79,11 @@ struct ContentView: View {
             guard url.isFileURL else { return }
             viewModel.load(url: url)
         }
-        .sheet(isPresented: Binding(
-            get: { viewModel.isLoadingMedia },
-            set: { presented in
-                if !presented { viewModel.cancelMediaLoad() }
-            }
-        )) {
-            MediaImportView(
-                filename: viewModel.mediaFilename,
-                status: viewModel.mediaStatus ?? "Preparing media",
-                progress: viewModel.mediaProgress,
-                cancel: viewModel.cancelMediaLoad
-            )
-        }
-        .sheet(isPresented: Binding(
-            get: { viewModel.isExporting },
-            set: { presented in
-                if !presented, viewModel.isExporting { viewModel.cancelExport() }
-            }
-        )) {
-            ExportProgressSheet(
-                title: "Exporting Clip",
-                progress: viewModel.exportProgress,
-                cancel: viewModel.cancelExport
-            )
-        }
+        .operationProgress(mediaOperation,
+                           outcome: viewModel.hasMedia ? .completed : .failed)
+        .operationProgress(viewModel.isExporting ? OperationProgress(
+            title: "Exporting Clip", progress: viewModel.exportProgress, cancel: viewModel.cancelExport
+        ) : nil, outcome: viewModel.exportErrorMessage == nil ? .completed : .failed)
         .alert("Clip Could Not Be Exported", isPresented: Binding(
             get: { viewModel.exportErrorMessage != nil },
             set: { presented in
@@ -111,6 +97,15 @@ struct ContentView: View {
         .onDisappear {
             viewModel.closeMedia()
         }
+    }
+
+    private var mediaOperation: OperationProgress? {
+        if let preparation { return preparation }
+        guard viewModel.isLoadingMedia || viewModel.isPreparingWaveform else { return nil }
+        return OperationProgress(title: "Preparing Media",
+                                 progress: viewModel.isLoadingMedia ? viewModel.mediaProgress : nil,
+                                 detail: viewModel.isLoadingMedia ? viewModel.mediaStatus : "Preparing audio waveform",
+                                 cancel: viewModel.cancelMediaLoad)
     }
 
     // MARK: - Video area
@@ -142,21 +137,13 @@ struct ContentView: View {
                         .foregroundStyle(.tertiary)
                     Text(viewModel.mediaStatus ?? "Open an audio or video file to begin")
                         .foregroundStyle(.secondary)
-                    if viewModel.isLoadingMedia {
-                        if let progress = viewModel.mediaProgress {
-                            ProgressView(value: progress) {
-                                Text("Preparing media")
-                            }
-                        } else {
-                            ProgressView("Preparing media")
-                        }
-                    } else if allowsFileOpening {
+                    if allowsFileOpening {
                         Button("Open File\u{2026}") { viewModel.openFile() }
                     }
                 }
             }
         }
-        .frame(minWidth: 640, minHeight: 360)
+        .frame(minWidth: 640, minHeight: compact ? 120 : 240, maxHeight: compact ? 240 : .infinity)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(EditorTheme.separator)
@@ -183,45 +170,12 @@ struct ContentView: View {
             .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.playhead)
 
             playbackControls
-            markerControls
+            if !compact { ClipMarkerControlsView(viewModel: viewModel) }
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 14)
         .background(EditorTheme.controlSurface)
-    }
-
-    private var markerControls: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Button("Mark In") { viewModel.markIn() }
-                    Text("In: \(viewModel.inMarkerDisplay)")
-                        .monospacedDigit()
-                    Button("Clear In") { viewModel.clearIn() }
-                        .disabled(viewModel.inMarker == nil)
-                }
-                HStack {
-                    Button("Mark Out") { viewModel.markOut() }
-                    Text("Out: \(viewModel.outMarkerDisplay)")
-                        .monospacedDigit()
-                    Button("Clear Out") { viewModel.clearOut() }
-                        .disabled(viewModel.outMarker == nil)
-                }
-
-                Button("Delete Selection") { viewModel.deleteSelection() }
-                    .disabled(!viewModel.canDeleteSelection)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 4)
-        } label: {
-            Text("Markers").accessibilityHidden(true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Markers")
-        .accessibilityIdentifier("trimato.clip-editor.markers")
     }
 
     private var playbackControls: some View {
@@ -340,4 +294,41 @@ struct ClipExportControlsView: View {
         }
         .frame(maxWidth: .infinity)
     }
+}
+
+struct ClipMarkerControlsView: View {
+    @ObservedObject var viewModel: VideoPlayerViewModel
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Button("Mark In") { viewModel.markIn() }
+                    Text("In: \(viewModel.inMarkerDisplay)")
+                        .monospacedDigit()
+                    Button("Clear In") { viewModel.clearIn() }
+                        .disabled(viewModel.inMarker == nil)
+                }
+                HStack {
+                    Button("Mark Out") { viewModel.markOut() }
+                    Text("Out: \(viewModel.outMarkerDisplay)")
+                        .monospacedDigit()
+                    Button("Clear Out") { viewModel.clearOut() }
+                        .disabled(viewModel.outMarker == nil)
+                }
+
+                Button("Delete Selection") { viewModel.deleteSelection() }
+                    .disabled(!viewModel.canDeleteSelection)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
+        } label: {
+            Text("Markers").accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Markers")
+        .accessibilityIdentifier("trimato.clip-editor.markers")
+    }
+
 }
