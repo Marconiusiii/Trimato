@@ -402,6 +402,10 @@ private struct FeedbackCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .help) {
+            Button("Trimato QuickStart Guide") {
+                guard let book = Bundle.main.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String else { return }
+                NSHelpManager.shared.openHelpAnchor("trimato-quickstart-guide", inBook: book)
+            }
             Divider()
             Button("Send Trimato Feedback\u{2026}") {
                 guard let url = TrimatoFeedback.emailURL else { return }

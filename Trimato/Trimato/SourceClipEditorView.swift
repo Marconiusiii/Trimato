@@ -19,9 +19,7 @@ struct SourceClipEditorView: View {
     @State private var loadedAssetID: UUID?
     @State private var preparationTask: Task<Void, Never>?
     @State private var cacheOwnerID = UUID()
-    @State private var audioPreviewTask: Task<Void, Never>?
-    @State private var audioPreviewProgress: Double?
-    @State private var audioPreviewErrorMessage: String?
+    @StateObject private var preview = ClipPreviewCoordinator()
     @State private var newTrackKind: NewTrackSourceKind?
 
     var body: some View {
@@ -41,9 +39,8 @@ struct SourceClipEditorView: View {
                         .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
                         .padding(.horizontal, 20)
                 }
-                if let audioPreviewProgress {
-                    ProgressView("Updating Clip Preview", value: audioPreviewProgress).padding(.horizontal, 20)
-                }
+                previewStatus
+                    .padding(.horizontal, 20)
 
                 if commandContext.isTimelineEntry, currentAsset.generator != nil {
                     Button("Edit Generator…") {
@@ -80,7 +77,7 @@ struct SourceClipEditorView: View {
         }
         .onChange(of: controller.project) { commandContext.refreshCommittedEffects() }
         .onChange(of: currentAsset.id) {
-            audioPreviewTask?.cancel()
+            preview.reset()
             preparationTask?.cancel()
             commandContext.acceptExternalGeneratorUpdate()
             viewModel.closeMedia()
@@ -140,19 +137,18 @@ struct SourceClipEditorView: View {
         .onDisappear {
             preparationTask?.cancel()
             preparationTask = nil
-            audioPreviewTask?.cancel()
-            audioPreviewTask = nil
+            preview.reset()
             viewModel.closeMedia()
             let owner = cacheOwnerID
             Task { await MediaCacheManager.shared.releaseProtectedKeys(owner: owner) }
         }
         .alert("Clip Preview Could Not Be Updated", isPresented: Binding(
-            get: { audioPreviewErrorMessage != nil },
-            set: { if !$0 { audioPreviewErrorMessage = nil } }
+            get: { preview.errorMessage != nil },
+            set: { if !$0 { preview.errorMessage = nil } }
         )) {
-            Button("OK") { audioPreviewErrorMessage = nil }
+            Button("OK") { preview.errorMessage = nil }
         } message: {
-            Text(audioPreviewErrorMessage ?? "The clip preview could not be updated.")
+            Text(preview.errorMessage ?? "The clip preview could not be updated.")
         }
     }
 
@@ -267,64 +263,70 @@ struct SourceClipEditorView: View {
         commandContext.dismissTrackPlacement()
     }
 
-    private func scheduleAudioPreview(
-        for settings: AudioClipSettings?,
-        debounce: Bool = true
-    ) {
-        audioPreviewTask?.cancel()
-        audioPreviewTask = nil
-        audioPreviewErrorMessage = nil
-        guard viewModel.hasMedia else { return }
-        let filters = commandContext.filters
-        let audio = commandContext.audioSettings != nil
-        guard AudioClipPreviewPlan.requiresRender(for: settings) || filters.contains(where: { $0.enabled }) else {
-            audioPreviewProgress = nil
-            viewModel.restoreUnprocessedAudioPreview()
-            commandContext.effectsReady = true
-            viewModel.clipEffectsReady = true
-            return
-        }
-        guard let sourceURL = controller.resolveURL(for: currentAsset),
-              !viewModel.audioPreviewSegments.isEmpty else { return }
-        let segments = viewModel.audioPreviewSegments
-        audioPreviewProgress = 0
-        commandContext.effectsReady = false
-        viewModel.clipEffectsReady = false
-        audioPreviewTask = Task { @MainActor in
-            var generatedURL: URL?
-            do {
-                if debounce {
-                    try await Task.sleep(for: .milliseconds(250))
+    @ViewBuilder
+    private var previewStatus: some View {
+        switch preview.state {
+        case .ready:
+            EmptyView()
+        case .preparing:
+            VStack(alignment: .leading, spacing: 8) {
+                ProgressView("Updating Clip Preview", value: preview.progress)
+                Text("The previous preview remains available. Update Clip and Export will be available when preparation finishes.")
+                Button("Cancel Preview Preparation") { preview.cancel() }
+            }
+        case .cancelled, .failed:
+            VStack(alignment: .leading, spacing: 8) {
+                Text(preview.state == .cancelled ? "Clip preview preparation cancelled." : "Clip preview could not be updated.")
+                Text("The preview does not include your latest changes. Retry preparation or revert the filter and gain changes before updating or exporting the clip.")
+                HStack {
+                    Button("Retry Clip Preview") {
+                        scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true)
+                    }
+                    Button(preview.lastSuccessfulRequest == nil ? "Remove Filters and Reset Gain" : "Revert Filter and Gain Changes") {
+                        revertPreviewChanges()
+                    }
                 }
-                let outputURL = try await ClipFilterRenderer.render(
-                    source: sourceURL, filters: filters, audio: audio,
-                    duration: segments.reduce(0) { $0 + $1.duration.seconds },
-                    segments: segments, audioSettings: settings
-                ) { progress in
-                    audioPreviewProgress = progress
-                }
-                generatedURL = outputURL
-                try Task.checkCancellation()
-                try await viewModel.applyFilteredPreview(at: outputURL, audio: audio)
-                commandContext.effectsReady = true
-                viewModel.clipEffectsReady = true
-                generatedURL = nil
-                audioPreviewProgress = nil
-                audioPreviewTask = nil
-            } catch is CancellationError {
-                if let generatedURL {
-                    try? FileManager.default.removeItem(at: generatedURL)
-                }
-            } catch {
-                if let generatedURL {
-                    try? FileManager.default.removeItem(at: generatedURL)
-                }
-                audioPreviewProgress = nil
-                audioPreviewTask = nil
-                audioPreviewErrorMessage = error.localizedDescription
             }
         }
     }
+
+    private func revertPreviewChanges() {
+        let previous = preview.lastSuccessfulRequest
+        commandContext.filters = previous?.filters ?? []
+        if commandContext.audioSettings != nil {
+            commandContext.audioSettings = previous?.audioSettings ?? .neutral
+        }
+        scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true)
+    }
+
+    private func scheduleAudioPreview(
+        for settings: AudioClipSettings?,
+        debounce: Bool = true,
+        force: Bool = false
+    ) {
+        guard viewModel.hasMedia,
+              let sourceURL = controller.resolveURL(for: currentAsset),
+              !viewModel.audioPreviewSegments.isEmpty else {
+            preview.reset()
+            commandContext.effectsReady = false
+            viewModel.clipEffectsReady = false
+            return
+        }
+        let request = ClipPreviewCoordinator.Request(
+            source: sourceURL, filters: commandContext.filters,
+            audio: commandContext.audioSettings != nil,
+            segments: viewModel.audioPreviewSegments, audioSettings: settings
+        )
+        preview.update(request, debounce: debounce, force: force, readiness: { ready in
+            commandContext.effectsReady = ready
+            viewModel.clipEffectsReady = ready
+        }, restoreOriginal: {
+            viewModel.restoreUnprocessedAudioPreview()
+        }, commit: { asset, url, audio in
+            viewModel.installFilteredPreview(asset: asset, url: url, audio: audio)
+        })
+    }
+
 }
 
 private struct AddToTrackView: View {

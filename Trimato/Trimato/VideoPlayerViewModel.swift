@@ -240,7 +240,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     var canExport: Bool {
-        guard hasMedia, !isExporting, !isPresentingExportPanel, !isApplyingEdit else { return false }
+        guard hasMedia, clipEffectsReady, !isExporting, !isPresentingExportPanel, !isApplyingEdit else { return false }
         if inMarker == nil, outMarker == nil { return true }
         return Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil
     }
@@ -542,6 +542,12 @@ final class VideoPlayerViewModel: ObservableObject {
         guard try await asset.loadTracks(withMediaType: audio ? .audio : .video).first != nil else {
             throw AudioPreviewPlaybackError.unavailable
         }
+        try Task.checkCancellation()
+        installFilteredPreview(asset: asset, url: url, audio: audio)
+    }
+
+    /// Called synchronously after the coordinator verifies the prepared request is current.
+    func installFilteredPreview(asset: AVAsset, url: URL, audio: Bool) {
         filteredPreviewIsAudio = audio
         replacePlaybackAsset(asset, previewURL: url)
     }
@@ -708,7 +714,7 @@ final class VideoPlayerViewModel: ObservableObject {
         jump(to: point)
     }
 
-    var clipEffectsReady = true
+    @Published var clipEffectsReady = true
 
     func exportTrimmedClip() {
         guard clipEffectsReady else { announce("Wait for a valid clip preview before exporting"); return }

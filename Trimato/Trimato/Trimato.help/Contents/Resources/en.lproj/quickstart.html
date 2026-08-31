@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="description" content="Make your first Trimato edit: create a project, trim and arrange clips, then export your finished work.">
+    <title>Trimato QuickStart guide</title>
+    <link rel="stylesheet" href="trimato-help.css">
+</head>
+<body>
+<header><p><a href="index.html">Trimato Help</a></p></header>
+<main>
+<a name="trimato-quickstart-guide"></a>
+<h1 id="trimato-quickstart">Trimato QuickStart guide</h1>
+
+<p>Welcome to Trimato, your accessible media editor! Here&#x27;s a quick run-through of a basic editing process to get you up and running with your first fresh cut.</p>
+
+<h2 id="start-a-new-project">Start a new project</h2>
+
+<p>From the opening Trimato window, you can start a new project, trim a clip by itself, or open an existing project. If you are just interested in trimming content and editing one clip, choose Trim a Clip and jump down to <a href="#the-clip-editor">The Clip Editor</a>.</p>
+
+<p>Activate New Project to choose your project settings.</p>
+
+<ul>
+
+    <li>Give your project a name.</li>
+
+    <li>Choose Automatic from First Clip for Project Format if you&#x27;d like the frame rate and screen dimensions to match the first video clip you add to the timeline. Importing a clip into the Project pane alone does not set the format.</li>
+
+    <li>Choose Custom for Project Format to select a resolution and frame rate, or enter your own values.</li>
+
+    <li>Turn on Use Target Duration to enter a reference duration for your project in seconds. This is a goal, not a time limit: it does not trim the project or prevent you from adding more material.</li>
+
+    <li>Automatic is a useful starting point when you want the project to match your footage. You can also create a project using only audio clips.</li>
+
+</ul>
+
+<p>Activate Create Project and off you go!</p>
+
+<h2 id="importing-clips">Importing clips</h2>
+
+<p>Once your new project opens, use Import Clips in the Project pane. This opens a macOS Open dialog where you can choose a single clip, multiple clips, or folders to bring into your project.</p>
+
+<p>Imported clips appear in the Project pane. Navigate to the first clip you want to use and activate it to open the Clip Editor.</p>
+
+<h2 id="the-clip-editor">The Clip Editor</h2>
+
+<p>This is the bread and butter of Trimato! Or the bruschetta? Either way, you&#x27;ll be doing most of your work here in the Clip Editors with your individual content clips.</p>
+
+<p>The Video Clip Editor opens when you work on video, and the Audio Clip Editor opens when you work on audio clips.</p>
+
+<p>If using VoiceOver, focus on the Clip playhead slider to use the keyboard editing controls. Turn Quick Nav off when using plain arrow keys. When editing a text field or interacting with another native control, its normal keyboard behavior takes precedence.</p>
+
+<ul>
+
+    <li>The playhead is the current playback position in the clip. A newly imported, unedited clip starts at the beginning.</li>
+
+    <li>Space Bar plays and pauses the clip.</li>
+
+    <li>J, K, and L are the playhead shuttle controls. J rewinds; repeated presses increase the rewind speed. K pauses or plays the media. L plays forwards; repeated presses increase the forward speed.</li>
+
+    <li>Left Arrow moves the playhead back one frame, and Right Arrow moves it forward one frame. With video, you can hear short audio previews while stepping to help make precise cuts. Audio-only clips use small time steps rather than video frames.</li>
+
+    <li>Command+Up Arrow moves the playhead to the beginning of the clip. Command+Down Arrow moves it to the end.</li>
+
+    <li>I marks the In point for an edit. O marks the Out point. The content between them can be exported as its own media file, deleted from the edit, or added to your project timeline. The original source file remains unchanged.</li>
+
+    <li>Command+[ trims the beginning of the clip to the playhead. Command+] trims the end of the clip to the playhead.</li>
+
+</ul>
+
+<p>Mark an In and Out point, then press E to append that selection to the project timeline. You can keep marking new selections in the same source clip and pressing E to add them as individual timeline clips. On the primary track, each appended clip starts where the previous one ends.</p>
+
+<p>If you opened Trim a Clip without a project, use Export Clip to save your selection instead. The project placement commands apply when editing a clip from a project.</p>
+
+<p>When you are done marking and appending clips, press Command+W to close the Clip Editor.</p>
+
+<h2 id="the-editor">The Editor</h2>
+
+<p>Return to the project window, stop interacting with the Project pane if necessary, and focus on the Editor pane. Interact here to preview your assembled movie or audio project.</p>
+
+<p>Focus on the Project playhead slider to use the playback, shuttle, frame-stepping, and In and Out point commands described above.</p>
+
+<p>Command+Right Arrow moves to the next timeline point, including clip boundaries and any In or Out points you have set. Command+Left Arrow moves to the previous timeline point.</p>
+
+<p>Press Space Bar to play back your creation so far. The clips you marked and appended will play in the order you added them!</p>
+
+<h2 id="timeline-tuning">Timeline tuning</h2>
+
+<p>The Timeline pane gives you access to the tracks forming the project. If using VoiceOver, interact with Timeline Clips to navigate the clips on the active track.</p>
+
+<p>For this basic video workflow, your trimmed video clips go on Primary Video and their linked audio goes on Primary Audio. Audio-only clips go on an audio track. Command+Option+Up Arrow and Command+Option+Down Arrow move between tracks.</p>
+
+<p>On a primary track, focus on a clip and press Space Bar to pick it up for movement. Left and Right Arrow change its proposed position in the list. Press Space Bar again to drop it. The other clips adjust to the new order. Keep Quick Nav off while using the plain arrow keys.</p>
+
+<p>Additional tracks use fixed start times. On those tracks, Left and Right Arrow nudge a clip by one project frame without requiring pickup, and cannot move it through another clip on the same track.</p>
+
+<p>Press Enter on a clip to open it in the Clip Editor again. Its In and Out points identify the current timeline selection. Feel free to re-edit or fine-tune it, then press Command+U to update the clip in the timeline.</p>
+
+<h2 id="final-export">Final export</h2>
+
+<p>After importing clips, trimming them, popping them into the project timeline, and reviewing playback, you are ready to export!</p>
+
+<p>To export the whole timeline, clear both In and Out points in the Editor. To export a selection, set both points around the part you want to keep.</p>
+
+<p>With the project window active, press Command+E or choose File &gt; Export Project. Enter a filename, choose a location and format, then activate Export. Audio-only projects offer audio formats; projects containing video also offer video formats.</p>
+
+<p>The export dialog shows progress and lets you cancel. If export notifications are allowed, Trimato sends a notification with the exported filename when it finishes.</p>
+
+<p>And with that, congratulations! You&#x27;ve just made your first fresh cut out of Trimato!</p>
+</main>
+<footer><p><a href="keyboard-shortcuts.html">Keyboard shortcuts.</a></p></footer>
+</body>
+</html>
