@@ -133,13 +133,26 @@ extension TrimatoProject {
     }
 
     mutating func moveTrack(id: UUID, by offset: Int) throws {
-        guard let source = tracks.firstIndex(where: { $0.id == id }) else {
+        guard let track = track(id: id) else {
             throw ProjectTimelineError.trackNotFound
         }
-        let destination = min(max(source + offset, 0), tracks.count - 1)
+        guard track.role == .additional else { return }
+        var slots = tracks.indices.filter { tracks[$0].kind == track.kind && tracks[$0].role == .additional }
+        if track.kind == .video { slots.reverse() }
+        guard let source = slots.firstIndex(where: { tracks[$0].id == id }) else { return }
+        let destination = min(max(source + offset, 0), slots.count - 1)
         guard source != destination else { return }
-        let track = tracks.remove(at: source)
-        tracks.insert(track, at: destination)
+        var ordered = slots.map { tracks[$0] }
+        let moved = ordered.remove(at: source)
+        ordered.insert(moved, at: destination)
+        for (slot, value) in zip(slots, ordered) { tracks[slot] = value }
+    }
+
+    func canMoveTrack(id: UUID, by offset: Int) -> Bool {
+        guard let track = track(id: id), track.role == .additional else { return false }
+        let peers = orderedTimelineTracks.filter { $0.kind == track.kind && $0.role == .additional }
+        guard let source = peers.firstIndex(where: { $0.id == id }) else { return false }
+        return offset != 0 && peers.indices.contains(source + offset)
     }
 
     mutating func removeTrack(id: UUID) throws {

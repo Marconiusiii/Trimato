@@ -356,6 +356,16 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
         tracks.first { $0.id == id }
     }
 
+    /// The editing order is top to bottom. Stored additional video tracks are
+    /// composited in reverse order; keep that storage contract for existing projects.
+    var orderedTimelineTracks: [TimelineTrack] {
+        let videoLayers = tracks.filter { $0.kind == .video && $0.role == .additional }
+        let primaryVideo = tracks.filter { $0.role == .primaryVideo }
+        let primaryAudio = tracks.filter { $0.role == .primaryAudio }
+        let audioLayers = tracks.filter { $0.kind == .audio && $0.role == .additional }
+        return Array(videoLayers.reversed()) + primaryVideo + primaryAudio + audioLayers
+    }
+
     func timelineClip(id: UUID) -> TimelineClip? {
         for track in tracks {
             if let clip = track.clips.first(where: { $0.id == id }) { return clip }

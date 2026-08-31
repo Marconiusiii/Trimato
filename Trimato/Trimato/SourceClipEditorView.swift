@@ -260,7 +260,7 @@ struct SourceClipEditorView: View {
     }
 
     private func compatibleTracks(audioOnly: Bool) -> [TimelineTrack] {
-        controller.project.tracks.filter { track in
+        controller.project.orderedTimelineTracks.filter { track in
             if audioOnly { return track.kind == .audio && currentAsset.hasAudio }
             return (track.kind == .video && currentAsset.hasVideo) || (track.kind == .audio && currentAsset.hasAudio)
         }

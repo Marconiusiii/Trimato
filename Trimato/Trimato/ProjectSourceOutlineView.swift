@@ -260,7 +260,7 @@ struct ProjectSourceOutlineView: View {
     }
 
     private func compatibleTracks(for asset: MediaAssetRecord) -> [TimelineTrack] {
-        controller.project.tracks.filter { track in
+        controller.project.orderedTimelineTracks.filter { track in
             (track.kind == .video && asset.hasVideo) ||
                 (track.kind == .audio && asset.hasAudio)
         }

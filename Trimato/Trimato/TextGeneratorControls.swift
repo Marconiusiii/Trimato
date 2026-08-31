@@ -147,8 +147,11 @@ struct TextGeneratorControls: View {
     }
 
     private func pickerBinding<Value>(_ binding: Binding<Value>, focus: PickerFocus) -> Binding<Value> {
-        Binding(get: { binding.wrappedValue }, set: { value in
-            binding.wrappedValue = value
+        Binding(get: { binding.wrappedValue }, set: { value, transaction in
+            // Forward the native control's update context through this binding adapter.
+            withTransaction(transaction) {
+                binding.transaction(transaction).wrappedValue = value
+            }
             focusedPicker = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focusedPicker = focus }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { focusedPicker = focus }

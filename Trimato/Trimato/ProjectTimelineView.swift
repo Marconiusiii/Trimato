@@ -61,7 +61,7 @@ struct ProjectTimelineView: View {
             Divider()
             HStack {
                 Picker("Track", selection: activeTrackBinding) {
-                    ForEach(controller.project.tracks) { track in
+                    ForEach(controller.project.orderedTimelineTracks) { track in
                         Text(track.name).tag(Optional(track.id))
                     }
                 }
@@ -86,9 +86,9 @@ struct ProjectTimelineView: View {
                     .disabled(compatibleAssetsForActiveTrack.isEmpty)
                     Divider()
                     Button("Move Track Up") { controller.moveActiveTrack(by: -1) }
-                        .disabled(controller.activeTimelineTrack == nil)
+                        .disabled(!canMoveActiveTrack(by: -1))
                     Button("Move Track Down") { controller.moveActiveTrack(by: 1) }
-                        .disabled(controller.activeTimelineTrack == nil)
+                        .disabled(!canMoveActiveTrack(by: 1))
                     Button("Delete Track", role: .destructive) { controller.deleteActiveTrack() }
                         .disabled(controller.activeTimelineTrack?.role != .additional)
                 }
@@ -607,6 +607,11 @@ struct ProjectTimelineView: View {
         }
         .padding(20)
         .frame(width: 380)
+    }
+
+    private func canMoveActiveTrack(by offset: Int) -> Bool {
+        guard let id = controller.activeTimelineTrackID else { return false }
+        return controller.project.canMoveTrack(id: id, by: offset)
     }
 
     private func reconcileActiveTrack() {

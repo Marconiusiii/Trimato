@@ -46,11 +46,16 @@ final class GeneratorSession: ObservableObject, Identifiable {
             definition = saved
             durationValue = controller.segments(for: editing)?.reduce(0) { $0 + $1.duration.seconds } ?? saved.duration.seconds
         }
-        trackID = controller.activeTimelineTrack?.kind == .video ? controller.activeTimelineTrackID : compatibleTracks.first?.id
+        trackID = controller.activeTimelineTrack?.kind == .video ? controller.activeTimelineTrackID : defaultCompatibleTrackID
     }
 
     var compatibleTracks: [TimelineTrack] {
-        controller?.project.tracks.filter { $0.kind == definition.kind.trackKind } ?? []
+        controller?.project.orderedTimelineTracks.filter { $0.kind == definition.kind.trackKind } ?? []
+    }
+
+    // Changing the presentation order must not change the existing default destination.
+    private var defaultCompatibleTrackID: UUID? {
+        controller?.project.tracks.first { $0.kind == definition.kind.trackKind }?.id
     }
 
     func setDurationUnit(_ unit: GeneratorDurationUnit) {
@@ -68,7 +73,7 @@ final class GeneratorSession: ObservableObject, Identifiable {
         guard previous != definition else { return }
         cancelPreparation()
         if previous.kind != definition.kind, !compatibleTracks.contains(where: { $0.id == trackID }) {
-            trackID = compatibleTracks.first?.id
+            trackID = defaultCompatibleTrackID
         }
     }
 
@@ -282,8 +287,11 @@ struct GeneratorView: View {
     }
 
     private func pickerBinding<Value>(_ binding: Binding<Value>, focus: PickerFocus) -> Binding<Value> {
-        Binding(get: { binding.wrappedValue }, set: { value in
-            binding.wrappedValue = value
+        Binding(get: { binding.wrappedValue }, set: { value, transaction in
+            // Forward the native control's update context through this binding adapter.
+            withTransaction(transaction) {
+                binding.transaction(transaction).wrappedValue = value
+            }
             focusedPicker = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focusedPicker = focus }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { focusedPicker = focus }
