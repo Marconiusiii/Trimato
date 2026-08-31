@@ -90,6 +90,10 @@ final class GeneratorSession: ObservableObject, Identifiable {
         let expected = controller.project
         var definition = definition
         definition.duration = ProjectTime(seconds: usesFrames ? durationValue / definition.frameRate : durationValue)
+        if definition.kind == .text, let error = definition.textTypographyError {
+            errorMessage = error
+            return
+        }
         do { try definition.validate() } catch { errorMessage = error.localizedDescription; return }
         let destination = onTop ? nil : trackID
         var name = newTrackName
@@ -136,69 +140,82 @@ struct GeneratorView: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($headingFocused)
             Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
-            Form {
-                Picker("Generator", selection: restoring($session.definition.kind, "kind")) {
-                    ForEach(GeneratorKind.allCases) { Text($0.title).tag($0) }
+            VStack(alignment: .leading, spacing: 12) {
+                GeneratorControlRow("Generator") {
+                    Picker("", selection: restoring($session.definition.kind, "kind")) {
+                        ForEach(GeneratorKind.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden()
+                    .accessibilityFocused($pickerFocus, equals: "kind")
+                    .disabled(session.editing != nil)
                 }
-                .accessibilityFocused($pickerFocus, equals: "kind")
-                .disabled(session.editing != nil)
                 Text(session.definition.kind.description)
                 if session.definition.kind == .text {
                     TextGeneratorControls(definition: $session.definition)
                 }
                 if session.definition.kind == .solidColor || session.definition.kind == .gradient {
-                    Picker(session.definition.kind == .gradient ? "First Color" : "Color", selection: restoring($session.definition.color, "color")) {
-                        ForEach(GeneratorColor.allCases) { Text($0.title).tag($0) }
+                    GeneratorControlRow(session.definition.kind == .gradient ? "First Color" : "Color") {
+                        Picker("", selection: restoring($session.definition.color, "color")) {
+                            ForEach(GeneratorColor.allCases) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden()
+                        .accessibilityFocused($pickerFocus, equals: "color")
                     }
-                    .accessibilityFocused($pickerFocus, equals: "color")
                 }
                 if session.definition.kind == .gradient {
-                    Picker("Second Color", selection: restoring($session.definition.secondColor, "second")) {
-                        ForEach(GeneratorColor.allCases) { Text($0.title).tag($0) }
-                    }.accessibilityFocused($pickerFocus, equals: "second")
-                    Picker("Direction", selection: restoring($session.definition.direction, "direction")) {
-                        ForEach(GradientDirection.allCases) { Text($0.title).tag($0) }
-                    }.accessibilityFocused($pickerFocus, equals: "direction")
+                    GeneratorControlRow("Second Color") {
+                        Picker("", selection: restoring($session.definition.secondColor, "second")) {
+                            ForEach(GeneratorColor.allCases) { Text($0.title).tag($0) }
+                        }.labelsHidden().accessibilityFocused($pickerFocus, equals: "second")
+                    }
+                    GeneratorControlRow("Direction") {
+                        Picker("", selection: restoring($session.definition.direction, "direction")) {
+                            ForEach(GradientDirection.allCases) { Text($0.title).tag($0) }
+                        }.labelsHidden().accessibilityFocused($pickerFocus, equals: "direction")
+                    }
                 }
                 if session.definition.kind == .silence {
-                    Picker("Channels", selection: restoring($session.definition.channels, "channels")) {
-                        ForEach(GeneratorChannels.allCases) { Text($0.title).tag($0) }
-                    }.accessibilityFocused($pickerFocus, equals: "channels")
+                    GeneratorControlRow("Channels") {
+                        Picker("", selection: restoring($session.definition.channels, "channels")) {
+                            ForEach(GeneratorChannels.allCases) { Text($0.title).tag($0) }
+                        }.labelsHidden().accessibilityFocused($pickerFocus, equals: "channels")
+                    }
                 }
                 GroupBox("Duration") {
                     VStack(alignment: .leading) {
-                        Picker("Duration Units", selection: restoring(Binding(
-                            get: { session.durationUnit },
-                            set: { session.setDurationUnit($0) }
-                        ), "durationUnits")) {
-                            ForEach(GeneratorDurationUnit.allCases) { unit in
-                                Text(unit.title).tag(unit)
+                        GeneratorControlRow("Duration Units") {
+                            Picker("", selection: restoring(Binding(
+                                get: { session.durationUnit },
+                                set: { session.setDurationUnit($0) }
+                            ), "durationUnits")) {
+                                ForEach(GeneratorDurationUnit.allCases) { unit in
+                                    Text(unit.title).tag(unit)
+                                }
                             }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .accessibilityFocused($pickerFocus, equals: "durationUnits")
                         }
-                        .pickerStyle(.segmented)
-                        .accessibilityFocused($pickerFocus, equals: "durationUnits")
 
-                        HStack {
-                            Text(session.durationUnit.fieldLabel)
+                        GeneratorControlRow(session.durationUnit.fieldLabel) {
                             TextField("", value: $session.durationValue, format: .number)
                         }
-                        .accessibilityElement(children: .combine)
                     }
                 }
                 if session.editing == nil {
-                    Picker("Destination Track", selection: restoring($session.trackID, "track")) {
-                        ForEach(session.compatibleTracks) { Text($0.name).tag(Optional($0.id)) }
-                        Text("New Track").tag(UUID?.none)
-                    }.accessibilityFocused($pickerFocus, equals: "track")
+                    GeneratorControlRow("Destination Track") {
+                        Picker("", selection: restoring($session.trackID, "track")) {
+                            ForEach(session.compatibleTracks) { Text($0.name).tag(Optional($0.id)) }
+                            Text("New Track").tag(UUID?.none)
+                        }.labelsHidden().accessibilityFocused($pickerFocus, equals: "track")
+                    }
                     if session.trackID == nil {
-                        LabeledContent("New Track Name") {
-                            TextField("New Track Name", text: $session.newTrackName)
-                                .labelsHidden()
+                        GeneratorControlRow("New Track Name") {
+                            TextField("", text: $session.newTrackName)
                         }
                     }
                 }
             }
-            .formStyle(.columns)
             if let progress = session.progress { ProgressView("Preparing Generator", value: progress) }
             if session.editing != nil {
                 Button("Update Generator") { place(.insert) }.disabled(session.progress != nil)
@@ -257,5 +274,27 @@ struct GeneratorView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { pickerFocus = key }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { pickerFocus = key }
         })
+    }
+}
+
+/// Connect the visible label to the native control without replacing its role or value.
+/// Keep the native element: combining these macOS field rows discards their role and value.
+struct GeneratorControlRow<Content: View>: View {
+    let label: String
+    @ViewBuilder let content: () -> Content
+    @Namespace private var labelPair
+
+    init(_ label: String, @ViewBuilder content: @escaping () -> Content) {
+        self.label = label
+        self.content = content
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .accessibilityLabeledPair(role: .label, id: "control", in: labelPair)
+            content()
+                .accessibilityLabeledPair(role: .content, id: "control", in: labelPair)
+        }
     }
 }
