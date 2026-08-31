@@ -63,7 +63,7 @@ struct GeneratorFilterTests {
         #expect(session.durationValue == 0)
     }
 
-    @Test func changingGeneratorTypeClearsPreviewAndKeepsCompatibleDestination() {
+    @Test func changingGeneratorTypeKeepsCompatibleDestinationAndDuration() {
         var project = TrimatoProject()
         let video = project.createTrack(kind: .video)
         let audio = project.createTrack(kind: .audio)
@@ -71,16 +71,11 @@ struct GeneratorFilterTests {
         let session = GeneratorSession(controller: controller)
         session.trackID = video
         session.durationValue = 2.5
-        session.previewReady = true
-        session.player.replaceCurrentItem(with: AVPlayerItem(asset: AVMutableComposition()))
 
         var previous = session.definition
         session.definition.kind = .gradient
         session.definitionChanged(from: previous)
         #expect(session.trackID == video)
-        #expect(!session.previewReady)
-        #expect(session.player.currentItem == nil)
-        #expect(session.player.rate == 0)
         #expect(session.progress == nil)
         #expect(session.durationValue == 2.5)
 

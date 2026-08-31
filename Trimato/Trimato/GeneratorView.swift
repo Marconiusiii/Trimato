@@ -1,4 +1,3 @@
-import AVFoundation
 import Combine
 import SwiftUI
 
@@ -30,8 +29,6 @@ final class GeneratorSession: ObservableObject, Identifiable {
     var usesFrames: Bool { durationUnit == .frames }
     @Published var progress: Double?
     @Published var errorMessage: String?
-    @Published var previewReady = false
-    let player = AVPlayer()
     private var operation: Task<Void, Never>?
 
     init(controller: ProjectController, editing: EditorSelection? = nil) {
@@ -69,24 +66,21 @@ final class GeneratorSession: ObservableObject, Identifiable {
 
     func definitionChanged(from previous: GeneratorDefinition) {
         guard previous != definition else { return }
-        stop()
-        if previewReady { previewReady = false }
-        if player.currentItem != nil { player.replaceCurrentItem(with: nil) }
+        cancelPreparation()
         if previous.kind != definition.kind, !compatibleTracks.contains(where: { $0.id == trackID }) {
             trackID = compatibleTracks.first?.id
         }
     }
 
-    func stop() {
+    func cancelPreparation() {
         operation?.cancel()
         operation = nil
         if progress != nil { progress = nil }
-        player.pause()
     }
 
-    func prepare(placement: PlacementAction? = nil, onTop: Bool = false, finished: @escaping () -> Void = {}) {
+    func prepare(placement: PlacementAction, onTop: Bool = false, finished: @escaping () -> Void = {}) {
         guard let controller else { errorMessage = "The project is no longer open."; return }
-        stop()
+        cancelPreparation()
         guard durationValue.isFinite, durationValue > 0,
               durationValue <= (usesFrames ? 86400 * definition.frameRate : 86400),
               !usesFrames || durationValue.rounded() == durationValue else {
@@ -108,23 +102,17 @@ final class GeneratorSession: ObservableObject, Identifiable {
         progress = 0
         operation = Task { @MainActor in
             do {
-                let url = try await GeneratorRenderer.ensure(definition) { [weak self] value in self?.progress = value }
+                _ = try await GeneratorRenderer.ensure(definition) { [weak self] value in self?.progress = value }
                 try Task.checkCancellation()
-                if let placement {
-                    if let editing {
-                        try controller.updateGenerator(definition, editing: editing, expectedProject: expected)
-                    } else {
+                if let editing {
+                    try controller.updateGenerator(definition, editing: editing, expectedProject: expected)
+                } else {
                     try controller.placeGenerator(definition, placement: placement, at: playhead,
                                                   trackID: destination, newTrackName: name, expectedProject: expected)
-                    }
-                    progress = nil
-                    finished()
-                } else {
-                    player.replaceCurrentItem(with: AVPlayerItem(url: url))
-                    previewReady = true
-                    progress = nil
-                    player.play()
                 }
+                progress = nil
+                operation = nil
+                finished()
             } catch is CancellationError {
                 return
             } catch {
@@ -139,11 +127,15 @@ struct GeneratorView: View {
     @ObservedObject var session: GeneratorSession
     @Environment(\.dismiss) private var dismiss
     @AccessibilityFocusState private var pickerFocus: String?
+    @AccessibilityFocusState private var headingFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Generator").font(.title2).accessibilityAddTraits(.isHeader)
-            Text("Destination playhead: \(session.playhead.seconds, specifier: "%.3f") seconds")
+            Text("Generator")
+                .font(.title2)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($headingFocused)
+            Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
             Form {
                 Picker("Generator", selection: restoring($session.definition.kind, "kind")) {
                     ForEach(GeneratorKind.allCases) { Text($0.title).tag($0) }
@@ -183,10 +175,11 @@ struct GeneratorView: View {
                         .pickerStyle(.segmented)
                         .accessibilityFocused($pickerFocus, equals: "durationUnits")
 
-                        LabeledContent(session.durationUnit.fieldLabel) {
-                            TextField(session.durationUnit.fieldLabel, value: $session.durationValue, format: .number)
-                                .labelsHidden()
+                        HStack {
+                            Text(session.durationUnit.fieldLabel)
+                            TextField("", value: $session.durationValue, format: .number)
                         }
+                        .accessibilityElement(children: .combine)
                     }
                 }
                 if session.editing == nil {
@@ -203,14 +196,7 @@ struct GeneratorView: View {
                 }
             }
             .formStyle(.columns)
-            if session.previewReady, session.definition.kind != .silence {
-                VideoPlayerView(player: session.player).frame(height: 150).accessibilityHidden(true)
-            }
             if let progress = session.progress { ProgressView("Preparing Generator", value: progress) }
-            HStack {
-                Button("Preview") { session.prepare() }.disabled(session.progress != nil)
-                Button("Stop") { session.stop() }
-            }
             if session.editing != nil {
                 Button("Update Generator") { place(.insert) }.disabled(session.progress != nil)
             } else {
@@ -227,16 +213,30 @@ struct GeneratorView: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.disabled(session.progress != nil)
             }
-            Button("Cancel", role: .cancel) { session.stop(); dismiss() }.keyboardShortcut(.cancelAction)
+            Button(session.progress == nil ? "Cancel" : "Cancel Preparation", role: .cancel) {
+                session.cancelPreparation()
+                dismiss()
+            }.keyboardShortcut(.cancelAction)
         }
         .padding(20)
         .frame(minWidth: 520, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
+        .task {
+            headingFocused = true
+            // Window activation can finish after the view appears. Retry only during opening,
+            // and do not take focus back from a picker the user has already reached.
+            for delay in [200, 350] {
+                do { try await Task.sleep(for: .milliseconds(delay)) }
+                catch { return }
+                guard pickerFocus == nil else { return }
+                headingFocused = true
+            }
+        }
         .onChange(of: session.definition) { previous, _ in
             session.definitionChanged(from: previous)
         }
         .onDisappear {
-            session.stop()
+            session.cancelPreparation()
             GeneratorWindowRegistry.shared.sessions.removeValue(forKey: session.id)
             session.controller?.requestEditorFocusRestore()
         }
