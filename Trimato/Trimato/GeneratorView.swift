@@ -136,11 +136,6 @@ struct GeneratorView: View {
     @ObservedObject var session: GeneratorSession
     @Environment(\.dismiss) private var dismiss
     @AccessibilityFocusState private var headingFocused: Bool
-    @AccessibilityFocusState private var focusedPicker: PickerFocus?
-
-    private enum PickerFocus: Hashable {
-        case kind, color, secondColor, direction, channels, durationUnits, track
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -151,39 +146,38 @@ struct GeneratorView: View {
             Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
 
             Form {
-                Picker("Generator", selection: pickerBinding($session.definition.kind, focus: .kind)) {
+                Picker("Generator", selection: $session.definition.kind) {
                     ForEach(GeneratorKind.allCases) { kind in
                         Text(kind.title).tag(kind)
                     }
                 }
                 .pickerStyle(.menu)
-                .accessibilityFocused($focusedPicker, equals: .kind)
                 .help(session.definition.kind.description)
                 .disabled(session.editing != nil)
 
                 generatorParameters
 
-                Picker("Duration Units", selection: pickerBinding(Binding(
+                Picker("Duration Units", selection: Binding(
                     get: { session.durationUnit },
                     set: { session.setDurationUnit($0) }
-                ), focus: .durationUnits)) {
+                )) {
                     ForEach(GeneratorDurationUnit.allCases) { unit in
                         Text(unit.title).tag(unit)
                     }
                 }
                 .pickerStyle(.segmented)
-                .accessibilityFocused($focusedPicker, equals: .durationUnits)
+
                 TextField(session.durationUnit.fieldLabel, value: $session.durationValue, format: .number)
 
                 if session.editing == nil {
-                    Picker("Destination Track", selection: pickerBinding($session.trackID, focus: .track)) {
+                    Picker("Destination Track", selection: $session.trackID) {
                         ForEach(session.compatibleTracks) { track in
                             Text(track.name).tag(Optional(track.id))
                         }
                         Text("New Track").tag(UUID?.none)
                     }
                     .pickerStyle(.menu)
-                    .accessibilityFocused($focusedPicker, equals: .track)
+
                     if session.trackID == nil {
                         TextField("New Track Name", text: $session.newTrackName)
                     }
@@ -207,12 +201,6 @@ struct GeneratorView: View {
         .fixedSize(horizontal: false, vertical: true)
         .task {
             headingFocused = true
-            for delay in [200, 350] {
-                do { try await Task.sleep(for: .milliseconds(delay)) }
-                catch { return }
-                guard focusedPicker == nil else { return }
-                headingFocused = true
-            }
         }
         .onChange(of: session.definition) { previous, _ in
             session.definitionChanged(from: previous)
@@ -238,28 +226,28 @@ struct GeneratorView: View {
         case .black:
             EmptyView()
         case .solidColor:
-            Picker("Color", selection: pickerBinding($session.definition.color, focus: .color)) {
+            Picker("Color", selection: $session.definition.color) {
                 ForEach(GeneratorColor.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .color)
+
         case .gradient:
-            Picker("First Color", selection: pickerBinding($session.definition.color, focus: .color)) {
+            Picker("First Color", selection: $session.definition.color) {
                 ForEach(GeneratorColor.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .color)
-            Picker("Second Color", selection: pickerBinding($session.definition.secondColor, focus: .secondColor)) {
+
+            Picker("Second Color", selection: $session.definition.secondColor) {
                 ForEach(GeneratorColor.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .secondColor)
-            Picker("Direction", selection: pickerBinding($session.definition.direction, focus: .direction)) {
+
+            Picker("Direction", selection: $session.definition.direction) {
                 ForEach(GradientDirection.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .direction)
+
         case .silence:
-            Picker("Channels", selection: pickerBinding($session.definition.channels, focus: .channels)) {
+            Picker("Channels", selection: $session.definition.channels) {
                 ForEach(GeneratorChannels.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .channels)
+
         case .text:
             TextGeneratorControls(definition: $session.definition)
         }
@@ -284,17 +272,5 @@ struct GeneratorView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-    }
-
-    private func pickerBinding<Value>(_ binding: Binding<Value>, focus: PickerFocus) -> Binding<Value> {
-        Binding(get: { binding.wrappedValue }, set: { value, transaction in
-            // Forward the native control's update context through this binding adapter.
-            withTransaction(transaction) {
-                binding.transaction(transaction).wrappedValue = value
-            }
-            focusedPicker = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focusedPicker = focus }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { focusedPicker = focus }
-        })
     }
 }

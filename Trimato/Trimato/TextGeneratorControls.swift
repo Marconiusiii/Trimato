@@ -2,29 +2,24 @@ import SwiftUI
 
 struct TextGeneratorControls: View {
     @Binding var definition: GeneratorDefinition
-    @AccessibilityFocusState private var focusedPicker: PickerFocus?
     @State private var expandedSection: Section?
     @State private var fitReport: String?
 
     private enum Section { case typography, appearance, layout }
-    private enum PickerFocus: Hashable {
-        case template, font, weight, alignment, textColor, background, outlineColor, panelColor, position
-    }
 
     private var settings: Binding<TextGeneratorSettings> { $definition.textSettings }
 
     var body: some View {
         Group {
-            Picker("Template", selection: pickerBinding(Binding(
+            Picker("Template", selection: Binding(
                 get: { definition.textSettings.template },
                 set: { definition.textSettings.apply($0) }
-            ), focus: .template)) {
+            )) {
                 ForEach(TextTemplate.allCases) { template in
                     Text(template.title).tag(template)
                 }
             }
             .pickerStyle(.menu)
-            .accessibilityFocused($focusedPicker, equals: .template)
 
             LabeledContent(definition.textSettings.template.textLabel) {
                 TextEditor(text: settings.text)
@@ -66,20 +61,20 @@ struct TextGeneratorControls: View {
 
     private var typographyControls: some View {
         Group {
-            Picker("Font", selection: pickerBinding(settings.font, focus: .font)) {
+            Picker("Font", selection: settings.font) {
                 ForEach(TextFontFamily.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .font)
-            Picker("Weight", selection: pickerBinding(settings.weight, focus: .weight)) {
+
+            Picker("Weight", selection: settings.weight) {
                 ForEach(TextFontWeight.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .weight)
+
             TextField("Font Size in Pixels", value: $definition.textFontSizePixels,
                       format: .number.precision(.fractionLength(0...2)))
-            Picker("Text Alignment", selection: pickerBinding(settings.alignment, focus: .alignment)) {
+            Picker("Text Alignment", selection: settings.alignment) {
                 ForEach(TextAlignmentChoice.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .alignment)
+
             TextField("Additional Line Spacing in Pixels", value: $definition.textLineSpacingPixels,
                       format: .number.precision(.fractionLength(0...2)))
                 .help("Extra space between lines. Zero adds no extra space.")
@@ -88,19 +83,19 @@ struct TextGeneratorControls: View {
 
     private var appearanceControls: some View {
         Group {
-            colorControls("Text Color", color: settings.color, focus: .textColor)
-            Picker("Full-frame Background", selection: pickerBinding(settings.background, focus: .background)) {
+            colorControls("Text Color", color: settings.color)
+            Picker("Full-frame Background", selection: settings.background) {
                 ForEach(TextBackground.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .background)
+
             Toggle("Outline", isOn: settings.outlineEnabled)
             if definition.textSettings.outlineEnabled {
-                colorControls("Outline Color", color: settings.outlineColor, focus: .outlineColor)
+                colorControls("Outline Color", color: settings.outlineColor)
             }
             Toggle("Shadow", isOn: settings.shadowEnabled)
             Toggle("Text Backing Panel", isOn: settings.panelEnabled)
             if definition.textSettings.panelEnabled {
-                colorControls("Panel Color", color: settings.panelColor, focus: .panelColor)
+                colorControls("Panel Color", color: settings.panelColor)
                 TextField("Panel Opacity in Percent", value: settings.panelOpacity,
                           format: .number.precision(.fractionLength(0...2)))
             }
@@ -109,10 +104,10 @@ struct TextGeneratorControls: View {
 
     private var layoutControls: some View {
         Group {
-            Picker("Screen Position", selection: pickerBinding(settings.position, focus: .position)) {
+            Picker("Screen Position", selection: settings.position) {
                 ForEach(TextPosition.allCases) { Text($0.title).tag($0) }
             }
-            .accessibilityFocused($focusedPicker, equals: .position)
+
             TextField("Safe Margin in Percent", value: settings.safeMargin,
                       format: .number.precision(.fractionLength(0...2)))
                 .help("Keeps text away from the edges of the video.")
@@ -128,11 +123,11 @@ struct TextGeneratorControls: View {
     }
 
     @ViewBuilder
-    private func colorControls(_ title: String, color: Binding<TextGeneratorColor>, focus: PickerFocus) -> some View {
-        Picker(title, selection: pickerBinding(color.choice, focus: focus)) {
+    private func colorControls(_ title: String, color: Binding<TextGeneratorColor>) -> some View {
+        Picker(title, selection: color.choice) {
             ForEach(TextColorChoice.allCases) { Text($0.title).tag($0) }
         }
-        .accessibilityFocused($focusedPicker, equals: focus)
+
         if color.wrappedValue.choice == .custom {
             TextField("\(title) Hexadecimal", text: color.customHex)
                 .help("Enter a six-digit hexadecimal color, such as FFFFFF for white.")
@@ -143,18 +138,6 @@ struct TextGeneratorControls: View {
         Binding(get: { expandedSection == section }, set: { isExpanded in
             if isExpanded { expandedSection = section }
             else if expandedSection == section { expandedSection = nil }
-        })
-    }
-
-    private func pickerBinding<Value>(_ binding: Binding<Value>, focus: PickerFocus) -> Binding<Value> {
-        Binding(get: { binding.wrappedValue }, set: { value, transaction in
-            // Forward the native control's update context through this binding adapter.
-            withTransaction(transaction) {
-                binding.transaction(transaction).wrappedValue = value
-            }
-            focusedPicker = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focusedPicker = focus }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { focusedPicker = focus }
         })
     }
 }
