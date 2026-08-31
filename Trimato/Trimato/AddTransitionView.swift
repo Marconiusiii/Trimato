@@ -36,10 +36,10 @@ struct AddTransitionView: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 12) {
-                Toggle("Intro", isOn: $addIntro)
+                Toggle(edgeLabel(.intro), isOn: $addIntro)
                 if addIntro { transitionControls(edge: .intro) }
 
-                Toggle("Outro", isOn: $addOutro)
+                Toggle(edgeLabel(.outro), isOn: $addOutro)
                 if addOutro { transitionControls(edge: .outro) }
             }
 
@@ -78,11 +78,23 @@ struct AddTransitionView: View {
         track?.kind == .video ? outroVideoType.title : outroAudioType.title
     }
 
+    private func isFade(_ edge: TimelineTransitionEdge) -> Bool {
+        track?.kind == .video ? videoTypeBinding(edge).wrappedValue == .fade
+            : audioTypeBinding(edge).wrappedValue == .fade
+    }
+
+    private func edgeLabel(_ edge: TimelineTransitionEdge) -> String {
+        isFade(edge) ? FadeTransitionLabels.control(edge: edge, clipName: clip?.displayName ?? "Timeline clip")
+            : (edge == .intro ? "Intro" : "Outro")
+    }
+
     @ViewBuilder
     private func transitionControls(edge: TimelineTransitionEdge) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(edge == .intro ? "Intro transition" : "Outro transition")
-                .font(.subheadline)
+            if !isFade(edge) {
+                Text(edge == .intro ? "Intro transition" : "Outro transition")
+                    .font(.subheadline)
+            }
             if track?.kind == .video {
                 labeledVideoPicker(selection: videoTypeBinding(edge), values: videoTypes(for: edge))
                 if hasLinkedAudio && !isWipe(videoTypeBinding(edge).wrappedValue) {
@@ -93,8 +105,8 @@ struct AddTransitionView: View {
             }
             TransitionDurationField(
                 text: durationBinding(edge),
-                label: (track?.kind == .video ? videoTypeBinding(edge).wrappedValue == .fade : audioTypeBinding(edge).wrappedValue == .fade)
-                    ? (edge == .intro ? "Fade In Duration in Seconds" : "Fade Out Duration in Seconds")
+                label: isFade(edge)
+                    ? FadeTransitionLabels.duration(edge: edge)
                     : (edge == .intro ? "Intro Duration in Seconds" : "Outro Duration in Seconds")
             )
         }
@@ -184,6 +196,12 @@ struct AddTransitionView: View {
         let videoType = videoTypeBinding(edge).wrappedValue
         let audioType = audioTypeBinding(edge).wrappedValue
         let isBetween = track.kind == .video ? videoType != .fade : audioType != .fade
+        if !isBetween {
+            return request.makeFades(in: project,
+                fadeInDuration: edge == .intro ? duration : nil,
+                fadeOutDuration: edge == .outro ? duration : nil,
+                includeAudio: audioInclusionBinding(edge).wrappedValue) ?? []
+        }
         let neighboring = isBetween ? neighborIDs(edge: edge, clips: track.sortedClips, index: clipIndex) : nil
         let transition = TimelineTransition(
             trackID: track.id,

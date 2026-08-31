@@ -89,7 +89,7 @@
     <ol>
         <li>Move the Editor playhead onto a clip, or focus the clip in Timeline clips.</li>
         <li>Press Command-T.</li>
-        <li>Choose Intro, Outro, or both, then choose the transition type for each selected side.</li>
+        <li>For Fade, choose Fade In {clip name}, Fade Out {clip name}, or both. Both controls name the selected clip. Other transition types retain the Intro and Outro side controls.</li>
         <li>If the video clip has audio, choose Fade Audio or Crossfade Audio to apply the matching audio transition.</li>
         <li>Enter the duration in seconds, then activate Add.</li>
     </ol>
@@ -97,12 +97,13 @@
 
     <h3>Use Quick Fade</h3>
     <ol>
-        <li>Move the Editor playhead onto the clip you want to fade.</li>
+        <li>Move the Editor playhead onto a clip or to a shared cut between clips.</li>
         <li>Press F to open Quick Fade.</li>
-        <li>Choose Intro, Outro, or both. In a video context, choose Fade Audio when the clip’s audio should fade too.</li>
+        <li>Choose Fade In {clip name}, Fade Out {clip name}, or both. Fade Audio includes the matching linked audio for each selected fade.</li>
         <li>Enter the duration in seconds, then apply the fade.</li>
     </ol>
-    <p>While Trimato prepares the updated preview, the sheet focuses Applying Fade and VoiceOver announces completion in ten-percent steps. The sheet closes only after the player is ready, then macOS restores the Editor control that preceded the sheet.</p>
+    <p>At a shared cut from clip A to clip B, Fade In B applies at the beginning of B and Fade Out A applies at the end of A. Selecting both places both fades around that cut. Within a clip, at the start of the timeline, or at its final endpoint, both controls name the same clip. This behavior is the same on video and audio tracks.</p>
+    <p>Applying a fade uses a separate progress window. VoiceOver percentage announcements use low priority so navigation to Cancel can take precedence.</p>
 
     <h3>Use Quick Cross Dissolve or Quick Cross Fade</h3>
     <ol>
@@ -112,7 +113,7 @@
         <li>In a video context, choose Crossfade Audio when the clips’ audio should cross fade too.</li>
         <li>Enter the duration in seconds, then apply the transition.</li>
     </ol>
-    <p>While Trimato prepares the updated preview, the sheet focuses the transition progress and VoiceOver announces completion in ten-percent steps. The sheet closes only after the player is ready, then macOS restores the Editor control that preceded the sheet.</p>
+    <p>Applying a transition uses a separate progress window with low-priority VoiceOver percentage announcements.</p>
 
     <h3>Transition types</h3>
     <dl>
@@ -151,7 +152,7 @@
     <h2>Inspect a timeline item</h2>
     <p>VoiceOver focus on a clip or transition updates the item shown in Inspector without picking up the clip. Stop interacting with Timeline, then move to Inspector to read that item’s details.</p>
     <h2>Set independent fade durations</h2>
-    <p>For Fade, select Intro to show Fade In Duration in Seconds, or Outro to show Fade Out Duration in Seconds. Selecting both exposes both fields. Each value applies only to its own edge and corresponding linked audio fade. Clearing a checkbox hides its field without discarding the entered value. With neither edge selected, Apply Fade is unavailable.</p>
+    <p>Select Fade In {clip name} to show Fade In Duration, or Fade Out {clip name} to show Fade Out Duration. Selecting both exposes both fields. Values are in seconds and apply to the named clip and its corresponding linked audio fade. Clearing a checkbox hides its field without discarding the entered value. With neither fade selected, Apply Fade is unavailable. The same duration labels are used when editing an existing fade.</p>
     <p>Additional video track fades change the clip's opacity, revealing the video underneath. Primary video fades reveal the black background when no picture is underneath.</p>
 </main>
 <footer><p><a href="saving-and-exporting.html">Next topic: Save and export</a></p></footer>

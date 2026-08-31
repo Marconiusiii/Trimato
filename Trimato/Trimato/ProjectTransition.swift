@@ -97,6 +97,50 @@ nonisolated struct TransitionRequest: Identifiable, Equatable, Sendable {
     var trackID: UUID
     var clipID: UUID
     var mode: Mode
+    // Quick Fade at a shared edit has two targets. Requests made for a
+    // selected clip keep both fades on that clip by leaving this unset.
+    var fadeOutClipID: UUID? = nil
+
+    func fadeClip(for edge: TimelineTransitionEdge, in project: TrimatoProject) -> TimelineClip? {
+        let id = edge == .outro ? (fadeOutClipID ?? clipID) : clipID
+        return project.track(id: trackID)?.clips.first { $0.id == id }
+    }
+
+    func makeFades(in project: TrimatoProject, fadeInDuration: ProjectTime?,
+                   fadeOutDuration: ProjectTime?, includeAudio: Bool) -> [TimelineTransition]? {
+        guard let track = project.track(id: trackID) else { return nil }
+        var result: [TimelineTransition] = []
+        for (edge, duration) in [(TimelineTransitionEdge.intro, fadeInDuration), (.outro, fadeOutDuration)] {
+            guard let duration else { continue }
+            guard let clip = fadeClip(for: edge, in: project) else { return nil }
+            result.append(Self.fade(edge: edge, clipID: clip.id, track: track, duration: duration))
+            if includeAudio, track.kind == .video, let linkedID = clip.linkedClipID,
+               let audioTrack = project.tracks.first(where: {
+                   $0.kind == .audio && $0.clips.contains { $0.id == linkedID }
+               }) {
+                result.append(Self.fade(edge: edge, clipID: linkedID, track: audioTrack, duration: duration))
+            }
+        }
+        return result
+    }
+
+    private static func fade(edge: TimelineTransitionEdge, clipID: UUID, track: TimelineTrack,
+                             duration: ProjectTime) -> TimelineTransition {
+        TimelineTransition(trackID: track.id, edge: edge,
+            kind: track.kind == .video ? .video(.fade) : .audio(.fade), duration: duration,
+            leadingClipID: edge == .outro ? clipID : nil,
+            trailingClipID: edge == .intro ? clipID : nil)
+    }
+}
+
+nonisolated enum FadeTransitionLabels {
+    static func control(edge: TimelineTransitionEdge, clipName: String) -> String {
+        "\(edge == .intro ? "Fade In" : "Fade Out") \(clipName)"
+    }
+
+    static func duration(edge: TimelineTransitionEdge) -> String {
+        edge == .intro ? "Fade In Duration" : "Fade Out Duration"
+    }
 }
 
 nonisolated struct TransitionPresentedError: Identifiable, Equatable, Sendable {

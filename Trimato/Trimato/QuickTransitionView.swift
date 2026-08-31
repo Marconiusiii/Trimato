@@ -34,12 +34,10 @@ struct QuickTransitionView: View {
                 if request.mode == .quickCross {
                     Text(crossDescription)
                 } else {
-                    Text(clip?.displayName ?? "Timeline clip")
-                        .foregroundStyle(.secondary)
-                    Toggle("Intro", isOn: $addIntro)
-                    if addIntro { TransitionDurationField(text: $fadeInDurationText, label: "Fade In Duration in Seconds") }
-                    Toggle("Outro", isOn: $addOutro)
-                    if addOutro { TransitionDurationField(text: $fadeOutDurationText, label: "Fade Out Duration in Seconds") }
+                    Toggle(fadeLabel(.intro), isOn: $addIntro)
+                    if addIntro { TransitionDurationField(text: $fadeInDurationText, label: FadeTransitionLabels.duration(edge: .intro)) }
+                    Toggle(fadeLabel(.outro), isOn: $addOutro)
+                    if addOutro { TransitionDurationField(text: $fadeOutDurationText, label: FadeTransitionLabels.duration(edge: .outro)) }
                 }
 
                 if showsAudioToggle {
@@ -112,8 +110,19 @@ struct QuickTransitionView: View {
     }
 
     private var showsAudioToggle: Bool {
+        if request.mode == .quickFade {
+            return track?.kind == .video && [TimelineTransitionEdge.intro, .outro].contains { edge in
+                guard let linkedID = request.fadeClip(for: edge, in: project)?.linkedClipID else { return false }
+                return project.tracks.contains { $0.kind == .audio && $0.clips.contains { $0.id == linkedID } }
+            }
+        }
         guard track?.kind == .video, let context = linkedAudioContext else { return false }
-        return request.mode == .quickFade || context.trailing != nil
+        return context.trailing != nil
+    }
+
+    private func fadeLabel(_ edge: TimelineTransitionEdge) -> String {
+        FadeTransitionLabels.control(edge: edge,
+            clipName: request.fadeClip(for: edge, in: project)?.displayName ?? "Timeline clip")
     }
 
     private func apply() {
@@ -131,12 +140,11 @@ struct QuickTransitionView: View {
                 showValidation("Enter a duration greater than zero for each enabled fade.")
                 return
             }
-            var transitions: [TimelineTransition] = []
-            if addIntro { transitions.append(fade(edge: .intro, clip: clip, track: track, duration: fadeIn)) }
-            if addOutro { transitions.append(fade(edge: .outro, clip: clip, track: track, duration: fadeOut)) }
-            if includeAudio, let context = linkedAudioContext {
-                if addIntro { transitions.append(fade(edge: .intro, clip: context.leading, track: context.track, duration: fadeIn)) }
-                if addOutro { transitions.append(fade(edge: .outro, clip: context.leading, track: context.track, duration: fadeOut)) }
+            guard let transitions = request.makeFades(in: project,
+                fadeInDuration: addIntro ? fadeIn : nil, fadeOutDuration: addOutro ? fadeOut : nil,
+                includeAudio: includeAudio) else {
+                showValidation("The timeline clip is no longer available.")
+                return
             }
             submit(transitions)
             return
@@ -174,21 +182,6 @@ struct QuickTransitionView: View {
         presentedError = .invalidSettings(message)
     }
 
-    private func fade(
-        edge: TimelineTransitionEdge,
-        clip: TimelineClip,
-        track: TimelineTrack,
-        duration: ProjectTime
-    ) -> TimelineTransition {
-        TimelineTransition(
-            trackID: track.id,
-            edge: edge,
-            kind: track.kind == .video ? .video(.fade) : .audio(.fade),
-            duration: duration,
-            leadingClipID: edge == .outro ? clip.id : nil,
-            trailingClipID: edge == .intro ? clip.id : nil
-        )
-    }
 }
 
 enum TransitionProgressAccessibility {

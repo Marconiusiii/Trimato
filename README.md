@@ -93,7 +93,7 @@ These commands apply while focus is in Editor or Clip Editor. Timeline Clips use
 - Option-Command-Left Arrow: Move the focused clip one position earlier on a primary track, or nudge it one frame earlier on an additional track. If a clip is picked up, adjust that clip instead.
 - Option-Command-Right Arrow: Move the focused clip one position later on a primary track, or nudge it one frame later on an additional track. If a clip is picked up, adjust that clip instead.
 - Command-G: Open Generator from the project Editor.
-- F: Open Quick Fade for the clip at the Editor playhead.
+- F: Open Quick Fade at the Editor playhead.
 - X: Open Quick Cross Dissolve or Quick Cross Fade for the edit at the Editor playhead.
 
 ### Timeline clip movement
@@ -126,7 +126,7 @@ Text provides Center Title, Title and Subtitle, Lower Third Center/Left/Right, N
 
 Expand Typography for System Sans, Rounded Sans, Serif, or Monospaced fonts; weight, alignment, Font Size in Pixels, and Additional Line Spacing in Pixels. Line spacing adds space between lines; zero adds no extra space. Changing font size preserves the entered line spacing. Expand Appearance for named or hexadecimal colors, a Black or Transparent full-frame background, outline, shadow, and a separate text backing panel with adjustable opacity. Expand Layout for screen position, safe margins, maximum text width, and horizontal or vertical offsets. One detailed group opens at a time. Layout percentages name their reference area. Saved styles still scale with the video resolution.
 
-Check Text Fit reports the line count and whether text fits within the safe area. It also warns about small text and low contrast against a known opaque background. It does not assess contrast over changing footage. Overflow prevents placement with an explanation; text is not silently clipped or resized. Place transparent text on a video track above the footage to retain the underlying picture. The existing transitions apply, including separately timed intro and outro fades. Project exports contain the composed picture; this does not add a standalone transparent-video export format.
+Check Text Fit reports the line count and whether text fits within the safe area. It also warns about small text and low contrast against a known opaque background. It does not assess contrast over changing footage. Overflow prevents placement with an explanation; text is not silently clipped or resized. Place transparent text on a video track above the footage to retain the underlying picture. The existing transitions apply, including separately timed fades in and out. Project exports contain the composed picture; this does not add a standalone transparent-video export format.
 
 Caption and Subtitle are static appearance templates for individually timed text clips. They do not import subtitle files or transcribe audio. Text and styling remain editable in the saved generator definition. Text layout uses macOS fonts and native text rendering; generated media preserves alpha through the supported filters and transitions.
 
@@ -176,7 +176,11 @@ VoiceOver focus in Timeline clips identifies the target clip or transition for t
 
 The direct-edit clip is remembered separately for each track. When no clip has been remembered, Trimato resolves the clip at the Editor playhead, preferring an incoming clip at an edit point, then a clip containing the playhead, the next clip, or the last earlier clip. Command-[ and Command-] trim that clip to the shared project playhead while VoiceOver stays in Editor. Plain [ and ] reposition the complete clip on an additional track without trimming its stored source. Press C from Editor to open the direct-edit clip. Timeline clipboard commands operate only on the focused track item and require matching video or audio track types.
 
-Press Command-T in the Editor to add a transition at the playhead, or press it on a focused Timeline clips item. In the Editor, press F to open Quick Fade for the clip at the playhead. Press X at an edit between clips to open Quick Cross Dissolve on a video track or Quick Cross Fade on an audio track. Duration is entered in seconds and accepts fractional values such as `1.25`. For Fade, selecting Intro shows Fade In Duration in Seconds; selecting Outro shows Fade Out Duration in Seconds. These values are independent and remain available if a checkbox is cleared and checked again. Video transition sheets can also apply a linked audio fade or cross fade when audio is available.
+Press Command-T in the Editor to add a transition at the playhead, or press it on a focused Timeline clips item. For a Fade on one clip, the controls are Fade In {clip name} and Fade Out {clip name}. Both name that same clip. Video and audio fades use Fade In Duration and Fade Out Duration, entered in seconds. The durations are independent and retain their values when a checkbox is cleared and checked again.
+
+Press F in the Editor to open Quick Fade. At a shared cut from clip A to clip B, Fade In B applies at the beginning of B and Fade Out A applies at the end of A. Selecting both places both fades around that cut. Within a clip, at the start of the timeline, or at its final endpoint, both controls name the same clip. Fade Audio includes the matching linked audio for each selected fade.
+
+Press X at an edit between clips to open Quick Cross Dissolve on a video track or Quick Cross Fade on an audio track. Transition durations accept fractional seconds such as `1.25`.
 
 - Fade In: Gradually reveals the clip. On additional video tracks, underlying video remains visible during the fade.
 - Fade Out: Gradually hides the clip, revealing underlying video on additional tracks. Where no picture is underneath, the background is black.

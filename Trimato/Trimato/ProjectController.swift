@@ -608,12 +608,16 @@ final class ProjectController: ObservableObject {
 
     func requestTransition(at time: ProjectTime, mode: TransitionRequest.Mode = .standard) {
         guard let track = activeTimelineTrack,
-              let clip = track.sortedClips.first(where: { time >= $0.timelineStart && time <= $0.timelineEnd }) else {
+              let clip = mode == .quickFade ? editorClip(at: time)
+                : track.sortedClips.first(where: { time >= $0.timelineStart && time <= $0.timelineEnd }) else {
             announce("Move the playhead to a clip first")
             return
         }
         transitionRequestReturnsToEditor = true
-        transitionRequest = TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode)
+        let outgoing = mode == .quickFade && clip.timelineStart == time
+            ? track.sortedClips.last(where: { $0.id != clip.id && $0.timelineEnd == time }) : nil
+        transitionRequest = TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode,
+                                               fadeOutClipID: outgoing?.id)
     }
 
     func requestQuickTransition(at time: ProjectTime, mode: TransitionRequest.Mode) {

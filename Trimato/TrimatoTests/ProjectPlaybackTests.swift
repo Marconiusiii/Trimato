@@ -543,6 +543,136 @@ struct ProjectPlaybackTests {
         #expect(controller.transitionRequestReturnsToEditor)
     }
 
+    @Test(arguments: [true, false], ["in", "out", "both"])
+    func quickFadeAtACutUsesSeparateNamedClipsAndTheirLinkedAudio(video: Bool, choice: String) throws {
+        var first = fixtureAsset(name: "Outgoing", duration: 5)
+        var second = fixtureAsset(name: "Incoming", duration: 5)
+        if !video {
+            first.naturalWidth = nil; first.naturalHeight = nil
+            second.naturalWidth = nil; second.naturalHeight = nil
+        }
+        var project = TrimatoProject()
+        project.media = [first, second]
+        _ = try project.append(asset: first)
+        _ = try project.append(asset: second)
+        let track = try #require(project.tracks.first { $0.kind == (video ? .video : .audio) })
+        let outgoing = try #require(track.sortedClips.first)
+        let incoming = try #require(track.sortedClips.last)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = track.id
+        controller.selection = .timelineClip(outgoing.id)
+        controller.timelinePlayhead = incoming.timelineStart
+        controller.requestQuickTransition(at: incoming.timelineStart, mode: .quickFade)
+        let request = try #require(controller.transitionRequest)
+
+        #expect(request.fadeClip(for: .intro, in: project)?.id == incoming.id)
+        #expect(request.fadeClip(for: .outro, in: project)?.id == outgoing.id)
+        #expect(FadeTransitionLabels.control(edge: .intro,
+            clipName: try #require(request.fadeClip(for: .intro, in: project)).displayName) == "Fade In \(incoming.displayName)")
+        #expect(FadeTransitionLabels.control(edge: .outro,
+            clipName: try #require(request.fadeClip(for: .outro, in: project)).displayName) == "Fade Out \(outgoing.displayName)")
+        #expect(controller.selection == .timelineClip(outgoing.id))
+        #expect(controller.timelinePlayhead == incoming.timelineStart)
+        #expect(controller.transitionRequestReturnsToEditor)
+
+        let fadeIn = choice == "out" ? nil : ProjectTime(seconds: 0.25)
+        let fadeOut = choice == "in" ? nil : ProjectTime(seconds: 0.75)
+        let fades = try #require(request.makeFades(in: project, fadeInDuration: fadeIn,
+                                                  fadeOutDuration: fadeOut, includeAudio: true))
+        let expectedEdges: [TimelineTransitionEdge] = choice == "both" ? [.intro, .outro]
+            : [choice == "in" ? .intro : .outro]
+        #expect(fades.count == expectedEdges.count * (video ? 2 : 1))
+        for fade in fades {
+            #expect(expectedEdges.contains(fade.edge))
+            let target = fade.edge == .intro ? incoming : outgoing
+            let expectedID = fade.trackID == track.id ? target.id : try #require(target.linkedClipID)
+            #expect(fade.leadingClipID == (fade.edge == .outro ? expectedID : nil))
+            #expect(fade.trailingClipID == (fade.edge == .intro ? expectedID : nil))
+            #expect(fade.duration == (fade.edge == .intro ? fadeIn : fadeOut))
+        }
+        let withoutAudio = try #require(request.makeFades(in: project, fadeInDuration: fadeIn,
+                                                         fadeOutDuration: fadeOut, includeAudio: false))
+        #expect(withoutAudio.count == expectedEdges.count)
+        let applied = try project.addTransitionBatch(fades)
+        #expect(applied.count == fades.count)
+        #expect(project.transitions.count == fades.count)
+    }
+
+    @Test(arguments: [true, false], [TransitionRequest.Mode.standard, .quickFade])
+    func selectedClipFadesKeepBothEdgesOnThatClip(video: Bool, mode: TransitionRequest.Mode) throws {
+        var asset = fixtureAsset(name: "Selected clip", duration: 5)
+        if !video { asset.naturalWidth = nil; asset.naturalHeight = nil }
+        var project = TrimatoProject()
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        _ = try project.append(asset: asset)
+        let track = try #require(project.tracks.first { $0.kind == (video ? .video : .audio) })
+        let selected = try #require(track.sortedClips.last)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.selection = .timelineClip(selected.id)
+        controller.requestTransitionForSelection(mode: mode)
+        let request = try #require(controller.transitionRequest)
+        #expect(request.fadeOutClipID == nil)
+        #expect(request.fadeClip(for: .intro, in: project)?.id == selected.id)
+        #expect(request.fadeClip(for: .outro, in: project)?.id == selected.id)
+        #expect(!controller.transitionRequestReturnsToEditor)
+        let fades = try #require(request.makeFades(in: project, fadeInDuration: ProjectTime(seconds: 0.25),
+            fadeOutDuration: ProjectTime(seconds: 0.75), includeAudio: false))
+        #expect(fades.count == 2)
+        #expect(fades.first?.trailingClipID == selected.id)
+        #expect(fades.last?.leadingClipID == selected.id)
+        _ = try project.addTransitionBatch(fades)
+        #expect(FadeTransitionLabels.duration(edge: .intro) == "Fade In Duration")
+        #expect(FadeTransitionLabels.duration(edge: .outro) == "Fade Out Duration")
+    }
+
+    @Test func quickFadeUsesTheActiveAdditionalTrackAndCustomClipNames() throws {
+        let asset = fixtureAsset(name: "Source", duration: 5)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let unrelatedID = try project.append(asset: asset)
+        _ = try project.append(asset: asset)
+        let trackID = project.createTrack(kind: .video, name: "Titles")
+        let outgoingID = try project.append(asset: asset, toTrack: trackID)
+        let incomingID = try project.append(asset: asset, toTrack: trackID)
+        let index = try #require(project.tracks.firstIndex { $0.id == trackID })
+        project.tracks[index].clips[0].customName = "Opening title"
+        project.tracks[index].clips[1].customName = "Closing title"
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = trackID
+        controller.selection = .timelineClip(unrelatedID)
+        controller.requestQuickTransition(at: ProjectTime(seconds: 5), mode: .quickFade)
+        let request = try #require(controller.transitionRequest)
+        #expect(request.trackID == trackID)
+        #expect(request.clipID == incomingID)
+        #expect(request.fadeOutClipID == outgoingID)
+        #expect(controller.selection == .timelineClip(unrelatedID))
+        #expect(FadeTransitionLabels.control(edge: .intro,
+            clipName: try #require(request.fadeClip(for: .intro, in: project)).displayName) == "Fade In Closing title")
+        #expect(FadeTransitionLabels.control(edge: .outro,
+            clipName: try #require(request.fadeClip(for: .outro, in: project)).displayName) == "Fade Out Opening title")
+    }
+
+    @Test func quickFadePreservesSingleClipBehaviorAwayFromASharedCut() throws {
+        let asset = fixtureAsset(name: "Clip", duration: 5)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let firstID = try project.append(asset: asset)
+        let lastID = try project.append(asset: asset)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        for (seconds, expectedID) in [(0.0, firstID), (2.0, firstID), (7.0, lastID), (10.0, lastID)] {
+            controller.requestQuickTransition(at: ProjectTime(seconds: seconds), mode: .quickFade)
+            let request = try #require(controller.transitionRequest)
+            #expect(request.clipID == expectedID)
+            #expect(request.fadeOutClipID == nil)
+        }
+        var staleRequest = TransitionRequest(trackID: try #require(controller.activeTimelineTrackID),
+                                             clipID: lastID, mode: .quickFade)
+        staleRequest.fadeOutClipID = UUID()
+        #expect(staleRequest.makeFades(in: project, fadeInDuration: ProjectTime(seconds: 1),
+            fadeOutDuration: ProjectTime(seconds: 1), includeAudio: true) == nil)
+    }
+
     @Test @MainActor func quickTransitionAdditionDoesNotSelectTheTimelineTransition() throws {
         let asset = fixtureAsset(name: "Interview", duration: 5)
         var project = TrimatoProject(name: "Quick fade")

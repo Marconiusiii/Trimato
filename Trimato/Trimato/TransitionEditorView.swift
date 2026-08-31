@@ -42,7 +42,7 @@ struct TransitionEditorView: View {
                         .labelsHidden()
                 }
                 transitionPicker
-                TransitionDurationField(text: $durationText)
+                TransitionDurationField(text: $durationText, label: durationLabel)
             }
 
             HStack {
@@ -95,6 +95,11 @@ struct TransitionEditorView: View {
                 }
             }
         }
+    }
+
+    private var durationLabel: String {
+        draft.kind == .video(.fade) || draft.kind == .audio(.fade)
+            ? FadeTransitionLabels.duration(edge: draft.edge) : TransitionDurationInput.accessibilityLabel
     }
 
     private var videoTypes: [VideoTransitionType] {
