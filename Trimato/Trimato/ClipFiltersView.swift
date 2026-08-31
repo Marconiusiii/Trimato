@@ -72,8 +72,11 @@ private struct ClipFilterControls: View {
                 ForEach(filter.kind.parameters) { parameter in
                     HStack {
                         Slider(value: valueBinding(parameter), in: parameter.range, step: parameter.step) { Text(parameter.label) }
-                        TextField(parameter.label, value: valueBinding(parameter), format: .number)
-                            .frame(width: 95)
+                        LabeledContent(parameter.label) {
+                            TextField(parameter.label, value: valueBinding(parameter), format: .number)
+                                .labelsHidden()
+                                .frame(width: 95)
+                        }
                     }
                 }
                 if filter.kind == .tone {

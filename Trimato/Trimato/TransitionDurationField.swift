@@ -33,6 +33,9 @@ struct TransitionDurationField: View {
     var label: String = TransitionDurationInput.accessibilityLabel
 
     var body: some View {
-        TextField(label, text: $text)
+        LabeledContent(label) {
+            TextField(label, text: $text)
+                .labelsHidden()
+        }
     }
 }

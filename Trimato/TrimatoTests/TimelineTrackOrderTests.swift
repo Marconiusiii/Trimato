@@ -127,4 +127,87 @@ struct TimelineTrackOrderTests {
         undo.redo()
         #expect(controller.project.orderedTimelineTracks.first?.id == first)
     }
+
+    @Test(arguments: [true, false])
+    func adjacentTrackNavigationFollowsDisplayedOrder(restoreTimelineFocus: Bool) throws {
+        var project = projectWithPrimaryTracks()
+        let title = project.createTrack(kind: .video, name: "Title")
+        let music = project.createTrack(kind: .audio, name: "Music")
+        let subtitle = project.createTrack(kind: .video, name: "Subtitle")
+        let effects = project.createTrack(kind: .audio, name: "Effects")
+        let primaryVideo = project.tracks[0].id
+        let primaryAudio = project.tracks[1].id
+        for index in project.tracks.indices where project.tracks[index].id != music {
+            project.tracks[index].clips = [TimelineClip(
+                assetID: UUID(), name: project.tracks[index].name,
+                segments: [SourceSegment(sourceRange: ProjectTimeRange(
+                    start: .zero, duration: ProjectTime(seconds: 10)
+                ))]
+            )]
+        }
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.timelinePlayhead = ProjectTime(seconds: 5)
+        controller.activeTimelineTrackID = primaryVideo
+
+        func navigate(_ offset: Int, expecting trackID: UUID) throws {
+            let previousClipRequests = controller.timelineFocusRestoreRequest
+            let previousListRequests = controller.timelineListFocusRestoreRequest
+            controller.selectAdjacentTrack(offset, restoreTimelineFocus: restoreTimelineFocus)
+            let track = try #require(project.track(id: trackID))
+            #expect(controller.activeTimelineTrackID == trackID)
+            #expect(controller.activeTimelineTrack?.name == track.name)
+            #expect(controller.timelinePlayhead == ProjectTime(seconds: 5))
+            #expect(controller.project == project)
+            #expect(controller.selection == .project)
+            #expect(controller.timelineFocusRestoreRequest == previousClipRequests +
+                (restoreTimelineFocus && !track.clips.isEmpty ? 1 : 0))
+            #expect(controller.timelineListFocusRestoreRequest == previousListRequests +
+                (restoreTimelineFocus && track.clips.isEmpty ? 1 : 0))
+            if restoreTimelineFocus, let clip = track.clips.first {
+                #expect(controller.timelineFocusRestoreTarget == .clip(clip.id))
+            }
+        }
+
+        try navigate(-1, expecting: title)
+        try navigate(-1, expecting: subtitle)
+        try navigate(-1, expecting: subtitle) // Top boundary does not wrap.
+        for id in [title, primaryVideo, primaryAudio, music, effects] {
+            try navigate(1, expecting: id)
+        }
+        try navigate(1, expecting: effects) // Bottom boundary does not wrap.
+        for id in [music, primaryAudio, primaryVideo, title, subtitle] {
+            try navigate(-1, expecting: id)
+        }
+    }
+
+    @Test(arguments: [true, false])
+    func adjacentTrackNavigationUsesReorderedLayers(restoreTimelineFocus: Bool) throws {
+        var project = projectWithPrimaryTracks()
+        let primaryVideo = project.tracks[0].id
+        let first = project.createTrack(kind: .video, name: "First")
+        let second = project.createTrack(kind: .video, name: "Second")
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = first
+        controller.moveActiveTrack(by: -1)
+        #expect(controller.project.orderedTimelineTracks.prefix(3).map(\.id) == [first, second, primaryVideo])
+        let reordered = controller.project
+        controller.activeTimelineTrackID = primaryVideo
+
+        controller.selectAdjacentTrack(-1, restoreTimelineFocus: restoreTimelineFocus)
+        #expect(controller.activeTimelineTrackID == second)
+        controller.selectAdjacentTrack(-1, restoreTimelineFocus: restoreTimelineFocus)
+        #expect(controller.activeTimelineTrackID == first)
+        controller.selectAdjacentTrack(1, restoreTimelineFocus: restoreTimelineFocus)
+        #expect(controller.activeTimelineTrackID == second)
+        #expect(controller.project == reordered)
+    }
+
+    @Test func adjacentTrackNavigationWithNoTracksDoesNothing() {
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        controller.selectAdjacentTrack(-1)
+        controller.selectAdjacentTrack(1, restoreTimelineFocus: false)
+        #expect(controller.activeTimelineTrackID == nil)
+        #expect(controller.timelineFocusRestoreRequest == 0)
+        #expect(controller.timelineListFocusRestoreRequest == 0)
+    }
 }

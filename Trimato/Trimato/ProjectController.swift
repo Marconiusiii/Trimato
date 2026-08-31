@@ -390,11 +390,12 @@ final class ProjectController: ObservableObject {
     }
 
     func selectAdjacentTrack(_ offset: Int, restoreTimelineFocus: Bool = true) {
-        guard !project.tracks.isEmpty else { return }
-        let current = activeTimelineTrackID.flatMap { id in project.tracks.firstIndex { $0.id == id } } ?? 0
-        let destination = min(max(current + offset, 0), project.tracks.count - 1)
-        activeTimelineTrackID = project.tracks[destination].id
-        let track = project.tracks[destination]
+        let tracks = project.orderedTimelineTracks
+        guard !tracks.isEmpty else { return }
+        let current = (activeTimelineTrack?.id).flatMap { id in tracks.firstIndex { $0.id == id } } ?? 0
+        let destination = min(max(current + offset, 0), tracks.count - 1)
+        let track = tracks[destination]
+        activeTimelineTrackID = track.id
         let clip = editorDirectClip(on: track, at: timelinePlayhead)
         announce(Self.activeTrackAnnouncement(trackName: track.name, clipName: clip?.displayName))
         guard restoreTimelineFocus else { return }
