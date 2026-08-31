@@ -35,7 +35,6 @@ struct ProjectTimelineView: View {
 
     @FocusState private var keyboardFocusedElement: TimelineElementSelection?
     @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
-    @AccessibilityFocusState private var trackPickerFocused: Bool
     @AccessibilityFocusState private var timelineListFocused: Bool
     @State private var renamedClipName = ""
     @State private var isRenamingClip = false
@@ -66,7 +65,6 @@ struct ProjectTimelineView: View {
                     }
                 }
                 .disabled(controller.project.tracks.isEmpty)
-                .accessibilityFocused($trackPickerFocused)
                 if controller.activeTimelineTrack?.kind == .audio {
                     Toggle("Mute Track", isOn: Binding(
                         get: { controller.activeTimelineTrack?.isMuted ?? false },
@@ -135,15 +133,12 @@ struct ProjectTimelineView: View {
             guard let target = controller.timelineFocusRestoreTarget else { return }
             restoreTimelineElementFocus(to: target)
         }
-        .onChange(of: controller.timelineTrackPickerFocusRestoreRequest) {
-            restoreTrackPickerFocus()
-        }
         .onChange(of: controller.timelineListFocusRestoreRequest) {
             restoreTimelineListFocus()
         }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
-        .sheet(isPresented: $isAddingTrack, onDismiss: restoreTrackPickerFocus) {
+        .sheet(isPresented: $isAddingTrack) {
             AddTrackView(
                 add: { kind, name in
                     controller.addTrack(kind: kind, name: name)
@@ -272,7 +267,6 @@ struct ProjectTimelineView: View {
             },
             set: { trackID in
                 controller.activeTimelineTrackID = trackID
-                restoreTrackPickerFocus()
             }
         )
     }
@@ -658,28 +652,8 @@ struct ProjectTimelineView: View {
         errorMessage = error.localizedDescription
     }
 
-    private func restoreTrackPickerFocus() {
-        focusedElement = nil
-        timelineListFocused = false
-        trackPickerFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            trackPickerFocused = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            trackPickerFocused = true
-        }
-    }
-
     private func restoreTimelineListFocus() {
-        focusedElement = nil
-        trackPickerFocused = false
-        timelineListFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            timelineListFocused = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            timelineListFocused = true
-        }
+        if !timelineListFocused { timelineListFocused = true }
     }
 }
 
@@ -689,19 +663,17 @@ private struct AddTrackView: View {
 
     @State private var trackName = ""
     @State private var trackKind = TimelineTrackKind.audio
-    @AccessibilityFocusState private var trackTypeFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Track")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-            Picker("Track Type", selection: trackKindBinding) {
+            Picker("Track Type", selection: $trackKind) {
                 ForEach(TimelineTrackKind.allCases) { kind in
                     Text(kind.title).tag(kind)
                 }
             }
-            .accessibilityFocused($trackTypeFocused)
             LabeledContent("Track Name") {
                 TextField("Track name", text: $trackName)
                     .labelsHidden()
@@ -714,26 +686,6 @@ private struct AddTrackView: View {
         }
         .padding(20)
         .frame(width: 380)
-    }
-
-    private var trackKindBinding: Binding<TimelineTrackKind> {
-        Binding(
-            get: { trackKind },
-            set: { value in
-                trackKind = value
-                restoreTrackTypeFocus()
-            }
-        )
-    }
-
-    private func restoreTrackTypeFocus() {
-        trackTypeFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            trackTypeFocused = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            trackTypeFocused = true
-        }
     }
 }
 

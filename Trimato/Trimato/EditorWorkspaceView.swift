@@ -221,7 +221,6 @@ struct EditorWorkspaceView: View {
             controller.requestTimelineFocusRestore(to: target)
         }
     }
-
 }
 
 private struct ProjectViewerView: View {
@@ -342,12 +341,7 @@ private struct ProjectViewerView: View {
             return
         }
         pendingProjectPlayheadFocus = false
-        projectPlayheadFocused = false
-        DispatchQueue.main.async {
-            if viewModel.canControlPlayback {
-                projectPlayheadFocused = true
-            }
-        }
+        if !projectPlayheadFocused { projectPlayheadFocused = true }
     }
 
     private func preparationChanged(_ isPreparing: Bool) {

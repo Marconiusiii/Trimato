@@ -20,7 +20,6 @@ struct AddTransitionView: View {
     @State private var presentedError: TransitionPresentedError?
     @State private var isSubmitting = false
     @State private var submissionTask: Task<Void, Never>?
-    @AccessibilityFocusState private var focusedPicker: TransitionPickerFocus?
     @AccessibilityFocusState private var progressFocused: Bool
 
     var body: some View {
@@ -115,12 +114,12 @@ struct AddTransitionView: View {
             Text(edge == .intro ? "Intro transition" : "Outro transition")
                 .font(.subheadline)
             if track?.kind == .video {
-                labeledVideoPicker(edge: edge, selection: videoTypeBinding(edge), values: videoTypes(for: edge))
+                labeledVideoPicker(selection: videoTypeBinding(edge), values: videoTypes(for: edge))
                 if hasLinkedAudio && !isWipe(videoTypeBinding(edge).wrappedValue) {
                     Toggle(audioToggleLabel(for: videoTypeBinding(edge).wrappedValue), isOn: audioInclusionBinding(edge))
                 }
             } else {
-                labeledAudioPicker(edge: edge, selection: audioTypeBinding(edge), values: audioTypes(for: edge))
+                labeledAudioPicker(selection: audioTypeBinding(edge), values: audioTypes(for: edge))
             }
             TransitionDurationField(
                 text: durationBinding(edge),
@@ -134,53 +133,24 @@ struct AddTransitionView: View {
 
     @ViewBuilder
     private func labeledVideoPicker(
-        edge: TimelineTransitionEdge,
         selection: Binding<VideoTransitionType>,
         values: [VideoTransitionType]
     ) -> some View {
-        Picker("Transition Type", selection: pickerBinding(selection, edge: edge)) {
+        Picker("Transition Type", selection: selection) {
             ForEach(values) { value in
                 Text(value.title).tag(value)
             }
         }
-        .accessibilityFocused($focusedPicker, equals: pickerFocus(for: edge))
     }
 
     private func labeledAudioPicker(
-        edge: TimelineTransitionEdge,
         selection: Binding<AudioTransitionType>,
         values: [AudioTransitionType]
     ) -> some View {
-        Picker("Transition Type", selection: pickerBinding(selection, edge: edge)) {
+        Picker("Transition Type", selection: selection) {
             ForEach(values) { value in
                 Text(value.title).tag(value)
             }
-        }
-        .accessibilityFocused($focusedPicker, equals: pickerFocus(for: edge))
-    }
-
-    private func pickerBinding<Value>(_ binding: Binding<Value>, edge: TimelineTransitionEdge) -> Binding<Value> {
-        Binding(
-            get: { binding.wrappedValue },
-            set: { value in
-                binding.wrappedValue = value
-                restorePickerFocus(for: edge)
-            }
-        )
-    }
-
-    private func pickerFocus(for edge: TimelineTransitionEdge) -> TransitionPickerFocus {
-        edge == .intro ? .intro : .outro
-    }
-
-    private func restorePickerFocus(for edge: TimelineTransitionEdge) {
-        let target = pickerFocus(for: edge)
-        focusedPicker = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            focusedPicker = target
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            focusedPicker = target
         }
     }
 
@@ -314,9 +284,4 @@ struct AddTransitionView: View {
         guard isBetween else { return .fade }
         return videoType == .fadeOutIn ? .fadeOutIn : .crossFade
     }
-}
-
-private enum TransitionPickerFocus: Hashable {
-    case intro
-    case outro
 }

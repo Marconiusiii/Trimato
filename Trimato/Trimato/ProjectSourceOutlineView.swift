@@ -386,22 +386,14 @@ struct ProjectSourceOutlineView: View {
         select(target)
         focusTask?.cancel()
         focusTask = Task { @MainActor in
-            keyboardFocusedItem = nil
-            focusedItem = nil
             await Task.yield()
             guard !Task.isCancelled else { return }
             proxy.scrollTo(target, anchor: .center)
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled else { return }
-            keyboardFocusedItem = target
-            focusedItem = target
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled else { return }
-            focusedItem = nil
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            keyboardFocusedItem = target
-            focusedItem = target
+            if NSWorkspace.shared.isVoiceOverEnabled {
+                if focusedItem != target { focusedItem = target }
+            } else {
+                keyboardFocusedItem = target
+            }
         }
     }
 

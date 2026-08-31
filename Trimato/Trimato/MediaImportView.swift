@@ -45,7 +45,6 @@ struct MediaImportView: View {
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled()
         .task {
-            try? await Task.sleep(for: .milliseconds(150))
             headingFocused = true
         }
     }

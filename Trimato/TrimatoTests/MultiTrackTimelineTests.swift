@@ -649,7 +649,6 @@ struct MultiTrackTimelineTests {
         #expect(controller.activeTimelineTrackID == secondTrackID)
         #expect(controller.timelineListFocusRestoreRequest == 0)
         #expect(controller.timelineFocusRestoreRequest == 1)
-        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
         #expect(TimelineAccessibility.clipsListLabel(trackName: "Music") == "Timeline Clips, Music track")
     }
 
@@ -801,7 +800,6 @@ struct MultiTrackTimelineTests {
         #expect(controller.selection == .project)
         #expect(controller.timelineFocusRestoreRequest == 0)
         #expect(controller.timelineListFocusRestoreRequest == 0)
-        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
 
         controller.positionActiveAdditionalTrackClip(edge: .tail, at: ProjectTime(seconds: 20))
         #expect(controller.project.timelineClip(id: clipID)?.timelineStart == ProjectTime(seconds: -40))
@@ -841,7 +839,6 @@ struct MultiTrackTimelineTests {
         #expect(controller.selection == .project)
         #expect(controller.timelineFocusRestoreRequest == 0)
         #expect(controller.timelineListFocusRestoreRequest == 0)
-        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
 
         controller.trimActiveTrackClip(edge: .tail, at: ProjectTime(seconds: 40))
 
@@ -851,7 +848,6 @@ struct MultiTrackTimelineTests {
         #expect(controller.selection == .project)
         #expect(controller.timelineFocusRestoreRequest == 0)
         #expect(controller.timelineListFocusRestoreRequest == 0)
-        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
     }
 
     @Test @MainActor func editorHeadTrimRemovesSourceHiddenBeforeProjectStart() throws {
@@ -894,7 +890,6 @@ struct MultiTrackTimelineTests {
 
         #expect(controller.activeTimelineTrackID == secondTrackID)
         #expect(controller.timelineListFocusRestoreRequest == 1)
-        #expect(controller.timelineTrackPickerFocusRestoreRequest == 0)
         #expect(controller.timelineFocusRestoreRequest == 0)
     }
 

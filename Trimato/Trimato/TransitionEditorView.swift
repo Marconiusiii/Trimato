@@ -5,8 +5,6 @@ struct TransitionEditorView: View {
     @State private var transitionName: String
     @State private var durationText: String
     @State private var validationMessage: String?
-    @State private var pickerFocusTask: Task<Void, Never>?
-    @AccessibilityFocusState private var typePickerFocused: Bool
     let contextDescription: String?
     let update: (TimelineTransition) -> Void
     let delete: () -> Void
@@ -57,9 +55,6 @@ struct TransitionEditorView: View {
         }
         .padding(20)
         .frame(width: 430)
-        .onDisappear {
-            pickerFocusTask?.cancel()
-        }
         .alert("Transition Could Not Be Updated", isPresented: Binding(
             get: { validationMessage != nil },
             set: { if !$0 { validationMessage = nil } }
@@ -80,14 +75,12 @@ struct TransitionEditorView: View {
                     let followsDefaultName = draft.normalizedCustomName == nil && transitionName == draft.defaultDisplayName
                     draft.kind = .video(newValue)
                     if followsDefaultName { transitionName = draft.defaultDisplayName }
-                    restoreTypePickerFocus()
                 }
             )) {
                 ForEach(videoTypes) { type in
                     Text(type.title).tag(type)
                 }
             }
-            .accessibilityFocused($typePickerFocused)
         case .audio(let current):
             Picker("Transition Type", selection: Binding(
                 get: { current },
@@ -95,27 +88,12 @@ struct TransitionEditorView: View {
                     let followsDefaultName = draft.normalizedCustomName == nil && transitionName == draft.defaultDisplayName
                     draft.kind = .audio(newValue)
                     if followsDefaultName { transitionName = draft.defaultDisplayName }
-                    restoreTypePickerFocus()
                 }
             )) {
                 ForEach(audioTypes) { type in
                     Text(type.title).tag(type)
                 }
             }
-            .accessibilityFocused($typePickerFocused)
-        }
-    }
-
-    private func restoreTypePickerFocus() {
-        pickerFocusTask?.cancel()
-        typePickerFocused = false
-        pickerFocusTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            guard !Task.isCancelled else { return }
-            typePickerFocused = true
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled else { return }
-            typePickerFocused = true
         }
     }
 

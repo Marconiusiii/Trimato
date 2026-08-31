@@ -32,7 +32,6 @@ final class ProjectController: ObservableObject {
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
     @Published private(set) var timelineFocusRestoreRequest = 0
-    @Published private(set) var timelineTrackPickerFocusRestoreRequest = 0
     @Published private(set) var timelineListFocusRestoreRequest = 0
     @Published private(set) var timelineContentRevision = 0
     @Published private(set) var applyingTransitionName: String?
@@ -593,10 +592,6 @@ final class ProjectController: ObservableObject {
     func requestTimelineFocusRestore(to element: TimelineElementSelection) {
         timelineFocusRestoreTarget = element
         timelineFocusRestoreRequest += 1
-    }
-
-    func requestTimelineTrackPickerFocusRestore() {
-        timelineTrackPickerFocusRestoreRequest += 1
     }
 
     func requestTimelineListFocusRestore() {

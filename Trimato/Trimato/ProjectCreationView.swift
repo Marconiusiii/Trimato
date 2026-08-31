@@ -202,12 +202,6 @@ struct ProjectCreationView: View {
     @State private var validationError: String?
     @AccessibilityFocusState private var headingFocused: Bool
     @AccessibilityFocusState private var validationErrorFocused: Bool
-    @AccessibilityFocusState private var focusedPicker: PickerFocus?
-
-    private enum PickerFocus: Hashable {
-        case resolution
-        case frameRate
-    }
 
     init(
         initialProject: TrimatoProject,
@@ -271,7 +265,6 @@ struct ProjectCreationView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .accessibilityFocused($focusedPicker, equals: .resolution)
 
                     if resolutionChoice == .custom {
                         LabeledContent("Width") {
@@ -292,7 +285,6 @@ struct ProjectCreationView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .accessibilityFocused($focusedPicker, equals: .frameRate)
 
                     if frameRateChoice == .custom {
                         LabeledContent("Custom Frame Rate") {
@@ -384,7 +376,6 @@ struct ProjectCreationView: View {
                 }
                 resolutionChoice = choice
                 validationError = nil
-                restorePickerFocus(.resolution)
             }
         )
     }
@@ -402,7 +393,6 @@ struct ProjectCreationView: View {
                 }
                 frameRateChoice = choice
                 validationError = nil
-                restorePickerFocus(.frameRate)
             }
         )
     }
@@ -449,15 +439,5 @@ struct ProjectCreationView: View {
                 isAspectRatioLocked = isLocked
             }
         )
-    }
-
-    private func restorePickerFocus(_ picker: PickerFocus) {
-        focusedPicker = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            focusedPicker = picker
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            focusedPicker = picker
-        }
     }
 }

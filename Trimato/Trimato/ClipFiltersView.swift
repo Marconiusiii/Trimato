@@ -16,24 +16,18 @@ struct ClipFiltersView: View {
                     if let index = context.filters.firstIndex(where: { $0.kind == kind }) {
                         ClipFilterControls(filter: $context.filters[index], remove: {
                             context.filters.removeAll { $0.kind == kind }
-                            restoreAddFocus()
+                            addFocused = true
                         })
                     }
                 }
             }
         }
-        .sheet(isPresented: $adding, onDismiss: restoreAddFocus) {
+        .sheet(isPresented: $adding) {
             AddClipFilterView(audio: context.audioSettings != nil, existing: context.filters.map(\.kind)) { kind in
                 context.filters.append(ClipFilter(kind: kind))
                 adding = false
             } cancel: { adding = false }
         }
-    }
-
-    private func restoreAddFocus() {
-        addFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { addFocused = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { addFocused = true }
     }
 }
 
@@ -43,7 +37,6 @@ private struct AddClipFilterView: View {
     let add: (ClipFilterKind) -> Void
     let cancel: () -> Void
     @State private var selection: ClipFilterKind?
-    @AccessibilityFocusState private var pickerFocused: Bool
     private var available: [ClipFilterKind] { ClipFilterKind.allCases.filter { $0.isAudio == audio && !existing.contains($0) } }
 
     var body: some View {
@@ -53,12 +46,9 @@ private struct AddClipFilterView: View {
             else {
                 Picker("Filter", selection: Binding(get: { selection ?? available.first }, set: { value in
                     selection = value
-                    pickerFocused = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { pickerFocused = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { pickerFocused = true }
                 })) {
                     ForEach(available) { Text($0.title).tag(Optional($0)) }
-                }.accessibilityFocused($pickerFocused)
+                }
                 Text((selection ?? available.first)?.description ?? "")
             }
             HStack {
@@ -73,7 +63,6 @@ private struct AddClipFilterView: View {
 private struct ClipFilterControls: View {
     @Binding var filter: ClipFilter
     let remove: () -> Void
-    @AccessibilityFocusState private var rotationFocused: Bool
 
     var body: some View {
         GroupBox(filter.kind.title) {
@@ -92,14 +81,9 @@ private struct ClipFilterControls: View {
                     Toggle("Reduce high-frequency hiss", isOn: $filter.lowPassEnabled)
                 }
                 if filter.kind == .cropOrientation {
-                    Picker("Rotation Clockwise", selection: Binding(get: { filter.rotation }, set: { value in
-                        filter.rotation = value
-                        rotationFocused = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { rotationFocused = true }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { rotationFocused = true }
-                    })) {
+                    Picker("Rotation Clockwise", selection: $filter.rotation) {
                         ForEach([0, 90, 180, 270], id: \.self) { Text("\($0) degrees").tag($0) }
-                    }.accessibilityFocused($rotationFocused)
+                    }
                     Toggle("Flip Horizontally", isOn: $filter.flipHorizontal)
                     Toggle("Flip Vertically", isOn: $filter.flipVertical)
                 }

@@ -35,7 +35,6 @@ struct ExportProgressSheet: View {
         .padding(24)
         .interactiveDismissDisabled()
         .task {
-            try? await Task.sleep(for: .milliseconds(150))
             progressFocused = true
         }
     }

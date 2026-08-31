@@ -19,13 +19,10 @@ struct SourceClipEditorView: View {
     @State private var loadedAssetID: UUID?
     @State private var preparationTask: Task<Void, Never>?
     @State private var cacheOwnerID = UUID()
-    @State private var placementFocusReturn: PlacementAction?
     @State private var audioPreviewTask: Task<Void, Never>?
     @State private var audioPreviewProgress: Double?
     @State private var audioPreviewErrorMessage: String?
     @State private var newTrackKind: NewTrackSourceKind?
-    @AccessibilityFocusState private var focusedPlacementControl: PlacementAction?
-    @AccessibilityFocusState private var newTrackMenuFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -102,7 +99,7 @@ struct SourceClipEditorView: View {
         .onChange(of: commandContext.audioSettings) { _, settings in
             scheduleAudioPreview(for: settings)
         }
-        .sheet(item: $commandContext.trackPlacementAction, onDismiss: restorePlacementControlFocus) { action in
+        .sheet(item: $commandContext.trackPlacementAction) { action in
             let audioOnly = commandContext.trackPlacementIsAudioOnly
             AddToTrackView(
                 commandContext: commandContext,
@@ -121,9 +118,8 @@ struct SourceClipEditorView: View {
                 },
                 cancel: commandContext.dismissTrackPlacement
             )
-            .onAppear { placementFocusReturn = action }
         }
-        .sheet(item: $newTrackKind, onDismiss: restoreNewTrackMenuFocus) { kind in
+        .sheet(item: $newTrackKind) { kind in
             NewTrackFromSourceView(
                 kind: kind,
                 suggestedTrackName: kind.suggestedTrackName(
@@ -172,15 +168,12 @@ struct SourceClipEditorView: View {
             Button(PlacementAction.append.title) { place(.append) }
                 .keyboardShortcut("e", modifiers: [])
                 .disabled(!commandContext.canPlace)
-                .accessibilityFocused($focusedPlacementControl, equals: .append)
             Button(PlacementAction.insert.title) { place(.insert) }
                 .keyboardShortcut("w", modifiers: [])
                 .disabled(!commandContext.canPlace)
-                .accessibilityFocused($focusedPlacementControl, equals: .insert)
             Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
                 .keyboardShortcut("d", modifiers: [])
                 .disabled(!commandContext.canPlace)
-                .accessibilityFocused($focusedPlacementControl, equals: .replaceRemainder)
             if currentAsset.hasVideo {
                 Menu("Insert on Top") {
                     Button("With Source Audio") { place(.cutawaySourceAudio) }
@@ -213,7 +206,6 @@ struct SourceClipEditorView: View {
                 }
             }
             .disabled(!commandContext.canPlace)
-            .accessibilityFocused($newTrackMenuFocused)
         }
     }
 
@@ -333,32 +325,6 @@ struct SourceClipEditorView: View {
             }
         }
     }
-
-    private func restorePlacementControlFocus() {
-        guard let target = placementFocusReturn else { return }
-        placementFocusReturn = nil
-        restorePlacementControlFocus(to: target)
-    }
-
-    private func restorePlacementControlFocus(to target: PlacementAction) {
-        focusedPlacementControl = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            focusedPlacementControl = target
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            focusedPlacementControl = target
-        }
-    }
-
-    private func restoreNewTrackMenuFocus() {
-        newTrackMenuFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            newTrackMenuFocused = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            newTrackMenuFocused = true
-        }
-    }
 }
 
 private struct AddToTrackView: View {
@@ -375,7 +341,6 @@ private struct AddToTrackView: View {
 
     @State private var selectedTrackID: UUID?
     @State private var newTrackName = ""
-    @AccessibilityFocusState private var trackPickerFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -383,12 +348,11 @@ private struct AddToTrackView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
-            Picker("Track", selection: trackBinding) {
+            Picker("Track", selection: $selectedTrackID) {
                 ForEach(tracks) { track in
                     Text(track.name).tag(Optional(track.id))
                 }
             }
-            .accessibilityFocused($trackPickerFocused)
 
             Button(action.selectedTrackButtonTitle(audioOnly: audioOnly)) {
                 guard let selectedTrackID else { return }
@@ -429,26 +393,6 @@ private struct AddToTrackView: View {
                 message: Text(error.message),
                 dismissButton: .default(Text("OK"))
             )
-        }
-    }
-
-    private var trackBinding: Binding<UUID?> {
-        Binding(
-            get: { selectedTrackID },
-            set: { newValue in
-                selectedTrackID = newValue
-                restoreTrackPickerFocus()
-            }
-        )
-    }
-
-    private func restoreTrackPickerFocus() {
-        trackPickerFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            trackPickerFocused = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            trackPickerFocused = true
         }
     }
 }
