@@ -317,9 +317,13 @@ struct ProjectSourceOutlineView: View {
         switch item {
         case .asset(let id):
             controller.selection = .asset(id)
+            controller.setProjectInfoTarget(.selection(.asset(id)))
         case .project, .timeline, .clips:
             controller.selection = .project
-        case .folder, .generators, .none:
+            controller.setProjectInfoTarget(.selection(.project))
+        case .folder(let id):
+            controller.setProjectInfoTarget(.folder(id))
+        case .generators, .none:
             break
         }
     }

@@ -142,37 +142,18 @@ struct EditorWorkspaceView: View {
                 }
                 .frame(minHeight: 360)
 
-                HSplitView {
-                    MacEditorPane("Timeline") {
-                        ProjectTimelineView(
-                            controller: controller,
-                            openClipEditor: clipEditorWindows.open,
-                            workspacePaneLinks: workspacePaneLinks
-                        )
-                    }
-                        .frame(minWidth: 460)
-                    MacEditorPane("Inspector") {
-                        VStack(spacing: 0) {
-                            Text("Inspector")
-                                .font(.headline)
-                                .accessibilityAddTraits(.isHeader)
-                                .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .background(EditorTheme.controlSurface)
-
-                            Divider()
-
-                            ClipInspectorView(controller: controller)
-                        }
-                    }
-                        .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
+                MacEditorPane("Timeline") {
+                    ProjectTimelineView(
+                        controller: controller,
+                        openClipEditor: clipEditorWindows.open,
+                        workspacePaneLinks: workspacePaneLinks
+                    )
                 }
+                .frame(minWidth: 460)
                 .frame(minHeight: 240)
             }
         }
-        .frame(minWidth: 1_020, minHeight: 720)
+        .frame(minWidth: 800, minHeight: 720)
     }
 
     @ViewBuilder
@@ -258,7 +239,7 @@ struct EditorWorkspaceView: View {
         }
         if restoresEditorFocusAfterTransitionSheet {
             restoresEditorFocusAfterTransitionSheet = false
-            controller.requestEditorFocusRestore()
+            controller.requestEditorFocusRestoreIfNeeded()
         } else if let target = timelineFocusAfterTransitionSheet {
             timelineFocusAfterTransitionSheet = nil
             controller.requestTimelineFocusRestore(to: target)
@@ -307,6 +288,9 @@ struct ProjectViewerView: View {
         .focusedObject(viewModel)
         .onAppear {
             controller.installProjectPlayer(viewModel)
+            controller.installEditorAccessibilityFocusProvider { [weak focusScope] in
+                focusScope?.containsAccessibilityFocus == true
+            }
             viewModel.scopeKeyboardCommands { [weak focusScope, weak controller] in
                 (NSWorkspace.shared.isVoiceOverEnabled || controller?.timelineHasKeyboardFocus != true) &&
                     focusScope?.containsAccessibilityFocus == true
@@ -366,6 +350,9 @@ struct ProjectViewerView: View {
         }
         .onChange(of: controller.editorFocusRestoreRequest) {
             restoreProjectPlayheadFocus()
+        }
+        .onChange(of: projectPlayheadFocused) { _, focused in
+            if focused { controller.setProjectInfoTarget(.editor) }
         }
         // Timeline edits rebuild playback in the background. They must never
         // present a sheet or announce preparation over the active Clip Editor.

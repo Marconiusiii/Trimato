@@ -162,7 +162,7 @@ The primary video and audio tracks retain magnetic editing, so operations that r
 
 The protected primary video and audio tracks retain the standard placement commands. Insert and Split splits the clip under the playhead and preserves both sides. After insertion, the shared project playhead advances to the incoming clip's end, so consecutive insertions stay in the order they were made. Insert and Overwrite preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips after the inserted clip. User-created tracks can be added, renamed, reordered, and deleted independently. A cutaway requires a visual source. It changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
 
-Current identifies the clip beneath the playhead on the displayed track. Selected identifies only a clip picked up for movement. VoiceOver focus updates Inspector and the target for clip commands without moving the playhead or picking up a clip. In a gap, no clip is marked Current, even though Editor's C command can open the next clip.
+Current identifies the clip beneath the playhead on the displayed track. Selected identifies only a clip picked up for movement. VoiceOver focus updates the target for clip commands and Command-I Get Info without moving the playhead or picking up a clip. In a gap, no clip is marked Current, even though Editor's C command can open the next clip.
 
 During pickup-and-drop movement, the live timeline stays unchanged until drop. Primary-track arrows announce the proposed list position; additional-track nudges announce the proposed start frame. Ordinary navigation does not announce list positions. An immediate nudge changes only the focused clip's time and any linked audio that moves with picture. Neighboring clips stay in place. Nudges cannot overlap or cross another clip on the same track, but edges may touch. A linked-track collision also blocks the move. Clips with attached transitions must have those transitions removed before nudging. A project without a defined frame rate uses 30 fps for nudges.
 
@@ -172,7 +172,7 @@ Every primary clip and cutaway has a distinct displayed timeline name. Repeated 
 
 ## Tracks and transitions
 
-VoiceOver focus in Timeline clips identifies the target clip or transition for timeline commands and loads the same item into Inspector. It does not set the Current or Selected movement states. Change the Track picker, or press Option-Command-Up Arrow and Option-Command-Down Arrow, to move between tracks without turning the complete project into one long list. When track selection begins in Editor, Trimato announces the active track and its direct-edit clip without moving VoiceOver into Timeline.
+VoiceOver focus in Timeline clips identifies the target clip or transition for timeline commands and Command-I Get Info. It does not set the Current or Selected movement states. Change the Track picker, or press Option-Command-Up Arrow and Option-Command-Down Arrow, to move between tracks without turning the complete project into one long list. When track selection begins in Editor, Trimato announces the active track and its direct-edit clip without moving VoiceOver into Timeline.
 
 The direct-edit clip is remembered separately for each track. When no clip has been remembered, Trimato resolves the clip at the Editor playhead, preferring an incoming clip at an edit point, then a clip containing the playhead, the next clip, or the last earlier clip. Command-[ and Command-] trim that clip to the shared project playhead while VoiceOver stays in Editor. Plain [ and ] reposition the complete clip on an additional track without trimming its stored source. Press C from Editor to open the direct-edit clip. Timeline clipboard commands operate only on the focused track item and require matching video or audio track types.
 
@@ -223,7 +223,7 @@ Audio-only timeline sections display as black picture in a video project while t
 
 Custom projects provide common landscape, vertical, square, and portrait resolution presets, plus standard frame rates from 23.976 through 120 fps. Choose Custom dimensions or Custom frame rate when a preset does not match the intended output. Custom dimensions accept even width and height values from 2 through 8,192 pixels, and custom frame rates accept values from 1 through 240 fps.
 
-When entering custom dimensions, Lock aspect ratio is on initially. Changing either dimension calculates the other from the locked ratio and rounds the calculated value to an even pixel count. Turn the checkbox off to set width and height independently, including unconventional project frames. Turning it back on locks the dimensions at their current ratio. The Inspector identifies proportional fitting and frame-rate conversion when a selected source differs from the project.
+When entering custom dimensions, Lock aspect ratio is on initially. Changing either dimension calculates the other from the locked ratio and rounds the calculated value to an even pixel count. Turn the checkbox off to set width and height independently, including unconventional project frames. Turning it back on locks the dimensions at their current ratio. Select a source and press Command-I to read its proportional fitting and frame-rate conversion.
 
 ## Supported media
 
@@ -273,10 +273,10 @@ Accessibility is part of Trimato's editing model rather than an additional mode.
 - The complete editor can be operated from the keyboard.
 - Native SwiftUI controls retain their standard VoiceOver roles and interactions.
 - Visible section headings include VoiceOver heading traits.
-- The Project Browser, Clip Editor, Timeline clips, and Inspector are labeled sections in structural source order. Linked browser-editor and timeline-inspector regions support VoiceOver's linked-item navigation.
-- The Track picker changes the track context for the linear Timeline clips list. VoiceOver focus on a clip or transition selects that item and loads it into Inspector.
+- The Project Browser, Editor, and Timeline clips are labeled sections in structural source order. Linked regions support VoiceOver's linked-item navigation.
+- The Track picker changes the track context for the linear Timeline clips list. VoiceOver focus on a clip or transition makes it the target for timeline commands and Command-I Get Info.
 - Quick transition sheets return VoiceOver focus to the Editor after applying or canceling so repeated playback and editing remain in context.
-- Timeline list items expose names and positions without continuously speaking start, end, and duration values. Exact timing remains available on demand in the inspector.
+- Timeline list items expose names and positions without continuously speaking start, end, and duration values. Press Command-I for exact timing and other information about the focused item.
 - Timecode updates do not continuously interrupt VoiceOver speech.
 - Import preparation appears in a native modal sheet so the inactive editor does not remain in the active VoiceOver context.
 - Import and export operations provide status, progress, cancellation, and restrained spoken announcements.

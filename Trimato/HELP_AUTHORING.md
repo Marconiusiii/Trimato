@@ -10,7 +10,7 @@ Each Help topic is a separate HTML file. Open the file whose name matches the to
 
 - `index.html`: Help landing page and topic links.
 - `getting-started.html`: Complete first-project workflow.
-- `workspace.html`: Project, Editor, Timeline, and Inspector.
+- `workspace.html`: Project, Editor, Timeline, and Command-I Get Info.
 - `projects-and-media.html`: Projects, importing, folders, and relinking.
 - `storage-and-temporary-media.html`: Projects, playback proxies, temporary renders, storage limits, and cleanup.
 - `clip-editor.html`: Clip editing and clip placement.

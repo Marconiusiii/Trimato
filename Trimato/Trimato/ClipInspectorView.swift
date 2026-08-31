@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 nonisolated struct ProjectMediaConformance: Equatable, Sendable {
@@ -6,23 +7,20 @@ nonisolated struct ProjectMediaConformance: Equatable, Sendable {
 
     static func describe(asset: MediaAssetRecord, projectFormat: ProjectFormat) -> Self {
         var fit: String?
-        if let sourceWidth = asset.naturalWidth,
-           let sourceHeight = asset.naturalHeight,
-           let projectWidth = projectFormat.width,
-           let projectHeight = projectFormat.height {
+        if let sourceWidth = asset.naturalWidth, let sourceHeight = asset.naturalHeight,
+           let projectWidth = projectFormat.width, let projectHeight = projectFormat.height {
             let sourceRatio = Double(sourceWidth) / Double(max(sourceHeight, 1))
             let projectRatio = Double(projectWidth) / Double(max(projectHeight, 1))
             if abs(sourceRatio - projectRatio) > 0.001 {
-                let bars = sourceRatio < projectRatio ? "pillarboxed on the left and right" : "letterboxed above and below"
+                let bars = sourceRatio < projectRatio
+                    ? "pillarboxed on the left and right" : "letterboxed above and below"
                 fit = "Proportional Fit; \(bars) in the \(projectWidth) by \(projectHeight) project frame. The complete image remains visible without stretching or cropping."
             } else if sourceWidth != projectWidth || sourceHeight != projectHeight {
                 fit = "Proportional Fit from \(sourceWidth) by \(sourceHeight) to the \(projectWidth) by \(projectHeight) project frame without stretching or cropping."
             }
         }
-
         var frameRateDescription: String?
-        if let sourceRate = asset.frameRate,
-           let projectRate = projectFormat.frameRate,
+        if let sourceRate = asset.frameRate, let projectRate = projectFormat.frameRate,
            abs(sourceRate - projectRate) > 0.01 {
             frameRateDescription = "\(formatRate(sourceRate)) fps source rendered at the \(formatRate(projectRate)) fps project rate. Clip speed and audio duration remain unchanged."
         }
@@ -34,114 +32,197 @@ nonisolated struct ProjectMediaConformance: Equatable, Sendable {
     }
 }
 
-struct ClipInspectorView: View {
-    @ObservedObject var controller: ProjectController
+enum ProjectInfoTarget: Hashable, Sendable {
+    case selection(EditorSelection)
+    case folder(UUID)
+    case editor
+}
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(inspectorContext)
-                .font(.subheadline.weight(.semibold))
+struct ProjectInfoRow: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let label: String
+    let value: String
 
-            inspectorDetails
+    init(_ label: String, _ value: String, id: String? = nil) {
+        self.id = id ?? label
+        self.label = label
+        self.value = value
+    }
+}
 
-            Spacer(minLength: 0)
+struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
+    let id: UUID
+    let title: String
+    let rows: [ProjectInfoRow]
+
+    init(id: UUID = UUID(), title: String, rows: [ProjectInfoRow]) {
+        self.id = id
+        self.title = title
+        self.rows = rows
+    }
+
+    static func make(target: ProjectInfoTarget, project: TrimatoProject,
+                     playhead: ProjectTime, activeTrackID: UUID?) -> Self {
+        switch target {
+        case .editor:
+            let activeTrack = activeTrackID.flatMap(project.track(id:))
+            let directClip = activeTrack.flatMap { track in
+                track.sortedClips.first(where: { $0.timelineStart == playhead }) ??
+                    track.sortedClips.first(where: { playhead >= $0.timelineStart && playhead < $0.timelineEnd })
+            }
+            var rows = [ProjectInfoRow("Project Time", ProjectTimecodeFormatter.string(playhead))]
+            if let activeTrack { rows.append(ProjectInfoRow("Track", activeTrack.name)) }
+            if let directClip { rows.append(ProjectInfoRow("Clip", directClip.displayName)) }
+            rows.append(ProjectInfoRow("Project", project.name))
+            return Self(title: "Editor", rows: rows)
+        case .folder(let id):
+            guard let folder = project.folders.first(where: { $0.id == id }) else {
+                return projectSnapshot(project)
+            }
+            return Self(title: folder.name, rows: [
+                ProjectInfoRow("Type", "Folder"),
+                ProjectInfoRow("Clips", "\(folder.assetIDs.count)")
+            ])
+        case .selection(let selection):
+            return selectionSnapshot(selection, project: project)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(10)
     }
 
-    private var inspectorContext: String {
-        if let transition = controller.selectedTransition { return transition.displayName }
-        if case .track(let id) = controller.selection, let track = controller.project.track(id: id) { return track.name }
-        if let clip = controller.selectedTimelineClip { return clip.displayName }
-        if let cutaway = controller.selectedCutaway { return cutaway.displayName }
-        if let asset = controller.selectedAsset { return asset.name }
-        return "Project Details"
+    private static func selectionSnapshot(_ selection: EditorSelection, project: TrimatoProject) -> Self {
+        switch selection {
+        case .asset(let id):
+            guard let asset = project.asset(id: id) else { return projectSnapshot(project) }
+            return assetSnapshot(asset, project: project)
+        case .timelineClip(let id):
+            guard let clip = project.timelineClip(id: id) else { return projectSnapshot(project) }
+            var rows = clipRows(clip, project: project)
+            if let asset = project.asset(id: clip.assetID) {
+                rows.append(contentsOf: mediaRows(asset, project: project))
+            }
+            return Self(title: clip.displayName, rows: rows)
+        case .cutaway(let id):
+            guard let cutaway = project.cutaways.first(where: { $0.id == id }) else {
+                return projectSnapshot(project)
+            }
+            var rows = [
+                ProjectInfoRow("Timeline Start", ProjectTimecodeFormatter.string(cutaway.start)),
+                ProjectInfoRow("Length", ProjectTimecodeFormatter.string(cutaway.duration)),
+                ProjectInfoRow("Audio", cutaway.audioMode == .sourceAudio ? "Source Audio" : "Primary Audio")
+            ]
+            if let asset = project.asset(id: cutaway.assetID) {
+                rows.append(contentsOf: mediaRows(asset, project: project))
+            }
+            return Self(title: cutaway.displayName, rows: rows)
+        case .transition(let id):
+            guard let transition = project.transition(id: id) else { return projectSnapshot(project) }
+            let position: String
+            switch transition.edge {
+            case .intro: position = "Fade In"
+            case .outro: position = "Fade Out"
+            case .between: position = "Between Clips"
+            }
+            return Self(title: transition.displayName, rows: [
+                ProjectInfoRow("Duration", ProjectTimecodeFormatter.string(transition.duration)),
+                ProjectInfoRow("Position", position)
+            ])
+        case .track(let id):
+            guard let track = project.track(id: id) else { return projectSnapshot(project) }
+            return Self(title: track.name, rows: [
+                ProjectInfoRow("Type", track.kind.title),
+                ProjectInfoRow("Clips", "\(track.clips.count)")
+            ])
+        case .project:
+            return projectSnapshot(project)
+        }
     }
 
-    @ViewBuilder
-    private var inspectorDetails: some View {
-        if let transition = controller.selectedTransition {
-            inspectorRow("Duration", ProjectTimecodeFormatter.string(transition.duration))
-            inspectorRow("Position", transition.edge == .between ? "Between Clips" : transition.edge == .intro ? "Intro" : "Outro")
-        } else if case .track(let id) = controller.selection, let track = controller.project.track(id: id) {
-            inspectorRow("Type", track.kind.title)
-            inspectorRow("Clips", "\(track.clips.count)")
-        } else if let clip = controller.selectedTimelineClip {
-            inspectorRow("Length", ProjectTimecodeFormatter.string(clip.duration))
-            if controller.project.tracks.contains(where: {
-                $0.role == .additional && $0.clips.contains { $0.id == clip.id }
-            }) {
-                inspectorRow("Timeline Start", ProjectTimecodeFormatter.string(clip.visibleTimelineStart))
-                if clip.hiddenBeforeTimeline.isPositive {
-                    inspectorRow("Hidden Before Timeline", ProjectTimecodeFormatter.string(clip.hiddenBeforeTimeline))
-                    inspectorRow("Visible Length", ProjectTimecodeFormatter.string(clip.visibleDuration))
-                }
-            } else if let start = controller.project.startTime(of: clip.id) {
-                inspectorRow("Timeline Start", ProjectTimecodeFormatter.string(start))
-            }
-            inspectorRow("Source Segments", "\(clip.segments.count)")
-            if controller.project.tracks.contains(where: { $0.kind == .audio && $0.clips.contains { $0.id == clip.id } }) {
-                inspectorRow("Gain", "\(clip.audioSettings.gainDecibels.formatted()) dB")
-            }
-            if let asset = controller.project.asset(id: clip.assetID) {
-                resolutionRows(for: asset)
-            }
-        } else if let cutaway = controller.selectedCutaway {
-            inspectorRow("Timeline Start", ProjectTimecodeFormatter.string(cutaway.start))
-            inspectorRow("Length", ProjectTimecodeFormatter.string(cutaway.duration))
-            inspectorRow("Audio", cutaway.audioMode == .sourceAudio ? "Source Audio" : "Primary Audio")
-            if let asset = controller.project.asset(id: cutaway.assetID) {
-                resolutionRows(for: asset)
-            }
-        } else if let asset = controller.selectedAsset {
-            inspectorRow("Length", ProjectTimecodeFormatter.string(asset.editedDuration))
-            resolutionRows(for: asset)
-            inspectorRow("Status", controller.resolveURL(for: asset) == nil ? "Offline" : "Ready")
-            if controller.resolveURL(for: asset) == nil {
-                Button("Relink Media\u{2026}") { controller.relinkSelectedAsset() }
-            }
+    private static func projectSnapshot(_ project: TrimatoProject) -> Self {
+        var rows = [
+            ProjectInfoRow("Name", project.name),
+            ProjectInfoRow("Length", ProjectTimecodeFormatter.string(project.duration))
+        ]
+        if let target = project.targetDuration {
+            rows.append(ProjectInfoRow("Target Length", ProjectTimecodeFormatter.string(target)))
+        }
+        if let width = project.format.width, let height = project.format.height {
+            rows.append(ProjectInfoRow("Resolution", "\(width) by \(height)"))
         } else {
-            inspectorRow("Name", controller.project.name)
-            inspectorRow("Length", ProjectTimecodeFormatter.string(controller.project.duration))
-            if let target = controller.project.targetDuration {
-                inspectorRow("Target Length", ProjectTimecodeFormatter.string(target))
-            }
-            if let width = controller.project.format.width,
-               let height = controller.project.format.height {
-                inspectorRow("Resolution", "\(width) by \(height)")
-            } else {
-                inspectorRow("Resolution", "Automatic from First Clip")
-            }
-            if let frameRate = controller.project.format.frameRate {
-                inspectorRow("Frame Rate", frameRate.formatted())
-            }
-            inspectorRow("Total Clips", "\(controller.project.tracks.reduce(0) { $0 + $1.clips.count })")
+            rows.append(ProjectInfoRow("Resolution", "Automatic from First Clip"))
         }
+        if let frameRate = project.format.frameRate {
+            rows.append(ProjectInfoRow("Frame Rate", frameRate.formatted()))
+        }
+        rows.append(ProjectInfoRow("Total Clips", "\(project.tracks.reduce(0) { $0 + $1.clips.count })"))
+        return Self(title: "Project Info", rows: rows)
     }
 
-    @ViewBuilder
-    private func resolutionRows(for asset: MediaAssetRecord) -> some View {
+    private static func assetSnapshot(_ asset: MediaAssetRecord, project: TrimatoProject) -> Self {
+        var rows = [ProjectInfoRow("Length", ProjectTimecodeFormatter.string(asset.editedDuration))]
+        rows.append(contentsOf: mediaRows(asset, project: project))
+        return Self(title: asset.name, rows: rows)
+    }
+
+    private static func clipRows(_ clip: TimelineClip, project: TrimatoProject) -> [ProjectInfoRow] {
+        var rows = [ProjectInfoRow("Length", ProjectTimecodeFormatter.string(clip.duration))]
+        if project.tracks.contains(where: {
+            $0.role == .additional && $0.clips.contains { $0.id == clip.id }
+        }) {
+            rows.append(ProjectInfoRow("Timeline Start", ProjectTimecodeFormatter.string(clip.visibleTimelineStart)))
+            if clip.hiddenBeforeTimeline.isPositive {
+                rows.append(ProjectInfoRow("Hidden Before Timeline", ProjectTimecodeFormatter.string(clip.hiddenBeforeTimeline)))
+                rows.append(ProjectInfoRow("Visible Length", ProjectTimecodeFormatter.string(clip.visibleDuration)))
+            }
+        } else if let start = project.startTime(of: clip.id) {
+            rows.append(ProjectInfoRow("Timeline Start", ProjectTimecodeFormatter.string(start)))
+        }
+        rows.append(ProjectInfoRow("Source Segments", "\(clip.segments.count)"))
+        if project.tracks.contains(where: { $0.kind == .audio && $0.clips.contains { $0.id == clip.id } }) {
+            rows.append(ProjectInfoRow("Gain", "\(clip.audioSettings.gainDecibels.formatted()) dB"))
+        }
+        return rows
+    }
+
+    private static func mediaRows(_ asset: MediaAssetRecord, project: TrimatoProject) -> [ProjectInfoRow] {
+        var rows: [ProjectInfoRow] = []
         if let width = asset.naturalWidth, let height = asset.naturalHeight {
-            inspectorRow("Resolution", "\(width) by \(height)")
+            rows.append(ProjectInfoRow("Resolution", "\(width) by \(height)"))
         }
         if let frameRate = asset.frameRate {
-            inspectorRow("Frame Rate", frameRate.formatted())
+            rows.append(ProjectInfoRow("Frame Rate", frameRate.formatted()))
         }
-        let conformance = ProjectMediaConformance.describe(
-            asset: asset,
-            projectFormat: controller.project.format
-        )
-        if let fit = conformance.fit {
-            inspectorRow("Project Fit", fit)
-        }
+        let conformance = ProjectMediaConformance.describe(asset: asset, projectFormat: project.format)
+        if let fit = conformance.fit { rows.append(ProjectInfoRow("Project Fit", fit)) }
         if let frameRate = conformance.frameRate {
-            inspectorRow("Frame Rate Conversion", frameRate)
+            rows.append(ProjectInfoRow("Frame Rate Conversion", frameRate))
         }
+        return rows
     }
+}
 
-    private func inspectorRow(_ label: String, _ value: String) -> some View {
-        Text("\(label): \(value)")
-            .frame(maxWidth: .infinity, alignment: .leading)
+struct ProjectInfoView: View {
+    let snapshot: ProjectInfoSnapshot
+    @AccessibilityFocusState private var headingFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(snapshot.title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($headingFocused)
+            ForEach(snapshot.rows) { row in
+                LabeledContent(row.label, value: row.value)
+            }
+            HStack {
+                Spacer()
+                Button("Close") { NSApp.keyWindow?.performClose(nil) }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 440)
+        .task {
+            await Task.yield()
+            headingFocused = true
+        }
     }
 }

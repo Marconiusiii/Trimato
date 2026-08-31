@@ -10,18 +10,13 @@ final class EditorAccessibilityFocusScope: ObservableObject {
 
     var containsAccessibilityFocus: Bool {
         guard let boundaryView, let window = boundaryView.window, window.isKeyWindow,
-              let focusedElement = NSApp.accessibilityFocusedUIElement as? NSObject else {
-            return false
-        }
-
-        if TimelineKeyboardFocus.isInTimeline { return false }
+              let focusedElement = NSApp.accessibilityFocusedUIElement as? NSObject else { return false }
         if hasEditorIdentifier(focusedElement) { return true }
+        if TimelineKeyboardFocus.isInTimeline { return false }
         if focusedElement === boundaryView { return true }
         let frameSelector = NSSelectorFromString("accessibilityFrame")
         guard focusedElement.responds(to: frameSelector),
-              let frameValue = focusedElement.value(forKey: "accessibilityFrame") as? NSValue else {
-            return false
-        }
+              let frameValue = focusedElement.value(forKey: "accessibilityFrame") as? NSValue else { return false }
         let focusedFrame = frameValue.rectValue
         guard !focusedFrame.isEmpty else { return false }
         let windowFrame = boundaryView.convert(boundaryView.bounds, to: nil)

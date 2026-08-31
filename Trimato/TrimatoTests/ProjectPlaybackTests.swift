@@ -7,6 +7,17 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
+    @Test func editorFocusRestoreIsRequestedOnlyWhenNativeFocusDidNotReturn() {
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        controller.installEditorAccessibilityFocusProvider { true }
+        controller.requestEditorFocusRestoreIfNeeded()
+        #expect(controller.editorFocusRestoreRequest == 0)
+
+        controller.installEditorAccessibilityFocusProvider { false }
+        controller.requestEditorFocusRestoreIfNeeded()
+        #expect(controller.editorFocusRestoreRequest == 1)
+    }
+
     @Test func absoluteTrackArrowsWorkWithoutPickupAndPreserveVoiceOverNavigation() throws {
         for key: UInt16 in [123, 124, 125, 126] {
             #expect(TimelineKeyAction.resolve(keyCode: key, modifiers: [], isMoving: false, allowsNudging: true) == (key == 123 || key == 126 ? .earlier : .later))

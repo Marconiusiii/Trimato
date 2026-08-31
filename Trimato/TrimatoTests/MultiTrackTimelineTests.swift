@@ -9,6 +9,43 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MultiTrackTimelineTests {
+    @Test func deletingTimelineClipCanSelectTheSurvivingPrecedingClipWithoutProjectInterim() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .video)
+        let first = try project.append(asset: asset, segments: [segment(0, 2)], toTrack: track)
+        let second = try project.append(asset: asset, segments: [segment(2, 2)], toTrack: track)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+
+        controller.deleteTimelineClip(id: second, selecting: .timelineClip(first))
+
+        #expect(controller.project.timelineClip(id: second) == nil)
+        #expect(controller.selection == .timelineClip(first))
+        #expect(controller.projectInfoSnapshot().title == controller.project.timelineClip(id: first)?.displayName)
+    }
+
+    @Test func deletingTransitionCanSelectItsSurvivingTimelineClipWithoutProjectInterim() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .video)
+        let first = try project.append(asset: asset, segments: [segment(0, 5)], toTrack: track)
+        let second = try project.append(asset: asset, segments: [segment(5, 5)], toTrack: track)
+        let transition = TimelineTransition(
+            trackID: track, edge: .between, kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1), leadingClipID: first, trailingClipID: second
+        )
+        try project.addTransition(transition)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+
+        controller.deleteTransition(id: transition.id, selecting: .timelineClip(second))
+
+        #expect(controller.project.transition(id: transition.id) == nil)
+        #expect(controller.selection == .timelineClip(second))
+        #expect(controller.projectInfoSnapshot().title == controller.project.timelineClip(id: second)?.displayName)
+    }
+
     @Test(arguments: [24.0, 25.0, 30_000.0 / 1_001.0, 60.0])
     func plainArrowsNudgeFocusedAdditionalClipOneProjectFrame(frameRate: Double) throws {
         let asset = fixtureAsset(name: "Effect", duration: 10)
@@ -24,7 +61,7 @@ struct MultiTrackTimelineTests {
         controller.timelinePlayhead = ProjectTime(seconds: 3)
         controller.focusTimelineElement(.clip(second))
         let focusRequests = controller.timelineFocusRestoreRequest
-        // The event target wins even if the Inspector was on another clip.
+        // The event target wins even if another clip was the prior Get Info target.
         controller.moveFocusedTimelineClip(id: first, by: 1)
         #expect(controller.project.timelineClip(id: first)?.timelineStart == ProjectTime(seconds: 1) + ProjectTime(seconds: 1 / frameRate))
         #expect(controller.project.timelineClip(id: second) == project.timelineClip(id: second))

@@ -162,7 +162,10 @@ struct ProjectTimelineView: View {
                 },
                 delete: {
                     transitionFocusReturn = fallbackFocusAfterDeleting(transition)
-                    controller.deleteTransition(id: transition.id)
+                    controller.deleteTransition(
+                        id: transition.id,
+                        selecting: editorSelection(for: transitionFocusReturn) ?? .project
+                    )
                     editingTransition = nil
                 },
                 cancel: { editingTransition = nil }
@@ -440,6 +443,14 @@ struct ProjectTimelineView: View {
         return nil
     }
 
+    private func editorSelection(for element: TimelineElementSelection?) -> EditorSelection? {
+        switch element {
+        case .clip(let id): .timelineClip(id)
+        case .transition(let id): .transition(id)
+        case nil: nil
+        }
+    }
+
     private func restoreTimelineElementFocus() {
         guard let target = transitionFocusReturn else { return }
         transitionFocusReturn = nil
@@ -497,7 +508,7 @@ struct ProjectTimelineView: View {
     private func deleteTimelineTransition(_ id: UUID) {
         guard let transition = controller.project.transition(id: id) else { return }
         let target = fallbackFocusAfterDeleting(transition)
-        controller.deleteTransition(id: id)
+        controller.deleteTransition(id: id, selecting: editorSelection(for: target) ?? .project)
         if let target {
             restoreTimelineElementFocus(to: target)
         }
@@ -560,8 +571,10 @@ struct ProjectTimelineView: View {
         let fallback = fallbackFocusAfterDeletingClip(clipID)
         clipPendingDeletion = nil
         if confirmed {
-            controller.selection = .timelineClip(clipID)
-            controller.deleteSelection()
+            controller.deleteTimelineClip(
+                id: clipID,
+                selecting: editorSelection(for: fallback) ?? .project
+            )
         }
         // A cancelled or failed deletion returns to the original row.
         let target: TimelineElementSelection? = controller.project.timelineClip(id: clipID) != nil

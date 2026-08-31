@@ -58,9 +58,14 @@ extension View {
 
 private struct OperationProgressContent: View {
     let operation: OperationProgress
+    @AccessibilityFocusState private var headingFocused: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(operation.title).font(.headline).accessibilityAddTraits(.isHeader)
+            Text(operation.title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($headingFocused)
             if let detail = operation.detail { Text(detail) }
             if let progress = operation.progress, progress.isFinite {
                 ProgressView(value: min(max(progress, 0), 1), total: 1)
@@ -75,6 +80,10 @@ private struct OperationProgressContent: View {
         .padding(24)
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
+        .task {
+            await Task.yield()
+            headingFocused = true
+        }
     }
 }
 
@@ -196,8 +205,8 @@ struct OperationProgressBridge: NSViewRepresentable {
         }
 
         private func presentIfPossible() {
-            guard panel == nil, let operation = pending, let parent,
-                  NSApp.isActive, parent.isKeyWindow, parent.attachedSheet == nil else { return }
+            guard panel == nil, let operation = pending, let parent else { return }
+            guard NSApp.isActive, parent.isKeyWindow, parent.attachedSheet == nil else { return }
             let hosting = NSHostingController(rootView: OperationProgressContent(operation: displayed(operation)))
             let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 448, height: 180),
                                 styleMask: [.titled], backing: .buffered, defer: false)

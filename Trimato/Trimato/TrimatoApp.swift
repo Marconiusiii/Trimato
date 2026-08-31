@@ -23,6 +23,7 @@ struct TrimatoApp: App {
         .commands {
             ProjectFileCommands()
             ContextualExportCommands()
+            GetInfoCommands()
             FeedbackCommands()
             CommandGroup(replacing: .appInfo) {
                 Button("About Trimato") {
@@ -205,6 +206,13 @@ struct TrimatoApp: App {
         }
         .windowResizability(.contentSize)
 
+        WindowGroup("Get Info", id: "get-info", for: ProjectInfoSnapshot.self) { $snapshot in
+            if let snapshot {
+                ProjectInfoView(snapshot: snapshot)
+            }
+        }
+        .windowResizability(.contentSize)
+
         Settings {
             MediaCacheSettingsView()
         }
@@ -213,6 +221,41 @@ struct TrimatoApp: App {
             FFmpegLicenseView()
         }
         .defaultSize(width: 720, height: 600)
+    }
+}
+
+private struct GetInfoCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+    @FocusedObject private var projectController: ProjectController?
+    @FocusedObject private var viewModel: VideoPlayerViewModel?
+    @ObservedObject private var clipCommands = ClipEditorCommandRouter.shared
+    @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
+
+    private var snapshot: ProjectInfoSnapshot? {
+        if let context = clipCommands.activeContext {
+            return context.controller.projectInfoSnapshot(selection: context.editSelection)
+        }
+        if let projectController {
+            return projectController.projectInfoSnapshot()
+        }
+        if let viewModel {
+            return ProjectInfoSnapshot(title: "Clip Info", rows: [
+                ProjectInfoRow("Current Time", ProjectTimecodeFormatter.string(ProjectTime(seconds: viewModel.currentTime))),
+                ProjectInfoRow("Length", ProjectTimecodeFormatter.string(ProjectTime(seconds: viewModel.duration)))
+            ])
+        }
+        return activeProjects.activeProjectController?.projectInfoSnapshot()
+    }
+
+    var body: some Commands {
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Button("Get Info") {
+                if let snapshot { openWindow(id: "get-info", value: snapshot) }
+            }
+            .keyboardShortcut("i", modifiers: .command)
+            .disabled(snapshot == nil)
+        }
     }
 }
 

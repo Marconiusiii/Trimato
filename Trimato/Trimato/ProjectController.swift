@@ -4,7 +4,7 @@ import Combine
 import Foundation
 import UniformTypeIdentifiers
 
-enum EditorSelection: Hashable {
+enum EditorSelection: Hashable, Sendable {
     case project
     case asset(UUID)
     case timelineClip(UUID)
@@ -65,6 +65,8 @@ final class ProjectController: ObservableObject {
     private weak var projectPlayer: ProjectPlayerViewModel?
     private var projectWithPreparedTransitionPreview: TrimatoProject?
     private var closeProjectAction: (() -> Void)?
+    private var projectInfoTarget: ProjectInfoTarget = .selection(.project)
+    private var editorAccessibilityFocusProvider: (() -> Bool)?
     private var editorDirectClipIDs: [UUID: UUID] = [:]
     private let cacheOwnerID = UUID()
 
@@ -408,11 +410,32 @@ final class ProjectController: ObservableObject {
         switch element {
         case .clip(let id):
             selection = .timelineClip(id)
+            projectInfoTarget = .selection(.timelineClip(id))
             if let track = project.tracks.first(where: { $0.clips.contains { $0.id == id } }) {
                 editorDirectClipIDs[track.id] = id
             }
-        case .transition(let id): selection = .transition(id)
+        case .transition(let id):
+            selection = .transition(id)
+            projectInfoTarget = .selection(.transition(id))
         }
+    }
+
+    func setProjectInfoTarget(_ target: ProjectInfoTarget) {
+        projectInfoTarget = target
+    }
+
+    func projectInfoSnapshot(editorFocused: Bool = false,
+                             selection selectionOverride: EditorSelection? = nil) -> ProjectInfoSnapshot {
+        let target: ProjectInfoTarget
+        if let selectionOverride {
+            target = .selection(selectionOverride)
+        } else if editorFocused {
+            target = .editor
+        } else {
+            target = projectInfoTarget
+        }
+        return ProjectInfoSnapshot.make(target: target, project: project,
+                                        playhead: timelinePlayhead, activeTrackID: activeTimelineTrackID)
     }
 
     func trimTimelineClipEnd(id: UUID) throws {
@@ -628,6 +651,15 @@ final class ProjectController: ObservableObject {
         editorFocusRestoreRequest += 1
     }
 
+    func installEditorAccessibilityFocusProvider(_ provider: @escaping () -> Bool) {
+        editorAccessibilityFocusProvider = provider
+    }
+
+    func requestEditorFocusRestoreIfNeeded() {
+        guard editorAccessibilityFocusProvider?() != true else { return }
+        requestEditorFocusRestore()
+    }
+
     func requestTimelineFocusRestore(to element: TimelineElementSelection) {
         timelineFocusRestoreTarget = element
         timelineFocusRestoreRequest += 1
@@ -723,9 +755,21 @@ final class ProjectController: ObservableObject {
         }
     }
 
-    func deleteTransition(id: UUID) {
+    func deleteTransition(id: UUID, selecting selectionAfterDeletion: EditorSelection = .project) {
         mutateProject(actionName: "Delete Transition") { $0.removeTransition(id: id) }
-        selection = .project
+        selection = selectionAfterDeletion
+        projectInfoTarget = .selection(selectionAfterDeletion)
+    }
+
+    func deleteTimelineClip(id: UUID, selecting selectionAfterDeletion: EditorSelection) {
+        do {
+            try mutateProjectThrowing(actionName: "Delete Timeline Clip") { try $0.removeTrackClip(id: id) }
+            selection = selectionAfterDeletion
+            projectInfoTarget = .selection(selectionAfterDeletion)
+            announce("Timeline clip deleted")
+        } catch {
+            announce(error.localizedDescription)
+        }
     }
 
     func primaryTimelineClip(at time: ProjectTime) -> TimelineClip? {
