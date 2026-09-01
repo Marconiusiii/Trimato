@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Trimato
@@ -29,13 +30,18 @@ struct HelpBookTests {
         )
 
         #expect(helpInfo["CFBundleIdentifier"] as? String == TrimatoHelp.bookIdentifier)
+        #expect(helpInfo["CFBundleShortVersionString"] as? String == "1.4.0")
         #expect(appInfo["CFBundleHelpBookName"] as? String == TrimatoHelp.bookIdentifier)
         #expect(indexPage.contains(
             "<meta name=\"AppleTitle\" content=\"\(TrimatoHelp.bookIdentifier)\">"
         ))
         #expect((helpInfo["CFBundleVersion"] as? String).flatMap(Int.init) ?? 0 > 9)
         #expect(quickStart.contains("<a name=\"\(TrimatoHelp.quickStartAnchor)\"></a>"))
-        #expect(TrimatoHelp.quickStartPage == "quickstart.html")
+        #expect(TrimatoHelp.quickStartDestination == TrimatoHelp.Destination(
+            book: "com.marconius.trimato.help",
+            page: "quickstart.html",
+            anchor: "trimato-quickstart-guide"
+        ))
         #expect(quickStart.contains("<h1 id=\"trimato-quickstart\">Trimato QuickStart guide</h1>"))
         #expect(quickStart.contains("<link rel=\"stylesheet\" href=\"trimato-help.css\">"))
         #expect(!indexPage.contains("getting-started.html"))
@@ -44,9 +50,15 @@ struct HelpBookTests {
         ).path))
     }
 
-    @Test func builtApplicationResolvesTheBundledQuickStartPage() throws {
-        let pageURL = try #require(TrimatoHelp.quickStartURL(in: .main))
-        #expect(pageURL.lastPathComponent == TrimatoHelp.quickStartPage)
-        #expect(FileManager.default.fileExists(atPath: pageURL.path))
+    @Test @MainActor func builtApplicationRegistersItsHelpBook() throws {
+        #expect(NSHelpManager.shared.registerBooks(in: .main))
+        let helpBookURL = try #require(
+            Bundle.main.url(forResource: "Trimato", withExtension: "help")
+        )
+        let helpBundle = try #require(Bundle(url: helpBookURL))
+        let pageURL = try #require(
+            helpBundle.url(forResource: "quickstart", withExtension: "html")
+        )
+        #expect(pageURL.lastPathComponent == TrimatoHelp.quickStartDestination.page)
     }
 }

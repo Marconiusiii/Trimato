@@ -450,33 +450,33 @@ private struct FeedbackCommands: Commands {
 }
 
 enum TrimatoHelp {
+    struct Destination: Equatable {
+        let book: String
+        let page: String
+        let anchor: String
+    }
+
     static let bookIdentifier = "com.marconius.trimato.help"
     static let quickStartAnchor = "trimato-quickstart-guide"
     static let quickStartPage = "quickstart.html"
-
-    static func quickStartURL(in bundle: Bundle) -> URL? {
-        guard let helpBookURL = bundle.url(forResource: "Trimato", withExtension: "help"),
-              let helpBundle = Bundle(url: helpBookURL) else { return nil }
-        return helpBundle.url(forResource: "quickstart", withExtension: "html")
-    }
+    static let quickStartDestination = Destination(
+        book: bookIdentifier,
+        page: quickStartPage,
+        anchor: quickStartAnchor
+    )
 
     @MainActor
     static func openQuickStart(bundle: Bundle = .main) {
         let manager = NSHelpManager.shared
         _ = manager.registerBooks(in: bundle)
-        let book = bundle.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String
-        let resolvedBook = book ?? bookIdentifier
-        guard let pageURL = quickStartURL(in: bundle) else {
-            manager.openHelpAnchor(quickStartAnchor, inBook: resolvedBook)
-            return
-        }
+        let destination = quickStartDestination
         let result = AHGotoPage(
-            nil,
-            pageURL.absoluteString as CFString,
-            quickStartAnchor as CFString
+            destination.book as CFString,
+            destination.page as CFString,
+            destination.anchor as CFString
         )
         if result != noErr {
-            manager.openHelpAnchor(quickStartAnchor, inBook: resolvedBook)
+            manager.openHelpAnchor(destination.anchor, inBook: destination.book)
         }
     }
 }
