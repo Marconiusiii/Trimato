@@ -13,7 +13,7 @@
     <p>The Track picker chooses which track appears in Timeline Clips. Clips and transitions appear in playback order. Clips on a primary track stay together when you rearrange them. Additional tracks can contain clips at chosen times, with gaps between them.</p>
 
     <h2>Choose and manage a track</h2>
-    <p>Use the Track picker or press Command-Option-Up Arrow and Command-Option-Down Arrow to change tracks. When you use those shortcuts from Editor, Trimato announces the active track and its direct-edit clip without moving VoiceOver out of Editor. Track Actions adds, renames, moves, or deletes user-created video and audio tracks. Primary tracks cannot be deleted.</p>
+    <p>Use the Track picker or press Command-Option-Up Arrow and Command-Option-Down Arrow to change tracks. The shortcuts announce the active track and its direct-edit clip. Track Actions adds, renames, moves, or deletes user-created video and audio tracks. Primary tracks cannot be deleted.</p>
 
     <h2>Place an edited clip</h2>
     <dl>
@@ -38,7 +38,7 @@
 
     <h2>Edit the active track without leaving Editor</h2>
     <ol>
-        <li>Keep VoiceOver on any control in Editor and move the shared project playhead to the required time.</li>
+        <li>Keep focus on any control in Editor and move the shared project playhead to the required time.</li>
         <li>Press Command-Option-Up Arrow or Command-Option-Down Arrow until Trimato announces the required track and clip.</li>
         <li>Press Command-[ to trim that clip's start to the project playhead, or press Command-] to trim its end to the project playhead.</li>
         <li>On an additional track, press plain [ to move the complete clip so its head begins at the playhead, or press plain ] to move it so its tail ends at the playhead. These positioning commands do not trim the stored source.</li>
@@ -65,7 +65,7 @@
         <li>Use Command-Option-Up Arrow or Command-Option-Down Arrow until Trimato announces the required audio track and long audio clip.</li>
         <li>Without leaving Editor, press Command-] to trim the announced clip's end to the shared project playhead.</li>
     </ol>
-    <p>The clip keeps its material before the shared project playhead. Later clips on that audio track move earlier by the removed duration. VoiceOver remains in Editor, and the operation can be undone. You can instead focus the clip in Timeline clips and choose Trim End to Project Playhead from its context menu.</p>
+    <p>The clip keeps its material before the shared project playhead. Later clips on that audio track move earlier by the removed duration. The operation can be undone. You can instead focus the clip in Timeline clips and choose Trim End to Project Playhead from its context menu.</p>
 
     <h2>Open a clip from Editor</h2>
     <p>Press C while focus is in Editor to open Clip Editor for the active-track clip at the playhead. At an edit point, Trimato opens the incoming clip. In a gap, it opens the next clip, but no clip is marked Current until the playhead is inside a clip. In Timeline Clips, Enter or Return opens the focused clip regardless of the playhead position.</p>
@@ -102,7 +102,7 @@
         <li>Enter the duration in seconds, then apply the fade.</li>
     </ol>
     <p>At a shared cut from clip A to clip B, Fade In B applies at the beginning of B and Fade Out A applies at the end of A. Selecting both places both fades around that cut. Within a clip, at the start of the timeline, or at its final endpoint, both controls name the same clip. This behavior is the same on video and audio tracks.</p>
-    <p>Applying a fade uses a separate progress window. VoiceOver percentage announcements use low priority so navigation to Cancel can take precedence.</p>
+    <p>A progress bar will appear. Choose Cancel if you want to stop.</p>
 
     <h3>Use Quick Cross Dissolve or Quick Cross Fade</h3>
     <ol>
@@ -112,7 +112,7 @@
         <li>In a video context, choose Crossfade Audio when the clips’ audio should cross fade too.</li>
         <li>Enter the duration in seconds, then apply the transition.</li>
     </ol>
-    <p>Applying a transition uses a separate progress window with low-priority VoiceOver percentage announcements.</p>
+    <p>A progress bar will appear. Choose Cancel if you want to stop.</p>
 
     <h3>Transition types</h3>
     <dl>

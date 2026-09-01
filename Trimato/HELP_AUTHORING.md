@@ -32,6 +32,7 @@ Each Help topic is a separate HTML file. Open the file whose name matches the to
 6. Describe what a control does, how to use it, and the result.
 7. Use the same control and menu names shown in Trimato.
 8. Do not add ARIA, JavaScript, decorative symbols, or instructions that require sight.
+9. State the action and result without explaining design intent, implementation choices, announcement priority, focus-management rationale, or testing details.
 
 ## Add a topic
 
