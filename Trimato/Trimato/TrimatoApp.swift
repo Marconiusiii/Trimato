@@ -1,5 +1,4 @@
 import AppKit
-import Carbon
 import SwiftUI
 
 @main
@@ -133,11 +132,13 @@ struct TrimatoApp: App {
                     if let projectPlayer { projectPlayer.clearIn() }
                     else { viewModel?.clearIn() }
                 }
+                .keyboardShortcut("i", modifiers: .option)
                 .disabled(projectPlayer?.inMarker == nil && viewModel?.inMarker == nil)
                 Button("Clear Out") {
                     if let projectPlayer { projectPlayer.clearOut() }
                     else { viewModel?.clearOut() }
                 }
+                .keyboardShortcut("o", modifiers: .option)
                 .disabled(projectPlayer?.outMarker == nil && viewModel?.outMarker == nil)
             }
             ClipPlacementCommands()
@@ -193,6 +194,7 @@ struct TrimatoApp: App {
         }
         .defaultSize(width: 560, height: 650)
         .windowResizability(.contentMinSize)
+        .commandsRemoved()
 
         WindowGroup("Clip Editor", for: URL.self) { $url in
             if let url {
@@ -201,11 +203,13 @@ struct TrimatoApp: App {
         }
         .handlesExternalEvents(matching: ExternalMediaOpenCoordinator.mediaExternalEventConditions)
         .defaultSize(width: 940, height: 760)
+        .commandsRemoved()
 
         Window("About Trimato", id: "about") {
             AboutView()
         }
         .windowResizability(.contentSize)
+        .commandsRemoved()
 
         WindowGroup("Get Info", id: "get-info", for: ProjectInfoSnapshot.self) { $snapshot in
             if let snapshot {
@@ -213,6 +217,7 @@ struct TrimatoApp: App {
             }
         }
         .windowResizability(.contentSize)
+        .commandsRemoved()
 
         Settings {
             MediaCacheSettingsView()
@@ -222,6 +227,7 @@ struct TrimatoApp: App {
             FFmpegLicenseView()
         }
         .defaultSize(width: 720, height: 600)
+        .commandsRemoved()
     }
 }
 
@@ -437,46 +443,10 @@ private struct FeedbackCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .help) {
-            Button("Trimato QuickStart Guide") {
-                TrimatoHelp.openQuickStart()
-            }
-            Divider()
             Button("Send Trimato Feedback\u{2026}") {
                 guard let url = TrimatoFeedback.emailURL else { return }
                 openURL(url)
             }
-        }
-    }
-}
-
-enum TrimatoHelp {
-    struct Destination: Equatable {
-        let book: String
-        let page: String
-        let anchor: String
-    }
-
-    static let bookIdentifier = "com.marconius.trimato.help"
-    static let quickStartAnchor = "trimato-quickstart-guide"
-    static let quickStartPage = "quickstart.html"
-    static let quickStartDestination = Destination(
-        book: bookIdentifier,
-        page: quickStartPage,
-        anchor: quickStartAnchor
-    )
-
-    @MainActor
-    static func openQuickStart(bundle: Bundle = .main) {
-        let manager = NSHelpManager.shared
-        _ = manager.registerBooks(in: bundle)
-        let destination = quickStartDestination
-        let result = AHGotoPage(
-            destination.book as CFString,
-            destination.page as CFString,
-            destination.anchor as CFString
-        )
-        if result != noErr {
-            manager.openHelpAnchor(destination.anchor, inBook: destination.book)
         }
     }
 }

@@ -8,8 +8,8 @@ Each Help topic is a separate HTML file. Open the file whose name matches the to
 
 ## Topic files
 
-- `index.html`: Help landing page and topic links.
-- `quickstart.html`: Friendly first-project workflow, opened from the Help menu.
+- `index.html`: Help landing page, opening Quick Start link, and topic links.
+- `quickstart.html`: Friendly first-project workflow and the first listed Help topic.
 - `workspace.html`: Project, Editor, Timeline, and Command-I Get Info.
 - `projects-and-media.html`: Projects, importing, folders, and relinking.
 - `storage-and-temporary-media.html`: Projects, playback proxies, temporary renders, storage limits, and cleanup.

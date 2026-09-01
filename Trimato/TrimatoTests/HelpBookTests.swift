@@ -1,10 +1,9 @@
-import AppKit
 import Foundation
 import Testing
 @testable import Trimato
 
 struct HelpBookTests {
-    @Test func quickStartPageAndHelpRegistrationUseTheSameAnchorAndBook() throws {
+    @Test func quickStartIsLinkedFromTheIntroductionAndListedFirst() throws {
         let projectDirectory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -29,29 +28,32 @@ struct HelpBookTests {
             encoding: .utf8
         )
 
-        #expect(helpInfo["CFBundleIdentifier"] as? String == TrimatoHelp.bookIdentifier)
-        #expect(helpInfo["CFBundleShortVersionString"] as? String == "1.4.0")
-        #expect(appInfo["CFBundleHelpBookName"] as? String == TrimatoHelp.bookIdentifier)
+        let bookIdentifier = try #require(helpInfo["CFBundleIdentifier"] as? String)
+        #expect(bookIdentifier == "com.marconius.trimato.help")
+        #expect(helpInfo["CFBundleShortVersionString"] as? String == "1.3.0")
+        #expect(appInfo["CFBundleHelpBookName"] as? String == bookIdentifier)
         #expect(indexPage.contains(
-            "<meta name=\"AppleTitle\" content=\"\(TrimatoHelp.bookIdentifier)\">"
+            "<meta name=\"AppleTitle\" content=\"\(bookIdentifier)\">"
         ))
-        #expect((helpInfo["CFBundleVersion"] as? String).flatMap(Int.init) ?? 0 > 9)
-        #expect(quickStart.contains("<a name=\"\(TrimatoHelp.quickStartAnchor)\"></a>"))
-        #expect(TrimatoHelp.quickStartDestination == TrimatoHelp.Destination(
-            book: "com.marconius.trimato.help",
-            page: "quickstart.html",
-            anchor: "trimato-quickstart-guide"
-        ))
+        #expect(helpInfo["CFBundleVersion"] as? String == "13")
+        #expect(quickStart.contains("<a name=\"trimato-quickstart-guide\"></a>"))
         #expect(quickStart.contains("<h1 id=\"trimato-quickstart\">Trimato QuickStart guide</h1>"))
         #expect(quickStart.contains("<link rel=\"stylesheet\" href=\"trimato-help.css\">"))
+        #expect(indexPage.components(separatedBy: "href=\"quickstart.html\"").count - 1 == 2)
+        let quickStartTopic = try #require(indexPage.range(
+            of: "<li><a href=\"quickstart.html\">Trimato QuickStart guide</a></li>"
+        ))
+        let workspaceTopic = try #require(indexPage.range(
+            of: "<li><a href=\"workspace.html\">Understand the workspace</a></li>"
+        ))
+        #expect(quickStartTopic.lowerBound < workspaceTopic.lowerBound)
         #expect(!indexPage.contains("getting-started.html"))
         #expect(!FileManager.default.fileExists(atPath: helpBundle.appendingPathComponent(
             "Contents/Resources/en.lproj/getting-started.html"
         ).path))
     }
 
-    @Test @MainActor func builtApplicationRegistersItsHelpBook() throws {
-        #expect(NSHelpManager.shared.registerBooks(in: .main))
+    @Test func builtApplicationContainsTheQuickStartPage() throws {
         let helpBookURL = try #require(
             Bundle.main.url(forResource: "Trimato", withExtension: "help")
         )
@@ -59,6 +61,6 @@ struct HelpBookTests {
         let pageURL = try #require(
             helpBundle.url(forResource: "quickstart", withExtension: "html")
         )
-        #expect(pageURL.lastPathComponent == TrimatoHelp.quickStartDestination.page)
+        #expect(pageURL.lastPathComponent == "quickstart.html")
     }
 }
