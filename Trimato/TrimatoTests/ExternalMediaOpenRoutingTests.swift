@@ -35,13 +35,35 @@ struct ExternalMediaOpenRoutingTests {
         #expect(ExternalMediaOpenCoordinator.route(for: url, hasActiveProject: false) == .ignore)
     }
 
-    @Test func externalEventConditionsCoverMediaWithoutClaimingProjectDocuments() {
-        let conditions = ExternalMediaOpenCoordinator.mediaExternalEventConditions
+    @Test func fileReferenceURLUsesResourceMetadataForRouting() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mediaURL = directory.appendingPathComponent("Network Interview.mov")
+        try Data().write(to: mediaURL)
+        let referenceURL = try #require((mediaURL as NSURL).fileReferenceURL() as URL?)
 
-        #expect(conditions.contains(".mov"))
-        #expect(conditions.contains(".m4a"))
-        #expect(conditions.contains(".mkv"))
-        #expect(!conditions.contains(".trimato"))
+        #expect(ExternalMediaOpenCoordinator.route(
+            for: referenceURL,
+            hasActiveProject: false
+        ) == .standaloneEditor)
+    }
+
+    @Test @MainActor func finderEventWaitsForAWindowPresenterAndOpensExactlyOnce() async {
+        let coordinator = ExternalMediaOpenCoordinator()
+        let url = URL(fileURLWithPath: "/tmp/Network Interview.mov")
+        var openedURLs: [URL] = []
+
+        coordinator.receive([url])
+        #expect(openedURLs.isEmpty)
+
+        let presenterID = coordinator.registerStandalonePresenter { openedURLs.append($0) }
+        await Task.yield()
+        #expect(openedURLs == [url])
+
+        coordinator.unregisterStandalonePresenter(presenterID)
+        await Task.yield()
+        #expect(openedURLs == [url])
     }
 
     @MainActor
@@ -67,9 +89,11 @@ struct ExternalMediaOpenRoutingTests {
         }
         coordinator.activate(controller: secondController)
 
-        coordinator.handle(URL(fileURLWithPath: secondAsset.originalPath)) {
+        let presenterID = coordinator.registerStandalonePresenter {
             standaloneURL = $0
         }
+        coordinator.receive([URL(fileURLWithPath: secondAsset.originalPath)])
+        coordinator.unregisterStandalonePresenter(presenterID)
 
         #expect(firstOpened == nil)
         #expect(secondOpened == .asset(secondAsset.id))

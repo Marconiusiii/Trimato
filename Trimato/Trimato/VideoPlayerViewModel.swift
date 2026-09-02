@@ -140,6 +140,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var exportStatus: String?
     @Published private(set) var exportProgress: Double?
     @Published private(set) var exportErrorMessage: String?
+    @Published private(set) var mediaOpenErrorMessage: String?
     @Published private(set) var isPresentingExportPanel = false
     @Published private(set) var isLoadingMedia = false
     @Published private(set) var mediaStatus: String?
@@ -390,6 +391,7 @@ final class VideoPlayerViewModel: ObservableObject {
         exportStatus = nil
         exportProgress = nil
         exportErrorMessage = nil
+        mediaOpenErrorMessage = nil
         mediaStatus = "Inspecting \(url.lastPathComponent)"
         mediaFilename = url.lastPathComponent
         mediaProgress = nil
@@ -487,6 +489,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.isLoadingMedia = false
                 self.mediaProgress = nil
                 self.mediaStatus = "Open failed: \(error.localizedDescription)"
+                self.mediaOpenErrorMessage = error.localizedDescription
                 self.loadID = nil
                 self.loadTask = nil
                 self.announce("Open failed. \(error.localizedDescription)")
@@ -855,6 +858,18 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func dismissExportError() {
         exportErrorMessage = nil
+    }
+
+    func reportMediaOpenFailure(_ error: Error) {
+        isLoadingMedia = false
+        mediaProgress = nil
+        mediaStatus = "Open failed: \(error.localizedDescription)"
+        mediaOpenErrorMessage = error.localizedDescription
+        announce("Open failed. \(error.localizedDescription)")
+    }
+
+    func dismissMediaOpenError() {
+        mediaOpenErrorMessage = nil
     }
 
     static func validExportRange(inMarker: CMTime?, outMarker: CMTime?) -> CMTimeRange? {

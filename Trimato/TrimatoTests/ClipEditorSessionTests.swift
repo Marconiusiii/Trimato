@@ -6,6 +6,58 @@ import Testing
 
 @Suite("Clip editor sessions", .serialized)
 struct ClipEditorSessionTests {
+    @Test func externalOpenRequestRetainsTheSelectedFilename() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("Network Interview.mov")
+        try Data().write(to: url)
+
+        let request = ExternalMediaOpenRequest(url: url)
+        let resolvedURL = try request.resolvedURL()
+
+        #expect(request.displayName == "Network Interview.mov")
+        #expect(resolvedURL.lastPathComponent == "Network Interview.mov")
+    }
+
+    @Test @MainActor func securityScopedAccessIsBalancedAndIdempotent() {
+        var starts = 0
+        var stops = 0
+        let access = SecurityScopedResourceAccess(
+            url: URL(fileURLWithPath: "/tmp/Network Interview.mov"),
+            startAccess: {
+                starts += 1
+                return true
+            },
+            stopAccess: { stops += 1 }
+        )
+
+        access.begin()
+        access.begin()
+        #expect(access.isAccessing)
+        #expect(starts == 1)
+
+        access.end()
+        access.end()
+        #expect(!access.isAccessing)
+        #expect(stops == 1)
+    }
+
+    @Test @MainActor func mediaOpenFailureCanBePresentedAndDismissed() {
+        let viewModel = VideoPlayerViewModel()
+        let error = NSError(
+            domain: "ExternalMediaOpenRoutingTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "The network clip is unavailable."]
+        )
+
+        viewModel.reportMediaOpenFailure(error)
+        #expect(viewModel.mediaOpenErrorMessage == "The network clip is unavailable.")
+
+        viewModel.dismissMediaOpenError()
+        #expect(viewModel.mediaOpenErrorMessage == nil)
+    }
+
     @Test @MainActor func standaloneGetInfoRetainsTheOpenedFilenameImmediately() {
         let viewModel = VideoPlayerViewModel()
 

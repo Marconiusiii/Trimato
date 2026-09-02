@@ -2,6 +2,33 @@ import Combine
 import SwiftUI
 
 @MainActor
+final class SecurityScopedResourceAccess {
+    private let startAccess: () -> Bool
+    private let stopAccess: () -> Void
+    private(set) var isAccessing = false
+
+    init(
+        url: URL,
+        startAccess: (() -> Bool)? = nil,
+        stopAccess: (() -> Void)? = nil
+    ) {
+        self.startAccess = startAccess ?? { url.startAccessingSecurityScopedResource() }
+        self.stopAccess = stopAccess ?? { url.stopAccessingSecurityScopedResource() }
+    }
+
+    func begin() {
+        guard !isAccessing else { return }
+        isAccessing = startAccess()
+    }
+
+    func end() {
+        guard isAccessing else { return }
+        stopAccess()
+        isAccessing = false
+    }
+}
+
+@MainActor
 final class StandaloneClipCommandContext: ObservableObject {
     @Published private(set) var isCreatingProject = false
     @Published var creationError: String?
@@ -41,17 +68,18 @@ final class StandaloneClipCommandContext: ObservableObject {
 }
 
 struct StandaloneClipEditorView: View {
-    let url: URL
+    let request: ExternalMediaOpenRequest
     @Environment(\.newDocument) private var newDocument
     @Environment(\.dismissWindow) private var dismissWindow
     @StateObject private var viewModel: VideoPlayerViewModel
     @StateObject private var commandContext: StandaloneClipCommandContext
-    @State private var loadedURL: URL?
+    @State private var loadedRequestID: UUID?
+    @State private var resourceAccess: SecurityScopedResourceAccess?
     @State private var creationTask: Task<Void, Never>?
     @State private var pendingProject: TrimatoProject?
 
-    init(url: URL) {
-        self.url = url
+    init(request: ExternalMediaOpenRequest) {
+        self.request = request
         let viewModel = VideoPlayerViewModel()
         _viewModel = StateObject(wrappedValue: viewModel)
         _commandContext = StateObject(wrappedValue: StandaloneClipCommandContext(viewModel: viewModel))
@@ -89,19 +117,41 @@ struct StandaloneClipEditorView: View {
         ) : nil, outcome: commandContext.creationError == nil ? .completed : .failed,
                            completionPending: pendingProject != nil,
                            dismissed: finishProjectPresentation)
-        .onDisappear { creationTask?.cancel() }
+        .onDisappear {
+            creationTask?.cancel()
+            resourceAccess?.end()
+        }
         .focusedObject(viewModel)
         .focusedObject(commandContext)
-        .navigationTitle("\(url.deletingPathExtension().lastPathComponent) — \(editorName)")
+        .navigationTitle("\((request.displayName as NSString).deletingPathExtension) — \(editorName)")
         .frame(minWidth: 700, minHeight: 600)
         .onAppear {
-            guard loadedURL != url else { return }
-            loadedURL = url
-            viewModel.load(url: url)
+            guard loadedRequestID != request.id else {
+                resourceAccess?.begin()
+                return
+            }
+            loadedRequestID = request.id
+            do {
+                let url = try request.resolvedURL()
+                let access = SecurityScopedResourceAccess(url: url)
+                access.begin()
+                resourceAccess = access
+                viewModel.load(url: url)
+            } catch {
+                viewModel.reportMediaOpenFailure(error)
+            }
             commandContext.configureCreateAction(createProject)
             viewModel.configureCreateProjectFromClipAction {
                 commandContext.createProject()
             }
+        }
+        .alert("Clip Could Not Be Opened", isPresented: Binding(
+            get: { viewModel.mediaOpenErrorMessage != nil },
+            set: { if !$0 { viewModel.dismissMediaOpenError() } }
+        )) {
+            Button("OK") { viewModel.dismissMediaOpenError() }
+        } message: {
+            Text(viewModel.mediaOpenErrorMessage ?? "Trimato could not open the selected clip.")
         }
         .alert("Project Could Not Be Created", isPresented: Binding(
             get: { commandContext.creationError != nil },
@@ -132,7 +182,7 @@ struct StandaloneClipEditorView: View {
         guard !commandContext.isCreatingProject, let project = pendingProject else { return }
         pendingProject = nil
         newDocument { ProjectDocument(project: project, isExplicitlySaved: false) }
-        dismissWindow(value: url)
+        dismissWindow(value: request)
     }
 
     private var editorName: String {

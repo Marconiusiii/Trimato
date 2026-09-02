@@ -196,12 +196,11 @@ struct TrimatoApp: App {
         .windowResizability(.contentMinSize)
         .commandsRemoved()
 
-        WindowGroup("Clip Editor", for: URL.self) { $url in
-            if let url {
-                StandaloneClipEditorView(url: url)
+        WindowGroup("Clip Editor", for: ExternalMediaOpenRequest.self) { $request in
+            if let request {
+                StandaloneClipEditorView(request: request)
             }
         }
-        .handlesExternalEvents(matching: ExternalMediaOpenCoordinator.mediaExternalEventConditions)
         .defaultSize(width: 940, height: 760)
         .commandsRemoved()
 
@@ -297,6 +296,10 @@ private struct ClipPlacementCommands: Commands {
 }
 
 private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate {
+    func application(_ application: NSApplication, open urls: [URL]) {
+        ExternalMediaOpenCoordinator.shared.receive(urls)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !Self.isRunningTests else { return }
         Task { @MainActor in

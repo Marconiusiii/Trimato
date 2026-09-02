@@ -3,6 +3,38 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+nonisolated struct ExternalMediaOpenRequest: Codable, Hashable {
+    let id: UUID
+    let originalURL: URL
+    let bookmarkData: Data?
+
+    init(url: URL, id: UUID = UUID()) {
+        self.id = id
+        originalURL = url
+        bookmarkData = try? url.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: [.fileResourceIdentifierKey],
+            relativeTo: nil
+        )
+    }
+
+    var displayName: String {
+        (try? originalURL.resourceValues(forKeys: [.nameKey]).name)
+            ?? originalURL.lastPathComponent
+    }
+
+    func resolvedURL() throws -> URL {
+        guard let bookmarkData else { return originalURL }
+        var stale = false
+        return try URL(
+            resolvingBookmarkData: bookmarkData,
+            options: [.withSecurityScope, .withoutUI],
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+        )
+    }
+}
+
 nonisolated enum ExternalMediaOpenRoute: Equatable, Sendable {
     case ignore
     case standaloneEditor
@@ -13,13 +45,6 @@ nonisolated enum ExternalMediaOpenRoute: Equatable, Sendable {
 final class ExternalMediaOpenCoordinator: ObservableObject {
     static let shared = ExternalMediaOpenCoordinator()
 
-    static let mediaExternalEventConditions: Set<String> = Set([
-        "mov", "mp4", "m4v", "avi", "mpg", "mpeg", "3gp", "3g2",
-        "mkv", "webm", "ts", "mts", "m2ts", "vob", "wmv", "flv",
-        "mp3", "m4a", "aac", "wav", "aif", "aiff", "flac", "ogg",
-        "opus", "caf", "ac3",
-    ].map { ".\($0)" })
-
     @Published private(set) var activeProjectController: ProjectController?
 
     private struct ProjectRegistration {
@@ -29,6 +54,9 @@ final class ExternalMediaOpenCoordinator: ObservableObject {
 
     private var registrations: [ObjectIdentifier: ProjectRegistration] = [:]
     private var activationOrder: [ObjectIdentifier] = []
+    private var standalonePresenters: [UUID: (URL) -> Void] = [:]
+    private var presenterOrder: [UUID] = []
+    private var pendingURLs: [URL] = []
 
     nonisolated static func route(for url: URL, hasActiveProject: Bool) -> ExternalMediaOpenRoute {
         guard url.isFileURL,
@@ -64,6 +92,29 @@ final class ExternalMediaOpenCoordinator: ObservableObject {
         updateActiveProjectController()
     }
 
+    @discardableResult
+    func registerStandalonePresenter(_ presenter: @escaping (URL) -> Void) -> UUID {
+        let identifier = UUID()
+        standalonePresenters[identifier] = presenter
+        presenterOrder.append(identifier)
+        Task { @MainActor [weak self] in
+            self?.deliverPendingURLs()
+        }
+        return identifier
+    }
+
+    func unregisterStandalonePresenter(_ identifier: UUID) {
+        standalonePresenters[identifier] = nil
+        presenterOrder.removeAll { $0 == identifier }
+    }
+
+    func receive(_ urls: [URL]) {
+        pendingURLs.append(contentsOf: urls.filter {
+            Self.route(for: $0, hasActiveProject: activeProjectController != nil) != .ignore
+        })
+        deliverPendingURLs()
+    }
+
     func handle(
         _ url: URL,
         openStandalone: @escaping (URL) -> Void
@@ -91,9 +142,29 @@ final class ExternalMediaOpenCoordinator: ObservableObject {
 
     private nonisolated static func isSupportedMedia(_ url: URL) -> Bool {
         let explicitlySupported = ["mkv", "webm", "ts", "mts", "m2ts", "vob", "wmv", "flv"]
-        if explicitlySupported.contains(url.pathExtension.lowercased()) { return true }
-        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        let values = try? url.resourceValues(forKeys: [.contentTypeKey, .nameKey])
+        if let type = values?.contentType,
+           type.conforms(to: .movie) || type.conforms(to: .audio) {
+            return true
+        }
+        let resourceExtension = values?.name.map { ($0 as NSString).pathExtension }
+        let pathExtension = resourceExtension.flatMap { $0.isEmpty ? nil : $0 }
+            ?? url.pathExtension
+        if explicitlySupported.contains(pathExtension.lowercased()) { return true }
+        guard let type = UTType(filenameExtension: pathExtension) else { return false }
         return type.conforms(to: .movie) || type.conforms(to: .audio)
+    }
+
+    private func deliverPendingURLs() {
+        removeExpiredRegistrations()
+        presenterOrder.removeAll { standalonePresenters[$0] == nil }
+        let presenter = presenterOrder.last.flatMap { standalonePresenters[$0] }
+        guard activeProjectController != nil || presenter != nil else { return }
+        let urls = pendingURLs
+        pendingURLs.removeAll()
+        for url in urls {
+            handle(url, openStandalone: presenter ?? { _ in })
+        }
     }
 
     private func removeExpiredRegistrations() {
@@ -112,18 +183,20 @@ final class ExternalMediaOpenCoordinator: ObservableObject {
 
 struct ExternalMediaOpenHandler: ViewModifier {
     @Environment(\.openWindow) private var openWindow
+    @State private var presenterID: UUID?
 
     func body(content: Content) -> some View {
         content
-            .handlesExternalEvents(
-                preferring: ExternalMediaOpenCoordinator.mediaExternalEventConditions,
-                allowing: ExternalMediaOpenCoordinator.mediaExternalEventConditions
-            )
-            .onOpenURL { url in
-                ExternalMediaOpenCoordinator.shared.handle(
-                    url,
-                    openStandalone: { openWindow(value: $0) }
-                )
+            .onAppear {
+                guard presenterID == nil else { return }
+                presenterID = ExternalMediaOpenCoordinator.shared.registerStandalonePresenter { url in
+                    openWindow(value: ExternalMediaOpenRequest(url: url))
+                }
+            }
+            .onDisappear {
+                guard let presenterID else { return }
+                ExternalMediaOpenCoordinator.shared.unregisterStandalonePresenter(presenterID)
+                self.presenterID = nil
             }
     }
 }
