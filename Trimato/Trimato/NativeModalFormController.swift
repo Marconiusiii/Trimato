@@ -112,6 +112,8 @@ extension View {
 }
 
 struct NativeModalSheetPresenter<Content: View>: NSViewRepresentable {
+    typealias Coordinator = NativeModalSheetCoordinator
+
     let isPresented: Bool
     let title: String
     let primaryTitle: String
@@ -143,14 +145,14 @@ struct NativeModalSheetPresenter<Content: View>: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeNSView(context: Context) -> Anchor {
-        let view = Anchor()
+    func makeNSView(context: Context) -> NativeModalSheetAnchor {
+        let view = NativeModalSheetAnchor()
         view.owner = context.coordinator
         view.setAccessibilityElement(false)
         return view
     }
 
-    func updateNSView(_ view: Anchor, context: Context) {
+    func updateNSView(_ view: NativeModalSheetAnchor, context: Context) {
         context.coordinator.update(
             isPresented: isPresented,
             title: title,
@@ -164,21 +166,23 @@ struct NativeModalSheetPresenter<Content: View>: NSViewRepresentable {
         )
     }
 
-    static func dismantleNSView(_ view: Anchor, coordinator: Coordinator) {
+    static func dismantleNSView(_ view: NativeModalSheetAnchor, coordinator: Coordinator) {
         coordinator.invalidate()
     }
+}
 
-    final class Anchor: NSView {
-        weak var owner: Coordinator?
+@MainActor
+final class NativeModalSheetAnchor: NSView {
+    weak var owner: NativeModalSheetCoordinator?
 
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            owner?.attach(to: window)
-        }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        owner?.attach(to: window)
     }
+}
 
-    @MainActor
-    final class Coordinator {
+@MainActor
+final class NativeModalSheetCoordinator {
         private weak var parent: NSWindow?
         private var panel: NSPanel?
         private var panelController: NativeModalPanelViewController?
@@ -294,7 +298,6 @@ struct NativeModalSheetPresenter<Content: View>: NSViewRepresentable {
             dismissed = nil
             pendingDismissed = nil
         }
-    }
 }
 
 @MainActor
