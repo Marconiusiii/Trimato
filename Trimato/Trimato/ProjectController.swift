@@ -68,7 +68,6 @@ final class ProjectController: ObservableObject {
     private var projectInfoTarget: ProjectInfoTarget = .selection(.project)
     private var editorAccessibilityFocusProvider: (() -> Bool)?
     private var editorDirectClipIDs: [UUID: UUID] = [:]
-    private var timelineTrackNavigationGeneration = 0
     private let cacheOwnerID = UUID()
 
     init(document: ProjectDocument) {
@@ -520,27 +519,15 @@ final class ProjectController: ObservableObject {
         guard !tracks.isEmpty else { return }
         let current = (activeTimelineTrack?.id).flatMap { id in tracks.firstIndex { $0.id == id } } ?? 0
         let destination = min(max(current + offset, 0), tracks.count - 1)
-        guard destination != current else { return }
         let track = tracks[destination]
-        timelineTrackNavigationGeneration += 1
-        let navigationGeneration = timelineTrackNavigationGeneration
-        let clip = editorDirectClip(on: track, at: timelinePlayhead)
-        if restoreTimelineFocus, let clip {
-            focusTimelineElement(.clip(clip.id))
-        }
         activeTimelineTrackID = track.id
+        let clip = Self.timelineNavigationClip(on: track, at: timelinePlayhead)
         announce(Self.activeTrackAnnouncement(trackName: track.name, clipName: clip?.displayName))
         guard restoreTimelineFocus else { return }
-        let trackID = track.id
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.timelineTrackNavigationGeneration == navigationGeneration,
-                  self.activeTimelineTrackID == trackID else { return }
-            if let clip {
-                self.requestTimelineFocusRestore(to: .clip(clip.id))
-            } else {
-                self.requestTimelineListFocusRestore()
-            }
+        if let clip {
+            requestTimelineFocusRestore(to: .clip(clip.id))
+        } else {
+            requestTimelineListFocusRestore()
         }
     }
 
@@ -872,6 +859,17 @@ final class ProjectController: ObservableObject {
         }
         if let following = clips.first(where: { $0.timelineStart > time }) { return following }
         return clips.last(where: { $0.timelineEnd == time })
+    }
+
+    nonisolated static func timelineNavigationClip(
+        on track: TimelineTrack,
+        at time: ProjectTime
+    ) -> TimelineClip? {
+        let clips = track.sortedClips
+        return clips.first(where: { $0.timelineStart == time })
+            ?? clips.first(where: { time >= $0.visibleTimelineStart && time < $0.visibleTimelineEnd })
+            ?? clips.first(where: { $0.visibleTimelineStart > time })
+            ?? clips.last
     }
 
     private func editorDirectClip(on track: TimelineTrack, at time: ProjectTime) -> TimelineClip? {

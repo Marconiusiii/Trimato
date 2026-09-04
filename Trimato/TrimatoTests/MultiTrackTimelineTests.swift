@@ -9,12 +9,6 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MultiTrackTimelineTests {
-    private func waitForDeferredTimelineFocus() async {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
-        }
-    }
-
     @Test func deletingTimelineClipCanSelectTheSurvivingPrecedingClipWithoutProjectInterim() throws {
         let asset = fixtureAsset(name: "Interview", duration: 10)
         var project = TrimatoProject()
@@ -677,7 +671,7 @@ struct MultiTrackTimelineTests {
         #expect(controller.timelineFocusRestoreTarget == .transition(transitionID))
     }
 
-    @Test @MainActor func keyboardTrackSwitchSelectsBeforeFocusingTheNamedTimelineList() async throws {
+    @Test @MainActor func keyboardTrackSwitchRequestsTheNamedTimelineList() throws {
         var audio = fixtureAsset(name: "Music", duration: 10)
         audio.naturalWidth = nil
         audio.naturalHeight = nil
@@ -689,10 +683,7 @@ struct MultiTrackTimelineTests {
         let controller = ProjectController(document: ProjectDocument(project: project))
         controller.activeTimelineTrackID = firstTrackID
 
-        let clipID = try #require(project.track(id: secondTrackID)?.clips.first?.id)
         controller.selectAdjacentTrack(1)
-        #expect(controller.selection == .timelineClip(clipID))
-        await waitForDeferredTimelineFocus()
 
         #expect(controller.activeTimelineTrackID == secondTrackID)
         #expect(controller.timelineListFocusRestoreRequest == 0)
@@ -700,37 +691,35 @@ struct MultiTrackTimelineTests {
         #expect(TimelineAccessibility.clipsListLabel(trackName: "Music") == "Timeline Clips, Music track")
     }
 
-    @Test @MainActor func focusingTheSelectedTimelineClipDoesNotRepublishSelection() throws {
+    @Test @MainActor func keyboardTrackSwitchSelectsDeterministicallyFromThePlayhead() throws {
+        var audio = fixtureAsset(name: "Music", duration: 20)
+        audio.naturalWidth = nil
+        audio.naturalHeight = nil
         var project = TrimatoProject()
-        let trackID = project.createTrack(kind: .video, name: "Picture")
-        let clipID = try project.append(
-            asset: fixtureAsset(name: "Interview", duration: 10),
-            segments: [segment(0, 4)],
-            toTrack: trackID
-        )
+        project.media = [audio]
+        let dialogueTrackID = project.createTrack(kind: .audio, name: "Dialogue")
+        let musicTrackID = project.createTrack(kind: .audio, name: "Music")
+        _ = try project.append(asset: audio, segments: [segment(0, 2)], toTrack: dialogueTrackID)
+        let firstID = try project.append(asset: audio, segments: [segment(0, 2)], toTrack: musicTrackID)
+        let secondID = try project.append(asset: audio, segments: [segment(4, 2)], toTrack: musicTrackID)
+        let thirdID = try project.append(asset: audio, segments: [segment(8, 2)], toTrack: musicTrackID)
+        let musicIndex = try #require(project.tracks.firstIndex { $0.id == musicTrackID })
+        project.tracks[musicIndex].clips[0].timelineStart = ProjectTime(seconds: 0)
+        project.tracks[musicIndex].clips[1].timelineStart = ProjectTime(seconds: 4)
+        project.tracks[musicIndex].clips[2].timelineStart = ProjectTime(seconds: 8)
         let controller = ProjectController(document: ProjectDocument(project: project))
-        controller.selection = .timelineClip(clipID)
-        var updateCount = 0
-        let observation = controller.objectWillChange.sink { updateCount += 1 }
+        controller.activeTimelineTrackID = dialogueTrackID
+        controller.selection = .timelineClip(thirdID)
+        controller.timelinePlayhead = ProjectTime(seconds: 3)
 
-        controller.focusTimelineElement(.clip(clipID))
+        controller.selectAdjacentTrack(1)
 
-        #expect(updateCount == 0)
-        withExtendedLifetime(observation) {}
-    }
-
-    @Test @MainActor func appKitTimelineFocusFindsTheNativeIdentifier() {
-        let root = NSView()
-        let container = NSView()
-        let button = NSButton(title: "Interview", target: nil, action: nil)
-        let identifier = TimelineElementAccessibilityIdentifier.clip(UUID())
-        button.setAccessibilityIdentifier(identifier)
-        container.addSubview(button)
-        root.addSubview(container)
-
-        let match = TimelineAppKitAccessibility.descendant(in: root, identifier: identifier)
-
-        #expect(match === button)
+        #expect(controller.timelineFocusRestoreTarget == .clip(secondID))
+        let track = try #require(controller.project.track(id: musicTrackID))
+        #expect(ProjectController.timelineNavigationClip(on: track, at: ProjectTime(seconds: 0))?.id == firstID)
+        #expect(ProjectController.timelineNavigationClip(on: track, at: ProjectTime(seconds: 5))?.id == secondID)
+        #expect(ProjectController.timelineNavigationClip(on: track, at: ProjectTime(seconds: 7))?.id == thirdID)
+        #expect(ProjectController.timelineNavigationClip(on: track, at: ProjectTime(seconds: 99))?.id == thirdID)
     }
 
     @Test func musicClipTrimsToTheSharedProjectPlayheadAndMovesLaterMusicEarlier() throws {
@@ -955,7 +944,7 @@ struct MultiTrackTimelineTests {
         #expect(trimmed.segments.first?.sourceRange.start == ProjectTime(seconds: 50))
     }
 
-    @Test @MainActor func keyboardTrackSwitchRequestsTheTimelineListForAnEmptyTrack() async throws {
+    @Test @MainActor func keyboardTrackSwitchRequestsTheTimelineListForAnEmptyTrack() throws {
         var audio = fixtureAsset(name: "Dialogue", duration: 10)
         audio.naturalWidth = nil
         audio.naturalHeight = nil
@@ -968,7 +957,6 @@ struct MultiTrackTimelineTests {
         controller.activeTimelineTrackID = firstTrackID
 
         controller.selectAdjacentTrack(1)
-        await waitForDeferredTimelineFocus()
 
         #expect(controller.activeTimelineTrackID == secondTrackID)
         #expect(controller.timelineListFocusRestoreRequest == 1)

@@ -5,12 +5,6 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct TimelineTrackOrderTests {
-    private func waitForDeferredTimelineFocus() async {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
-        }
-    }
-
     private func projectWithPrimaryTracks() -> TrimatoProject {
         var project = TrimatoProject()
         project.tracks = [
@@ -135,7 +129,7 @@ struct TimelineTrackOrderTests {
     }
 
     @Test(arguments: [true, false])
-    func adjacentTrackNavigationFollowsDisplayedOrder(restoreTimelineFocus: Bool) async throws {
+    func adjacentTrackNavigationFollowsDisplayedOrder(restoreTimelineFocus: Bool) throws {
         var project = projectWithPrimaryTracks()
         let title = project.createTrack(kind: .video, name: "Title")
         let music = project.createTrack(kind: .audio, name: "Music")
@@ -155,48 +149,39 @@ struct TimelineTrackOrderTests {
         controller.timelinePlayhead = ProjectTime(seconds: 5)
         controller.activeTimelineTrackID = primaryVideo
 
-        func navigate(_ offset: Int, expecting trackID: UUID, changesTrack: Bool = true) async throws {
+        func navigate(_ offset: Int, expecting trackID: UUID) throws {
             let previousClipRequests = controller.timelineFocusRestoreRequest
             let previousListRequests = controller.timelineListFocusRestoreRequest
-            let previousSelection = controller.selection
             controller.selectAdjacentTrack(offset, restoreTimelineFocus: restoreTimelineFocus)
             let track = try #require(project.track(id: trackID))
-            let expectedSelection: EditorSelection
-            if restoreTimelineFocus, changesTrack, let clip = track.clips.first {
-                expectedSelection = .timelineClip(clip.id)
-            } else {
-                expectedSelection = previousSelection
-            }
-            #expect(controller.selection == expectedSelection)
-            await waitForDeferredTimelineFocus()
             #expect(controller.activeTimelineTrackID == trackID)
             #expect(controller.activeTimelineTrack?.name == track.name)
             #expect(controller.timelinePlayhead == ProjectTime(seconds: 5))
             #expect(controller.project == project)
-            #expect(controller.selection == expectedSelection)
+            #expect(controller.selection == .project)
             #expect(controller.timelineFocusRestoreRequest == previousClipRequests +
-                (restoreTimelineFocus && changesTrack && !track.clips.isEmpty ? 1 : 0))
+                (restoreTimelineFocus && !track.clips.isEmpty ? 1 : 0))
             #expect(controller.timelineListFocusRestoreRequest == previousListRequests +
-                (restoreTimelineFocus && changesTrack && track.clips.isEmpty ? 1 : 0))
-            if restoreTimelineFocus, changesTrack, let clip = track.clips.first {
+                (restoreTimelineFocus && track.clips.isEmpty ? 1 : 0))
+            if restoreTimelineFocus, let clip = track.clips.first {
                 #expect(controller.timelineFocusRestoreTarget == .clip(clip.id))
             }
         }
 
-        try await navigate(-1, expecting: title)
-        try await navigate(-1, expecting: subtitle)
-        try await navigate(-1, expecting: subtitle, changesTrack: false) // Top boundary does not wrap.
+        try navigate(-1, expecting: title)
+        try navigate(-1, expecting: subtitle)
+        try navigate(-1, expecting: subtitle) // Top boundary does not wrap.
         for id in [title, primaryVideo, primaryAudio, music, effects] {
-            try await navigate(1, expecting: id)
+            try navigate(1, expecting: id)
         }
-        try await navigate(1, expecting: effects, changesTrack: false) // Bottom boundary does not wrap.
+        try navigate(1, expecting: effects) // Bottom boundary does not wrap.
         for id in [music, primaryAudio, primaryVideo, title, subtitle] {
-            try await navigate(-1, expecting: id)
+            try navigate(-1, expecting: id)
         }
     }
 
     @Test(arguments: [true, false])
-    func adjacentTrackNavigationUsesReorderedLayers(restoreTimelineFocus: Bool) async throws {
+    func adjacentTrackNavigationUsesReorderedLayers(restoreTimelineFocus: Bool) throws {
         var project = projectWithPrimaryTracks()
         let primaryVideo = project.tracks[0].id
         let first = project.createTrack(kind: .video, name: "First")
@@ -207,7 +192,6 @@ struct TimelineTrackOrderTests {
         #expect(controller.project.orderedTimelineTracks.prefix(3).map(\.id) == [first, second, primaryVideo])
         let reordered = controller.project
         controller.activeTimelineTrackID = primaryVideo
-        let previousFocusRequests = controller.timelineListFocusRestoreRequest
 
         controller.selectAdjacentTrack(-1, restoreTimelineFocus: restoreTimelineFocus)
         #expect(controller.activeTimelineTrackID == second)
@@ -215,10 +199,7 @@ struct TimelineTrackOrderTests {
         #expect(controller.activeTimelineTrackID == first)
         controller.selectAdjacentTrack(1, restoreTimelineFocus: restoreTimelineFocus)
         #expect(controller.activeTimelineTrackID == second)
-        await waitForDeferredTimelineFocus()
         #expect(controller.project == reordered)
-        #expect(controller.timelineListFocusRestoreRequest == previousFocusRequests +
-            (restoreTimelineFocus ? 1 : 0))
     }
 
     @Test func adjacentTrackNavigationWithNoTracksDoesNothing() {

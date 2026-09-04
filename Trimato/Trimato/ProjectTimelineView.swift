@@ -33,11 +33,8 @@ struct ProjectTimelineView: View {
     let openClipEditor: (EditorSelection) -> Void
     let workspacePaneLinks: Namespace.ID
 
-    @FocusState private var keyboardFocusedElement: TimelineElementSelection?
-    @AccessibilityFocusState private var focusedElement: TimelineElementSelection?
-    @AccessibilityFocusState private var timelineListFocused: Bool
-    @AccessibilityFocusState private var emptyTimelineFocused: Bool
-    @FocusState private var emptyTimelineKeyboardFocused: Bool
+    @State private var keyboardFocusedElement: TimelineElementSelection?
+    @State private var focusedElement: TimelineElementSelection?
     @State private var renamedClipName = ""
     @State private var isRenamingClip = false
     @State private var isRenamingTrack = false
@@ -112,7 +109,6 @@ struct ProjectTimelineView: View {
             accessibilitySelection: focusedElement,
             keyboardSelection: keyboardFocusedElement,
             movingClipID: controller.movingTimelineClipID,
-            accessibilityFocusRequest: timelineAccessibilityFocusRequest,
             allowsNudging: { element in
                 guard case .clip(let id) = element else { return false }
                 return controller.canNudgeTimelineClip(id: id)
@@ -132,13 +128,6 @@ struct ProjectTimelineView: View {
         .onChange(of: focusedElement) { _, element in
             guard let element else { return }
             controller.focusTimelineElement(element)
-        }
-        .onChange(of: controller.timelineFocusRestoreRequest) {
-            guard let target = controller.timelineFocusRestoreTarget else { return }
-            restoreTimelineElementFocus(to: target)
-        }
-        .onChange(of: controller.timelineListFocusRestoreRequest) {
-            restoreTimelineListFocus()
         }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
@@ -202,42 +191,26 @@ struct ProjectTimelineView: View {
     }
 
     private var timelineScrollView: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 8) {
-                    if timelineElements.isEmpty {
-                        Text("No clips on this track")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 200, alignment: .leading)
-                            .frame(minHeight: 64, alignment: .leading)
-                            .padding(8)
-                            .focusable()
-                            .focused($emptyTimelineKeyboardFocused)
-                            .accessibilityFocused($emptyTimelineFocused)
-                            .accessibilityIdentifier("trimato.timeline.empty")
-                    } else {
-                        ForEach(timelineElements) { element in
-                            switch element.content {
-                            case .clip(let clip): clipButton(clip)
-                            case .transition(let transition): transitionButton(transition)
-                            }
-                        }
-                    }
-                }
-                .padding(8)
-            }
-            .accessibilityLabel(timelineListAccessibilityLabel)
-            .accessibilityIdentifier("trimato.timeline.clips")
-            .accessibilityFocused($timelineListFocused)
-            .onChange(of: controller.timelineFocusRestoreRequest) {
-                if let target = controller.timelineFocusRestoreTarget {
-                    switch target {
-                    case .clip(let id): proxy.scrollTo("clip-" + id.uuidString)
-                    case .transition(let id): proxy.scrollTo("transition-" + id.uuidString)
-                    }
-                }
-            }
-        }
+        TimelineClipsCollection(
+            items: timelineCollectionItems,
+            accessibilityLabel: timelineListAccessibilityLabel,
+            focusRequest: controller.timelineFocusRestoreRequest,
+            focusTarget: controller.timelineFocusRestoreTarget,
+            listFocusRequest: controller.timelineListFocusRestoreRequest,
+            movingClipID: controller.movingTimelineClipID,
+            actions: TimelineCollectionActions(
+                activate: activateTimelineElement,
+                focus: focusNativeTimelineElement,
+                renameClip: beginRenamingClip,
+                copyClip: controller.copyTimelineClip,
+                pasteClipAfter: controller.pasteCopiedTimelineClip,
+                toggleClipMovement: controller.toggleClipMovement,
+                moveClip: { destination, id in controller.moveClip(to: destination, targetID: id) },
+                canMoveClip: { destination, id in controller.canMoveClip(to: destination, targetID: id) },
+                delete: deleteTimelineElement
+            )
+        )
+        .frame(minHeight: 88)
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -279,113 +252,43 @@ struct ProjectTimelineView: View {
         TimelineAccessibility.clipsListLabel(trackName: controller.activeTimelineTrack?.name)
     }
 
-    private var timelineAccessibilityFocusRequest: TimelineAccessibilityFocusRequest? {
-        guard NSWorkspace.shared.isVoiceOverEnabled else { return nil }
-        if timelineElements.isEmpty {
-            guard controller.timelineListFocusRestoreRequest > 0 else { return nil }
-            return TimelineAccessibilityFocusRequest(
-                revision: controller.timelineListFocusRestoreRequest,
-                identifier: "trimato.timeline.empty"
-            )
-        }
-        guard controller.timelineFocusRestoreRequest > 0,
-              let target = controller.timelineFocusRestoreTarget,
-              timelineElements.contains(where: { $0.selection == target }) else { return nil }
-        let identifier: String
-        switch target {
-        case .clip(let id): identifier = TimelineElementAccessibilityIdentifier.clip(id)
-        case .transition(let id): identifier = TimelineElementAccessibilityIdentifier.transition(id)
-        }
-        return TimelineAccessibilityFocusRequest(
-            revision: controller.timelineFocusRestoreRequest,
-            identifier: identifier
-        )
-    }
-
-    private func clipButton(_ clip: TimelineClip) -> some View {
-        Button {
-            controller.selection = .timelineClip(clip.id)
-            openClipEditor(.timelineClip(clip.id))
-        } label: {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(clip.displayName).lineLimit(2)
-                    Text(ProjectTimecodeFormatter.string(clip.duration))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if controller.movingTimelineClipID == clip.id {
-                    Text(controller.movementPositionDescription ?? "Selected")
-                        .font(.caption)
-                        .accessibilityHidden(true)
-                }
-                if currentClipID == clip.id {
-                    Text("Current")
-                        .font(.caption)
-                        .foregroundStyle(EditorTheme.accent)
-                        .accessibilityHidden(true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-        }
-        .buttonStyle(.plain)
-        .frame(width: 200, alignment: .topLeading)
-        .frame(minHeight: 64, alignment: .topLeading)
-        .background(selectionBackground(.timelineClip(clip.id)), in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.separator))
-        .accessibilityLabel(clip.displayName)
-        .accessibilityValue(clipAccessibilityValue(clip))
-        .accessibilityHint("Enter opens Clip Editor. Space toggles selection for moving.")
-        .accessibilityAddTraits(controller.movingTimelineClipID == clip.id ? [.isSelected] : [])
-        .accessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(clip.id))
-        .accessibilityFocused($focusedElement, equals: .clip(clip.id))
-        .focused($keyboardFocusedElement, equals: .clip(clip.id))
-        .contextMenu { clipActions(clip) }
-        .background(TimelineRowEventAnchor(element: .clip(clip.id)))
-    }
-
-    private func transitionButton(_ transition: TimelineTransition) -> some View {
-        Button {
-            controller.selection = .transition(transition.id)
-            beginEditingTransition(transition)
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(transition.displayName).lineLimit(2)
-                if let description = transitionContextDescription(transition) {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-        }
-        .buttonStyle(.plain)
-        .frame(width: 200, alignment: .topLeading)
-        .frame(minHeight: 64, alignment: .topLeading)
-        .background(selectionBackground(.transition(transition.id)), in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.accent.opacity(0.75)))
-        .accessibilityLabel(transition.displayName)
-        .accessibilityIdentifier(TimelineElementAccessibilityIdentifier.transition(transition.id))
-        .accessibilityFocused($focusedElement, equals: .transition(transition.id))
-        .focused($keyboardFocusedElement, equals: .transition(transition.id))
-        .contextMenu {
-            Button("Edit Transition…") { beginEditingTransition(transition) }
-            Button("Delete Transition", role: .destructive) {
-                deleteTimelineTransition(transition.id)
+    private var timelineCollectionItems: [TimelineCollectionItemModel] {
+        timelineElements.map { element in
+            switch element.content {
+            case .clip(let clip):
+                return TimelineCollectionItemModel(
+                    selection: .clip(clip.id),
+                    title: clip.displayName,
+                    subtitle: ProjectTimecodeFormatter.string(clip.duration),
+                    accessibilityValue: clipAccessibilityValue(clip),
+                    accessibilityHint: "Enter opens Clip Editor. Space toggles selection for moving.",
+                    isSelected: controller.movingTimelineClipID == clip.id || controller.selection == .timelineClip(clip.id),
+                    isTransition: false
+                )
+            case .transition(let transition):
+                return TimelineCollectionItemModel(
+                    selection: .transition(transition.id),
+                    title: transition.displayName,
+                    subtitle: transitionContextDescription(transition),
+                    accessibilityValue: "",
+                    accessibilityHint: "Enter opens the transition editor.",
+                    isSelected: controller.selection == .transition(transition.id),
+                    isTransition: true
+                )
             }
         }
     }
 
-    private func selectionBackground(_ selection: EditorSelection) -> Color {
-        let isSelected: Bool
+    private func focusNativeTimelineElement(_ selection: TimelineElementSelection) {
+        focusedElement = selection
+        keyboardFocusedElement = selection
+    }
+
+    private func deleteTimelineElement(_ selection: TimelineElementSelection) {
         switch selection {
-        case .timelineClip(let id): isSelected = controller.movingTimelineClipID == id
-        default: isSelected = controller.selection == selection
+        case .clip(let id): deleteTimelineClip(id)
+        case .transition(let id): deleteTimelineTransition(id)
         }
-        return isSelected ? EditorTheme.accent.opacity(0.28) : EditorTheme.raisedSurface
     }
 
     private var hasSelectedElement: Bool {
@@ -473,13 +376,7 @@ struct ProjectTimelineView: View {
     }
 
     private func restoreTimelineElementFocus(to target: TimelineElementSelection) {
-        // A movement keeps the same row alive. Restore once after the committed
-        // list update, never clear/reassert focus repeatedly during arrow presses.
-        DispatchQueue.main.async {
-            if !NSWorkspace.shared.isVoiceOverEnabled {
-                keyboardFocusedElement = target
-            }
-        }
+        controller.requestTimelineFocusRestore(to: target)
     }
 
     private func activateTimelineElement(_ selection: TimelineElementSelection) {
@@ -512,9 +409,6 @@ struct ProjectTimelineView: View {
         // Cancellation can then request the same row once after dismissal.
         focusedElement = nil
         keyboardFocusedElement = nil
-        timelineListFocused = false
-        emptyTimelineFocused = false
-        emptyTimelineKeyboardFocused = false
         clipPendingDeletion = clip
     }
 
@@ -561,12 +455,14 @@ struct ProjectTimelineView: View {
 
     private func performTimelineKey(_ action: TimelineKeyAction, _ target: TimelineElementSelection) {
         if action == .openEditor { activateTimelineElement(target); return }
+        if action == .delete { deleteTimelineElement(target); return }
         guard case .clip(let id) = target else { return }
         switch action {
         case .toggleMovement: controller.toggleClipMovement(id: id)
         case .beginMovement: controller.beginClipMovement(id: id)
         case .finishMovement: controller.finishClipMovement()
         case .cancelMovement: controller.cancelClipMovement()
+        case .delete: break
         case .earlier: controller.moveFocusedTimelineClip(id: id, by: -1)
         case .later: controller.moveFocusedTimelineClip(id: id, by: 1)
         case .copy: controller.copyTimelineClip(id: id)
@@ -599,18 +495,11 @@ struct ProjectTimelineView: View {
         in window: NSWindow?,
         commit: @escaping () -> Void
     ) {
-        if let target {
-            timelineListFocused = false
-            keyboardFocusedElement = target
-            focusedElement = target
-        }
         DispatchQueue.main.async {
             commit()
-            if target == nil, window?.isKeyWindow == true,
-               window?.attachedSheet == nil, timelineElements.isEmpty {
-                emptyTimelineKeyboardFocused = true
-                emptyTimelineFocused = true
-            }
+            guard window?.isKeyWindow == true, window?.attachedSheet == nil else { return }
+            if let target { controller.requestTimelineFocusRestore(to: target) }
+            else if timelineElements.isEmpty { controller.requestTimelineListFocusRestore() }
         }
     }
 
@@ -711,15 +600,6 @@ struct ProjectTimelineView: View {
         errorMessage = error.localizedDescription
     }
 
-    private func restoreTimelineListFocus() {
-        guard !NSWorkspace.shared.isVoiceOverEnabled else { return }
-        if timelineElements.isEmpty {
-            timelineListFocused = false
-            emptyTimelineKeyboardFocused = true
-        } else if !timelineListFocused {
-            timelineListFocused = true
-        }
-    }
 }
 
 /// NSAlert supplies a completion callback after its native sheet ends; SwiftUI's
@@ -843,13 +723,6 @@ struct TimelineListElement: Identifiable, Equatable {
         switch content {
         case .clip(let clip): "clip-\(clip.id.uuidString)"
         case .transition(let transition): "transition-\(transition.id.uuidString)"
-        }
-    }
-
-    var selection: TimelineElementSelection {
-        switch content {
-        case .clip(let clip): .clip(clip.id)
-        case .transition(let transition): .transition(transition.id)
         }
     }
 }

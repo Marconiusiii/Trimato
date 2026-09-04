@@ -27,7 +27,7 @@ struct ProjectPlaybackTests {
         let clip = TimelineElementSelection.clip(UUID())
         let coordinator = TimelineKeyboardBridge.Coordinator()
         var actions: [TimelineKeyAction] = []
-        coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: clip, keyboardSelection: .clip(UUID()), movingClipID: nil, accessibilityFocusRequest: nil, allowsNudging: { $0 == clip }) { action, target in
+        coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: clip, keyboardSelection: .clip(UUID()), movingClipID: nil, allowsNudging: { $0 == clip }) { action, target in
             #expect(target == clip)
             actions.append(action)
         }
@@ -59,7 +59,7 @@ struct ProjectPlaybackTests {
         try #require(window.contentView).addSubview(anchor)
         let coordinator = TimelineKeyboardBridge.Coordinator()
         var actions: [TimelineKeyAction] = []
-        coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: clip, keyboardSelection: nil, movingClipID: nil, accessibilityFocusRequest: nil) { action, target in
+        coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: clip, keyboardSelection: nil, movingClipID: nil) { action, target in
             #expect(target == clip)
             actions.append(action)
         }
@@ -100,6 +100,9 @@ struct ProjectPlaybackTests {
         #expect(TimelineKeyAction.resolve(keyCode: 124, modifiers: [.control, .option], isMoving: true) == nil)
         #expect(TimelineKeyAction.resolve(keyCode: 9, modifiers: [.command, .option], isMoving: false) == .moveAfter)
         #expect(TimelineKeyAction.resolve(keyCode: 53, modifiers: [], isMoving: false) == nil)
+        #expect(TimelineKeyAction.resolve(keyCode: 51, modifiers: [], isMoving: false) == .delete)
+        #expect(TimelineKeyAction.resolve(keyCode: 117, modifiers: [], isMoving: false) == .delete)
+        #expect(TimelineKeyAction.resolve(keyCode: 51, modifiers: [.command], isMoving: false) == nil)
     }
 
     @Test func editorKeyboardRoutingRecognizesTrackSelectionAndAbsolutePositioning() {
