@@ -719,6 +719,20 @@ struct MultiTrackTimelineTests {
         withExtendedLifetime(observation) {}
     }
 
+    @Test @MainActor func appKitTimelineFocusFindsTheNativeIdentifier() {
+        let root = NSView()
+        let container = NSView()
+        let button = NSButton(title: "Interview", target: nil, action: nil)
+        let identifier = TimelineElementAccessibilityIdentifier.clip(UUID())
+        button.setAccessibilityIdentifier(identifier)
+        container.addSubview(button)
+        root.addSubview(container)
+
+        let match = TimelineAppKitAccessibility.descendant(in: root, identifier: identifier)
+
+        #expect(match === button)
+    }
+
     @Test func musicClipTrimsToTheSharedProjectPlayheadAndMovesLaterMusicEarlier() throws {
         var music = fixtureAsset(name: "Music", duration: 70)
         music.naturalWidth = nil

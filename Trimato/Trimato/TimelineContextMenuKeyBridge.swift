@@ -26,6 +26,11 @@ nonisolated enum TimelineElementAccessibilityIdentifier {
     }
 }
 
+nonisolated struct TimelineAccessibilityFocusRequest: Equatable {
+    let revision: Int
+    let identifier: String
+}
+
 import AppKit
 import SwiftUI
 
@@ -115,6 +120,7 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
     let accessibilitySelection: TimelineElementSelection?
     let keyboardSelection: TimelineElementSelection?
     let movingClipID: UUID?
+    var accessibilityFocusRequest: TimelineAccessibilityFocusRequest?
     var isMoving: Bool { movingClipID != nil }
     var allowsNudging: (TimelineElementSelection) -> Bool = { _ in false }
     let perform: (TimelineKeyAction, TimelineElementSelection) -> Void
@@ -132,6 +138,7 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
         context.coordinator.bridge = self
         context.coordinator.scope.accessibilityFocus = accessibilitySelection
         context.coordinator.scope.keyboardFocus = keyboardSelection
+        context.coordinator.performAccessibilityFocusRequest(accessibilityFocusRequest, from: view)
     }
 
     static func dismantleNSView(_ view: NSView, coordinator: Coordinator) { coordinator.stop() }
@@ -145,6 +152,7 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
         var mouseSource: TimelineElementSelection?
         var mouseMovementStarted = false
         var mousePressID = UUID()
+        var lastAccessibilityFocusRequest: TimelineAccessibilityFocusRequest?
 
         func install(_ view: NSView) {
             scope.view = view
@@ -167,6 +175,26 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
             }
             return handleKey(event, voiceOver: NSWorkspace.shared.isVoiceOverEnabled,
                              editingText: (window.firstResponder as? NSTextView)?.isEditable == true)
+        }
+
+        func performAccessibilityFocusRequest(
+            _ request: TimelineAccessibilityFocusRequest?,
+            from view: NSView
+        ) {
+            guard let request, request != lastAccessibilityFocusRequest else { return }
+            lastAccessibilityFocusRequest = request
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let view,
+                      self.bridge?.accessibilityFocusRequest == request,
+                      let window = view.window,
+                      window.isKeyWindow,
+                      let contentView = window.contentView,
+                      let element = TimelineAppKitAccessibility.descendant(
+                        in: contentView,
+                        identifier: request.identifier
+                      ) else { return }
+                TimelineAppKitAccessibility.focus(element)
+            }
         }
 
         func handleKey(_ event: NSEvent, voiceOver: Bool, editingText: Bool) -> NSEvent? {
@@ -253,5 +281,46 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
             TimelineKeyboardFocus.scopes.removeValue(forKey: scope.id)
             NotificationCenter.default.removeObserver(self)
         }
+    }
+}
+
+@MainActor
+enum TimelineAppKitAccessibility {
+    static func descendant(in root: NSObject, identifier: String) -> NSObject? {
+        var visited: Set<ObjectIdentifier> = []
+        return descendant(in: root, identifier: identifier, visited: &visited)
+    }
+
+    static func focus(_ element: NSObject) {
+        if let view = element as? NSView {
+            view.scrollToVisible(view.bounds)
+        }
+        (element as? NSAccessibilityProtocol)?.setAccessibilityFocused(true)
+    }
+
+    private static func descendant(
+        in element: NSObject,
+        identifier: String,
+        visited: inout Set<ObjectIdentifier>
+    ) -> NSObject? {
+        let identity = ObjectIdentifier(element)
+        guard visited.insert(identity).inserted else { return nil }
+        guard let accessibilityElement = element as? NSAccessibilityProtocol else { return nil }
+        if accessibilityElement.accessibilityIdentifier() == identifier { return element }
+
+        if let view = element as? NSView {
+            for child in view.subviews {
+                if let match = descendant(in: child, identifier: identifier, visited: &visited) {
+                    return match
+                }
+            }
+        }
+        for child in accessibilityElement.accessibilityChildren() ?? [] {
+            guard let child = child as? NSObject else { continue }
+            if let match = descendant(in: child, identifier: identifier, visited: &visited) {
+                return match
+            }
+        }
+        return nil
     }
 }
