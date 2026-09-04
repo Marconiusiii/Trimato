@@ -314,6 +314,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                 ])
             }
             cell.textField?.stringValue = node.name
+            cell.setAccessibilityLabel(node.isExpandable ? node.name : nil)
             cell.setAccessibilityIdentifier(accessibilityIdentifier(for: node.id))
             return cell
         }

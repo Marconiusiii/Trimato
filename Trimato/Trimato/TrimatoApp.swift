@@ -333,6 +333,12 @@ private struct ProjectFileCommands: Commands {
             .keyboardShortcut("n", modifiers: .command)
         }
         CommandGroup(replacing: .saveItem) {
+            Button("Close Clip Editor") {
+                clipPlacement?.hostWindow?.performClose(nil)
+            }
+            .keyboardShortcut("w", modifiers: .command)
+            .disabled(clipPlacement?.isKeyWindow != true)
+            Divider()
             Button("Save") { controller?.saveProjectDocument() }
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(controller == nil)

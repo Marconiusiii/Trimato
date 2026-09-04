@@ -548,6 +548,11 @@ private struct ClipEditorWindowView: View {
         )
         .focusedObject(controller)
         .focusedObject(commandContext)
+        .onExitCommand {
+            guard commandContext.hostWindow?.attachedSheet == nil,
+                  NSApp.modalWindow == nil else { return }
+            commandContext.hostWindow?.performClose(nil)
+        }
         .alert(item: Binding(
             get: {
                 commandContext.trackPlacementAction == nil ? commandContext.presentedError : nil
