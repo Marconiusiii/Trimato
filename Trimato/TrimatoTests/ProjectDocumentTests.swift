@@ -33,6 +33,40 @@ struct ProjectDocumentTests {
         #expect(decoded.schemaVersion == TrimatoProject.currentSchemaVersion)
     }
 
+    @Test @MainActor func newProjectCreationWritesANamedFolderContainingTheSavedPackage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TrimatoNewProject-\(UUID().uuidString)", isDirectory: true)
+        let folder = root.appendingPathComponent("Interview Cut", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        var project = TrimatoProject(name: "Draft Name")
+        project.targetDuration = ProjectTime(seconds: 90)
+        let packageURL = try ProjectDocument.writeNewProject(project, toFolderAt: folder)
+
+        #expect(packageURL == folder.appendingPathComponent("Interview Cut.trimato", isDirectory: true))
+        #expect(FileManager.default.fileExists(atPath: packageURL.path))
+        let package = try FileWrapper(url: packageURL, options: .immediate)
+        let decoded = try ProjectDocument.decodeProject(from: package)
+        #expect(decoded.name == "Interview Cut")
+        #expect(decoded.targetDuration == ProjectTime(seconds: 90))
+    }
+
+    @Test @MainActor func newProjectCreationDoesNotOverwriteAnExistingFolder() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TrimatoExistingProject-\(UUID().uuidString)", isDirectory: true)
+        let folder = root.appendingPathComponent("Existing", isDirectory: true)
+        let marker = folder.appendingPathComponent("keep.txt")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: marker)
+
+        #expect(throws: CocoaError.self) {
+            try ProjectDocument.writeNewProject(TrimatoProject(), toFolderAt: folder)
+        }
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "keep")
+    }
+
     @Test func decodedProjectProvidesACleanExplicitSaveBaseline() throws {
         let original = TrimatoProject(name: "Saved Project")
         let manifest = try ProjectDocument.manifestData(for: original)

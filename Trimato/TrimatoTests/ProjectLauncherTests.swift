@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Project launcher")
 struct ProjectLauncherTests {
-    @Test @MainActor func projectSettingsCreateAConfiguredUnsavedDocument() {
+    @Test @MainActor func projectSettingsProduceAConfiguredProjectForSaving() {
         let values = ProjectSettingsValues(
             name: "  Phone Interview  ",
             format: ProjectFormat(mode: .custom, width: 1_080, height: 1_920, frameRate: 30),
@@ -12,14 +12,12 @@ struct ProjectLauncherTests {
         )
 
         let project = values.applying(to: TrimatoProject())
-        let document = ProjectDocument(project: project, isExplicitlySaved: false)
 
         #expect(project.name == "Phone Interview")
         #expect(project.format == values.format)
         #expect(project.targetDuration == ProjectTime(seconds: 90))
         #expect(project.media.isEmpty)
         #expect(project.primaryTimeline.isEmpty)
-        #expect(document.hasUnsavedChanges)
     }
 
     @Test func blankProjectNameUsesTheDefaultName() {

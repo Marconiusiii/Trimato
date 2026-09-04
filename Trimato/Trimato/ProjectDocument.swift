@@ -66,10 +66,36 @@ final class ProjectDocument: ReferenceFileDocument {
     }
 
     func fileWrapper(snapshot: TrimatoProject, configuration: WriteConfiguration) throws -> FileWrapper {
-        let data = try Self.manifestData(for: snapshot)
+        try Self.packageWrapper(for: snapshot)
+    }
+
+    static func packageWrapper(for project: TrimatoProject) throws -> FileWrapper {
+        let data = try Self.manifestData(for: project)
         return FileWrapper(directoryWithFileWrappers: [
             "project.json": FileWrapper(regularFileWithContents: data)
         ])
+    }
+
+    static func writeNewProject(
+        _ project: TrimatoProject,
+        toFolderAt folderURL: URL,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        guard !fileManager.fileExists(atPath: folderURL.path) else {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: folderURL.path])
+        }
+        let folderName = folderURL.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !folderName.isEmpty else { throw CocoaError(.fileWriteInvalidFileName) }
+
+        var savedProject = project
+        savedProject.name = folderName
+        let packageURL = folderURL
+            .appendingPathComponent(folderName, isDirectory: true)
+            .appendingPathExtension(UTType.trimatoProject.preferredFilenameExtension ?? "trimato")
+        let package = try packageWrapper(for: savedProject)
+        let folder = FileWrapper(directoryWithFileWrappers: [packageURL.lastPathComponent: package])
+        try folder.write(to: folderURL, options: .atomic, originalContentsURL: nil)
+        return packageURL
     }
 
     static func manifestData(for project: TrimatoProject) throws -> Data {

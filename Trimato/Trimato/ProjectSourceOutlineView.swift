@@ -628,7 +628,7 @@ private final class ProjectSourceAssetButton: NSButton {
         self.assetID = assetID
         self.title = title
         self.owner = owner
-        setAccessibilityLabel(title)
+        setAccessibilityLabel(nil)
         setAccessibilityIdentifier(accessibilityIdentifier)
     }
 

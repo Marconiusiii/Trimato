@@ -186,6 +186,7 @@ struct ProjectCreationView: View {
     let actionTitle: String
     let finish: (ProjectSettingsValues) -> Void
     let cancel: () -> Void
+    let nativeDefaultButtonReady: ((NSButton) -> Void)?
 
     @State private var name: String
     @State private var mode: ProjectFormatMode
@@ -209,12 +210,14 @@ struct ProjectCreationView: View {
         heading: String,
         actionTitle: String,
         finish: @escaping (ProjectSettingsValues) -> Void,
-        cancel: @escaping () -> Void
+        cancel: @escaping () -> Void,
+        nativeDefaultButtonReady: ((NSButton) -> Void)? = nil
     ) {
         self.heading = heading
         self.actionTitle = actionTitle
         self.finish = finish
         self.cancel = cancel
+        self.nativeDefaultButtonReady = nativeDefaultButtonReady
         let project = initialProject
         _name = State(initialValue: project.name)
         _mode = State(initialValue: project.format.mode)
@@ -303,8 +306,17 @@ struct ProjectCreationView: View {
                 Button("Cancel", action: cancel)
                     .keyboardShortcut(.cancelAction)
 
-                ProjectCreationDefaultButton(title: actionTitle, action: submit)
+                if let nativeDefaultButtonReady {
+                    ProjectCreationDefaultButton(
+                        title: actionTitle,
+                        action: submit,
+                        buttonReady: nativeDefaultButtonReady
+                    )
                     .fixedSize()
+                } else {
+                    Button(actionTitle, action: submit)
+                        .keyboardShortcut(.defaultAction)
+                }
             }
         }
         .padding(24)
@@ -433,28 +445,25 @@ struct ProjectCreationView: View {
 private struct ProjectCreationDefaultButton: NSViewRepresentable {
     let title: String
     let action: () -> Void
+    let buttonReady: (NSButton) -> Void
 
     func makeNSView(context: Context) -> ProjectCreationDefaultNSButton {
         let button = ProjectCreationDefaultNSButton()
         button.actionHandler = action
         button.title = title
+        buttonReady(button)
         return button
     }
 
     func updateNSView(_ button: ProjectCreationDefaultNSButton, context: Context) {
         button.actionHandler = action
         button.title = title
-        button.installAsWindowDefault()
-    }
-
-    static func dismantleNSView(_ button: ProjectCreationDefaultNSButton, coordinator: Void) {
-        button.removeAsWindowDefault()
+        buttonReady(button)
     }
 }
 
-private final class ProjectCreationDefaultNSButton: NSButton {
+final class ProjectCreationDefaultNSButton: NSButton {
     var actionHandler: (() -> Void)?
-    private weak var registeredWindow: NSWindow?
 
     init() {
         super.init(frame: .zero)
@@ -468,31 +477,6 @@ private final class ProjectCreationDefaultNSButton: NSButton {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        installAsWindowDefault()
-    }
-
-    func installAsWindowDefault() {
-        guard let window, let buttonCell = cell as? NSButtonCell else { return }
-        if registeredWindow !== window { removeAsWindowDefault() }
-        registeredWindow = window
-        window.defaultButtonCell = buttonCell
-        window.setAccessibilityDefaultButton(self)
-    }
-
-    func removeAsWindowDefault() {
-        guard let registeredWindow else { return }
-        if registeredWindow.defaultButtonCell === cell {
-            registeredWindow.defaultButtonCell = nil
-        }
-        if let defaultButton = registeredWindow.accessibilityDefaultButton() as? NSButton,
-           defaultButton === self {
-            registeredWindow.setAccessibilityDefaultButton(nil)
-        }
-        self.registeredWindow = nil
     }
 
     @objc private func pressed() {

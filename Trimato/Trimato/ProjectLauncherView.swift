@@ -4,7 +4,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ProjectLauncherView: View {
-    @Environment(\.newDocument) private var newDocument
     @Environment(\.openDocument) private var openDocument
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
@@ -26,9 +25,11 @@ struct ProjectLauncherView: View {
         .background(EditorTheme.workspace)
         .tint(EditorTheme.accent)
         .preferredColorScheme(.dark)
-        .sheet(isPresented: projectCreationPresentation) {
-            newProjectOptions
-        }
+        .background(ProjectCreationSheetPresenter(
+            isPresented: navigation.isCreatingProject,
+            projectCreated: openCreatedProject,
+            presentationEnded: cancelProjectCreation
+        ))
         .onAppear { recentProjects.refresh() }
         .onDisappear {
             navigation.showWelcome()
@@ -59,29 +60,6 @@ struct ProjectLauncherView: View {
             recentProjectGroup
         }
         .defaultFocus($launcherFocus, .newProject, priority: .userInitiated)
-    }
-
-    private var newProjectOptions: some View {
-        ProjectCreationView(
-            initialProject: TrimatoProject(),
-            heading: "New Project",
-            actionTitle: "Create Project",
-            finish: createProject,
-            cancel: cancelProjectCreation
-        )
-    }
-
-    private var projectCreationPresentation: Binding<Bool> {
-        Binding(
-            get: { navigation.isCreatingProject },
-            set: { isPresented in
-                if isPresented {
-                    navigation.showProjectCreation()
-                } else {
-                    navigation.showWelcome()
-                }
-            }
-        )
     }
 
     private var welcome: some View {
@@ -139,13 +117,8 @@ struct ProjectLauncherView: View {
         navigation.showWelcome()
     }
 
-    private func createProject(with values: ProjectSettingsValues) {
-        let project = values.applying(to: TrimatoProject())
-        navigation.showWelcome()
-        newDocument {
-            ProjectDocument(project: project, isExplicitlySaved: false)
-        }
-        closeLauncher()
+    private func openCreatedProject(at url: URL) {
+        openProject(at: url)
     }
 
     private var recentProjectGroup: some View {
