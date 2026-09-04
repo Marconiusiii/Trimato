@@ -259,6 +259,10 @@ final class ProjectController: ObservableObject {
 
     func installProjectPlayer(_ player: ProjectPlayerViewModel) {
         projectPlayer = player
+        player.onPlayheadChange { [weak self] time in
+            guard let self, self.timelinePlayhead != time else { return }
+            self.timelinePlayhead = time
+        }
     }
 
     func installCloseProjectAction(_ action: @escaping () -> Void) {

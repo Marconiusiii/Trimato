@@ -433,13 +433,6 @@ struct ProjectViewerView: View {
                   ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
             requestPreparation()
         }
-        .onChange(of: controller.timelinePlayhead) { _, time in
-            guard abs(viewModel.currentTime.seconds - time.seconds) > 0.02 else { return }
-            viewModel.seek(to: time)
-        }
-        .onChange(of: viewModel.currentTime) { _, time in
-            controller.timelinePlayhead = time
-        }
         .onChange(of: controller.editorFocusRestoreRequest) {
             restoreProjectPlayheadFocus()
         }

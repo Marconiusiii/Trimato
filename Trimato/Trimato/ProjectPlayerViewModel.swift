@@ -166,6 +166,10 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var rateObserver: AnyCancellable?
     private var timeObserver: Any?
     private var captionBoundaryObserver: Any?
+    private var captionPlaybackTask: Task<Void, Never>?
+    private var captionPlaybackID: UUID?
+    private var captionPlaybackEnd: ProjectTime?
+    private var captionPlaybackSettlingTime: ProjectTime?
     private var temporaryMediaURLs: [URL] = []
     private var projectDuration = ProjectTime.zero
     private var videoEndTime = ProjectTime.zero
@@ -192,6 +196,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var positionActiveClipTail: (() -> Void)?
     private var trimActiveClipStart: (() -> Void)?
     private var trimActiveClipEnd: (() -> Void)?
+    private var playheadChanged: ((ProjectTime) -> Void)?
     private var currentPreviewFailure: ProjectPreviewFailure?
 
     init(awaitingInitialPreparation: Bool = false) {
@@ -214,7 +219,16 @@ final class ProjectPlayerViewModel: ObservableObject {
         ) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self, !self.isPreparing, self.pendingInsertionPlayhead == nil else { return }
-                self.updateDisplayedTime(ProjectTime(time))
+                if let settlingTime = self.captionPlaybackSettlingTime {
+                    self.updateDisplayedTime(settlingTime)
+                    return
+                }
+                let projectTime = ProjectTime(time)
+                if let end = self.captionPlaybackEnd, projectTime >= end {
+                    self.finishCaptionRangePlayback(at: end)
+                } else {
+                    self.updateDisplayedTime(projectTime)
+                }
             }
         }
         setupKeyEventMonitor()
@@ -225,6 +239,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         buildTask?.cancel()
         scrubTask?.cancel()
         stepEndTask?.cancel()
+        captionPlaybackTask?.cancel()
         for url in temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let captionBoundaryObserver { player.removeTimeObserver(captionBoundaryObserver) }
@@ -233,6 +248,10 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func scopeKeyboardCommands(to isActive: @escaping () -> Bool) {
         keyboardCommandsAreActive = isActive
+    }
+
+    func onPlayheadChange(_ handler: @escaping (ProjectTime) -> Void) {
+        playheadChanged = handler
     }
 
     func onBladeAtPlayhead(_ handler: @escaping () -> Void) {
@@ -339,6 +358,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         mediaURLs: [UUID: URL],
         initialTime: ProjectTime
     ) {
+        stopCaptionRangePlayback()
         buildTask?.cancel()
         cancelFrameStepping()
         let preparationID = UUID()
@@ -466,6 +486,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         initialTime: ProjectTime,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
+        stopCaptionRangePlayback()
         buildTask?.cancel()
         cancelFrameStepping()
         let requestID = UUID()
@@ -639,21 +660,67 @@ final class ProjectPlayerViewModel: ObservableObject {
     func playCaptionRange(_ range: ProjectTimeRange) {
         guard canControlPlayback, range.isValid else { return }
         stopCaptionRangePlayback()
-        seekPrecisely(to: range.start)
-        captionBoundaryObserver = player.addBoundaryTimeObserver(
-            forTimes: [NSValue(time: range.end.cmTime)],
-            queue: .main
-        ) { [weak self] in
-            MainActor.assumeIsolated { self?.stopCaptionRangePlayback() }
+        let playbackID = UUID()
+        captionPlaybackID = playbackID
+        captionPlaybackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let finished = await self.player.seek(
+                to: range.start.cmTime,
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            )
+            guard finished, !Task.isCancelled, self.captionPlaybackID == playbackID else { return }
+            self.updateDisplayedTime(range.start)
+            self.captionPlaybackEnd = range.end
+            self.captionBoundaryObserver = self.player.addBoundaryTimeObserver(
+                forTimes: [NSValue(time: range.end.cmTime)],
+                queue: .main
+            ) { [weak self] in
+                MainActor.assumeIsolated { self?.finishCaptionRangePlayback(at: range.end) }
+            }
+            self.captionPlaybackTask = nil
+            self.captionPlaybackID = nil
+            self.player.play()
         }
-        player.rate = 1
     }
 
     func stopCaptionRangePlayback() {
+        captionPlaybackID = nil
+        captionPlaybackTask?.cancel()
+        captionPlaybackTask = nil
+        captionPlaybackEnd = nil
+        captionPlaybackSettlingTime = nil
         player.pause()
         if let captionBoundaryObserver {
             player.removeTimeObserver(captionBoundaryObserver)
             self.captionBoundaryObserver = nil
+        }
+    }
+
+    private func finishCaptionRangePlayback(at end: ProjectTime) {
+        let finalTime = min(end, projectDuration)
+        captionPlaybackID = nil
+        captionPlaybackTask?.cancel()
+        captionPlaybackTask = nil
+        captionPlaybackEnd = nil
+        captionPlaybackSettlingTime = finalTime
+        player.pause()
+        if let captionBoundaryObserver {
+            player.removeTimeObserver(captionBoundaryObserver)
+            self.captionBoundaryObserver = nil
+        }
+        updateDisplayedTime(finalTime)
+        captionPlaybackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.player.seek(
+                to: finalTime.cmTime,
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            )
+            guard !Task.isCancelled, self.captionPlaybackSettlingTime == finalTime else { return }
+            self.updateDisplayedTime(finalTime)
+            self.captionPlaybackSettlingTime = nil
+            self.captionPlaybackTask = nil
         }
     }
 
@@ -871,7 +938,10 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func updateDisplayedTime(_ time: ProjectTime) {
-        currentTime = time
+        if currentTime != time {
+            currentTime = time
+            playheadChanged?(time)
+        }
         currentFrame = max(Int((time.seconds * projectFrameRate).rounded(.towardZero)), 0)
         displayTimecode = ProjectTimecodeFormatter.string(time)
         if !isPlaying, !isScrubbing, !isSteppingFrames {

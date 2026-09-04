@@ -237,6 +237,54 @@ struct ProjectPlaybackTests {
         ))
     }
 
+    @Test func playerPublishesItsPlayheadWithoutASwiftUIFeedbackLoop() {
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        let viewModel = ProjectPlayerViewModel()
+        controller.installProjectPlayer(viewModel)
+
+        viewModel.stageInsertionPlayhead(ProjectTime(seconds: 3), duration: ProjectTime(seconds: 10))
+
+        #expect(controller.timelinePlayhead == ProjectTime(seconds: 3))
+    }
+
+    @Test func captionPlaybackWaitsForItsInPointAndStopsAtItsOutPoint() async throws {
+        var definition = GeneratorDefinition()
+        definition.kind = .black
+        definition.width = 320
+        definition.height = 180
+        definition.duration = ProjectTime(seconds: 2)
+        definition.frameRate = 30
+        let asset = definition.assetRecord()
+        var project = TrimatoProject(name: "Caption playback")
+        project.format = ProjectFormat(mode: .custom, width: 320, height: 180, frameRate: 30)
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        let viewModel = ProjectPlayerViewModel()
+        var reportedTimes: [ProjectTime] = []
+        viewModel.onPlayheadChange { reportedTimes.append($0) }
+        viewModel.prepare(project: project, mediaURLs: [:])
+        await waitForPreviewPreparation(viewModel)
+        try #require(viewModel.canControlPlayback)
+        reportedTimes.removeAll()
+
+        let range = ProjectTimeRange(
+            start: ProjectTime(seconds: 0.5),
+            duration: ProjectTime(seconds: 0.5)
+        )
+        viewModel.playCaptionRange(range)
+        for _ in 0..<100 where !viewModel.isPlaying {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(viewModel.isPlaying)
+        #expect(reportedTimes.contains(range.start))
+        for _ in 0..<150 where viewModel.isPlaying {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(!viewModel.isPlaying)
+        #expect(viewModel.currentTime == range.end)
+    }
+
     @Test func editNavigationIncludesStorylineAndCutawayBoundariesWithoutDuplicates() {
         let firstAsset = fixtureAsset(name: "Interview", duration: 5)
         let secondAsset = fixtureAsset(name: "Closing", duration: 5)
