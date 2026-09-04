@@ -28,11 +28,29 @@ struct ProjectPlaybackTests {
     @Test func initialPreparationBlocksAProjectUntilPreparationFinishes() {
         let viewModel = ProjectPlayerViewModel(awaitingInitialPreparation: true)
         #expect(viewModel.isInitialPreparationPending)
+        #expect(viewModel.preparationProgress == 0)
 
         viewModel.prepare(project: TrimatoProject(), mediaURLs: [:])
 
         #expect(!viewModel.isInitialPreparationPending)
+        #expect(viewModel.preparationProgress == nil)
         #expect(!viewModel.canControlPlayback)
+    }
+
+    @Test func requestedPreparationDefersPublishedChangesUntilAfterTheViewUpdate() async throws {
+        let viewModel = ProjectPlayerViewModel(awaitingInitialPreparation: true)
+
+        viewModel.requestPreparation(project: TrimatoProject(), mediaURLs: [:])
+
+        #expect(viewModel.isInitialPreparationPending)
+        #expect(viewModel.preparationProgress == 0)
+
+        for _ in 0..<100 where viewModel.isInitialPreparationPending {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(!viewModel.isInitialPreparationPending)
+        #expect(viewModel.preparationProgress == nil)
     }
 
     @Test func editorFocusRestoreIsRequestedOnlyWhenNativeFocusDidNotReturn() {

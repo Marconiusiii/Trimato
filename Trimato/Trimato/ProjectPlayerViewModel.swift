@@ -115,6 +115,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     let player = AVPlayer()
     @Published private(set) var isPreparing = false
     @Published private(set) var isInitialPreparationPending: Bool
+    @Published private(set) var preparationProgress: Double?
     @Published private(set) var preparationWasCancelled = false
     @Published private(set) var hasPreparedPlayerItem = false
     @Published private(set) var errorMessage: String?
@@ -160,6 +161,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private var buildTask: Task<Void, Never>?
+    private var preparationRequestTask: Task<Void, Never>?
     private var preparationID: UUID?
     private var rateObserver: AnyCancellable?
     private var timeObserver: Any?
@@ -194,6 +196,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     init(awaitingInitialPreparation: Bool = false) {
         isInitialPreparationPending = awaitingInitialPreparation
+        preparationProgress = awaitingInitialPreparation ? 0 : nil
         player.automaticallyWaitsToMinimizeStalling = false
         rateObserver = player.publisher(for: \.rate)
             .receive(on: RunLoop.main)
@@ -218,6 +221,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     deinit {
+        preparationRequestTask?.cancel()
         buildTask?.cancel()
         scrubTask?.cancel()
         stepEndTask?.cancel()
@@ -290,14 +294,50 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func cancelPreparation() {
-        guard isPreparing else { return }
+        preparationRequestTask?.cancel()
+        preparationRequestTask = nil
+        guard isPreparing else {
+            isInitialPreparationPending = false
+            preparationProgress = nil
+            return
+        }
         buildTask?.cancel()
+    }
+
+    func requestPreparation(
+        project: TrimatoProject,
+        mediaURLs: [UUID: URL],
+        initialTime: ProjectTime = .zero
+    ) {
+        preparationRequestTask?.cancel()
+        preparationRequestTask = Task { @MainActor [weak self] in
+            // SwiftUI tasks begin synchronously. Suspend before publishing any
+            // preparation state so this never changes the view during its update.
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.preparationRequestTask = nil
+            self.startPreparation(
+                project: project,
+                mediaURLs: mediaURLs,
+                initialTime: initialTime
+            )
+        }
     }
 
     func prepare(
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
         initialTime: ProjectTime = .zero
+    ) {
+        preparationRequestTask?.cancel()
+        preparationRequestTask = nil
+        startPreparation(project: project, mediaURLs: mediaURLs, initialTime: initialTime)
+    }
+
+    private func startPreparation(
+        project: TrimatoProject,
+        mediaURLs: [UUID: URL],
+        initialTime: ProjectTime
     ) {
         buildTask?.cancel()
         cancelFrameStepping()
@@ -320,12 +360,14 @@ final class ProjectPlayerViewModel: ObservableObject {
             hasPreparedPlayerItem = false
             isPreparing = false
             isInitialPreparationPending = false
+            preparationProgress = nil
             errorMessage = nil
             currentPreviewFailure = nil
             presentedPreviewFailure = nil
             return
         }
         isPreparing = true
+        preparationProgress = 0
         preparationWasCancelled = false
         errorMessage = nil
         currentPreviewFailure = nil
@@ -336,7 +378,11 @@ final class ProjectPlayerViewModel: ObservableObject {
                 let result = try await ProjectCompositionBuilder.build(
                     project: project,
                     mediaURLs: mediaURLs,
-                    purpose: .preview
+                    purpose: .preview,
+                    progress: { [weak self] progress in
+                        guard let self, self.preparationID == preparationID else { return }
+                        self.preparationProgress = min(max(progress, 0), 0.9)
+                    }
                 )
                 pendingTemporaryMediaURLs = result.temporaryMediaURLs
                 try Task.checkCancellation()
@@ -363,6 +409,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 hasPreparedPlayerItem = true
                 pendingInsertionPlayhead = nil
                 updateDisplayedTime(boundedInitialTime)
+                preparationProgress = 1
                 isPreparing = false
                 isInitialPreparationPending = false
                 currentPreviewFailure = nil
@@ -373,6 +420,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                     preparationWasCancelled = true
                     isPreparing = false
                     isInitialPreparationPending = false
+                    preparationProgress = nil
                 }
             } catch {
                 Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
@@ -381,6 +429,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                     hasPreparedPlayerItem = false
                     isPreparing = false
                     isInitialPreparationPending = false
+                    preparationProgress = nil
                     let failure: ProjectPreviewFailure
                     if let transitionError = error as? ProjectTransitionRenderError {
                         failure = ProjectPreviewFailure(

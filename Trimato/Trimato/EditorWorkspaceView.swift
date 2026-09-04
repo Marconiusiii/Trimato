@@ -138,7 +138,11 @@ struct EditorWorkspaceView: View {
 
     private var initialPreparationOperation: OperationProgress? {
         guard projectPlayer.isInitialPreparationPending else { return nil }
-        return OperationProgress(title: "Preparing Project", announceCompletion: false)
+        return OperationProgress(
+            title: "Preparing Project",
+            progress: projectPlayer.preparationProgress,
+            announceCompletion: false
+        )
     }
 
     private func initialPreparationDismissed() {
@@ -421,13 +425,13 @@ struct ProjectViewerView: View {
                 guard let controller, let viewModel else { return }
                 controller.trimActiveTrackClip(edge: .tail, at: viewModel.currentTime)
             }
-            prepare()
+            requestPreparation()
             pendingProjectPlayheadFocus = true
         }
         .onChange(of: controller.project) { previous, project in
             guard !controller.consumePreparedTransitionPreview(for: project),
                   ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
-            prepare()
+            requestPreparation()
         }
         .onChange(of: controller.timelinePlayhead) { _, time in
             guard abs(viewModel.currentTime.seconds - time.seconds) > 0.02 else { return }
@@ -460,6 +464,14 @@ struct ProjectViewerView: View {
 
     private func prepare() {
         viewModel.prepare(
+            project: controller.project,
+            mediaURLs: controller.resolvedMediaURLs(),
+            initialTime: controller.timelinePlayhead
+        )
+    }
+
+    private func requestPreparation() {
+        viewModel.requestPreparation(
             project: controller.project,
             mediaURLs: controller.resolvedMediaURLs(),
             initialTime: controller.timelinePlayhead
