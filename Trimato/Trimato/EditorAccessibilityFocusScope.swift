@@ -7,8 +7,25 @@ final class EditorAccessibilityFocusScope: ObservableObject {
     static let identifierPrefix = "trimato.editor."
 
     weak var boundaryView: NSView?
+    var voiceOverContainsFocus = false
 
-    var containsAccessibilityFocus: Bool {
+    var containsInputFocus: Bool {
+        Self.resolveInputFocus(
+            voiceOverEnabled: NSWorkspace.shared.isVoiceOverEnabled,
+            voiceOverContainsFocus: voiceOverContainsFocus,
+            keyboardContainsFocus: containsKeyboardFocus
+        )
+    }
+
+    nonisolated static func resolveInputFocus(
+        voiceOverEnabled: Bool,
+        voiceOverContainsFocus: Bool,
+        keyboardContainsFocus: Bool
+    ) -> Bool {
+        voiceOverEnabled ? voiceOverContainsFocus : keyboardContainsFocus
+    }
+
+    private var containsKeyboardFocus: Bool {
         guard let boundaryView, let window = boundaryView.window, window.isKeyWindow,
               let focusedElement = NSApp.accessibilityFocusedUIElement as? NSObject else { return false }
         if hasEditorIdentifier(focusedElement) { return true }

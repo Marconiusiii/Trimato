@@ -4,6 +4,7 @@ import SwiftUI
 struct EditorWorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
     @StateObject private var controller: ProjectController
+    @StateObject private var projectPlayer: ProjectPlayerViewModel
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var captionEditorWindows: CaptionEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
@@ -19,7 +20,11 @@ struct EditorWorkspaceView: View {
 
     init(document: ProjectDocument) {
         let controller = ProjectController(document: document)
+        let hasTimelineContent = document.project.tracks.contains { !$0.clips.isEmpty }
         _controller = StateObject(wrappedValue: controller)
+        _projectPlayer = StateObject(wrappedValue: ProjectPlayerViewModel(
+            awaitingInitialPreparation: hasTimelineContent
+        ))
         _clipEditorWindows = StateObject(wrappedValue: ClipEditorWindowCoordinator(controller: controller))
         _captionEditorWindows = StateObject(wrappedValue: CaptionEditorWindowCoordinator(controller: controller))
         _projectWindowSaveCoordinator = StateObject(
@@ -118,10 +123,27 @@ struct EditorWorkspaceView: View {
 
     private var progressEditor: some View {
         editor
+            .disabled(projectPlayer.isInitialPreparationPending)
+            .accessibilityHidden(projectPlayer.isInitialPreparationPending)
+            .operationProgress(
+                initialPreparationOperation,
+                outcome: projectPlayer.errorMessage == nil ? .completed : .failed,
+                dismissed: initialPreparationDismissed
+            )
             .operationProgress(exportOperation, outcome: controller.presentedError == nil ? .completed : .failed)
             .operationProgress(importOperation, outcome: controller.presentedError == nil ? .completed : .failed)
             .operationProgress(transitionOperation, outcome: transitionOutcome,
                                completionPending: transitionFinished, dismissed: restoreTransitionFocus)
+    }
+
+    private var initialPreparationOperation: OperationProgress? {
+        guard projectPlayer.isInitialPreparationPending else { return nil }
+        return OperationProgress(title: "Preparing Project", announceCompletion: false)
+    }
+
+    private func initialPreparationDismissed() {
+        guard projectPlayer.errorMessage == nil else { return }
+        controller.requestEditorFocusRestore()
     }
 
     private var exportOperation: OperationProgress? {
@@ -159,7 +181,8 @@ struct EditorWorkspaceView: View {
                     ProjectViewerView(
                         controller: controller,
                         openClipEditor: clipEditorWindows.open,
-                        workspacePaneLinks: workspacePaneLinks
+                        workspacePaneLinks: workspacePaneLinks,
+                        viewModel: projectPlayer
                     )
                 }
                 .frame(minHeight: 360)
@@ -289,22 +312,42 @@ struct EditorWorkspaceView: View {
 }
 
 struct ProjectViewerView: View {
+    private enum AccessibilityTarget: Hashable {
+        case heading
+        case videoFrame
+        case playhead
+        case goToBeginning
+        case previousEdit
+        case blade
+        case nextEdit
+        case goToEnd
+        case goToVideoEnd
+        case markIn
+        case clearIn
+        case markOut
+        case clearOut
+        case timecode
+        case stepBackward
+        case skipBackward
+        case playPause
+        case skipForward
+        case stepForward
+    }
+
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
     let workspacePaneLinks: Namespace.ID
-    @StateObject private var viewModel: ProjectPlayerViewModel
+    @ObservedObject var viewModel: ProjectPlayerViewModel
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
-    @FocusState private var projectPlayheadKeyboardFocused: Bool
-    @AccessibilityFocusState private var projectPlayheadFocused: Bool
-    @AccessibilityFocusState private var editorHeadingFocused: Bool
+    @AccessibilityFocusState private var focusedAccessibilityTarget: AccessibilityTarget?
     @State private var pendingProjectPlayheadFocus = false
 
     init(controller: ProjectController, openClipEditor: @escaping (EditorSelection) -> Void,
-         workspacePaneLinks: Namespace.ID, viewModel: ProjectPlayerViewModel? = nil) {
+         workspacePaneLinks: Namespace.ID, viewModel: ProjectPlayerViewModel) {
         self.controller = controller
         self.openClipEditor = openClipEditor
         self.workspacePaneLinks = workspacePaneLinks
-        _viewModel = StateObject(wrappedValue: viewModel ?? ProjectPlayerViewModel())
+        self.viewModel = viewModel
     }
 
     var body: some View {
@@ -314,7 +357,7 @@ struct ProjectViewerView: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 .accessibilityIdentifier("trimato.editor.heading")
-                .accessibilityFocused($editorHeadingFocused)
+                .accessibilityFocused($focusedAccessibilityTarget, equals: .heading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -333,11 +376,11 @@ struct ProjectViewerView: View {
         .onAppear {
             controller.installProjectPlayer(viewModel)
             controller.installEditorAccessibilityFocusProvider { [weak focusScope] in
-                focusScope?.containsAccessibilityFocus == true
+                focusScope?.containsInputFocus == true
             }
             viewModel.scopeKeyboardCommands { [weak focusScope, weak controller] in
                 (NSWorkspace.shared.isVoiceOverEnabled || controller?.timelineHasKeyboardFocus != true) &&
-                    focusScope?.containsAccessibilityFocus == true
+                    focusScope?.containsInputFocus == true
             }
             viewModel.onBladeAtPlayhead { [weak controller] in
                 controller?.splitClipAtPlayhead()
@@ -381,10 +424,6 @@ struct ProjectViewerView: View {
             prepare()
             pendingProjectPlayheadFocus = true
         }
-        .task {
-            await Task.yield()
-            establishInitialEditorFocus()
-        }
         .onChange(of: controller.project) { previous, project in
             guard !controller.consumePreparedTransitionPreview(for: project),
                   ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
@@ -400,8 +439,9 @@ struct ProjectViewerView: View {
         .onChange(of: controller.editorFocusRestoreRequest) {
             restoreProjectPlayheadFocus()
         }
-        .onChange(of: projectPlayheadFocused) { _, focused in
-            if focused { controller.setProjectInfoTarget(.editor) }
+        .onChange(of: focusedAccessibilityTarget) { _, target in
+            focusScope.voiceOverContainsFocus = target != nil
+            if target != nil { controller.setProjectInfoTarget(.editor) }
         }
         // Timeline edits rebuild playback in the background. They must never
         // present a sheet or announce preparation over the active Clip Editor.
@@ -436,23 +476,7 @@ struct ProjectViewerView: View {
             return
         }
         pendingProjectPlayheadFocus = false
-        editorHeadingFocused = false
-        if !projectPlayheadKeyboardFocused { projectPlayheadKeyboardFocused = true }
-        if !projectPlayheadFocused { projectPlayheadFocused = true }
-    }
-
-    private func establishInitialEditorFocus() {
-        guard let window = focusScope.boundaryView?.window, window.isKeyWindow else {
-            pendingProjectPlayheadFocus = true
-            return
-        }
-        if viewModel.canControlPlayback {
-            restoreProjectPlayheadFocus()
-        } else {
-            window.makeFirstResponder(nil)
-            editorHeadingFocused = true
-            pendingProjectPlayheadFocus = true
-        }
+        focusedAccessibilityTarget = .playhead
     }
 
     private func preparationChanged(_ isPreparing: Bool) {
@@ -502,9 +526,10 @@ struct ProjectViewerView: View {
             Color.black
             VideoPlayerView(
                 player: viewModel.player,
-                accessibleFrame: controller.project.hasTimelineVideo && !viewModel.isPreparing && viewModel.errorMessage == nil,
+                accessibleFrame: controller.project.hasTimelineVideo && viewModel.canControlPlayback && viewModel.errorMessage == nil,
                 frameDescription: "Project time \(String(format: "%.3f", viewModel.currentTime.seconds)) seconds, frame \(Int((viewModel.currentTime.seconds * (controller.project.format.frameRate ?? 30)).rounded()))"
             )
+            .accessibilityFocused($focusedAccessibilityTarget, equals: .videoFrame)
             if !controller.project.tracks.contains(where: { !$0.clips.isEmpty }) {
                 Text("Add a clip to the project timeline")
                     .foregroundStyle(.secondary)
@@ -544,8 +569,7 @@ struct ProjectViewerView: View {
             .accessibilityLabel("Project playhead")
             .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier("trimato.editor.playhead")
-            .focused($projectPlayheadKeyboardFocused)
-            .accessibilityFocused($projectPlayheadFocused)
+            .accessibilityFocused($focusedAccessibilityTarget, equals: .playhead)
 
             moveAndEditGroup
             markersGroup
@@ -565,27 +589,33 @@ struct ProjectViewerView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Go to beginning")
                     .accessibilityIdentifier("trimato.editor.go-to-beginning")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .goToBeginning)
                 Button { viewModel.goToPreviousEdit() } label: { Image(systemName: "chevron.left.2") }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Previous edit point")
                     .accessibilityIdentifier("trimato.editor.previous-edit")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .previousEdit)
                 Button { controller.splitClipAtPlayhead() } label: { Image(systemName: "scissors") }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Blade at playhead")
                     .accessibilityHint("Splits the primary timeline clip beneath the playhead")
                     .accessibilityIdentifier("trimato.editor.blade")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .blade)
                 Button { viewModel.goToNextEdit() } label: { Image(systemName: "chevron.right.2") }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Next edit point")
                     .accessibilityIdentifier("trimato.editor.next-edit")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .nextEdit)
                 Button { viewModel.goToEnd() } label: { Image(systemName: "forward.end.fill") }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Go to end")
                     .accessibilityIdentifier("trimato.editor.go-to-end")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .goToEnd)
                 Button { viewModel.goToVideoEnd() } label: { Image(systemName: "film.stack") }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Go to end of video")
                     .accessibilityIdentifier("trimato.editor.go-to-video-end")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .goToVideoEnd)
             }
             .font(.title2)
             .foregroundStyle(EditorTheme.accent)
@@ -606,18 +636,22 @@ struct ProjectViewerView: View {
                 HStack {
                     Button("Mark In") { viewModel.markIn() }
                         .accessibilityIdentifier("trimato.editor.mark-in")
+                        .accessibilityFocused($focusedAccessibilityTarget, equals: .markIn)
                     Text("In: \(viewModel.inMarkerDisplay)").monospacedDigit()
                     Button("Clear In") { viewModel.clearIn() }
                         .disabled(viewModel.inMarker == nil)
                         .accessibilityIdentifier("trimato.editor.clear-in")
+                        .accessibilityFocused($focusedAccessibilityTarget, equals: .clearIn)
                 }
                 HStack {
                     Button("Mark Out") { viewModel.markOut() }
                         .accessibilityIdentifier("trimato.editor.mark-out")
+                        .accessibilityFocused($focusedAccessibilityTarget, equals: .markOut)
                     Text("Out: \(viewModel.outMarkerDisplay)").monospacedDigit()
                     Button("Clear Out") { viewModel.clearOut() }
                         .disabled(viewModel.outMarker == nil)
                         .accessibilityIdentifier("trimato.editor.clear-out")
+                        .accessibilityFocused($focusedAccessibilityTarget, equals: .clearOut)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -655,6 +689,7 @@ struct ProjectViewerView: View {
                 .accessibilityValue(viewModel.accessibilityTimecodeLabel)
                 .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
                 .accessibilityIdentifier("trimato.editor.timecode")
+                .accessibilityFocused($focusedAccessibilityTarget, equals: .timecode)
 
                 if viewModel.isPlaying, viewModel.playbackRate != 1 {
                     Text(viewModel.playbackRate < 0
@@ -675,12 +710,14 @@ struct ProjectViewerView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Step backward one frame")
                     .accessibilityIdentifier("trimato.editor.step-backward")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .stepBackward)
                     Button { viewModel.seekBackward() } label: {
                         Image(systemName: "gobackward.10").font(.title2)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Skip back 10 seconds")
                     .accessibilityIdentifier("trimato.editor.skip-backward")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .skipBackward)
                     Button { viewModel.togglePlayback() } label: {
                         Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 30))
@@ -689,18 +726,21 @@ struct ProjectViewerView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
                     .accessibilityIdentifier("trimato.editor.play-pause")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .playPause)
                     Button { viewModel.seekForward() } label: {
                         Image(systemName: "goforward.10").font(.title2)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Skip forward 10 seconds")
                     .accessibilityIdentifier("trimato.editor.skip-forward")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .skipForward)
                     Button { viewModel.stepForward() } label: {
                         Image(systemName: "forward.frame.fill").font(.title2)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Step forward one frame")
                     .accessibilityIdentifier("trimato.editor.step-forward")
+                    .accessibilityFocused($focusedAccessibilityTarget, equals: .stepForward)
                 }
                 .foregroundStyle(EditorTheme.accent)
             }

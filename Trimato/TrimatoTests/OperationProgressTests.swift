@@ -3,6 +3,20 @@ import Testing
 @testable import Trimato
 
 struct OperationProgressTests {
+    @Test @MainActor func nativeProgressPresentationIsDeferredOutOfTheViewUpdate() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let coordinator = OperationProgressBridge.Coordinator()
+        defer { coordinator.invalidate(); window.close() }
+
+        coordinator.update(OperationProgress(title: "Preparing Project"),
+                           outcome: .completed, completionPending: false, dismissed: {}, parent: window)
+
+        #expect(coordinator.hasScheduledPresentation)
+        #expect(window.attachedSheet == nil)
+    }
+
     @Test @MainActor func inactiveWindowNeverPresentsProgressAndCompletedWorkIsNotReplayed() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)

@@ -114,6 +114,7 @@ nonisolated struct ProjectPreviewInput: Equatable {
 final class ProjectPlayerViewModel: ObservableObject {
     let player = AVPlayer()
     @Published private(set) var isPreparing = false
+    @Published private(set) var isInitialPreparationPending: Bool
     @Published private(set) var preparationWasCancelled = false
     @Published private(set) var hasPreparedPlayerItem = false
     @Published private(set) var errorMessage: String?
@@ -191,7 +192,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var trimActiveClipEnd: (() -> Void)?
     private var currentPreviewFailure: ProjectPreviewFailure?
 
-    init() {
+    init(awaitingInitialPreparation: Bool = false) {
+        isInitialPreparationPending = awaitingInitialPreparation
         player.automaticallyWaitsToMinimizeStalling = false
         rateObserver = player.publisher(for: \.rate)
             .receive(on: RunLoop.main)
@@ -317,6 +319,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             player.replaceCurrentItem(with: nil)
             hasPreparedPlayerItem = false
             isPreparing = false
+            isInitialPreparationPending = false
             errorMessage = nil
             currentPreviewFailure = nil
             presentedPreviewFailure = nil
@@ -361,6 +364,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 pendingInsertionPlayhead = nil
                 updateDisplayedTime(boundedInitialTime)
                 isPreparing = false
+                isInitialPreparationPending = false
                 currentPreviewFailure = nil
                 presentedPreviewFailure = nil
             } catch is CancellationError {
@@ -368,6 +372,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 if self.preparationID == preparationID {
                     preparationWasCancelled = true
                     isPreparing = false
+                    isInitialPreparationPending = false
                 }
             } catch {
                 Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
@@ -375,6 +380,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                     player.replaceCurrentItem(with: nil)
                     hasPreparedPlayerItem = false
                     isPreparing = false
+                    isInitialPreparationPending = false
                     let failure: ProjectPreviewFailure
                     if let transitionError = error as? ProjectTransitionRenderError {
                         failure = ProjectPreviewFailure(

@@ -131,9 +131,13 @@ struct OperationProgressBridge: NSViewRepresentable {
         private var announcements = OperationProgressAnnouncements()
         private var observers: [NSObjectProtocol] = []
         private var cancelled = false
+        private var presentationTask: Task<Void, Never>?
+        private var sheetEndAction: (() -> Void)?
+
+        var hasScheduledPresentation: Bool { presentationTask != nil }
 
         func attach(_ parent: NSWindow?) {
-            guard self.parent !== parent else { presentIfPossible(); return }
+            guard self.parent !== parent else { schedulePresentation(); return }
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
             self.parent = parent
@@ -143,11 +147,14 @@ struct OperationProgressBridge: NSViewRepresentable {
                         forName: name, object: parent, queue: .main
                     ) { [weak self] _ in
                         // Recheck ownership after native sheet dismissal or activation.
-                        Task { @MainActor [weak self] in self?.presentIfPossible() }
+                        Task { @MainActor [weak self] in
+                            if name == NSWindow.didEndSheetNotification { self?.finishSheetDismissal() }
+                            self?.schedulePresentation()
+                        }
                     })
                 }
             }
-            presentIfPossible()
+            schedulePresentation()
         }
 
         func update(_ operation: OperationProgress?, outcome: OperationProgressOutcome, completionPending: Bool,
@@ -161,12 +168,20 @@ struct OperationProgressBridge: NSViewRepresentable {
                 }
                 activeTitle = nil
                 let shouldAnnounce = ownsInteraction
-                closePanel()
-                if shouldAnnounce {
-                    speak(announcements.finish(title: title, outcome: cancelled ? .cancelled : outcome,
-                                               announceCompletion: announceCompletion))
+                let message = shouldAnnounce
+                    ? announcements.finish(title: title, outcome: cancelled ? .cancelled : outcome,
+                                           announceCompletion: announceCompletion)
+                    : nil
+                if panel != nil {
+                    sheetEndAction = { [weak self] in
+                        self?.speak(message)
+                        dismissed()
+                    }
+                    closePanel()
+                } else {
+                    if shouldAnnounce { speak(message) }
+                    Task { @MainActor in dismissed() }
                 }
-                Task { @MainActor in dismissed() }
                 return
             }
             announceCompletion = operation.announceCompletion
@@ -182,7 +197,7 @@ struct OperationProgressBridge: NSViewRepresentable {
                 if ownsInteraction { speak(operation.detail) }
             }
             attach(parent)
-            presentIfPossible()
+            schedulePresentation()
             panel?.title = operation.title
             hosting?.rootView = OperationProgressContent(operation: displayed(operation))
             if ownsInteraction { speak(announcements.update(title: operation.title, progress: operation.progress)) }
@@ -219,15 +234,36 @@ struct OperationProgressBridge: NSViewRepresentable {
             speak(announcements.update(title: operation.title, progress: operation.progress))
         }
 
+        private func schedulePresentation() {
+            guard presentationTask == nil else { return }
+            presentationTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self else { return }
+                self.presentationTask = nil
+                self.presentIfPossible()
+            }
+        }
+
         private func closePanel() {
             guard let panel else { return }
-            panel.sheetParent?.endSheet(panel)
+            let sheetParent = panel.sheetParent
+            sheetParent?.endSheet(panel)
             panel.orderOut(nil)
             self.panel = nil
             hosting = nil
+            if sheetParent == nil { finishSheetDismissal() }
+        }
+
+        private func finishSheetDismissal() {
+            let action = sheetEndAction
+            sheetEndAction = nil
+            action?()
         }
 
         func invalidate() {
+            presentationTask?.cancel()
+            presentationTask = nil
+            sheetEndAction = nil
             pending = nil
             activeTitle = nil
             closePanel()

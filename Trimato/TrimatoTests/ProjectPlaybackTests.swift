@@ -7,6 +7,34 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
+    @Test func editorCommandScopeUsesVoiceOverControlFocusInsteadOfStaleKeyboardFocus() {
+        #expect(EditorAccessibilityFocusScope.resolveInputFocus(
+            voiceOverEnabled: true,
+            voiceOverContainsFocus: true,
+            keyboardContainsFocus: false
+        ))
+        #expect(!EditorAccessibilityFocusScope.resolveInputFocus(
+            voiceOverEnabled: true,
+            voiceOverContainsFocus: false,
+            keyboardContainsFocus: true
+        ))
+        #expect(EditorAccessibilityFocusScope.resolveInputFocus(
+            voiceOverEnabled: false,
+            voiceOverContainsFocus: false,
+            keyboardContainsFocus: true
+        ))
+    }
+
+    @Test func initialPreparationBlocksAProjectUntilPreparationFinishes() {
+        let viewModel = ProjectPlayerViewModel(awaitingInitialPreparation: true)
+        #expect(viewModel.isInitialPreparationPending)
+
+        viewModel.prepare(project: TrimatoProject(), mediaURLs: [:])
+
+        #expect(!viewModel.isInitialPreparationPending)
+        #expect(!viewModel.canControlPlayback)
+    }
+
     @Test func editorFocusRestoreIsRequestedOnlyWhenNativeFocusDidNotReturn() {
         let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
         controller.installEditorAccessibilityFocusProvider { true }

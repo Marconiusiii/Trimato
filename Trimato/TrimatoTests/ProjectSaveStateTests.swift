@@ -5,6 +5,18 @@ import Testing
 @testable import Trimato
 
 struct ProjectSaveStateTests {
+    @Test @MainActor func nativeFilePanelPresentationLeavesTheTriggeringViewUpdateFirst() async {
+        var didPresent = false
+
+        ProjectController.afterCurrentViewUpdate {
+            didPresent = true
+        }
+
+        #expect(!didPresent)
+        for _ in 0..<3 where !didPresent { await Task.yield() }
+        #expect(didPresent)
+    }
+
     @Test @MainActor func keyWindowNotificationReturnsThroughTheMainActor() async {
         let coordinator = ProjectWindowSaveCoordinator(projectDocument: ProjectDocument())
         let window = NSWindow(

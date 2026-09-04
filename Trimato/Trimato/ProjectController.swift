@@ -1380,16 +1380,33 @@ final class ProjectController: ObservableObject {
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.movie, .audio, .subRipCaption, .webVTTCaption, .data]
         projectFilePanel = panel
-        panel.beginSheetModal(for: parentWindow) { [weak self] response in
-            guard let self else { return }
-            let urls = response == .OK ? panel.urls : []
-            self.projectFilePanel = nil
-            panel.orderOut(nil)
-            guard !urls.isEmpty else { return }
-            Task { @MainActor [weak self] in
-                await Task.yield()
-                self?.importFiles(at: urls, into: folderID)
+        Self.afterCurrentViewUpdate { [weak self, weak parentWindow] in
+            guard let self, let parentWindow,
+                  self.projectFilePanel === panel,
+                  parentWindow.isVisible,
+                  parentWindow.isKeyWindow,
+                  parentWindow.attachedSheet == nil else {
+                if self?.projectFilePanel === panel { self?.projectFilePanel = nil }
+                return
             }
+            panel.beginSheetModal(for: parentWindow) { [weak self] response in
+                guard let self else { return }
+                let urls = response == .OK ? panel.urls : []
+                self.projectFilePanel = nil
+                panel.orderOut(nil)
+                guard !urls.isEmpty else { return }
+                Task { @MainActor [weak self] in
+                    await Task.yield()
+                    self?.importFiles(at: urls, into: folderID)
+                }
+            }
+        }
+    }
+
+    static func afterCurrentViewUpdate(_ action: @escaping () -> Void) {
+        Task { @MainActor in
+            await Task.yield()
+            action()
         }
     }
 
