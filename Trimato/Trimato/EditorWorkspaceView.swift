@@ -538,6 +538,13 @@ struct ProjectViewerView: View {
             Color.black
             VideoPlayerView(
                 player: viewModel.player,
+                captionCues: controller.project.captionTrack?.captionCues ?? [],
+                captionDuration: controller.project.duration,
+                captionRenderSize: controller.project.format.width.flatMap { width in
+                    controller.project.format.height.map { height in
+                        CGSize(width: width, height: height)
+                    }
+                },
                 accessibleFrame: controller.project.hasTimelineVideo && viewModel.canControlPlayback && viewModel.errorMessage == nil,
                 frameDescription: "Project time \(String(format: "%.3f", viewModel.currentTime.seconds)) seconds, frame \(Int((viewModel.currentTime.seconds * (controller.project.format.frameRate ?? 30)).rounded()))"
             )

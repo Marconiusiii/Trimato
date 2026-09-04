@@ -18,6 +18,36 @@ nonisolated enum CaptionOverlayRenderer {
         video.frame = root.bounds
         root.addSublayer(video)
 
+        try addCaptionLayers(cues: cues, to: root, renderSize: renderSize, duration: duration)
+
+        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
+            postProcessingAsVideoLayer: video,
+            in: root
+        )
+    }
+
+    static func previewLayer(
+        cues: [CaptionCue],
+        renderSize: CGSize,
+        duration: ProjectTime
+    ) throws -> CALayer? {
+        let cues = cues.filter { $0.start < duration && $0.end > .zero }
+        guard !cues.isEmpty, duration.isPositive else { return nil }
+
+        let root = CALayer()
+        root.frame = CGRect(origin: .zero, size: renderSize)
+        root.isGeometryFlipped = true
+        try addCaptionLayers(cues: cues, to: root, renderSize: renderSize, duration: duration)
+        return root
+    }
+
+    private static func addCaptionLayers(
+        cues: [CaptionCue],
+        to root: CALayer,
+        renderSize: CGSize,
+        duration: ProjectTime
+    ) throws {
+
         for cue in cues {
             var definition = GeneratorDefinition()
             definition.kind = .text
@@ -47,10 +77,5 @@ nonisolated enum CaptionOverlayRenderer {
             layer.add(animation, forKey: "captionVisibility")
             root.addSublayer(layer)
         }
-
-        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
-            postProcessingAsVideoLayer: video,
-            in: root
-        )
     }
 }

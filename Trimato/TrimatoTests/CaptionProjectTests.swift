@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import Foundation
 import Testing
 @testable import Trimato
@@ -63,5 +64,50 @@ import Testing
             duration: ProjectTime(seconds: 3)
         )
         #expect(composition.animationTool != nil)
+    }
+
+    @MainActor
+    @Test func captionedPreviewUsesLiveSynchronizedLayersAndKeepsOfflineRenderingForExport() async throws {
+        var definition = GeneratorDefinition()
+        definition.kind = .black
+        definition.width = 640
+        definition.height = 360
+        definition.duration = ProjectTime(seconds: 3)
+        definition.frameRate = 30
+        let asset = definition.assetRecord()
+        var project = TrimatoProject()
+        project.format = ProjectFormat(mode: .custom, width: 640, height: 360, frameRate: 30)
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        try project.addCaptionCues([
+            CaptionCue(start: ProjectTime(seconds: 1), end: ProjectTime(seconds: 2), text: "Hello")
+        ])
+
+        let preview = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: [:],
+            purpose: .preview
+        )
+        defer { for url in preview.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }
+        #expect(preview.videoComposition?.animationTool == nil)
+        let item = AVPlayerItem(asset: preview.composition)
+        item.videoComposition = preview.videoComposition
+
+        let export = try await ProjectCompositionBuilder.build(
+            project: project,
+            mediaURLs: [:],
+            purpose: .finalExport
+        )
+        defer { for url in export.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }
+        #expect(export.videoComposition?.animationTool != nil)
+
+        let view = PlayerNSView(frame: CGRect(x: 0, y: 0, width: 640, height: 360))
+        view.playerLayer.player = AVPlayer(playerItem: item)
+        view.configureCaptionPreview(
+            cues: project.captionTrack?.captionCues ?? [],
+            duration: project.duration,
+            renderSize: CGSize(width: 640, height: 360)
+        )
+        #expect(view.layer?.sublayers?.contains(where: { $0 is AVSynchronizedLayer }) == true)
     }
 }
