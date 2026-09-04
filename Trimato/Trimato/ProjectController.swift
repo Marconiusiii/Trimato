@@ -68,6 +68,7 @@ final class ProjectController: ObservableObject {
     private var projectInfoTarget: ProjectInfoTarget = .selection(.project)
     private var editorAccessibilityFocusProvider: (() -> Bool)?
     private var editorDirectClipIDs: [UUID: UUID] = [:]
+    private var timelineTrackNavigationGeneration = 0
     private let cacheOwnerID = UUID()
 
     init(document: ProjectDocument) {
@@ -409,13 +410,15 @@ final class ProjectController: ObservableObject {
     func focusTimelineElement(_ element: TimelineElementSelection) {
         switch element {
         case .clip(let id):
-            selection = .timelineClip(id)
+            let clipSelection = EditorSelection.timelineClip(id)
+            if selection != clipSelection { selection = clipSelection }
             projectInfoTarget = .selection(.timelineClip(id))
             if let track = project.tracks.first(where: { $0.clips.contains { $0.id == id } }) {
                 editorDirectClipIDs[track.id] = id
             }
         case .transition(let id):
-            selection = .transition(id)
+            let transitionSelection = EditorSelection.transition(id)
+            if selection != transitionSelection { selection = transitionSelection }
             projectInfoTarget = .selection(.transition(id))
         }
     }
@@ -517,15 +520,27 @@ final class ProjectController: ObservableObject {
         guard !tracks.isEmpty else { return }
         let current = (activeTimelineTrack?.id).flatMap { id in tracks.firstIndex { $0.id == id } } ?? 0
         let destination = min(max(current + offset, 0), tracks.count - 1)
+        guard destination != current else { return }
         let track = tracks[destination]
-        activeTimelineTrackID = track.id
+        timelineTrackNavigationGeneration += 1
+        let navigationGeneration = timelineTrackNavigationGeneration
         let clip = editorDirectClip(on: track, at: timelinePlayhead)
+        if restoreTimelineFocus, let clip {
+            focusTimelineElement(.clip(clip.id))
+        }
+        activeTimelineTrackID = track.id
         announce(Self.activeTrackAnnouncement(trackName: track.name, clipName: clip?.displayName))
         guard restoreTimelineFocus else { return }
-        if let clip {
-            requestTimelineFocusRestore(to: .clip(clip.id))
-        } else {
-            requestTimelineListFocusRestore()
+        let trackID = track.id
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.timelineTrackNavigationGeneration == navigationGeneration,
+                  self.activeTimelineTrackID == trackID else { return }
+            if let clip {
+                self.requestTimelineFocusRestore(to: .clip(clip.id))
+            } else {
+                self.requestTimelineListFocusRestore()
+            }
         }
     }
 

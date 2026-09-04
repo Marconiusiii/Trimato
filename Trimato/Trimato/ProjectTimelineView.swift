@@ -201,42 +201,32 @@ struct ProjectTimelineView: View {
     }
 
     private var timelineScrollView: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 8) {
-                    if timelineElements.isEmpty {
-                        Text("No clips on this track")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 200, alignment: .leading)
-                            .frame(minHeight: 64, alignment: .leading)
-                            .padding(8)
-                            .focusable()
-                            .focused($emptyTimelineKeyboardFocused)
-                            .accessibilityFocused($emptyTimelineFocused)
-                            .accessibilityIdentifier("trimato.timeline.empty")
-                    } else {
-                        ForEach(timelineElements) { element in
-                            switch element.content {
-                            case .clip(let clip): clipButton(clip)
-                            case .transition(let transition): transitionButton(transition)
-                            }
+        ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: 8) {
+                if timelineElements.isEmpty {
+                    Text("No clips on this track")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 200, alignment: .leading)
+                        .frame(minHeight: 64, alignment: .leading)
+                        .padding(8)
+                        .focusable()
+                        .focused($emptyTimelineKeyboardFocused)
+                        .accessibilityFocused($emptyTimelineFocused)
+                        .accessibilityIdentifier("trimato.timeline.empty")
+                } else {
+                    ForEach(timelineElements) { element in
+                        switch element.content {
+                        case .clip(let clip): clipButton(clip)
+                        case .transition(let transition): transitionButton(transition)
                         }
                     }
                 }
-                .padding(8)
             }
-            .accessibilityLabel(timelineListAccessibilityLabel)
-            .accessibilityIdentifier("trimato.timeline.clips")
-            .accessibilityFocused($timelineListFocused)
-            .onChange(of: controller.timelineFocusRestoreRequest) {
-                if let target = controller.timelineFocusRestoreTarget {
-                    switch target {
-                    case .clip(let id): proxy.scrollTo("clip-" + id.uuidString)
-                    case .transition(let id): proxy.scrollTo("transition-" + id.uuidString)
-                    }
-                }
-            }
+            .padding(8)
         }
+        .accessibilityLabel(timelineListAccessibilityLabel)
+        .accessibilityIdentifier("trimato.timeline.clips")
+        .accessibilityFocused($timelineListFocused)
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -690,7 +680,16 @@ struct ProjectTimelineView: View {
     }
 
     private func restoreTimelineListFocus() {
-        if !timelineListFocused { timelineListFocused = true }
+        if timelineElements.isEmpty {
+            timelineListFocused = false
+            if NSWorkspace.shared.isVoiceOverEnabled {
+                emptyTimelineFocused = true
+            } else {
+                emptyTimelineKeyboardFocused = true
+            }
+        } else if !timelineListFocused {
+            timelineListFocused = true
+        }
     }
 }
 
