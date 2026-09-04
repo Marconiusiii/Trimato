@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 nonisolated enum ProjectFormatValidation {
@@ -186,7 +185,8 @@ struct ProjectCreationView: View {
     let actionTitle: String
     let finish: (ProjectSettingsValues) -> Void
     let cancel: () -> Void
-    let nativeDefaultButtonReady: ((NSButton) -> Void)?
+    let showsActionButtons: Bool
+    let submitHandlerReady: ((@escaping () -> Void) -> Void)?
 
     @State private var name: String
     @State private var mode: ProjectFormatMode
@@ -211,13 +211,15 @@ struct ProjectCreationView: View {
         actionTitle: String,
         finish: @escaping (ProjectSettingsValues) -> Void,
         cancel: @escaping () -> Void,
-        nativeDefaultButtonReady: ((NSButton) -> Void)? = nil
+        showsActionButtons: Bool = true,
+        submitHandlerReady: ((@escaping () -> Void) -> Void)? = nil
     ) {
         self.heading = heading
         self.actionTitle = actionTitle
         self.finish = finish
         self.cancel = cancel
-        self.nativeDefaultButtonReady = nativeDefaultButtonReady
+        self.showsActionButtons = showsActionButtons
+        self.submitHandlerReady = submitHandlerReady
         let project = initialProject
         _name = State(initialValue: project.name)
         _mode = State(initialValue: project.format.mode)
@@ -301,19 +303,12 @@ struct ProjectCreationView: View {
                 }
             }
 
-            HStack {
-                Spacer()
-                Button("Cancel", action: cancel)
-                    .keyboardShortcut(.cancelAction)
+            if showsActionButtons {
+                HStack {
+                    Spacer()
+                    Button("Cancel", action: cancel)
+                        .keyboardShortcut(.cancelAction)
 
-                if let nativeDefaultButtonReady {
-                    ProjectCreationDefaultButton(
-                        title: actionTitle,
-                        action: submit,
-                        buttonReady: nativeDefaultButtonReady
-                    )
-                    .fixedSize()
-                } else {
                     Button(actionTitle, action: submit)
                         .keyboardShortcut(.defaultAction)
                 }
@@ -321,7 +316,10 @@ struct ProjectCreationView: View {
         }
         .padding(24)
         .frame(width: 480)
-        .onAppear { headingFocused = true }
+        .onAppear {
+            submitHandlerReady?(submit)
+            headingFocused = true
+        }
     }
 
     private var resolvedWidth: Int {
@@ -439,47 +437,5 @@ struct ProjectCreationView: View {
                 isAspectRatioLocked = isLocked
             }
         )
-    }
-}
-
-private struct ProjectCreationDefaultButton: NSViewRepresentable {
-    let title: String
-    let action: () -> Void
-    let buttonReady: (NSButton) -> Void
-
-    func makeNSView(context: Context) -> ProjectCreationDefaultNSButton {
-        let button = ProjectCreationDefaultNSButton()
-        button.actionHandler = action
-        button.title = title
-        buttonReady(button)
-        return button
-    }
-
-    func updateNSView(_ button: ProjectCreationDefaultNSButton, context: Context) {
-        button.actionHandler = action
-        button.title = title
-        buttonReady(button)
-    }
-}
-
-final class ProjectCreationDefaultNSButton: NSButton {
-    var actionHandler: (() -> Void)?
-
-    init() {
-        super.init(frame: .zero)
-        bezelStyle = .rounded
-        setButtonType(.momentaryPushIn)
-        keyEquivalent = "\r"
-        keyEquivalentModifierMask = []
-        target = self
-        action = #selector(pressed)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc private func pressed() {
-        actionHandler?()
     }
 }

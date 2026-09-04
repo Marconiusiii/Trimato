@@ -30,8 +30,8 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
         private var source: ProjectCreationSheetPresenter?
         private weak var parentWindow: NSWindow?
         private var projectPanel: NSPanel?
-        private var hostingController: NSHostingController<ProjectCreationView>?
-        private weak var nextButton: ProjectCreationDefaultNSButton?
+        private var panelViewController: ProjectCreationPanelViewController?
+        private var submitProjectCreation: (() -> Void)?
         private var savePanel: NSSavePanel?
         private var initialProject: TrimatoProject?
         private var isCompleting = false
@@ -51,12 +51,6 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
             if projectPanel != nil { closeProjectPanel() }
             parentWindow = parent
             presentIfPossible()
-        }
-
-        func registerNextButton(_ button: NSButton) {
-            guard let button = button as? ProjectCreationDefaultNSButton else { return }
-            nextButton = button
-            configureDefaultButton()
         }
 
         func invalidate() {
@@ -81,9 +75,15 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
                 actionTitle: "Next",
                 finish: { [weak self] values in self?.chooseProjectLocation(for: values) },
                 cancel: { [weak self] in self?.cancelProjectCreation() },
-                nativeDefaultButtonReady: { [weak self] button in self?.registerNextButton(button) }
+                showsActionButtons: false,
+                submitHandlerReady: { [weak self] submit in self?.submitProjectCreation = submit }
             )
             let hostingController = NSHostingController(rootView: rootView)
+            let panelViewController = ProjectCreationPanelViewController(
+                hostingController: hostingController,
+                cancel: { [weak self] in self?.cancelProjectCreation() },
+                proceed: { [weak self] in self?.submitProjectCreation?() }
+            )
             let panel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 480, height: 610),
                 styleMask: [.titled],
@@ -91,10 +91,10 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
                 defer: false
             )
             panel.title = "New Project"
-            panel.contentViewController = hostingController
+            panel.contentViewController = panelViewController
             panel.isReleasedWhenClosed = false
             panel.setAccessibilityModal(true)
-            self.hostingController = hostingController
+            self.panelViewController = panelViewController
             self.projectPanel = panel
             parentWindow.beginSheet(panel)
             configureDefaultButton()
@@ -102,12 +102,11 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
 
         private func configureDefaultButton() {
             guard let projectPanel,
-                  let nextButton,
-                  nextButton.window === projectPanel,
-                  let buttonCell = nextButton.cell as? NSButtonCell else { return }
-            projectPanel.defaultButtonCell = buttonCell
-            projectPanel.enableKeyEquivalentForDefaultButtonCell()
-            projectPanel.setAccessibilityDefaultButton(nextButton)
+                  let panelViewController else { return }
+            ProjectCreationWindowConfiguration.configureDefaultButton(
+                panelViewController.nextButton,
+                in: projectPanel
+            )
         }
 
         private func chooseProjectLocation(for values: ProjectSettingsValues) {
@@ -181,10 +180,90 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
             projectPanel.sheetParent?.endSheet(projectPanel)
             projectPanel.orderOut(nil)
             self.projectPanel = nil
-            hostingController = nil
-            nextButton = nil
+            panelViewController = nil
+            submitProjectCreation = nil
             initialProject = nil
         }
+    }
+}
+
+final class ProjectCreationPanelViewController: NSViewController {
+    let nextButton = NSButton(title: "Next", target: nil, action: nil)
+
+    private let hostingController: NSViewController
+    private let cancel: () -> Void
+    private let proceed: () -> Void
+
+    init(
+        hostingController: NSViewController,
+        cancel: @escaping () -> Void,
+        proceed: @escaping () -> Void
+    ) {
+        self.hostingController = hostingController
+        self.cancel = cancel
+        self.proceed = proceed
+        super.init(nibName: nil, bundle: nil)
+        addChild(hostingController)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let rootView = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 610))
+        let formView = hostingController.view
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelPressed))
+
+        nextButton.bezelStyle = .rounded
+        nextButton.setButtonType(.momentaryPushIn)
+        nextButton.keyEquivalent = "\r"
+        nextButton.keyEquivalentModifierMask = []
+        nextButton.target = self
+        nextButton.action = #selector(nextPressed)
+        nextButton.identifier = NSUserInterfaceItemIdentifier("trimato.new-project.next")
+
+        cancelButton.bezelStyle = .rounded
+        cancelButton.setButtonType(.momentaryPushIn)
+        cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.keyEquivalentModifierMask = []
+        cancelButton.identifier = NSUserInterfaceItemIdentifier("trimato.new-project.cancel")
+
+        formView.translatesAutoresizingMaskIntoConstraints = false
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+        nextButton.translatesAutoresizingMaskIntoConstraints = false
+        rootView.addSubview(formView)
+        rootView.addSubview(cancelButton)
+        rootView.addSubview(nextButton)
+
+        NSLayoutConstraint.activate([
+            formView.topAnchor.constraint(equalTo: rootView.topAnchor),
+            formView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            formView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            formView.bottomAnchor.constraint(lessThanOrEqualTo: cancelButton.topAnchor, constant: -16),
+            cancelButton.trailingAnchor.constraint(equalTo: nextButton.leadingAnchor, constant: -8),
+            cancelButton.centerYAnchor.constraint(equalTo: nextButton.centerYAnchor),
+            nextButton.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -24),
+            nextButton.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -24),
+        ])
+        view = rootView
+    }
+
+    @objc private func cancelPressed() {
+        cancel()
+    }
+
+    @objc private func nextPressed() {
+        proceed()
+    }
+}
+
+enum ProjectCreationWindowConfiguration {
+    static func configureDefaultButton(_ button: NSButton, in window: NSWindow) {
+        guard button.window === window,
+              let buttonCell = button.cell as? NSButtonCell else { return }
+        window.defaultButtonCell = buttonCell
+        window.enableKeyEquivalentForDefaultButtonCell()
     }
 }
 

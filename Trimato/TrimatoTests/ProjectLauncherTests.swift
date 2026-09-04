@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 @testable import Trimato
 
@@ -63,5 +64,32 @@ struct ProjectLauncherTests {
         let url = URL(fileURLWithPath: "/Users/editor/Movies/Interview Cut.trimato")
 
         #expect(ProjectLauncherRecentProjects.displayName(for: url) == "Interview Cut")
+    }
+
+    @Test @MainActor func newProjectPanelUsesItsDirectNativeNextButtonAsTheDefault() {
+        let hostingController = NSViewController()
+        hostingController.view = NSView()
+        let viewController = ProjectCreationPanelViewController(
+            hostingController: hostingController,
+            cancel: {},
+            proceed: {}
+        )
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 610),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        panel.contentViewController = viewController
+
+        ProjectCreationWindowConfiguration.configureDefaultButton(
+            viewController.nextButton,
+            in: panel
+        )
+
+        #expect(panel.defaultButtonCell === viewController.nextButton.cell)
+        #expect(viewController.nextButton.keyEquivalent == "\r")
+        #expect(viewController.nextButton.window === panel)
+        #expect(viewController.nextButton.superview === panel.contentView)
     }
 }
