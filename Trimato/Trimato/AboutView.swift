@@ -39,6 +39,8 @@ struct AboutView: View {
 
             Link("Visit the FFmpeg website", destination: URL(string: "https://ffmpeg.org/")!)
 
+            Link("Privacy policy", destination: URL(string: "https://marconius.com/trimato/privacy/")!)
+
             Button("View FFmpeg License") {
                 openWindow(id: "ffmpeg-license")
             }

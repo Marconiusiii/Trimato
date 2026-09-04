@@ -202,12 +202,13 @@ struct ProjectTimelineView: View {
 
     private var timelineScrollView: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 8) {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 8) {
                     if timelineElements.isEmpty {
                         Text("No clips on this track")
                             .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(width: 200, alignment: .leading)
+                            .frame(minHeight: 64, alignment: .leading)
                             .padding(8)
                             .focusable()
                             .focused($emptyTimelineKeyboardFocused)
@@ -306,7 +307,8 @@ struct ProjectTimelineView: View {
             .padding(8)
         }
         .buttonStyle(.plain)
-        .frame(minHeight: 56, alignment: .topLeading)
+        .frame(width: 200, alignment: .topLeading)
+        .frame(minHeight: 64, alignment: .topLeading)
         .background(selectionBackground(.timelineClip(clip.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.separator))
         .accessibilityLabel(clip.displayName)
@@ -337,7 +339,8 @@ struct ProjectTimelineView: View {
             .padding(8)
         }
         .buttonStyle(.plain)
-        .frame(minHeight: 56, alignment: .topLeading)
+        .frame(width: 200, alignment: .topLeading)
+        .frame(minHeight: 64, alignment: .topLeading)
         .background(selectionBackground(.transition(transition.id)), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(EditorTheme.accent.opacity(0.75)))
         .accessibilityLabel(transition.displayName)
