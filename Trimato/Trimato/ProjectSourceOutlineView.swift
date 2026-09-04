@@ -168,6 +168,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
         private var handledPastedFocusRevision = 0
         private var isUpdating = false
         private let cellIdentifier = NSUserInterfaceItemIdentifier("ProjectSourceCell")
+        private let assetButtonIdentifier = NSUserInterfaceItemIdentifier("ProjectSourceAssetButton")
 
         func update(from source: ProjectSourceNativeOutline) {
             self.source = source
@@ -296,6 +297,25 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
             item: Any
         ) -> NSView? {
             guard let node = item as? ProjectSourceNode else { return nil }
+            if case .asset(let assetID) = node.id {
+                let button: ProjectSourceAssetButton
+                if let reusable = outlineView.makeView(
+                    withIdentifier: assetButtonIdentifier,
+                    owner: self
+                ) as? ProjectSourceAssetButton {
+                    button = reusable
+                } else {
+                    button = ProjectSourceAssetButton()
+                    button.identifier = assetButtonIdentifier
+                }
+                button.configure(
+                    assetID: assetID,
+                    title: node.name,
+                    owner: self,
+                    accessibilityIdentifier: accessibilityIdentifier(for: node.id)
+                )
+                return button
+            }
             let cell: NSTableCellView
             if let reusable = outlineView.makeView(withIdentifier: cellIdentifier, owner: self) as? NSTableCellView {
                 cell = reusable
@@ -336,7 +356,22 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
 
         @objc func openSelectedItem() {
             guard case .asset(let id) = selectedID else { return }
+            activateAsset(id)
+        }
+
+        func selectAsset(_ id: UUID) {
+            guard let outlineView, let node = nodes[.asset(id)] else { return }
+            let row = outlineView.row(forItem: node)
+            guard row >= 0 else { return }
+            let wasUpdating = isUpdating
+            isUpdating = true
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            isUpdating = wasUpdating
             setSelection(.asset(id))
+        }
+
+        func activateAsset(_ id: UUID) {
+            selectAsset(id)
             source?.openClipEditor(.asset(id))
         }
 
@@ -563,6 +598,55 @@ private final class ProjectSourceAppKitOutlineView: NSOutlineView {
             return super.menu(for: event)
         }
         return owner?.menu(for: node.id)
+    }
+}
+
+private final class ProjectSourceAssetButton: NSButton {
+    private var assetID: UUID?
+    private weak var owner: ProjectSourceNativeOutline.Coordinator?
+
+    init() {
+        super.init(frame: .zero)
+        isBordered = false
+        alignment = .left
+        lineBreakMode = .byTruncatingTail
+        setButtonType(.momentaryPushIn)
+        target = self
+        action = #selector(pressed)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        assetID: UUID,
+        title: String,
+        owner: ProjectSourceNativeOutline.Coordinator,
+        accessibilityIdentifier: String
+    ) {
+        self.assetID = assetID
+        self.title = title
+        self.owner = owner
+        setAccessibilityLabel(title)
+        setAccessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted, let assetID { owner?.selectAsset(assetID) }
+        return accepted
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let assetID else { return super.menu(for: event) }
+        owner?.selectAsset(assetID)
+        return owner?.menu(for: .asset(assetID))
+    }
+
+    @objc private func pressed() {
+        guard let assetID else { return }
+        owner?.activateAsset(assetID)
     }
 }
 

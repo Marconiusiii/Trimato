@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 nonisolated enum ProjectFormatValidation {
@@ -302,31 +303,8 @@ struct ProjectCreationView: View {
                 Button("Cancel", action: cancel)
                     .keyboardShortcut(.cancelAction)
 
-                Button(actionTitle) {
-                    if mode == .custom,
-                       let message = ProjectFormatValidation.message(
-                           width: resolvedWidth,
-                           height: resolvedHeight,
-                           frameRate: resolvedFrameRate
-                        ) {
-                        validationError = message
-                        DispatchQueue.main.async { validationErrorFocused = true }
-                        return
-                    }
-                    validationError = nil
-                    let format = ProjectFormat(
-                        mode: mode,
-                        width: mode == .custom ? resolvedWidth : nil,
-                        height: mode == .custom ? resolvedHeight : nil,
-                        frameRate: mode == .custom ? resolvedFrameRate : nil
-                    )
-                    finish(ProjectSettingsValues(
-                        name: name,
-                        format: format,
-                        targetDuration: usesTargetDuration ? ProjectTime(seconds: max(targetSeconds, 0.001)) : nil
-                    ))
-                }
-                .keyboardShortcut(.defaultAction)
+                ProjectCreationDefaultButton(title: actionTitle, action: submit)
+                    .fixedSize()
             }
         }
         .padding(24)
@@ -336,6 +314,31 @@ struct ProjectCreationView: View {
 
     private var resolvedWidth: Int {
         resolutionChoice.dimensions?.width ?? customWidth
+    }
+
+    private func submit() {
+        if mode == .custom,
+           let message = ProjectFormatValidation.message(
+               width: resolvedWidth,
+               height: resolvedHeight,
+               frameRate: resolvedFrameRate
+           ) {
+            validationError = message
+            DispatchQueue.main.async { validationErrorFocused = true }
+            return
+        }
+        validationError = nil
+        let format = ProjectFormat(
+            mode: mode,
+            width: mode == .custom ? resolvedWidth : nil,
+            height: mode == .custom ? resolvedHeight : nil,
+            frameRate: mode == .custom ? resolvedFrameRate : nil
+        )
+        finish(ProjectSettingsValues(
+            name: name,
+            format: format,
+            targetDuration: usesTargetDuration ? ProjectTime(seconds: max(targetSeconds, 0.001)) : nil
+        ))
     }
 
     private var resolvedHeight: Int {
@@ -424,5 +427,75 @@ struct ProjectCreationView: View {
                 isAspectRatioLocked = isLocked
             }
         )
+    }
+}
+
+private struct ProjectCreationDefaultButton: NSViewRepresentable {
+    let title: String
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> ProjectCreationDefaultNSButton {
+        let button = ProjectCreationDefaultNSButton()
+        button.actionHandler = action
+        button.title = title
+        return button
+    }
+
+    func updateNSView(_ button: ProjectCreationDefaultNSButton, context: Context) {
+        button.actionHandler = action
+        button.title = title
+        button.installAsWindowDefault()
+    }
+
+    static func dismantleNSView(_ button: ProjectCreationDefaultNSButton, coordinator: Void) {
+        button.removeAsWindowDefault()
+    }
+}
+
+private final class ProjectCreationDefaultNSButton: NSButton {
+    var actionHandler: (() -> Void)?
+    private weak var registeredWindow: NSWindow?
+
+    init() {
+        super.init(frame: .zero)
+        bezelStyle = .rounded
+        setButtonType(.momentaryPushIn)
+        keyEquivalent = "\r"
+        keyEquivalentModifierMask = []
+        target = self
+        action = #selector(pressed)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        installAsWindowDefault()
+    }
+
+    func installAsWindowDefault() {
+        guard let window, let buttonCell = cell as? NSButtonCell else { return }
+        if registeredWindow !== window { removeAsWindowDefault() }
+        registeredWindow = window
+        window.defaultButtonCell = buttonCell
+        window.setAccessibilityDefaultButton(self)
+    }
+
+    func removeAsWindowDefault() {
+        guard let registeredWindow else { return }
+        if registeredWindow.defaultButtonCell === cell {
+            registeredWindow.defaultButtonCell = nil
+        }
+        if let defaultButton = registeredWindow.accessibilityDefaultButton() as? NSButton,
+           defaultButton === self {
+            registeredWindow.setAccessibilityDefaultButton(nil)
+        }
+        self.registeredWindow = nil
+    }
+
+    @objc private func pressed() {
+        actionHandler?()
     }
 }
