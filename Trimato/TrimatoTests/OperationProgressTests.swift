@@ -17,6 +17,17 @@ struct OperationProgressTests {
         #expect(window.attachedSheet == nil)
     }
 
+    @Test @MainActor func nativeProgressDismissalIsDeferredOutOfTheViewUpdate() async {
+        let coordinator = OperationProgressBridge.Coordinator()
+        defer { coordinator.invalidate() }
+
+        let dismissal = coordinator.scheduleDismissal()
+
+        #expect(coordinator.hasScheduledDismissal)
+        await dismissal.value
+        #expect(!coordinator.hasScheduledDismissal)
+    }
+
     @Test @MainActor func inactiveWindowNeverPresentsProgressAndCompletedWorkIsNotReplayed() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)

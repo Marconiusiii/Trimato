@@ -108,6 +108,20 @@ import Testing
             duration: project.duration,
             renderSize: CGSize(width: 640, height: 360)
         )
-        #expect(view.layer?.sublayers?.contains(where: { $0 is AVSynchronizedLayer }) == true)
+        let synchronizedLayer = try #require(
+            view.layer?.sublayers?.first(where: { $0 is AVSynchronizedLayer }) as? AVSynchronizedLayer
+        )
+        let captionRoot = try #require(synchronizedLayer.sublayers?.first)
+        let captionLayer = try #require(captionRoot.sublayers?.first)
+        let animation = try #require(captionLayer.animation(forKey: "captionVisibility") as? CAKeyframeAnimation)
+        #expect(animation.values?.allSatisfy { $0 is NSNumber } == true)
+        #expect(animation.keyTimes?.allSatisfy { $0 is NSNumber } == true)
+
+        // The original failure occurred only when Core Animation committed the live layer tree.
+        CATransaction.begin()
+        view.layoutSubtreeIfNeeded()
+        view.layer?.layoutIfNeeded()
+        CATransaction.commit()
+        CATransaction.flush()
     }
 }

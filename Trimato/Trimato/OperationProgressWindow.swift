@@ -132,9 +132,11 @@ struct OperationProgressBridge: NSViewRepresentable {
         private var observers: [NSObjectProtocol] = []
         private var cancelled = false
         private var presentationTask: Task<Void, Never>?
+        private var dismissalTask: Task<Void, Never>?
         private var sheetEndAction: (() -> Void)?
 
         var hasScheduledPresentation: Bool { presentationTask != nil }
+        var hasScheduledDismissal: Bool { dismissalTask != nil }
 
         func attach(_ parent: NSWindow?) {
             guard self.parent !== parent else { schedulePresentation(); return }
@@ -177,13 +179,15 @@ struct OperationProgressBridge: NSViewRepresentable {
                         self?.speak(message)
                         dismissed()
                     }
-                    closePanel()
+                    scheduleDismissal()
                 } else {
                     if shouldAnnounce { speak(message) }
                     Task { @MainActor in dismissed() }
                 }
                 return
             }
+            dismissalTask?.cancel()
+            dismissalTask = nil
             announceCompletion = operation.announceCompletion
             if activeTitle == nil {
                 activeTitle = operation.title
@@ -244,6 +248,19 @@ struct OperationProgressBridge: NSViewRepresentable {
             }
         }
 
+        @discardableResult
+        func scheduleDismissal() -> Task<Void, Never> {
+            if let dismissalTask { return dismissalTask }
+            let task = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self, !Task.isCancelled else { return }
+                self.dismissalTask = nil
+                self.closePanel()
+            }
+            dismissalTask = task
+            return task
+        }
+
         private func closePanel() {
             guard let panel else { return }
             let sheetParent = panel.sheetParent
@@ -263,6 +280,8 @@ struct OperationProgressBridge: NSViewRepresentable {
         func invalidate() {
             presentationTask?.cancel()
             presentationTask = nil
+            dismissalTask?.cancel()
+            dismissalTask = nil
             sheetEndAction = nil
             pending = nil
             activeTitle = nil

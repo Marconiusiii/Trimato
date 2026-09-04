@@ -70,8 +70,15 @@ nonisolated enum CaptionOverlayRenderer {
             let animation = CAKeyframeAnimation(keyPath: "opacity")
             animation.beginTime = AVCoreAnimationBeginTimeAtZero
             animation.duration = duration.seconds
-            animation.values = [0, 0, 1, 1, 0, 0]
-            animation.keyTimes = [0, max(start - epsilon, 0), start, end, min(end + epsilon, 1), 1].map(NSNumber.init)
+            animation.values = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0].map { NSNumber(value: $0) }
+            animation.keyTimes = [
+                0.0,
+                max(start - epsilon, 0),
+                start,
+                end,
+                min(end + epsilon, 1),
+                1.0
+            ].map { NSNumber(value: $0) }
             animation.calculationMode = .discrete
             animation.isRemovedOnCompletion = false
             layer.add(animation, forKey: "captionVisibility")
