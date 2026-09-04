@@ -259,7 +259,7 @@ struct ProjectTimelineView: View {
                 return TimelineCollectionItemModel(
                     selection: .clip(clip.id),
                     title: clip.displayName,
-                    subtitle: ProjectTimecodeFormatter.string(clip.duration),
+                    subtitle: nil,
                     accessibilityValue: clipAccessibilityValue(clip),
                     accessibilityHint: "Enter opens Clip Editor. Space toggles selection for moving.",
                     isSelected: controller.movingTimelineClipID == clip.id || controller.selection == .timelineClip(clip.id),
