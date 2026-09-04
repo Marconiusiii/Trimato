@@ -54,6 +54,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     }
 
     var hasUnsavedChanges: Bool { projectDocument.hasUnsavedChanges }
+    var attachedWindow: NSWindow? { window }
 
     func attach(to window: NSWindow) {
         if self.window === window {
@@ -79,7 +80,9 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.windowBecameKeyHandler?() }
+            Task { @MainActor [weak self] in
+                self?.windowBecameKeyHandler?()
+            }
         }
         windowWillCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,

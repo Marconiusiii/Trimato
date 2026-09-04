@@ -294,7 +294,9 @@ struct ProjectViewerView: View {
     let workspacePaneLinks: Namespace.ID
     @StateObject private var viewModel: ProjectPlayerViewModel
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
+    @FocusState private var projectPlayheadKeyboardFocused: Bool
     @AccessibilityFocusState private var projectPlayheadFocused: Bool
+    @AccessibilityFocusState private var editorHeadingFocused: Bool
     @State private var pendingProjectPlayheadFocus = false
 
     init(controller: ProjectController, openClipEditor: @escaping (EditorSelection) -> Void,
@@ -312,6 +314,7 @@ struct ProjectViewerView: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 .accessibilityIdentifier("trimato.editor.heading")
+                .accessibilityFocused($editorHeadingFocused)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -376,6 +379,11 @@ struct ProjectViewerView: View {
                 controller.trimActiveTrackClip(edge: .tail, at: viewModel.currentTime)
             }
             prepare()
+            pendingProjectPlayheadFocus = true
+        }
+        .task {
+            await Task.yield()
+            establishInitialEditorFocus()
         }
         .onChange(of: controller.project) { previous, project in
             guard !controller.consumePreparedTransitionPreview(for: project),
@@ -420,7 +428,7 @@ struct ProjectViewerView: View {
 
     private func restoreProjectPlayheadFocus() {
         guard focusScope.boundaryView?.window?.isKeyWindow == true else {
-            pendingProjectPlayheadFocus = false
+            pendingProjectPlayheadFocus = true
             return
         }
         guard viewModel.canControlPlayback else {
@@ -428,7 +436,23 @@ struct ProjectViewerView: View {
             return
         }
         pendingProjectPlayheadFocus = false
+        editorHeadingFocused = false
+        if !projectPlayheadKeyboardFocused { projectPlayheadKeyboardFocused = true }
         if !projectPlayheadFocused { projectPlayheadFocused = true }
+    }
+
+    private func establishInitialEditorFocus() {
+        guard let window = focusScope.boundaryView?.window, window.isKeyWindow else {
+            pendingProjectPlayheadFocus = true
+            return
+        }
+        if viewModel.canControlPlayback {
+            restoreProjectPlayheadFocus()
+        } else {
+            window.makeFirstResponder(nil)
+            editorHeadingFocused = true
+            pendingProjectPlayheadFocus = true
+        }
     }
 
     private func preparationChanged(_ isPreparing: Bool) {
@@ -520,6 +544,7 @@ struct ProjectViewerView: View {
             .accessibilityLabel("Project playhead")
             .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier("trimato.editor.playhead")
+            .focused($projectPlayheadKeyboardFocused)
             .accessibilityFocused($projectPlayheadFocused)
 
             moveAndEditGroup

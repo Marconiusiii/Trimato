@@ -1,9 +1,29 @@
+import AppKit
 import Combine
 import Foundation
 import Testing
 @testable import Trimato
 
 struct ProjectSaveStateTests {
+    @Test @MainActor func keyWindowNotificationReturnsThroughTheMainActor() async {
+        let coordinator = ProjectWindowSaveCoordinator(projectDocument: ProjectDocument())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        var activationCount = 0
+        coordinator.attach(to: window)
+        coordinator.onWindowBecameKey { activationCount += 1 }
+
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        await Task.yield()
+
+        #expect(activationCount == 1)
+        #expect(coordinator.attachedWindow === window)
+    }
+
     @Test @MainActor func projectControllerNeverTreatsAnOpenDocumentAsCreationUI() {
         let controller = ProjectController(document: ProjectDocument())
 

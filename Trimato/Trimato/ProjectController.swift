@@ -41,6 +41,7 @@ final class ProjectController: ObservableObject {
     @Published var isImporting = false
     @Published private(set) var canCancelImport = false
     private var importTask: Task<Void, Never>?
+    private var projectFilePanel: NSOpenPanel?
 
     func cancelImport() {
         guard canCancelImport else { return }
@@ -288,14 +289,31 @@ final class ProjectController: ObservableObject {
     }
 
     func relinkSelectedAsset() {
-        guard let asset = selectedAsset, NSApp.modalWindow == nil else { return }
+        guard let asset = selectedAsset,
+              projectFilePanel == nil,
+              NSApp.modalWindow == nil,
+              let parentWindow = projectSaveCoordinator?.attachedWindow,
+              parentWindow.attachedSheet == nil else { return }
         let panel = NSOpenPanel()
         panel.title = "Relink \(asset.name)"
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.allowedContentTypes = [.movie, .audio, .data]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        projectFilePanel = panel
+        panel.beginSheetModal(for: parentWindow) { [weak self] response in
+            guard let self else { return }
+            let url = response == .OK ? panel.url : nil
+            self.projectFilePanel = nil
+            panel.orderOut(nil)
+            guard let url else { return }
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.relink(asset, to: url)
+            }
+        }
+    }
 
+    private func relink(_ asset: MediaAssetRecord, to url: URL) {
         Task { @MainActor in
             do {
                 var replacement = try await ProjectImportCoordinator.importAsset(at: url)
@@ -1350,16 +1368,29 @@ final class ProjectController: ObservableObject {
     }
 
     func importFiles(into folderID: UUID? = nil) {
-        guard !isImporting, NSApp.modalWindow == nil else { return }
+        guard !isImporting,
+              projectFilePanel == nil,
+              NSApp.modalWindow == nil,
+              let parentWindow = projectSaveCoordinator?.attachedWindow,
+              parentWindow.attachedSheet == nil else { return }
         let panel = NSOpenPanel()
         panel.title = "Import Media or Captions"
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.movie, .audio, .subRipCaption, .webVTTCaption, .data]
-        guard panel.runModal() == .OK else { return }
-
-        importFiles(at: panel.urls, into: folderID)
+        projectFilePanel = panel
+        panel.beginSheetModal(for: parentWindow) { [weak self] response in
+            guard let self else { return }
+            let urls = response == .OK ? panel.urls : []
+            self.projectFilePanel = nil
+            panel.orderOut(nil)
+            guard !urls.isEmpty else { return }
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.importFiles(at: urls, into: folderID)
+            }
+        }
     }
 
     func importFiles(at urls: [URL], into folderID: UUID? = nil) {

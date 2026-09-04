@@ -144,6 +144,27 @@ struct ProjectPlaybackTests {
         ) == nil)
     }
 
+    @Test func editorContainsItsCommandsWhilePlaybackIsPreparing() {
+        #expect(ProjectPlayerViewModel.recognizesEditorKeyboardCommand(
+            type: .keyDown,
+            keyCode: 49,
+            character: " ",
+            modifiers: []
+        ))
+        #expect(ProjectPlayerViewModel.recognizesEditorKeyboardCommand(
+            type: .keyDown,
+            keyCode: 8,
+            character: "c",
+            modifiers: []
+        ))
+        #expect(!ProjectPlayerViewModel.recognizesEditorKeyboardCommand(
+            type: .keyDown,
+            keyCode: 34,
+            character: "i",
+            modifiers: [.command, .shift]
+        ))
+    }
+
     @Test func projectPlayheadSliderUsesOneFrameAsItsNativeAdjustmentStep() {
         #expect(abs(ProjectPlayerViewModel.playbackFractionStep(
             duration: ProjectTime(seconds: 10),

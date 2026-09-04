@@ -1057,10 +1057,19 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func setupKeyEventMonitor() {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-            guard let self, self.canControlPlayback, NSApp.modalWindow == nil,
+            guard let self, NSApp.modalWindow == nil,
                   self.keyboardCommandsAreActive?() == true,
                   !TimelineKeyboardFocus.isInTimeline,
                   !self.isEditingText(in: event.window) else { return event }
+
+            guard self.canControlPlayback else {
+                return Self.recognizesEditorKeyboardCommand(
+                    type: event.type,
+                    keyCode: event.keyCode,
+                    character: event.charactersIgnoringModifiers,
+                    modifiers: event.modifierFlags
+                ) ? nil : event
+            }
 
             let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
             let modifiers = event.modifierFlags.intersection(commandSet)
@@ -1162,6 +1171,33 @@ final class ProjectPlayerViewModel: ObservableObject {
                 return event
             }
         }
+    }
+
+    nonisolated static func recognizesEditorKeyboardCommand(
+        type: NSEvent.EventType,
+        keyCode: UInt16,
+        character: String?,
+        modifiers: NSEvent.ModifierFlags
+    ) -> Bool {
+        let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+        let relevantModifiers = modifiers.intersection(commandSet)
+        let unmodified = modifiers.intersection([.command, .control, .option]).isEmpty
+
+        if type == .keyUp {
+            return unmodified && (keyCode == 123 || keyCode == 124)
+        }
+        guard type == .keyDown else { return false }
+        if relevantModifiers == [.command, .option] {
+            return keyCode == 125 || keyCode == 126
+        }
+        let key = character?.lowercased()
+        if relevantModifiers == .command {
+            return [123, 124, 125, 126].contains(keyCode)
+                || key == "[" || key == "]" || key == "b" || key == "t"
+        }
+        guard unmodified else { return false }
+        if keyCode == 49 || keyCode == 123 || keyCode == 124 { return true }
+        return ["[", "]", "c", "x", "f", "i", "o", "j", "k", "l"].contains(key)
     }
 
     nonisolated static func trackSelectionOffset(
