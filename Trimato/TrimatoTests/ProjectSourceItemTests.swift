@@ -152,6 +152,48 @@ struct ProjectSourceItemTests {
         #expect(ProjectSourceItem.deletionFocus(afterDeleting: imported.id, in: project) == .clips(project.id))
     }
 
+    @Test func nativeOutlineExpansionFindsTheExactAncestorsForEveryAssetKind() {
+        let unfiled = makeAsset(name: "Interview")
+        let filed = makeAsset(name: "B-roll")
+        let generated = GeneratorDefinition().assetRecord()
+        let folder = ProjectFolder(name: "Exterior", assetIDs: [filed.id])
+        var project = TrimatoProject(name: "Documentary")
+        project.media = [unfiled, filed, generated]
+        project.folders = [folder]
+
+        let root = ProjectSourceItem.hierarchy(for: project)
+
+        #expect(root.ancestorIDs(of: .asset(unfiled.id)) == [
+            .project(project.id), .clips(project.id),
+        ])
+        #expect(root.ancestorIDs(of: .asset(filed.id)) == [
+            .project(project.id), .folder(folder.id),
+        ])
+        #expect(root.ancestorIDs(of: .asset(generated.id)) == [
+            .project(project.id), .generators(project.id),
+        ])
+        #expect(root.ancestorIDs(of: .project(project.id)).isEmpty)
+        #expect(root.ancestorIDs(of: .asset(UUID())).isEmpty)
+    }
+
+    @Test func nativeOutlineDefaultsEverySourceContainerToExpanded() {
+        let filed = makeAsset(name: "B-roll")
+        let generated = GeneratorDefinition().assetRecord()
+        let folder = ProjectFolder(name: "Exterior", assetIDs: [filed.id])
+        var project = TrimatoProject(name: "Documentary")
+        project.media = [filed, generated]
+        project.folders = [folder]
+
+        let root = ProjectSourceItem.hierarchy(for: project)
+
+        #expect(root.defaultExpandedIDs == [
+            .project(project.id),
+            .clips(project.id),
+            .folder(folder.id),
+            .generators(project.id),
+        ])
+    }
+
     private func makeAsset(name: String) -> MediaAssetRecord {
         MediaAssetRecord(
             name: name,

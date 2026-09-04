@@ -70,6 +70,31 @@ nonisolated struct ProjectSourceItem: Identifiable, Equatable, Sendable {
         return nil
     }
 
+    var defaultExpandedIDs: Set<ProjectSourceItemID> {
+        var result: Set<ProjectSourceItemID> = []
+        collectDefaultExpandedIDs(into: &result)
+        return result
+    }
+
+    func ancestorIDs(of requestedID: ProjectSourceItemID) -> [ProjectSourceItemID] {
+        if id == requestedID { return [] }
+        for child in children {
+            if child.id == requestedID { return [id] }
+            let childAncestors = child.ancestorIDs(of: requestedID)
+            if !childAncestors.isEmpty {
+                return [id] + childAncestors
+            }
+        }
+        return []
+    }
+
+    private func collectDefaultExpandedIDs(into result: inout Set<ProjectSourceItemID>) {
+        if isExpandable { result.insert(id) }
+        for child in children {
+            child.collectDefaultExpandedIDs(into: &result)
+        }
+    }
+
     static func sourceID(for selection: EditorSelection, projectID: UUID) -> ProjectSourceItemID {
         switch selection {
         case .asset(let id): .asset(id)
