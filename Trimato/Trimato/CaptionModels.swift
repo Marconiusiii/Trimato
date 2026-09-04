@@ -30,6 +30,25 @@ nonisolated struct CaptionCue: Codable, Equatable, Hashable, Identifiable, Senda
     var text: String
     var identifier: String?
     var webVTTSettings: String?
+    var isDraft = false
+
+    init(
+        id: UUID = UUID(),
+        start: ProjectTime,
+        end: ProjectTime,
+        text: String,
+        identifier: String? = nil,
+        webVTTSettings: String? = nil,
+        isDraft: Bool = false
+    ) {
+        self.id = id
+        self.start = start
+        self.end = end
+        self.text = text
+        self.identifier = identifier
+        self.webVTTSettings = webVTTSettings
+        self.isDraft = isDraft
+    }
 
     var duration: ProjectTime { end - start }
 
@@ -52,6 +71,21 @@ nonisolated struct CaptionCue: Codable, Equatable, Hashable, Identifiable, Senda
             throw CaptionFileError.invalidCue("Enter caption text.")
         }
         return self
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, start, end, text, identifier, webVTTSettings, isDraft
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        start = try values.decode(ProjectTime.self, forKey: .start)
+        end = try values.decode(ProjectTime.self, forKey: .end)
+        text = try values.decode(String.self, forKey: .text)
+        identifier = try values.decodeIfPresent(String.self, forKey: .identifier)
+        webVTTSettings = try values.decodeIfPresent(String.self, forKey: .webVTTSettings)
+        isDraft = try values.decodeIfPresent(Bool.self, forKey: .isDraft) ?? false
     }
 }
 
@@ -109,5 +143,13 @@ nonisolated extension TrimatoProject {
             track.captionCues.contains { $0.id == id }
         }) else { throw CaptionFileError.invalidCue("The caption is no longer in the project.") }
         tracks[trackIndex].captionCues.removeAll { $0.id == id }
+    }
+
+    mutating func replaceCaptionCues(_ cues: [CaptionCue]) throws {
+        let validated = try cues.map { try $0.validated() }
+        guard let index = tracks.firstIndex(where: { $0.kind == .captions }) else {
+            throw CaptionFileError.invalidCue("The caption track is no longer in the project.")
+        }
+        tracks[index].captionCues = validated
     }
 }

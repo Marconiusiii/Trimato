@@ -63,4 +63,27 @@ struct HelpBookTests {
         )
         #expect(pageURL.lastPathComponent == "quickstart.html")
     }
+
+    @Test func captionHelpExplainsDraftFinalizationAndExport() throws {
+        let projectDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let helpPages = projectDirectory.appendingPathComponent(
+            "Trimato/Trimato.help/Contents/Resources/en.lproj",
+            isDirectory: true
+        )
+        let timeline = try String(
+            contentsOf: helpPages.appendingPathComponent("timeline-editing.html"),
+            encoding: .utf8
+        )
+        let exporting = try String(
+            contentsOf: helpPages.appendingPathComponent("saving-and-exporting.html"),
+            encoding: .utf8
+        )
+
+        #expect(timeline.contains("Timeline &gt; Finalize Captions"))
+        #expect(timeline.contains("no more than two lines"))
+        #expect(timeline.contains("up to 15 free frames"))
+        #expect(exporting.contains("Caption files cannot be exported while drafts remain."))
+    }
 }

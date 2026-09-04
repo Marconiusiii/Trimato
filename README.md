@@ -114,6 +114,14 @@ Media can also be dragged from Finder into the Project Browser. Native menus pro
 
 Editor shortcuts remain available while focus is on any editor control. Native import, open, save, and export panels retain their own keyboard behavior.
 
+## Captions
+
+Trimato keeps captions on one project track. To write captions by hand, mark the beginning and end of a complete spoken passage in the Editor, then press Shift-Command-C or choose Timeline > New Caption. Enter the words as spoken, use Play Selection when you need to hear the marked passage again, and choose Add Caption. Continue through the project one passage at a time.
+
+Newly written passages remain drafts until you choose Timeline > Finalize Captions. Finalizing divides each passage into timed cues, preserves its words and punctuation, and formats each cue as no more than two rendered lines. It aims for 160 words per minute, keeps each cue onscreen for at least 40 project frames and no more than six seconds, and can extend the marked Out point by up to 15 project frames when that time is free. It never crosses the next caption or the end of the project. A line break entered by the captioner is kept. Finalizing the available drafts is one Undo operation; any passage that cannot be finalized safely remains a draft for editing.
+
+SRT and WebVTT files can be imported with media and join the Captions track using their supplied timing. Imported cues are already finalized. Caption delivery in a project export and Timeline > Export Captions remain unavailable until every draft has been finalized. Projects can burn captions into video, save an SRT or WebVTT sidecar beside the exported media, or export without captions.
+
 ## Generators and clip filters
 
 With a project open, choose Timeline > Generator or press Command-G. The Generator window captures the project playhead and pauses Editor playback. Choose Black, Solid Color, Static Gradient, Silence, or Text; set the relevant parameters and duration in seconds or whole project frames. Video generators use the project format, or 1920 by 1080 at 30 frames per second when it has not been resolved. Silence supports mono or stereo.
@@ -128,7 +136,7 @@ Expand Typography for System Sans, Rounded Sans, Serif, or Monospaced fonts; wei
 
 Check Text Fit reports the line count and whether text fits within the safe area. It also warns about small text and low contrast against a known opaque background. It does not assess contrast over changing footage. Overflow prevents placement with an explanation; text is not silently clipped or resized. Place transparent text on a video track above the footage to retain the underlying picture. The existing transitions apply, including separately timed fades in and out. Project exports contain the composed picture; this does not add a standalone transparent-video export format.
 
-Caption and Subtitle are static appearance templates for individually timed text clips. They do not import subtitle files or transcribe audio. Text and styling remain editable in the saved generator definition. Text layout uses macOS fonts and native text rendering; generated media preserves alpha through the supported filters and transitions.
+The Caption and Subtitle generator templates create ordinary styled text clips and are separate from the project Captions track. Caption-file import uses the Captions track. Trimato does not transcribe audio. Text and styling remain editable in the saved generator definition. Text layout uses macOS fonts and native text rendering; generated media preserves alpha through the supported filters and transitions.
 
 Open a timeline video or audio clip and choose the Filters tab. Choose Add Filter, select an effect, and choose Add. Filter preparation runs in a separate progress window with a Cancel button and restrained VoiceOver percentage announcements. Review the preview, then choose Update Clip to save the filter to that timeline clip. Use Edit Filter, Reset, Enable, and Remove to manage existing filters. Gain remains in the Audio group; existing EQ and frequency filtering appear as Tone.
 

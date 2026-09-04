@@ -109,6 +109,10 @@ final class ProjectController: ObservableObject {
         captionDraftRange != nil && !isExporting && !isImporting
     }
 
+    var canFinalizeCaptions: Bool {
+        project.captionTrack?.captionCues.contains(where: \.isDraft) == true && !isExporting && !isImporting
+    }
+
     func installCaptionEditorActions(open: @escaping () -> Void, close: @escaping () -> Void) {
         openCaptionEditorAction = open
         closeCaptionEditorAction = close
@@ -391,6 +395,14 @@ final class ProjectController: ObservableObject {
         mediaURLs: [UUID: URL],
         captionDelivery: CaptionDelivery
     ) {
+        if captionDelivery != .none,
+           project.captionTrack?.captionCues.contains(where: \.isDraft) == true {
+            presentedError = ProjectPresentedError(
+                title: "Finalize Captions Before Exporting",
+                message: "Choose Timeline > Finalize Captions, then export the project."
+            )
+            return
+        }
         isExporting = true
         exportProgress = 0
         announce("Export started")
@@ -451,6 +463,13 @@ final class ProjectController: ObservableObject {
         guard let cues = project.captionTrack?.captionCues, !cues.isEmpty,
               NSApp.modalWindow == nil,
               let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard !cues.contains(where: \.isDraft) else {
+            presentedError = ProjectPresentedError(
+                title: "Finalize Captions Before Exporting",
+                message: "Choose Timeline > Finalize Captions, then export the caption track."
+            )
+            return
+        }
         let panel = CaptionExportSavePanel(baseName: project.name)
         Task { @MainActor [weak self] in
             guard let self, let (url, format) = await panel.selection(parentWindow: parentWindow) else { return }
@@ -540,7 +559,7 @@ final class ProjectController: ObservableObject {
     }
 
     func addCaptionCue(start: ProjectTime, end: ProjectTime, text: String) throws -> UUID {
-        let cue = try CaptionCue(start: start, end: end, text: text).validated()
+        let cue = try CaptionCue(start: start, end: end, text: text, isDraft: true).validated()
         guard end <= project.nonCaptionDuration else {
             throw CaptionFileError.invalidCue("The caption ends after the project media.")
         }
@@ -549,6 +568,46 @@ final class ProjectController: ObservableObject {
         selection = .project
         selectedCaptionCueID = cue.id
         return cue.id
+    }
+
+    func finalizeCaptions() {
+        guard canFinalizeCaptions, let cues = project.captionTrack?.captionCues else { return }
+        let result = CaptionFinalizer.finalize(
+            cues: cues,
+            projectDuration: project.nonCaptionDuration,
+            width: project.format.width ?? 1_920,
+            height: project.format.height ?? 1_080,
+            frameRate: project.format.frameRate ?? 30
+        )
+        do {
+            if result.changed {
+                try mutateProjectThrowing(actionName: "Finalize Captions") {
+                    try $0.replaceCaptionCues(result.cues)
+                }
+            }
+            activeTimelineTrackID = project.captionTrack?.id
+            if let issue = result.issues.first {
+                selectedCaptionCueID = issue.cueID
+                selection = .project
+                let finalized = result.finalizedPassages == 1
+                    ? "1 passage was finalized"
+                    : "\(result.finalizedPassages) passages were finalized"
+                let remaining = result.issues.count == 1
+                    ? "1 passage needs attention."
+                    : "\(result.issues.count) passages need attention."
+                presentedError = ProjectPresentedError(
+                    title: "Some Captions Need Attention",
+                    message: "\(finalized). \(remaining) \(issue.message)"
+                )
+            } else {
+                announce("Captions finalized")
+            }
+        } catch {
+            presentedError = ProjectPresentedError(
+                title: "Captions Could Not Be Finalized",
+                message: error.localizedDescription
+            )
+        }
     }
 
     func updateCaptionCue(_ cue: CaptionCue) throws {

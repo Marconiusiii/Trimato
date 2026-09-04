@@ -38,6 +38,7 @@ struct CaptionWorkflowTests {
         )
         undo.endUndoGrouping()
         #expect(controller.project.captionCue(id: id)?.displayName == "Caption: Original")
+        #expect(controller.project.captionCue(id: id)?.isDraft == true)
 
         var cue = try #require(controller.project.captionCue(id: id))
         cue.text = "Updated"
@@ -52,6 +53,30 @@ struct CaptionWorkflowTests {
         #expect(controller.project.captionCue(id: id) == nil)
         undo.undo()
         #expect(controller.project.captionCue(id: id)?.text == "Updated")
+    }
+
+    @Test func finalizingCaptionsIsOneUndoableProjectChange() throws {
+        let controller = controller()
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        controller.installUndoManager(undo)
+        undo.beginUndoGrouping()
+        let id = try controller.addCaptionCue(
+            start: ProjectTime(seconds: 2),
+            end: ProjectTime(seconds: 4),
+            text: "A complete caption passage"
+        )
+        undo.endUndoGrouping()
+        #expect(controller.canFinalizeCaptions)
+
+        undo.beginUndoGrouping()
+        controller.finalizeCaptions()
+        undo.endUndoGrouping()
+
+        #expect(controller.project.captionCue(id: id)?.isDraft == false)
+        #expect(!controller.canFinalizeCaptions)
+        undo.undo()
+        #expect(controller.project.captionCue(id: id)?.isDraft == true)
     }
 
     @Test func captionsCannotExtendPastProjectMedia() {

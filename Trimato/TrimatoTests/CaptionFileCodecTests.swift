@@ -20,6 +20,7 @@ import Testing
         #expect(cues[0].end == ProjectTime(seconds: 3.5))
         #expect(cues[0].text == "First line\nSecond & final line")
         #expect(cues[1].start < cues[0].end)
+        #expect(cues.allSatisfy { !$0.isDraft })
     }
 
     @Test func readsWebVTTIdentifiersSettingsAndVisibleText() throws {
@@ -34,6 +35,7 @@ import Testing
         #expect(cue.identifier == "greeting")
         #expect(cue.webVTTSettings == "line:90% align:center")
         #expect(cue.text == "Hello & welcome")
+        #expect(!cue.isDraft)
     }
 
     @Test func readsUTF16WithAByteOrderMark() throws {

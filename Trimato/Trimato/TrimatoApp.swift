@@ -149,6 +149,8 @@ struct TrimatoApp: App {
                 Button("New Caption…") { projectController?.requestCaptionEditor() }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
                     .disabled(projectController?.canCreateCaption != true)
+                Button("Finalize Captions") { projectController?.finalizeCaptions() }
+                    .disabled(projectController?.canFinalizeCaptions != true)
                 Button("Export Captions…") { projectController?.exportCaptions() }
                     .disabled(projectController?.project.captionTrack?.captionCues.isEmpty != false)
                 Button("Generator…") { projectController?.requestGenerator() }

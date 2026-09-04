@@ -32,6 +32,22 @@ import Testing
         #expect(reopened.schemaVersion == 4)
     }
 
+    @Test func olderSavedCaptionsDecodeAsFinalized() throws {
+        let cue = CaptionCue(
+            start: ProjectTime(seconds: 1),
+            end: ProjectTime(seconds: 3),
+            text: "Existing caption",
+            isDraft: true
+        )
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(cue)) as? [String: Any])
+        object.removeValue(forKey: "isDraft")
+        let olderData = try JSONSerialization.data(withJSONObject: object)
+
+        let reopened = try JSONDecoder().decode(CaptionCue.self, from: olderData)
+
+        #expect(!reopened.isDraft)
+    }
+
     @Test func olderTracksDecodeWithoutCaptionCues() throws {
         let track = TimelineTrack(name: "Primary Video", kind: .video, role: .primaryVideo)
         var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(track)) as? [String: Any])
