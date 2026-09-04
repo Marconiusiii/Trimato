@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Trimato
@@ -72,5 +73,41 @@ struct CaptionWorkflowTests {
         #expect(video.captionDelivery == .burnedIn)
         video.selectedFormat = .wav
         #expect(video.captionDelivery == .webVTT)
+    }
+
+    @Test func captionSheetCanCloseAndOpenAgainOnTheSameProjectWindow() async {
+        let parent = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+
+        await presentAndCloseCaptionSheet(on: parent)
+        #expect(parent.attachedSheet == nil)
+
+        await presentAndCloseCaptionSheet(on: parent)
+        #expect(parent.attachedSheet == nil)
+    }
+
+    private func presentAndCloseCaptionSheet(on parent: NSWindow) async {
+        let caption = CaptionEditorWindowController(
+            cue: nil,
+            range: ProjectTimeRange(
+                start: ProjectTime(seconds: 1),
+                duration: ProjectTime(seconds: 2)
+            ),
+            save: { _ in },
+            play: {},
+            cancel: {}
+        )
+
+        await withCheckedContinuation { continuation in
+            caption.present(asSheetOf: parent) {
+                continuation.resume()
+            }
+            #expect(parent.attachedSheet === caption.window)
+            caption.closeSheet()
+        }
     }
 }

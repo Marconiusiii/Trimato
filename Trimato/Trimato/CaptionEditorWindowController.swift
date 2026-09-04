@@ -3,9 +3,18 @@ import Combine
 
 @MainActor
 final class CaptionEditorWindowCoordinator: ObservableObject {
+    private enum PresentationState {
+        case closed
+        case opening
+        case open
+        case closing
+    }
+
     nonisolated let objectWillChange = ObservableObjectPublisher()
     private weak var controller: ProjectController?
     private var windowController: CaptionEditorWindowController?
+    private var presentationState = PresentationState.closed
+    private var restoreEditorFocusAfterClose = false
 
     init(controller: ProjectController) {
         self.controller = controller
@@ -13,7 +22,7 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
 
     func openNew() {
         guard let controller, let range = controller.captionDraftRange,
-              let parent = NSApp.keyWindow ?? NSApp.mainWindow else {
+              let parent = projectWindow else {
             controller?.presentedError = ProjectPresentedError(
                 title: "Caption Needs In and Out Points",
                 message: "Mark an In point and an Out point in the Editor before adding a caption."
@@ -24,7 +33,7 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
     }
 
     func open(cue: CaptionCue) {
-        guard let parent = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard let parent = projectWindow else { return }
         open(cue: cue, range: ProjectTimeRange(start: cue.start, duration: cue.duration), parent: parent)
     }
 
@@ -33,7 +42,10 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
     }
 
     private func open(cue: CaptionCue?, range: ProjectTimeRange, parent: NSWindow) {
-        guard windowController == nil, parent.attachedSheet == nil, let controller else { return }
+        guard presentationState == .closed, windowController == nil,
+              parent.attachedSheet == nil, let controller else { return }
+        presentationState = .opening
+        restoreEditorFocusAfterClose = false
         controller.stopCaptionPlayback()
         let windowController = CaptionEditorWindowController(
             cue: cue,
@@ -59,22 +71,45 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
             cancel: { [weak self] in self?.close(returningToEditor: true) }
         )
         self.windowController = windowController
-        windowController.present(asSheetOf: parent)
         controller.setCaptionEditorOpen(true)
+        windowController.present(asSheetOf: parent) { [weak self, weak windowController] in
+            guard let self, let windowController,
+                  self.windowController === windowController else { return }
+            let shouldRestoreEditorFocus = self.restoreEditorFocusAfterClose
+            self.windowController = nil
+            self.presentationState = .closed
+            self.restoreEditorFocusAfterClose = false
+            self.controller?.setCaptionEditorOpen(false)
+            if shouldRestoreEditorFocus {
+                self.controller?.requestEditorFocusRestore()
+            }
+        }
+        if presentationState == .opening {
+            presentationState = .open
+        }
     }
 
     private func close(returningToEditor: Bool) {
-        guard let windowController else { return }
+        guard presentationState == .open, let windowController else { return }
+        presentationState = .closing
+        restoreEditorFocusAfterClose = returningToEditor
         controller?.stopCaptionPlayback()
         windowController.closeSheet()
-        self.windowController = nil
-        controller?.setCaptionEditorOpen(false)
-        if returningToEditor { controller?.requestEditorFocusRestore() }
+    }
+
+    private var projectWindow: NSWindow? {
+        if let keyWindow = NSApp.keyWindow {
+            return keyWindow.sheetParent ?? keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow {
+            return mainWindow.sheetParent ?? mainWindow
+        }
+        return nil
     }
 }
 
 @MainActor
-private final class CaptionEditorWindowController: NSWindowController, NSTextViewDelegate {
+final class CaptionEditorWindowController: NSWindowController, NSTextViewDelegate {
     private let textView = NSTextView()
     private let save: (String) -> Void
     private let play: () -> Void
@@ -108,19 +143,20 @@ private final class CaptionEditorWindowController: NSWindowController, NSTextVie
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func present(asSheetOf parent: NSWindow) {
+    func present(asSheetOf parent: NSWindow, didEnd: @escaping () -> Void) {
         guard let window else { return }
         parentWindow = parent
-        parent.beginSheet(window)
         window.initialFirstResponder = textView
         window.makeFirstResponder(textView)
+        parent.beginSheet(window) { [weak self] _ in
+            self?.parentWindow = nil
+            didEnd()
+        }
     }
 
     func closeSheet() {
-        guard let window else { return }
-        parentWindow?.endSheet(window)
-        window.orderOut(nil)
-        parentWindow = nil
+        guard let window, let parentWindow else { return }
+        parentWindow.endSheet(window)
     }
 
     func present(_ error: Error) {
