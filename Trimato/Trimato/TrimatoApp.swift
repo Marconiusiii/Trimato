@@ -33,7 +33,9 @@ struct TrimatoApp: App {
             CommandGroup(after: .pasteboard) {
                 Divider()
                 Button("Delete Selection (Delete)") {
-                    if projectController?.selectedTimelineClip != nil || projectController?.selectedCutaway != nil || projectController?.selectedTransition != nil {
+                    if projectController?.selectedCaptionCue != nil {
+                        projectController?.deleteSelectedCaptionCue()
+                    } else if projectController?.selectedTimelineClip != nil || projectController?.selectedCutaway != nil || projectController?.selectedTransition != nil {
                         projectController?.deleteSelection()
                     } else {
                         viewModel?.deleteSelection()
@@ -44,6 +46,7 @@ struct TrimatoApp: App {
                     projectController?.selectedTimelineClip == nil &&
                     projectController?.selectedCutaway == nil &&
                     projectController?.selectedTransition == nil
+                    && projectController?.selectedCaptionCue == nil
                 )
                 Button("Trim Start to Playhead") {
                     if let projectPlayer { projectPlayer.trimActiveClipStartToPlayhead() }
@@ -143,6 +146,11 @@ struct TrimatoApp: App {
             }
             ClipPlacementCommands()
             CommandMenu("Timeline") {
+                Button("New Caption…") { projectController?.requestCaptionEditor() }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .disabled(projectController?.canCreateCaption != true)
+                Button("Export Captions…") { projectController?.exportCaptions() }
+                    .disabled(projectController?.project.captionTrack?.captionCues.isEmpty != false)
                 Button("Generator…") { projectController?.requestGenerator() }
                     .keyboardShortcut("g", modifiers: .command)
                     .disabled(projectController == nil)
@@ -333,11 +341,15 @@ private struct ProjectFileCommands: Commands {
             .keyboardShortcut("n", modifiers: .command)
         }
         CommandGroup(replacing: .saveItem) {
-            Button("Close Clip Editor") {
-                clipPlacement?.hostWindow?.performClose(nil)
+            Button(controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : "Close Clip Editor") {
+                if controller?.isCaptionEditorOpen == true {
+                    controller?.closeCaptionEditor()
+                } else {
+                    clipPlacement?.hostWindow?.performClose(nil)
+                }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(clipPlacement?.isKeyWindow != true)
+            .disabled(controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true)
             Divider()
             Button("Save") { controller?.saveProjectDocument() }
                 .keyboardShortcut("s", modifiers: .command)
@@ -351,7 +363,7 @@ private struct ProjectFileCommands: Commands {
                 .disabled(controller == nil)
         }
         CommandGroup(after: .newItem) {
-            Button("Import Media\u{2026}") { controller?.importFiles() }
+            Button("Import Files\u{2026}") { controller?.importFiles() }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(controller == nil || controller?.isImporting == true)
         }

@@ -113,6 +113,31 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
 struct ExportSaveSelection {
     let format: ExportFormat
     let url: URL
+    let captionDelivery: CaptionDelivery
+}
+
+nonisolated enum CaptionDelivery: String, CaseIterable, Identifiable, Sendable {
+    case burnedIn
+    case webVTT
+    case subRip
+    case none
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .burnedIn: "Burn Captions into Video"
+        case .webVTT: "WebVTT Sidecar File"
+        case .subRip: "SRT Sidecar File"
+        case .none: "No Captions"
+        }
+    }
+    var sidecarFormat: CaptionFileFormat? {
+        switch self {
+        case .webVTT: .webVTT
+        case .subRip: .subRip
+        default: nil
+        }
+    }
 }
 
 @MainActor
@@ -120,13 +145,22 @@ final class ExportFormatSelectionModel: ObservableObject {
     nonisolated static let pickerLabel = "Format"
 
     @Published var selectedFormat: ExportFormat {
-        didSet { formatChanged?(selectedFormat) }
+        didSet {
+            if selectedFormat.isAudioOnly, captionDelivery == .burnedIn {
+                captionDelivery = .webVTT
+            }
+            formatChanged?(selectedFormat)
+        }
     }
+    @Published var captionDelivery: CaptionDelivery
+    let hasCaptions: Bool
 
     fileprivate var formatChanged: ((ExportFormat) -> Void)?
 
-    init(selectedFormat: ExportFormat) {
+    init(selectedFormat: ExportFormat, hasCaptions: Bool) {
         self.selectedFormat = selectedFormat
+        self.captionDelivery = selectedFormat.isAudioOnly ? .webVTT : .burnedIn
+        self.hasCaptions = hasCaptions
     }
 }
 
@@ -135,12 +169,23 @@ private struct ExportFormatAccessoryView: View {
     let formats: [ExportFormat]
 
     var body: some View {
-        Picker(ExportFormatSelectionModel.pickerLabel, selection: $model.selectedFormat) {
-            ForEach(formats, id: \.self) { format in
-                Text(format.title).tag(format)
+        VStack {
+            Picker(ExportFormatSelectionModel.pickerLabel, selection: $model.selectedFormat) {
+                ForEach(formats, id: \.self) { format in
+                    Text(format.title).tag(format)
+                }
+            }
+            .frame(width: 330)
+            if model.hasCaptions {
+                Picker("Captions", selection: $model.captionDelivery) {
+                    ForEach(CaptionDelivery.allCases) { delivery in
+                        Text(delivery.title).tag(delivery)
+                            .disabled(delivery == .burnedIn && model.selectedFormat.isAudioOnly)
+                    }
+                }
+                .frame(width: 330)
             }
         }
-        .frame(width: 330)
         .padding(.vertical, 2)
     }
 }
@@ -158,6 +203,7 @@ final class ExportSavePanel {
         title: String,
         baseName: String,
         formats: [ExportFormat],
+        hasCaptions: Bool = false,
         originalExtension: String? = nil,
         originalContentType: UTType? = nil
     ) {
@@ -165,7 +211,7 @@ final class ExportSavePanel {
         self.formats = formats
         self.originalExtension = originalExtension
         self.originalContentType = originalContentType
-        self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0])
+        self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0], hasCaptions: hasCaptions)
 
         panel.title = title
         panel.prompt = "Export"
@@ -177,7 +223,7 @@ final class ExportSavePanel {
             model: formatModel,
             formats: formats
         ))
-        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: 36)
+        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: hasCaptions ? 74 : 36)
         panel.accessoryView = accessory
 
         panel.nameFieldStringValue = formats[0].filename(
@@ -194,7 +240,11 @@ final class ExportSavePanel {
         let response = await panel.beginSheetModal(for: parentWindow)
         panel.orderOut(nil)
         guard response == .OK, let url = panel.url else { return nil }
-        return ExportSaveSelection(format: selectedFormat, url: url)
+        return ExportSaveSelection(
+            format: selectedFormat,
+            url: url,
+            captionDelivery: formatModel.hasCaptions ? formatModel.captionDelivery : .none
+        )
     }
 
     var selectedFormat: ExportFormat {
@@ -221,5 +271,49 @@ final class ExportSavePanel {
     private func contentType(for format: ExportFormat) -> UTType {
         if format == .original { return originalContentType ?? .data }
         return format.contentType
+    }
+}
+
+@MainActor
+final class CaptionExportSavePanel {
+    private let panel = NSSavePanel()
+    private let formatPicker = NSPopUpButton()
+
+    init(baseName: String) {
+        panel.title = "Export Captions"
+        panel.prompt = "Export"
+        panel.nameFieldLabel = "Export As:"
+        panel.nameFieldStringValue = "\(baseName).vtt"
+        panel.allowedContentTypes = [.webVTTCaption]
+        panel.isExtensionHidden = false
+        formatPicker.addItems(withTitles: CaptionFileFormat.allCases.map(\.title))
+        formatPicker.target = self
+        formatPicker.action = #selector(formatChanged)
+        let formatLabel = NSTextField(labelWithString: "Format")
+        formatLabel.setAccessibilityElement(false)
+        formatPicker.setAccessibilityTitleUIElement(formatLabel)
+        let accessory = NSStackView(views: [formatLabel, formatPicker])
+        accessory.orientation = .horizontal
+        accessory.spacing = 8
+        accessory.frame = NSRect(x: 0, y: 0, width: 300, height: 28)
+        panel.accessoryView = accessory
+    }
+
+    var selectedFormat: CaptionFileFormat {
+        CaptionFileFormat.allCases[formatPicker.indexOfSelectedItem]
+    }
+
+    func selection(parentWindow: NSWindow) async -> (URL, CaptionFileFormat)? {
+        let response = await panel.beginSheetModal(for: parentWindow)
+        panel.orderOut(nil)
+        guard response == .OK, let url = panel.url else { return nil }
+        return (url, selectedFormat)
+    }
+
+    @objc private func formatChanged() {
+        let format = selectedFormat
+        panel.allowedContentTypes = [format.contentType]
+        let base = URL(fileURLWithPath: panel.nameFieldStringValue).deletingPathExtension().lastPathComponent
+        panel.nameFieldStringValue = "\(base).\(format.fileExtension)"
     }
 }

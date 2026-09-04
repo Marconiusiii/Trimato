@@ -3,6 +3,7 @@ import Foundation
 nonisolated enum TimelineElementAccessibilityIdentifier {
     private static let clipPrefix = "trimato.timeline.clip."
     private static let transitionPrefix = "trimato.timeline.transition."
+    private static let captionPrefix = "trimato.timeline.caption."
 
     static func clip(_ id: UUID) -> String {
         clipPrefix + id.uuidString
@@ -11,6 +12,8 @@ nonisolated enum TimelineElementAccessibilityIdentifier {
     static func transition(_ id: UUID) -> String {
         transitionPrefix + id.uuidString
     }
+
+    static func caption(_ id: UUID) -> String { captionPrefix + id.uuidString }
 
     static func selection(from identifier: String?) -> TimelineElementSelection? {
         guard let identifier else { return nil }
@@ -21,6 +24,10 @@ nonisolated enum TimelineElementAccessibilityIdentifier {
         if identifier.hasPrefix(transitionPrefix),
            let id = UUID(uuidString: String(identifier.dropFirst(transitionPrefix.count))) {
             return .transition(id)
+        }
+        if identifier.hasPrefix(captionPrefix),
+           let id = UUID(uuidString: String(identifier.dropFirst(captionPrefix.count))) {
+            return .caption(id)
         }
         return nil
     }
@@ -306,6 +313,7 @@ struct TimelineCollectionActions {
 struct TimelineClipsCollection: NSViewRepresentable {
     let items: [TimelineCollectionItemModel]
     let accessibilityLabel: String
+    var emptyTitle: String = "No clips on this track"
     let focusRequest: Int
     let focusTarget: TimelineElementSelection?
     let listFocusRequest: Int
@@ -356,10 +364,12 @@ struct TimelineClipsCollection: NSViewRepresentable {
         var previousFocusRequest = -1
         var previousListFocusRequest = -1
         var movingClipID: UUID?
+        var emptyTitle = "No clips on this track"
 
         func update(from source: TimelineClipsCollection) {
             actions = source.actions
             movingClipID = source.movingClipID
+            emptyTitle = source.emptyTitle
             collectionView?.setAccessibilityLabel(source.accessibilityLabel)
             let structureChanged = models.map(\.selection) != source.items.map(\.selection)
             models = source.items
@@ -400,7 +410,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             if models.indices.contains(indexPath.item) {
                 configure(item, with: models[indexPath.item])
             } else {
-                item.configureEmpty()
+                item.configureEmpty(title: emptyTitle)
             }
             return item
         }
@@ -457,6 +467,9 @@ struct TimelineClipsCollection: NSViewRepresentable {
             case .transition:
                 add("Edit Transition…", to: menu) { [weak self] in self?.actions?.activate(selection) }
                 add("Delete Transition", to: menu) { [weak self] in self?.actions?.delete(selection) }
+            case .caption:
+                add("Edit Caption…", to: menu) { [weak self] in self?.actions?.activate(selection) }
+                add("Delete Caption", to: menu) { [weak self] in self?.actions?.delete(selection) }
             }
             return menu
         }
@@ -525,6 +538,7 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
         switch model.selection {
         case .clip(let id): button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(id))
         case .transition(let id): button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.transition(id))
+        case .caption(let id): button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.caption(id))
         }
         button.wantsLayer = true
         button.layer?.cornerRadius = 6
@@ -537,15 +551,15 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
             : NSColor.controlBackgroundColor.cgColor
     }
 
-    func configureEmpty() {
-        button.title = "No clips on this track"
+    func configureEmpty(title: String) {
+        button.title = title
         eventAnchor.element = nil
         button.isEnabled = false
         button.selection = nil
         button.activate = nil
         button.focus = nil
         button.menuProvider = nil
-        button.setAccessibilityLabel("No clips on this track")
+        button.setAccessibilityLabel(title)
         button.setAccessibilityValue(nil)
         button.setAccessibilityHelp(nil)
         button.setAccessibilityIdentifier("trimato.timeline.empty")

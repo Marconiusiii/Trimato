@@ -271,7 +271,7 @@ nonisolated struct TimelineCutaway: Codable, Hashable, Identifiable, Sendable {
 }
 
 nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     var schemaVersion = currentSchemaVersion
     var id = UUID()
@@ -359,11 +359,22 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
     /// The editing order is top to bottom. Stored additional video tracks are
     /// composited in reverse order; keep that storage contract for existing projects.
     var orderedTimelineTracks: [TimelineTrack] {
+        let captions = tracks.filter { $0.kind == .captions }
         let videoLayers = tracks.filter { $0.kind == .video && $0.role == .additional }
         let primaryVideo = tracks.filter { $0.role == .primaryVideo }
         let primaryAudio = tracks.filter { $0.role == .primaryAudio }
         let audioLayers = tracks.filter { $0.kind == .audio && $0.role == .additional }
-        return Array(videoLayers.reversed()) + primaryVideo + primaryAudio + audioLayers
+        return captions + Array(videoLayers.reversed()) + primaryVideo + primaryAudio + audioLayers
+    }
+
+    var captionTrack: TimelineTrack? {
+        tracks.first { $0.kind == .captions }
+    }
+
+    func captionCue(id: UUID) -> CaptionCue? {
+        tracks.lazy.compactMap { track in
+            track.captionCues.first { $0.id == id }
+        }.first
     }
 
     func timelineClip(id: UUID) -> TimelineClip? {

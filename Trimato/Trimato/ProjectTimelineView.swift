@@ -31,6 +31,7 @@ nonisolated enum TimelineClipDeletionConfirmation {
 struct ProjectTimelineView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
+    var openCaptionEditor: (CaptionCue) -> Void = { _ in }
     let workspacePaneLinks: Namespace.ID
 
     @State private var keyboardFocusedElement: TimelineElementSelection?
@@ -79,7 +80,7 @@ struct ProjectTimelineView: View {
                 Menu("Track Actions") {
                     Button("Add Track…") { beginAddTrack() }
                     Button("Rename Track…") { beginRenameTrack() }
-                        .disabled(controller.activeTimelineTrack == nil)
+                        .disabled(controller.activeTimelineTrack == nil || controller.activeTimelineTrack?.kind == .captions)
                     Menu("Append Imported Clip") {
                         ForEach(compatibleAssetsForActiveTrack) { asset in
                             Button(asset.name) { append(asset, to: controller.activeTimelineTrack) }
@@ -92,7 +93,7 @@ struct ProjectTimelineView: View {
                     Button("Move Track Down") { controller.moveActiveTrack(by: 1) }
                         .disabled(!canMoveActiveTrack(by: 1))
                     Button("Delete Track", role: .destructive) { controller.deleteActiveTrack() }
-                        .disabled(controller.activeTimelineTrack?.role != .additional)
+                        .disabled(controller.activeTimelineTrack?.role != .additional || controller.activeTimelineTrack?.kind == .captions)
                 }
             }
             .padding(8)
@@ -218,6 +219,8 @@ struct ProjectTimelineView: View {
             deleteTimelineClip(id)
         case .transition(let id):
             deleteTimelineTransition(id)
+        case .caption(let id):
+            deleteCaptionCue(id)
         case nil:
             break
         }
@@ -227,6 +230,9 @@ struct ProjectTimelineView: View {
         TimelineClipsCollection(
             items: timelineCollectionItems,
             accessibilityLabel: timelineListAccessibilityLabel,
+            emptyTitle: controller.activeTimelineTrack?.kind == .captions
+                ? "No captions on this track"
+                : "No clips on this track",
             focusRequest: controller.timelineFocusRestoreRequest,
             focusTarget: controller.timelineFocusRestoreTarget,
             listFocusRequest: controller.timelineListFocusRestoreRequest,
@@ -308,6 +314,16 @@ struct ProjectTimelineView: View {
                     isSelected: controller.selection == .transition(transition.id),
                     isTransition: true
                 )
+            case .caption(let cue):
+                return TimelineCollectionItemModel(
+                    selection: .caption(cue.id),
+                    title: cue.displayName,
+                    subtitle: nil,
+                    accessibilityValue: "",
+                    accessibilityHint: "Enter edits the caption.",
+                    isSelected: controller.selectedCaptionCueID == cue.id,
+                    isTransition: false
+                )
             }
         }
     }
@@ -321,11 +337,12 @@ struct ProjectTimelineView: View {
         switch selection {
         case .clip(let id): deleteTimelineClip(id)
         case .transition(let id): deleteTimelineTransition(id)
+        case .caption(let id): deleteCaptionCue(id)
         }
     }
 
     private var hasSelectedElement: Bool {
-        controller.selectedTimelineClip != nil || selectedTimelineTransition != nil
+        controller.selectedTimelineClip != nil || selectedTimelineTransition != nil || controller.selectedCaptionCue != nil
     }
 
     private var selectedTimelineTransition: TimelineTransition? {
@@ -344,6 +361,9 @@ struct ProjectTimelineView: View {
             Button("Delete Transition", role: .destructive) {
                 deleteTimelineTransition(transition.id)
             }
+        } else if let cue = controller.selectedCaptionCue {
+            Button("Edit Caption…") { openCaptionEditor(cue) }
+            Button("Delete Caption", role: .destructive) { deleteCaptionCue(cue.id) }
         }
     }
 
@@ -382,6 +402,7 @@ struct ProjectTimelineView: View {
         switch element {
         case .clip(let id): .timelineClip(id)
         case .transition(let id): .transition(id)
+        case .caption: nil
         case nil: nil
         }
     }
@@ -419,6 +440,10 @@ struct ProjectTimelineView: View {
             openClipEditor(.timelineClip(id))
         case .transition(let id):
             editTransition(id)
+        case .caption(let id):
+            guard let cue = controller.project.captionCue(id: id) else { return }
+            controller.selectedCaptionCueID = id
+            openCaptionEditor(cue)
         }
     }
 
@@ -451,6 +476,21 @@ struct ProjectTimelineView: View {
         deleteAfterFocusing(target, in: NSApp.keyWindow) {
             controller.deleteTransition(id: id, selecting: editorSelection(for: target) ?? .project)
         }
+    }
+
+    private func deleteCaptionCue(_ id: UUID) {
+        let cues = controller.activeTimelineTrack?.sortedCaptionCues ?? []
+        let index = cues.firstIndex { $0.id == id }
+        let target = index.flatMap { position -> TimelineElementSelection? in
+            if position > 0 { return .caption(cues[position - 1].id) }
+            if position + 1 < cues.count { return .caption(cues[position + 1].id) }
+            return nil
+        }
+        do {
+            try controller.deleteCaptionCue(id: id)
+            if let target { controller.requestTimelineFocusRestore(to: target) }
+            else { controller.requestTimelineListFocusRestore() }
+        } catch { presentTimelineError(error) }
     }
 
     @ViewBuilder
@@ -718,7 +758,7 @@ private struct AddTrackView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             Picker("Track Type", selection: $trackKind) {
-                ForEach(TimelineTrackKind.allCases) { kind in
+                ForEach([TimelineTrackKind.video, .audio]) { kind in
                     Text(kind.title).tag(kind)
                 }
             }
@@ -737,6 +777,7 @@ struct TimelineListElement: Identifiable, Equatable {
     enum Content {
         case clip(TimelineClip)
         case transition(TimelineTransition)
+        case caption(CaptionCue)
     }
 
     let content: Content
@@ -745,6 +786,7 @@ struct TimelineListElement: Identifiable, Equatable {
         switch content {
         case .clip(let clip): "clip-\(clip.id.uuidString)"
         case .transition(let transition): "transition-\(transition.id.uuidString)"
+        case .caption(let cue): "caption-\(cue.id.uuidString)"
         }
     }
 }
@@ -804,6 +846,9 @@ enum TimelineElementSequence {
         track: TimelineTrack,
         transitions: [TimelineTransition]
     ) -> [TimelineListElement] {
+        if track.kind == .captions {
+            return track.sortedCaptionCues.map { TimelineListElement(content: .caption($0)) }
+        }
         let orderedTransitions = transitions.sorted { $0.id.uuidString < $1.id.uuidString }
         var includedTransitionIDs: Set<UUID> = []
         var result: [TimelineListElement] = []

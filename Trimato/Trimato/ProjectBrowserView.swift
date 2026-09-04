@@ -179,7 +179,7 @@ struct ProjectBrowserView: View {
 
     @ViewBuilder
     private var sourceImportControls: some View {
-        Button("Import Clips\u{2026}") { controller.importFiles() }
+        Button("Import Files\u{2026}") { controller.importFiles() }
         Button("New Folder") { showingNewFolder = true }
     }
 

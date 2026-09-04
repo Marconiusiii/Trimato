@@ -112,7 +112,12 @@ extension TrimatoProject {
     mutating func createTrack(kind: TimelineTrackKind, name requestedName: String? = nil) -> UUID {
         ensureTrackModel()
         let base = requestedName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = kind == .video ? "Video" : "Audio"
+        let prefix: String
+        switch kind {
+        case .video: prefix = "Video"
+        case .audio: prefix = "Audio"
+        case .captions: prefix = "Captions"
+        }
         let existing = tracks.filter { $0.kind == kind }.count
         let name = (base?.isEmpty == false ? base! : "\(prefix) \(existing + 1)")
         let track = TimelineTrack(name: name, kind: kind)

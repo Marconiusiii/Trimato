@@ -392,7 +392,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
             let menu = NSMenu()
             switch id {
             case .project:
-                add("Import Clips…", to: menu) { source.controller.importFiles() }
+                add("Import Files…", to: menu) { source.controller.importFiles() }
                 add("New Folder", to: menu, action: source.requestNewFolder)
             case .folder(let folderID):
                 add("Import Clips into Folder…", to: menu) { source.controller.importFiles(into: folderID) }

@@ -162,6 +162,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var preparationID: UUID?
     private var rateObserver: AnyCancellable?
     private var timeObserver: Any?
+    private var captionBoundaryObserver: Any?
     private var temporaryMediaURLs: [URL] = []
     private var projectDuration = ProjectTime.zero
     private var videoEndTime = ProjectTime.zero
@@ -220,6 +221,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         stepEndTask?.cancel()
         for url in temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }
         if let timeObserver { player.removeTimeObserver(timeObserver) }
+        if let captionBoundaryObserver { player.removeTimeObserver(captionBoundaryObserver) }
         if let keyEventMonitor { NSEvent.removeMonitor(keyEventMonitor) }
     }
 
@@ -579,6 +581,27 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
+    func playCaptionRange(_ range: ProjectTimeRange) {
+        guard canControlPlayback, range.isValid else { return }
+        stopCaptionRangePlayback()
+        seekPrecisely(to: range.start)
+        captionBoundaryObserver = player.addBoundaryTimeObserver(
+            forTimes: [NSValue(time: range.end.cmTime)],
+            queue: .main
+        ) { [weak self] in
+            MainActor.assumeIsolated { self?.stopCaptionRangePlayback() }
+        }
+        player.rate = 1
+    }
+
+    func stopCaptionRangePlayback() {
+        player.pause()
+        if let captionBoundaryObserver {
+            player.removeTimeObserver(captionBoundaryObserver)
+            self.captionBoundaryObserver = nil
+        }
+    }
+
     func stageInsertionPlayhead(_ time: ProjectTime, duration: ProjectTime) {
         pendingInsertionPlayhead = time
         player.pause()
@@ -631,6 +654,11 @@ final class ProjectPlayerViewModel: ObservableObject {
         guard outMarker != nil else { return }
         outMarker = nil
         announce("Out marker cleared")
+    }
+
+    func clearCaptionMarkers() {
+        inMarker = nil
+        outMarker = nil
     }
 
     func seekBackward() {
@@ -989,7 +1017,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             )
             if kind == .video {
                 point.hasVideo = true
-            } else {
+            } else if kind == .audio {
                 point.hasAudio = true
             }
             points[time] = point

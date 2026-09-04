@@ -31,7 +31,7 @@ seconds.</li>
 folder, then choose Create. Trimato creates the folder and places your
 saved <code>.trimato</code> project inside it.</p>
 <h2 id="import-clips">Import clips</h2>
-<p>In the Project pane, choose Import Clips. Select one or more audio or
+<p>In the Project pane, choose Import Files. Select one or more audio or
 video files, or select a folder, then choose Open.</p>
 <p>Imported media appears in Project Source. Generators appear in the
 Generators folder. Select an imported clip and open it in the Clip
@@ -102,6 +102,15 @@ changes, then press Command+U to update that timeline clip.</p>
 focused item. The window includes details such as duration, resolution,
 codec, and encoder when they are available. Press Command+W to close
 it.</p>
+<h2 id="add-captions">Add captions</h2>
+<p>To import existing captions, choose Import Files and select an SRT or
+WebVTT file. Each cue appears on the Captions track as Caption followed
+by its first line.</p>
+<p>To write a caption in Trimato, set the project In and Out points around
+the speech, then press Shift+Command+C. Enter the caption text and choose
+Add Caption. Repeat for each section.</p>
+<p>Choose Play Selection in the caption window to hear the marked section.
+Activate a caption in Timeline Clips to edit its text.</p>
 <h2 id="add-something-from-scratch">Add something from scratch</h2>
 <p>Press Command+G in the Editor to open Generator. Choose Black, Solid
 Color, Static Gradient, Silence, or Text. Set its duration, choose where
@@ -111,7 +120,11 @@ Generators folder in Project Source.</p>
 <p>Clear both project In and Out points to export the complete timeline.
 Set both points if you only want part of it.</p>
 <p>Press Command+E or choose File &gt; Export Project. Enter a filename,
-choose a location and format, then choose Export.</p>
+choose a location and format, then choose Burn Captions into Video,
+WebVTT Sidecar File, SRT Sidecar File, or No Captions from Captions.
+Choose Export.</p>
+<p>Choose Timeline &gt; Export Captions to save only the caption track as
+WebVTT or SRT.</p>
 <p>A progress bar will appear. Choose Cancel Export if you want to stop.
 When the export finishes, Trimato sends a notification with the filename
 if notifications are allowed.</p>

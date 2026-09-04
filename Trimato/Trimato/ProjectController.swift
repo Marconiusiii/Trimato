@@ -26,6 +26,8 @@ final class ProjectController: ObservableObject {
     @Published var selection: EditorSelection = .project
     @Published var timelinePlayhead = ProjectTime.zero
     @Published var activeTimelineTrackID: UUID?
+    @Published var selectedCaptionCueID: UUID?
+    @Published private(set) var isCaptionEditorOpen = false
     @Published var timelineHasKeyboardFocus = false
     @Published var generatorRequestID: UUID?
     @Published var transitionRequest: TransitionRequest?
@@ -68,6 +70,8 @@ final class ProjectController: ObservableObject {
     private var projectInfoTarget: ProjectInfoTarget = .selection(.project)
     private var editorAccessibilityFocusProvider: (() -> Bool)?
     private var editorDirectClipIDs: [UUID: UUID] = [:]
+    private var openCaptionEditorAction: (() -> Void)?
+    private var closeCaptionEditorAction: (() -> Void)?
     private let cacheOwnerID = UUID()
 
     init(document: ProjectDocument) {
@@ -94,6 +98,50 @@ final class ProjectController: ObservableObject {
         let session = GeneratorSession(controller: self, editing: editing)
         GeneratorWindowRegistry.shared.sessions[session.id] = session
         generatorRequestID = session.id
+    }
+
+    var captionDraftRange: ProjectTimeRange? {
+        projectPlayer?.exportRange
+    }
+
+    var canCreateCaption: Bool {
+        captionDraftRange != nil && !isExporting && !isImporting
+    }
+
+    func installCaptionEditorActions(open: @escaping () -> Void, close: @escaping () -> Void) {
+        openCaptionEditorAction = open
+        closeCaptionEditorAction = close
+    }
+
+    func setCaptionEditorOpen(_ isOpen: Bool) {
+        isCaptionEditorOpen = isOpen
+    }
+
+    func closeCaptionEditor() {
+        closeCaptionEditorAction?()
+    }
+
+    func requestCaptionEditor() {
+        guard canCreateCaption else {
+            presentedError = ProjectPresentedError(
+                title: "Caption Needs In and Out Points",
+                message: "Mark an In point and an Out point in the Editor before adding a caption."
+            )
+            return
+        }
+        openCaptionEditorAction?()
+    }
+
+    func playCaptionRange(_ range: ProjectTimeRange) {
+        projectPlayer?.playCaptionRange(range)
+    }
+
+    func stopCaptionPlayback() {
+        projectPlayer?.stopCaptionRangePlayback()
+    }
+
+    func clearCaptionMarkers() {
+        projectPlayer?.clearCaptionMarkers()
     }
 
     func updateGenerator(_ definition: GeneratorDefinition, editing: EditorSelection, expectedProject: TrimatoProject) throws {
@@ -295,7 +343,8 @@ final class ProjectController: ObservableObject {
         let savePanel = ExportSavePanel(
             title: "Export Project",
             baseName: project.name,
-            formats: formats
+            formats: formats,
+            hasCaptions: project.captionTrack?.captionCues.isEmpty == false
         )
         isPresentingExportPanel = true
         Task { @MainActor [weak self] in
@@ -307,7 +356,8 @@ final class ProjectController: ObservableObject {
                 format: selection.format,
                 outputURL: selection.url,
                 exportRange: exportRange,
-                mediaURLs: urls
+                mediaURLs: urls,
+                captionDelivery: selection.captionDelivery
             )
         }
     }
@@ -316,12 +366,22 @@ final class ProjectController: ObservableObject {
         format: ExportFormat,
         outputURL: URL,
         exportRange: ProjectTimeRange?,
-        mediaURLs: [UUID: URL]
+        mediaURLs: [UUID: URL],
+        captionDelivery: CaptionDelivery
     ) {
         isExporting = true
         exportProgress = 0
         announce("Export started")
-        let projectSnapshot = project
+        var projectSnapshot = project
+        if captionDelivery != .burnedIn {
+            for index in projectSnapshot.tracks.indices where projectSnapshot.tracks[index].kind == .captions {
+                projectSnapshot.tracks[index].captionCues = []
+            }
+        }
+        let sidecarCues = CaptionFileCodec.cues(
+            project.captionTrack?.captionCues ?? [],
+            within: exportRange
+        )
         exportTask = Task { @MainActor in
             do {
                 try await ProjectExporter.export(
@@ -332,6 +392,11 @@ final class ProjectController: ObservableObject {
                     to: outputURL
                 ) { [weak self] progress in
                     self?.exportProgress = progress
+                }
+                if let sidecarFormat = captionDelivery.sidecarFormat {
+                    let data = try CaptionFileCodec.encode(sidecarCues, format: sidecarFormat)
+                    let sidecarURL = outputURL.deletingPathExtension().appendingPathExtension(sidecarFormat.fileExtension)
+                    try data.write(to: sidecarURL, options: .atomic)
                 }
                 isExporting = false
                 exportProgress = nil
@@ -358,6 +423,27 @@ final class ProjectController: ObservableObject {
         guard isExporting else { return }
         exportTask?.cancel()
         announce("Canceling export")
+    }
+
+    func exportCaptions() {
+        guard let cues = project.captionTrack?.captionCues, !cues.isEmpty,
+              NSApp.modalWindow == nil,
+              let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        let panel = CaptionExportSavePanel(baseName: project.name)
+        Task { @MainActor [weak self] in
+            guard let self, let (url, format) = await panel.selection(parentWindow: parentWindow) else { return }
+            do {
+                let range = self.projectPlayer?.exportRange
+                let data = try CaptionFileCodec.encode(CaptionFileCodec.cues(cues, within: range), format: format)
+                try data.write(to: url, options: .atomic)
+                self.announce("Captions exported")
+            } catch {
+                self.presentedError = ProjectPresentedError(
+                    title: "Captions Could Not Be Exported",
+                    message: error.localizedDescription
+                )
+            }
+        }
     }
 
     var project: TrimatoProject { document.project }
@@ -388,6 +474,10 @@ final class ProjectController: ObservableObject {
         return project.transition(id: id)
     }
 
+    var selectedCaptionCue: CaptionCue? {
+        selectedCaptionCueID.flatMap(project.captionCue)
+    }
+
     var activeTimelineTrack: TimelineTrack? {
         guard let activeTimelineTrackID else { return project.tracks.first }
         return project.track(id: activeTimelineTrackID)
@@ -409,6 +499,7 @@ final class ProjectController: ObservableObject {
     func focusTimelineElement(_ element: TimelineElementSelection) {
         switch element {
         case .clip(let id):
+            selectedCaptionCueID = nil
             let clipSelection = EditorSelection.timelineClip(id)
             if selection != clipSelection { selection = clipSelection }
             projectInfoTarget = .selection(.timelineClip(id))
@@ -416,10 +507,47 @@ final class ProjectController: ObservableObject {
                 editorDirectClipIDs[track.id] = id
             }
         case .transition(let id):
+            selectedCaptionCueID = nil
             let transitionSelection = EditorSelection.transition(id)
             if selection != transitionSelection { selection = transitionSelection }
             projectInfoTarget = .selection(.transition(id))
+        case .caption(let id):
+            selection = .project
+            selectedCaptionCueID = id
         }
+    }
+
+    func addCaptionCue(start: ProjectTime, end: ProjectTime, text: String) throws -> UUID {
+        let cue = try CaptionCue(start: start, end: end, text: text).validated()
+        guard end <= project.nonCaptionDuration else {
+            throw CaptionFileError.invalidCue("The caption ends after the project media.")
+        }
+        try mutateProjectThrowing(actionName: "Add Caption") { try $0.addCaptionCues([cue]) }
+        activeTimelineTrackID = project.captionTrack?.id
+        selection = .project
+        selectedCaptionCueID = cue.id
+        return cue.id
+    }
+
+    func updateCaptionCue(_ cue: CaptionCue) throws {
+        guard cue.end <= project.nonCaptionDuration else {
+            throw CaptionFileError.invalidCue("The caption ends after the project media.")
+        }
+        try mutateProjectThrowing(actionName: "Update Caption") { try $0.updateCaptionCue(cue) }
+        selection = .project
+        selectedCaptionCueID = cue.id
+    }
+
+    func deleteCaptionCue(id: UUID) throws {
+        try mutateProjectThrowing(actionName: "Delete Caption") { try $0.removeCaptionCue(id: id) }
+        selectedCaptionCueID = nil
+        selection = .project
+    }
+
+    func deleteSelectedCaptionCue() {
+        guard let id = selectedCaptionCueID else { return }
+        do { try deleteCaptionCue(id: id) }
+        catch { announce(error.localizedDescription) }
     }
 
     func setProjectInfoTarget(_ target: ProjectInfoTarget) {
@@ -1224,11 +1352,11 @@ final class ProjectController: ObservableObject {
     func importFiles(into folderID: UUID? = nil) {
         guard !isImporting, NSApp.modalWindow == nil else { return }
         let panel = NSOpenPanel()
-        panel.title = "Import Media"
+        panel.title = "Import Media or Captions"
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [.movie, .audio, .data]
+        panel.allowedContentTypes = [.movie, .audio, .subRipCaption, .webVTTCaption, .data]
         guard panel.runModal() == .OK else { return }
 
         importFiles(at: panel.urls, into: folderID)
@@ -1249,6 +1377,7 @@ final class ProjectController: ObservableObject {
                 var assets: [MediaAssetRecord]
             }
             var groups: [ImportGroup] = []
+            var importedCaptionCues: [CaptionCue] = []
             var failures: [(name: String, message: String)] = []
             var importPaths = Set(project.media.map {
                 URL(fileURLWithPath: $0.originalPath).standardizedFileURL.path
@@ -1260,8 +1389,9 @@ final class ProjectController: ObservableObject {
                 do {
                     let isDirectory = try selectedURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
                     let candidates = try ProjectImportCoordinator.importableMediaURLs(in: selectedURL)
-                    guard !candidates.isEmpty else {
-                        failures.append((selectedURL.lastPathComponent, "No supported audio or video files were found."))
+                    let captionCandidates = try ProjectImportCoordinator.importableCaptionURLs(in: selectedURL)
+                    guard !candidates.isEmpty || !captionCandidates.isEmpty else {
+                        failures.append((selectedURL.lastPathComponent, "No supported audio, video, SRT, or WebVTT files were found."))
                         continue
                     }
                     var assets: [MediaAssetRecord] = []
@@ -1283,14 +1413,29 @@ final class ProjectController: ObservableObject {
                             assets: assets
                         ))
                     }
+                    for candidate in captionCandidates {
+                        guard !Task.isCancelled else { return }
+                        do {
+                            let cues = try ProjectImportCoordinator.importCaptionCues(at: candidate)
+                            if let last = cues.map(\.end).max(), last > project.nonCaptionDuration {
+                                throw CaptionFileError.invalidCue("A caption ends after the project media.")
+                            }
+                            importedCaptionCues.append(contentsOf: cues)
+                        } catch {
+                            failures.append((candidate.lastPathComponent, error.localizedDescription))
+                        }
+                    }
                 } catch {
                     failures.append((selectedURL.lastPathComponent, error.localizedDescription))
                 }
             }
             guard !Task.isCancelled else { return }
             let additions = groups.flatMap(\.assets)
-            if !additions.isEmpty {
-                mutateProject(actionName: "Import Media") { project in
+            if !additions.isEmpty || !importedCaptionCues.isEmpty {
+                let actionName = additions.isEmpty ? "Import Captions"
+                    : importedCaptionCues.isEmpty ? "Import Media"
+                    : "Import Media and Captions"
+                mutateProject(actionName: actionName) { project in
                     var existingNames = Set(project.folders.map { $0.name.lowercased() })
                     for group in groups {
                         project.media.append(contentsOf: group.assets)
@@ -1311,19 +1456,29 @@ final class ProjectController: ObservableObject {
                             ))
                         }
                     }
+                    if !importedCaptionCues.isEmpty {
+                        let trackID = project.ensureCaptionTrack()
+                        if let trackIndex = project.tracks.firstIndex(where: { $0.id == trackID }) {
+                            project.tracks[trackIndex].captionCues.append(contentsOf: importedCaptionCues)
+                        }
+                    }
                 }
             }
             isImporting = false
-            if !additions.isEmpty {
+            if !additions.isEmpty, !importedCaptionCues.isEmpty {
+                announce("Imported \(additions.count) clip\(additions.count == 1 ? "" : "s") and \(importedCaptionCues.count) caption\(importedCaptionCues.count == 1 ? "" : "s")")
+            } else if !additions.isEmpty {
                 announce("Imported \(additions.count) clip\(additions.count == 1 ? "" : "s")")
+            } else if !importedCaptionCues.isEmpty {
+                announce("Imported \(importedCaptionCues.count) caption\(importedCaptionCues.count == 1 ? "" : "s")")
             }
             if !failures.isEmpty {
                 let details = failures.map { "\($0.name): \($0.message)" }.joined(separator: "\n")
                 presentedError = ProjectPresentedError(
-                    title: additions.isEmpty ? "Import Failed" : "Some Clips Could Not Be Imported",
+                    title: additions.isEmpty && importedCaptionCues.isEmpty ? "Import Failed" : "Some Files Could Not Be Imported",
                     message: details
                 )
-                announce(additions.isEmpty ? "Import failed" : "Some clips could not be imported")
+                announce(additions.isEmpty && importedCaptionCues.isEmpty ? "Import failed" : "Some files could not be imported")
             }
         }
     }

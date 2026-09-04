@@ -488,6 +488,12 @@ enum ProjectCompositionBuilder {
                 primaryTimelineTrack: project.tracks.first(where: { $0.role == .primaryVideo }),
                 timelineTracks: project.tracks
             )
+            try CaptionOverlayRenderer.apply(
+                cues: project.captionTrack?.captionCues ?? [],
+                to: composition,
+                renderSize: renderSize,
+                duration: project.duration
+            )
             videoComposition = composition
         } else {
             videoComposition = nil

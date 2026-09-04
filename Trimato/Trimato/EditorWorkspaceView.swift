@@ -5,6 +5,7 @@ struct EditorWorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
     @StateObject private var controller: ProjectController
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
+    @StateObject private var captionEditorWindows: CaptionEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @StateObject private var projectSettingsActions = NativeModalActionRegistration()
     @StateObject private var transitionActions = NativeModalActionRegistration()
@@ -20,6 +21,7 @@ struct EditorWorkspaceView: View {
         let controller = ProjectController(document: document)
         _controller = StateObject(wrappedValue: controller)
         _clipEditorWindows = StateObject(wrappedValue: ClipEditorWindowCoordinator(controller: controller))
+        _captionEditorWindows = StateObject(wrappedValue: CaptionEditorWindowCoordinator(controller: controller))
         _projectWindowSaveCoordinator = StateObject(
             wrappedValue: ProjectWindowSaveCoordinator(projectDocument: document)
         )
@@ -57,6 +59,10 @@ struct EditorWorkspaceView: View {
                         projectWindowSaveCoordinator?.requestClose { _ in }
                     }
                 }
+                controller.installCaptionEditorActions(
+                    open: { [weak captionEditorWindows] in captionEditorWindows?.openNew() },
+                    close: { [weak captionEditorWindows] in captionEditorWindows?.close() }
+                )
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
             .onChange(of: controller.generatorRequestID) { _, id in
@@ -126,7 +132,7 @@ struct EditorWorkspaceView: View {
 
     private var importOperation: OperationProgress? {
         guard controller.isImporting else { return nil }
-        var operation = OperationProgress(title: "Importing Clips")
+        var operation = OperationProgress(title: "Importing Files")
         if controller.canCancelImport { operation.cancel = { controller.cancelImport() } }
         return operation
     }
@@ -162,6 +168,7 @@ struct EditorWorkspaceView: View {
                     ProjectTimelineView(
                         controller: controller,
                         openClipEditor: clipEditorWindows.open,
+                        openCaptionEditor: captionEditorWindows.open,
                         workspacePaneLinks: workspacePaneLinks
                     )
                 }

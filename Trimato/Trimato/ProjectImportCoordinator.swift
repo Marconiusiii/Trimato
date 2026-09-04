@@ -37,6 +37,35 @@ enum ProjectImportCoordinator {
         return urls.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
+    static func importableCaptionURLs(in selectedURL: URL) throws -> [URL] {
+        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey])
+        guard values.isDirectory == true else {
+            return isCaptionFile(selectedURL) ? [selectedURL] : []
+        }
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isHiddenKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: selectedURL,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+        var urls: [URL] = []
+        for case let url as URL in enumerator {
+            let resourceValues = try url.resourceValues(forKeys: Set(keys))
+            guard resourceValues.isRegularFile == true,
+                  resourceValues.isHidden != true,
+                  isCaptionFile(url) else { continue }
+            urls.append(url)
+        }
+        return urls.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    static func importCaptionCues(at url: URL) throws -> [CaptionCue] {
+        guard let format = CaptionFileFormat.format(for: url) else {
+            throw CaptionFileError.unsupportedFormat
+        }
+        return try CaptionFileCodec.decode(data: Data(contentsOf: url), format: format)
+    }
+
     static func importAsset(at url: URL) async throws -> MediaAssetRecord {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -204,5 +233,9 @@ enum ProjectImportCoordinator {
         if explicitlySupportedExtensions.contains(url.pathExtension.lowercased()) { return true }
         let type = contentType ?? UTType(filenameExtension: url.pathExtension)
         return type?.conforms(to: .movie) == true || type?.conforms(to: .audio) == true
+    }
+
+    static func isCaptionFile(_ url: URL) -> Bool {
+        CaptionFileFormat.format(for: url) != nil
     }
 }
