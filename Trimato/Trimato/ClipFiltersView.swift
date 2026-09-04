@@ -5,6 +5,7 @@ struct ClipFiltersView: View {
     @State private var selection: UUID?
     @State private var editing: ClipFilter?
     @State private var pending: ClipFilter?
+    @StateObject private var editFilterActions = NativeModalActionRegistration()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -23,37 +24,61 @@ struct ClipFiltersView: View {
                 }.disabled(selectedFilter == nil)
             }
         }
-        .sheet(item: $editing, onDismiss: {
-            if let pending, let index = context.filters.firstIndex(where: { $0.id == pending.id }) {
-                context.filters[index] = pending
+        .background(NativeModalSheetPresenter(
+            isPresented: editing != nil,
+            title: editing?.kind.title ?? "Edit Filter",
+            primaryTitle: "Apply",
+            registration: editFilterActions,
+            cancel: { editing = nil },
+            dismissed: finishEditingFilter
+        ) {
+            if let filter = editing {
+                EditClipFilterView(
+                    filter: filter,
+                    apply: { updated in
+                        pending = updated
+                        editing = nil
+                    },
+                    cancel: { editing = nil },
+                    nativeModalActions: editFilterActions
+                )
             }
-            pending = nil
-        }) { filter in
-            EditClipFilterView(filter: filter) { updated in
-                pending = updated
-                editing = nil
-            } cancel: { editing = nil }
-        }
+        })
     }
 
     private var selectedFilter: ClipFilter? { context.filters.first { $0.id == selection } }
+
+    private func finishEditingFilter() {
+        if let pending, let index = context.filters.firstIndex(where: { $0.id == pending.id }) {
+            context.filters[index] = pending
+        }
+        pending = nil
+    }
 }
 
 struct AddClipFilterView: View {
     let available: [ClipFilterKind]
     let add: (ClipFilter) -> Void
     let cancel: () -> Void
+    let nativeModalActions: NativeModalActionRegistration
     @State private var selection: ClipFilterKind
     @State private var draft: ClipFilter
     @AccessibilityFocusState private var headingFocused: Bool
 
-    init(audio: Bool, existing: [ClipFilterKind], add: @escaping (ClipFilter) -> Void, cancel: @escaping () -> Void) {
+    init(
+        audio: Bool,
+        existing: [ClipFilterKind],
+        nativeModalActions: NativeModalActionRegistration,
+        add: @escaping (ClipFilter) -> Void,
+        cancel: @escaping () -> Void
+    ) {
         available = ClipFilterKind.allCases.filter { $0.isAudio == audio && !existing.contains($0) }
         let initial = available.first ?? (audio ? .tone : .brightnessContrast)
         _selection = State(initialValue: initial)
         _draft = State(initialValue: ClipFilter(kind: initial))
         self.add = add
         self.cancel = cancel
+        self.nativeModalActions = nativeModalActions
     }
 
     var body: some View {
@@ -73,18 +98,13 @@ struct AddClipFilterView: View {
                     ClipFilterParameters(filter: $draft)
                 }
             }
-            HStack {
-                Button("Cancel", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button("Add") { add(draft) }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(available.isEmpty)
-            }
         }
         .padding(20)
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { headingFocused = true }
         .onChange(of: selection) { _, kind in draft = ClipFilter(kind: kind) }
+        .nativeModalPrimaryAction(nativeModalActions, enabled: !available.isEmpty) { add(draft) }
     }
 }
 
@@ -92,6 +112,7 @@ private struct EditClipFilterView: View {
     @State var filter: ClipFilter
     let apply: (ClipFilter) -> Void
     let cancel: () -> Void
+    let nativeModalActions: NativeModalActionRegistration
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -101,19 +122,15 @@ private struct EditClipFilterView: View {
                 Text(filter.kind.description)
                 ClipFilterParameters(filter: $filter)
             }
-            HStack {
-                Button("Reset \(filter.kind.title)") {
-                    let id = filter.id
-                    let enabled = filter.enabled
-                    filter = ClipFilter(kind: filter.kind)
-                    filter.id = id
-                    filter.enabled = enabled
-                }
-                Spacer()
-                Button("Cancel", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button("Apply") { apply(filter) }.keyboardShortcut(.defaultAction)
+            Button("Reset \(filter.kind.title)") {
+                let id = filter.id
+                let enabled = filter.enabled
+                filter = ClipFilter(kind: filter.kind)
+                filter.id = id
+                filter.enabled = enabled
             }
         }.padding(20).frame(width: 520)
+            .nativeModalPrimaryAction(nativeModalActions) { apply(filter) }
     }
 }
 

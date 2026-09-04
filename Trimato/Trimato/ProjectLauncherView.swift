@@ -11,12 +11,6 @@ struct ProjectLauncherView: View {
     @ObservedObject private var navigation = ProjectLauncherNavigation.shared
     @StateObject private var recentProjects = RecentProjectStore()
     @State private var presentedError: ProjectLauncherError?
-    @FocusState private var launcherFocus: LauncherFocus?
-
-    private enum LauncherFocus: Hashable {
-        case newProject
-        case trimClip
-    }
 
     var body: some View {
         launcherContent
@@ -33,7 +27,6 @@ struct ProjectLauncherView: View {
         .onAppear { recentProjects.refresh() }
         .onDisappear {
             navigation.showWelcome()
-            launcherFocus = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             recentProjects.refresh()
@@ -59,7 +52,6 @@ struct ProjectLauncherView: View {
             primaryActions
             recentProjectGroup
         }
-        .defaultFocus($launcherFocus, .newProject, priority: .userInitiated)
     }
 
     private var welcome: some View {
@@ -87,26 +79,12 @@ struct ProjectLauncherView: View {
     }
 
     private var primaryActions: some View {
-        HStack(spacing: 12) {
-            Button("New Project") {
-                beginProjectCreation()
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
-            .focused($launcherFocus, equals: .newProject)
-
-            Button("Trim a Clip") {
-                chooseClip()
-            }
-            .buttonStyle(.bordered)
-            .focused($launcherFocus, equals: .trimClip)
-
-            Button("Open Project…") {
-                chooseProject()
-            }
-            .buttonStyle(.bordered)
-        }
-        .controlSize(.large)
+        ProjectLauncherNativeActions(
+            newProject: beginProjectCreation,
+            trimClip: chooseClip,
+            openProject: chooseProject
+        )
+        .frame(height: 34)
     }
 
     private func beginProjectCreation() {
@@ -164,7 +142,6 @@ struct ProjectLauncherView: View {
     }
 
     private func chooseClip() {
-        launcherFocus = .trimClip
         let panel = NSOpenPanel()
         panel.title = "Trim a Clip"
         panel.prompt = "Open"
@@ -193,8 +170,127 @@ struct ProjectLauncherView: View {
     }
 
     private func closeLauncher() {
-        launcherFocus = nil
         dismissWindow(id: "project-launcher")
+    }
+}
+
+private struct ProjectLauncherNativeActions: NSViewRepresentable {
+    let newProject: () -> Void
+    let trimClip: () -> Void
+    let openProject: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> ActionStack {
+        let stack = ActionStack()
+        stack.owner = context.coordinator
+        context.coordinator.stack = stack
+        context.coordinator.configureActions(
+            newProject: newProject,
+            trimClip: trimClip,
+            openProject: openProject
+        )
+        return stack
+    }
+
+    func updateNSView(_ stack: ActionStack, context: Context) {
+        context.coordinator.configureActions(
+            newProject: newProject,
+            trimClip: trimClip,
+            openProject: openProject
+        )
+        context.coordinator.configureDefaultButton()
+    }
+
+    static func dismantleNSView(_ stack: ActionStack, coordinator: Coordinator) {
+        coordinator.stopObservingWindow()
+    }
+
+    final class Coordinator: NSObject {
+        weak var stack: ActionStack?
+        private var newProject: (() -> Void)?
+        private var trimClip: (() -> Void)?
+        private var openProject: (() -> Void)?
+        private var windowObserver: NSObjectProtocol?
+
+        func configureActions(
+            newProject: @escaping () -> Void,
+            trimClip: @escaping () -> Void,
+            openProject: @escaping () -> Void
+        ) {
+            self.newProject = newProject
+            self.trimClip = trimClip
+            self.openProject = openProject
+        }
+
+        func configureDefaultButton() {
+            guard let stack, let window = stack.window else { return }
+            ProjectCreationWindowConfiguration.configureDefaultButton(stack.newProjectButton, in: window)
+        }
+
+        func observeWindow() {
+            stopObservingWindow()
+            guard let window = stack?.window else { return }
+            windowObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.configureDefaultButton() }
+            }
+            Task { @MainActor [weak self] in self?.configureDefaultButton() }
+        }
+
+        func stopObservingWindow() {
+            if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
+            windowObserver = nil
+        }
+
+        @objc func newProjectPressed() { newProject?() }
+        @objc func trimClipPressed() { trimClip?() }
+        @objc func openProjectPressed() { openProject?() }
+    }
+
+    final class ActionStack: NSStackView {
+        weak var owner: Coordinator?
+        let newProjectButton = NSButton(title: "New Project", target: nil, action: nil)
+
+        init() {
+            super.init(frame: .zero)
+            orientation = .horizontal
+            spacing = 12
+            alignment = .centerY
+            distribution = .fillProportionally
+
+            let trimClipButton = NSButton(title: "Trim a Clip", target: nil, action: nil)
+            let openProjectButton = NSButton(title: "Open Project…", target: nil, action: nil)
+            for button in [newProjectButton, trimClipButton, openProjectButton] {
+                button.bezelStyle = .rounded
+                button.controlSize = .large
+                addArrangedSubview(button)
+            }
+            newProjectButton.keyEquivalent = "\r"
+            newProjectButton.keyEquivalentModifierMask = []
+            newProjectButton.identifier = NSUserInterfaceItemIdentifier("trimato.launcher.new-project")
+            trimClipButton.identifier = NSUserInterfaceItemIdentifier("trimato.launcher.trim-clip")
+            openProjectButton.identifier = NSUserInterfaceItemIdentifier("trimato.launcher.open-project")
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let owner else { return }
+            newProjectButton.target = owner
+            newProjectButton.action = #selector(Coordinator.newProjectPressed)
+            (arrangedSubviews[1] as? NSButton)?.target = owner
+            (arrangedSubviews[1] as? NSButton)?.action = #selector(Coordinator.trimClipPressed)
+            (arrangedSubviews[2] as? NSButton)?.target = owner
+            (arrangedSubviews[2] as? NSButton)?.action = #selector(Coordinator.openProjectPressed)
+            owner.observeWindow()
+        }
     }
 }
 

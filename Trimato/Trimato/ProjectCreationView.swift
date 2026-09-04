@@ -182,11 +182,9 @@ nonisolated struct ProjectSettingsValues: Equatable, Sendable {
 
 struct ProjectCreationView: View {
     let heading: String
-    let actionTitle: String
     let finish: (ProjectSettingsValues) -> Void
-    let cancel: () -> Void
-    let showsActionButtons: Bool
     let submitHandlerReady: ((@escaping () -> Void) -> Void)?
+    let nativeModalActions: NativeModalActionRegistration?
 
     @State private var name: String
     @State private var mode: ProjectFormatMode
@@ -208,18 +206,14 @@ struct ProjectCreationView: View {
     init(
         initialProject: TrimatoProject,
         heading: String,
-        actionTitle: String,
         finish: @escaping (ProjectSettingsValues) -> Void,
-        cancel: @escaping () -> Void,
-        showsActionButtons: Bool = true,
-        submitHandlerReady: ((@escaping () -> Void) -> Void)? = nil
+        submitHandlerReady: ((@escaping () -> Void) -> Void)? = nil,
+        nativeModalActions: NativeModalActionRegistration? = nil
     ) {
         self.heading = heading
-        self.actionTitle = actionTitle
         self.finish = finish
-        self.cancel = cancel
-        self.showsActionButtons = showsActionButtons
         self.submitHandlerReady = submitHandlerReady
+        self.nativeModalActions = nativeModalActions
         let project = initialProject
         _name = State(initialValue: project.name)
         _mode = State(initialValue: project.format.mode)
@@ -303,16 +297,6 @@ struct ProjectCreationView: View {
                 }
             }
 
-            if showsActionButtons {
-                HStack {
-                    Spacer()
-                    Button("Cancel", action: cancel)
-                        .keyboardShortcut(.cancelAction)
-
-                    Button(actionTitle, action: submit)
-                        .keyboardShortcut(.defaultAction)
-                }
-            }
         }
         .padding(24)
         .frame(width: 480)
@@ -320,6 +304,7 @@ struct ProjectCreationView: View {
             submitHandlerReady?(submit)
             headingFocused = true
         }
+        .nativeModalPrimaryAction(nativeModalActions, action: submit)
     }
 
     private var resolvedWidth: Int {

@@ -30,6 +30,9 @@ struct SourceClipEditorView: View {
     @State private var pendingFilter: ClipFilter?
     @State private var selectedTab = "Markers"
     @State private var newTrackKind: NewTrackSourceKind?
+    @StateObject private var addFilterActions = NativeModalActionRegistration()
+    @StateObject private var addToTrackActions = NativeModalActionRegistration()
+    @StateObject private var newTrackActions = NativeModalActionRegistration()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -94,19 +97,21 @@ struct SourceClipEditorView: View {
             title: "Applying Clip Effects", progress: preview.progress,
             cancel: preview.cancel
         ) : nil, outcome: previewOutcome)
-        .sheet(isPresented: $addingFilter, onDismiss: {
-            if let pendingFilter {
-                commandContext.filters.append(pendingFilter)
-                self.pendingFilter = nil
-                selectedTab = "Filters"
-            }
-        }) {
+        .background(NativeModalSheetPresenter(
+            isPresented: addingFilter,
+            title: "Add Filter",
+            primaryTitle: "Add",
+            registration: addFilterActions,
+            cancel: { addingFilter = false },
+            dismissed: finishAddingFilter
+        ) {
             AddClipFilterView(audio: commandContext.audioSettings != nil,
-                              existing: commandContext.filters.map(\.kind)) { filter in
+                              existing: commandContext.filters.map(\.kind),
+                              nativeModalActions: addFilterActions) { filter in
                 pendingFilter = filter
                 addingFilter = false
             } cancel: { addingFilter = false }
-        }
+        })
         .onAppear {
             if let cacheKey = currentAsset.proxyCacheKey {
                 let owner = cacheOwnerID
@@ -149,44 +154,62 @@ struct SourceClipEditorView: View {
             scheduleAudioPreview(for: settings,
                                  userInitiated: !commandContext.isTimelineEntry || commandContext.hasUncommittedChanges)
         }
-        .sheet(item: $commandContext.trackPlacementAction) { action in
-            let audioOnly = commandContext.trackPlacementIsAudioOnly
-            AddToTrackView(
-                commandContext: commandContext,
-                action: action,
-                heading: audioOnly ? "Add Audio Only to Track" : "Add to Track",
-                audioOnly: audioOnly,
-                tracks: compatibleTracks(audioOnly: audioOnly),
-                canCreateAudioTrack: currentAsset.hasAudio,
-                canCreateVideoTrack: currentAsset.hasVideo && !audioOnly,
-                addToTrack: { trackID in
-                    guard commandContext.place(action, onTrack: trackID) != nil else { return }
-                    commandContext.dismissTrackPlacement()
-                },
-                createTrackAndAdd: { kind, name in
-                    createAndPlace(kind: kind, name: name, action: action)
-                },
-                cancel: commandContext.dismissTrackPlacement
-            )
-        }
-        .sheet(item: $newTrackKind) { kind in
-            NewTrackFromSourceView(
-                kind: kind,
-                suggestedTrackName: kind.suggestedTrackName(
-                    sourceName: currentAsset.name,
-                    sourceHasVideo: currentAsset.hasVideo
-                ),
-                presentedError: $commandContext.presentedError,
-                create: { name in
-                    commandContext.createTrackAndPlace(
-                        .append,
-                        kind: kind.trackKind,
-                        name: name
-                    ) != nil
-                },
-                close: { newTrackKind = nil }
-            )
-        }
+        .background(NativeModalSheetPresenter(
+            isPresented: commandContext.trackPlacementAction != nil,
+            title: commandContext.trackPlacementIsAudioOnly ? "Add Audio Only to Track" : "Add to Track",
+            primaryTitle: trackPlacementPrimaryTitle,
+            registration: addToTrackActions,
+            cancel: commandContext.dismissTrackPlacement
+        ) {
+            if let action = commandContext.trackPlacementAction {
+                let audioOnly = commandContext.trackPlacementIsAudioOnly
+                AddToTrackView(
+                    commandContext: commandContext,
+                    action: action,
+                    heading: audioOnly ? "Add Audio Only to Track" : "Add to Track",
+                    audioOnly: audioOnly,
+                    tracks: compatibleTracks(audioOnly: audioOnly),
+                    canCreateAudioTrack: currentAsset.hasAudio,
+                    canCreateVideoTrack: currentAsset.hasVideo && !audioOnly,
+                    addToTrack: { trackID in
+                        guard commandContext.place(action, onTrack: trackID) != nil else { return }
+                        commandContext.dismissTrackPlacement()
+                    },
+                    createTrackAndAdd: { kind, name in
+                        createAndPlace(kind: kind, name: name, action: action)
+                    },
+                    cancel: commandContext.dismissTrackPlacement,
+                    nativeModalActions: addToTrackActions
+                )
+            }
+        })
+        .background(NativeModalSheetPresenter(
+            isPresented: newTrackKind != nil,
+            title: newTrackKind?.heading ?? "New Track",
+            primaryTitle: "Create Track",
+            registration: newTrackActions,
+            cancel: { newTrackKind = nil }
+        ) {
+            if let kind = newTrackKind {
+                NewTrackFromSourceView(
+                    kind: kind,
+                    suggestedTrackName: kind.suggestedTrackName(
+                        sourceName: currentAsset.name,
+                        sourceHasVideo: currentAsset.hasVideo
+                    ),
+                    presentedError: $commandContext.presentedError,
+                    create: { name in
+                        commandContext.createTrackAndPlace(
+                            .append,
+                            kind: kind.trackKind,
+                            name: name
+                        ) != nil
+                    },
+                    close: { newTrackKind = nil },
+                    nativeModalActions: newTrackActions
+                )
+            }
+        })
         .onDisappear {
             preparationTask?.cancel()
             preparationTask = nil
@@ -200,6 +223,19 @@ struct SourceClipEditorView: View {
         } message: {
             Text(preview.errorMessage ?? "The clip preview could not be updated.")
         }
+    }
+
+    private func finishAddingFilter() {
+        if let pendingFilter {
+            commandContext.filters.append(pendingFilter)
+            self.pendingFilter = nil
+            selectedTab = "Filters"
+        }
+    }
+
+    private var trackPlacementPrimaryTitle: String {
+        guard let action = commandContext.trackPlacementAction else { return "Add to Track" }
+        return action.selectedTrackButtonTitle(audioOnly: commandContext.trackPlacementIsAudioOnly)
     }
 
     @ViewBuilder
@@ -410,6 +446,7 @@ private struct AddToTrackView: View {
     let addToTrack: (UUID) -> Void
     let createTrackAndAdd: (TimelineTrackKind, String) -> Void
     let cancel: () -> Void
+    let nativeModalActions: NativeModalActionRegistration
 
     @State private var selectedTrackID: UUID?
     @State private var newTrackName = ""
@@ -425,13 +462,6 @@ private struct AddToTrackView: View {
                     Text(track.name).tag(Optional(track.id))
                 }
             }
-
-            Button(action.selectedTrackButtonTitle(audioOnly: audioOnly)) {
-                guard let selectedTrackID else { return }
-                addToTrack(selectedTrackID)
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(selectedTrackID == nil)
 
             Divider()
 
@@ -459,6 +489,10 @@ private struct AddToTrackView: View {
         .padding(20)
         .frame(width: 420)
         .onAppear { selectedTrackID = tracks.first?.id }
+        .nativeModalPrimaryAction(nativeModalActions, enabled: selectedTrackID != nil) {
+            guard let selectedTrackID else { return }
+            addToTrack(selectedTrackID)
+        }
         .alert(item: $commandContext.presentedError) { error in
             Alert(
                 title: Text(error.title),

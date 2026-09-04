@@ -39,6 +39,7 @@ struct NewTrackFromSourceView: View {
     let kind: NewTrackSourceKind
     let create: (String) -> Bool
     let close: () -> Void
+    let nativeModalActions: NativeModalActionRegistration
     @Binding var presentedError: ProjectPresentedError?
 
     @State private var trackName: String
@@ -49,11 +50,13 @@ struct NewTrackFromSourceView: View {
         suggestedTrackName: String,
         presentedError: Binding<ProjectPresentedError?>,
         create: @escaping (String) -> Bool,
-        close: @escaping () -> Void
+        close: @escaping () -> Void,
+        nativeModalActions: NativeModalActionRegistration
     ) {
         self.kind = kind
         self.create = create
         self.close = close
+        self.nativeModalActions = nativeModalActions
         _presentedError = presentedError
         _trackName = State(initialValue: suggestedTrackName)
     }
@@ -70,22 +73,18 @@ struct NewTrackFromSourceView: View {
                     .focused($trackNameFocused)
             }
 
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel, action: close)
-                    .keyboardShortcut(.cancelAction)
-                Button("Create Track") {
-                    if create(trackName.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                        close()
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(trackName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
         }
         .padding(20)
         .frame(width: 420)
         .onAppear { trackNameFocused = true }
+        .nativeModalPrimaryAction(
+            nativeModalActions,
+            enabled: !trackName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ) {
+            if create(trackName.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                close()
+            }
+        }
         .alert(item: $presentedError) { error in
             Alert(
                 title: Text(error.title),

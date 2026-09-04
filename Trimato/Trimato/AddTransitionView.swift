@@ -5,6 +5,7 @@ struct AddTransitionView: View {
     let request: TransitionRequest
     let add: ([TimelineTransition]) -> Void
     let cancel: () -> Void
+    let nativeModalActions: NativeModalActionRegistration
 
     @State private var addIntro = false
     @State private var addOutro = false
@@ -43,15 +44,14 @@ struct AddTransitionView: View {
                 if addOutro { transitionControls(edge: .outro) }
             }
 
-            HStack {
-                Button("Cancel", role: .cancel, action: cancel)
-                Button("Add", action: apply)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!addIntro && !addOutro)
-            }
         }
         .padding(20)
         .frame(width: 440)
+        .nativeModalPrimaryAction(
+            nativeModalActions,
+            enabled: addIntro || addOutro,
+            action: apply
+        )
     }
 
     private var applicationName: String {

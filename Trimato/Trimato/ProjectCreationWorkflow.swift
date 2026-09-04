@@ -35,6 +35,7 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
         private var savePanel: NSSavePanel?
         private var initialProject: TrimatoProject?
         private var isCompleting = false
+        private var isChoosingLocation = false
 
         func update(from source: ProjectCreationSheetPresenter, parent: NSWindow?) {
             self.source = source
@@ -63,19 +64,17 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
 
         private func presentIfPossible() {
             guard projectPanel == nil,
+                  !isChoosingLocation,
                   source?.isPresented == true,
                   let parentWindow,
                   parentWindow.attachedSheet == nil else { return }
 
-            let initialProject = TrimatoProject()
+            let initialProject = self.initialProject ?? TrimatoProject()
             self.initialProject = initialProject
             let rootView = ProjectCreationView(
                 initialProject: initialProject,
                 heading: "New Project",
-                actionTitle: "Next",
                 finish: { [weak self] values in self?.chooseProjectLocation(for: values) },
-                cancel: { [weak self] in self?.cancelProjectCreation() },
-                showsActionButtons: false,
                 submitHandlerReady: { [weak self] submit in self?.submitProjectCreation = submit }
             )
             let hostingController = NSHostingController(rootView: rootView)
@@ -112,8 +111,10 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
         private func chooseProjectLocation(for values: ProjectSettingsValues) {
             guard savePanel == nil,
                   let projectPanel,
-                  let initialProject else { return }
+                  let initialProject,
+                  let parentWindow else { return }
             let project = values.applying(to: initialProject)
+            self.initialProject = project
             let panel = NSSavePanel()
             panel.title = "Save Project"
             panel.prompt = "Create"
@@ -125,13 +126,20 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
             panel.canCreateDirectories = true
             panel.showsTagField = false
             savePanel = panel
+            isChoosingLocation = true
+            projectPanel.sheetParent?.endSheet(projectPanel)
+            projectPanel.orderOut(nil)
+            self.projectPanel = nil
+            panelViewController = nil
+            submitProjectCreation = nil
 
-            panel.beginSheetModal(for: projectPanel) { [weak self] response in
+            panel.beginSheetModal(for: parentWindow) { [weak self] response in
                 guard let self else { return }
                 self.savePanel = nil
+                self.isChoosingLocation = false
                 panel.orderOut(nil)
                 guard response == .OK, let folderURL = panel.url else {
-                    self.configureDefaultButton()
+                    self.presentIfPossible()
                     return
                 }
                 self.createProject(project, at: folderURL)
@@ -153,7 +161,7 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
         }
 
         private func presentCreationError(_ error: Error) {
-            guard let projectPanel else { return }
+            guard let parentWindow else { return }
             let alert = NSAlert()
             alert.messageText = "Project Could Not Be Created"
             if (error as? CocoaError)?.code == .fileWriteFileExists {
@@ -162,8 +170,8 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
                 alert.informativeText = error.localizedDescription
             }
             alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: projectPanel) { [weak self] _ in
-                self?.configureDefaultButton()
+            alert.beginSheetModal(for: parentWindow) { [weak self] _ in
+                self?.presentIfPossible()
             }
         }
 
@@ -176,9 +184,11 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
         private func closeProjectPanel() {
             savePanel?.cancel(nil)
             savePanel = nil
-            guard let projectPanel else { return }
-            projectPanel.sheetParent?.endSheet(projectPanel)
-            projectPanel.orderOut(nil)
+            isChoosingLocation = false
+            if let projectPanel {
+                projectPanel.sheetParent?.endSheet(projectPanel)
+                projectPanel.orderOut(nil)
+            }
             self.projectPanel = nil
             panelViewController = nil
             submitProjectCreation = nil

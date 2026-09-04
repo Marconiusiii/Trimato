@@ -6,6 +6,8 @@ struct EditorWorkspaceView: View {
     @StateObject private var controller: ProjectController
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
+    @StateObject private var projectSettingsActions = NativeModalActionRegistration()
+    @StateObject private var transitionActions = NativeModalActionRegistration()
     @State private var restoresEditorFocusAfterTransitionSheet = false
     @State private var timelineFocusAfterTransitionSheet: TimelineElementSelection?
     @State private var pendingTransitions: [TimelineTransition]?
@@ -66,11 +68,16 @@ struct EditorWorkspaceView: View {
             .onDisappear {
                 ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
             }
-            .sheet(isPresented: $controller.isShowingProjectSettings) {
+            .background(NativeModalSheetPresenter(
+                isPresented: controller.isShowingProjectSettings,
+                title: "Project Settings",
+                primaryTitle: "Save Project Settings",
+                registration: projectSettingsActions,
+                cancel: controller.dismissProjectSettings
+            ) {
                 ProjectCreationView(
                     initialProject: controller.project,
                     heading: "Project Settings",
-                    actionTitle: "Save Project Settings",
                     finish: { values in
                         controller.updateProjectSettings(
                             name: values.name,
@@ -79,12 +86,21 @@ struct EditorWorkspaceView: View {
                         )
                         controller.dismissProjectSettings()
                     },
-                    cancel: controller.dismissProjectSettings
+                    nativeModalActions: projectSettingsActions
                 )
-            }
-            .sheet(item: $controller.transitionRequest, onDismiss: transitionSheetDismissed) { request in
-                transitionSheet(for: request)
-            }
+            })
+            .background(NativeModalSheetPresenter(
+                isPresented: controller.transitionRequest != nil,
+                title: transitionPanelTitle,
+                primaryTitle: transitionPrimaryTitle,
+                registration: transitionActions,
+                cancel: dismissTransitionSheet,
+                dismissed: transitionSheetDismissed
+            ) {
+                if let request = controller.transitionRequest {
+                    transitionSheet(for: request)
+                }
+            })
             .alert(item: $controller.presentedError) { error in
                 Alert(
                     title: Text(error.title),
@@ -163,16 +179,34 @@ struct EditorWorkspaceView: View {
                 project: controller.project,
                 request: request,
                 add: addTransitions,
-                cancel: dismissStandardTransition
+                cancel: dismissStandardTransition,
+                nativeModalActions: transitionActions
             )
         } else {
             QuickTransitionView(
                 project: controller.project,
                 request: request,
                 add: addTransitions,
-                finished: dismissQuickTransition
+                finished: dismissQuickTransition,
+                nativeModalActions: transitionActions
             )
         }
+    }
+
+    private var transitionPanelTitle: String {
+        guard let request = controller.transitionRequest else { return "Transition" }
+        if request.mode == .standard { return "Add Transition" }
+        if request.mode == .quickFade { return "Quick Fade" }
+        let track = controller.project.track(id: request.trackID)
+        return track?.kind == .audio ? "Quick Cross Fade" : "Quick Cross Dissolve"
+    }
+
+    private var transitionPrimaryTitle: String {
+        guard let request = controller.transitionRequest else { return "Apply" }
+        if request.mode == .standard { return "Add" }
+        if request.mode == .quickFade { return "Apply Fade" }
+        let track = controller.project.track(id: request.trackID)
+        return track?.kind == .audio ? "Apply Cross Fade" : "Apply Cross Dissolve"
     }
 
     private func addTransitions(_ transitions: [TimelineTransition]) {

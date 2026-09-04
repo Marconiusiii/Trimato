@@ -6,6 +6,7 @@ struct QuickTransitionView: View {
     let request: TransitionRequest
     let add: ([TimelineTransition]) -> Void
     let finished: () -> Void
+    let nativeModalActions: NativeModalActionRegistration
 
     @State private var addIntro = true
     @State private var addOutro = true
@@ -47,15 +48,14 @@ struct QuickTransitionView: View {
                 if request.mode == .quickCross { TransitionDurationField(text: $durationText) }
             }
 
-            HStack {
-                Button("Cancel", role: .cancel, action: finished)
-                Button(applyTitle, action: apply)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(request.mode == .quickFade && !addIntro && !addOutro)
-            }
         }
         .padding(20)
         .frame(width: 430)
+        .nativeModalPrimaryAction(
+            nativeModalActions,
+            enabled: request.mode != .quickFade || addIntro || addOutro,
+            action: apply
+        )
     }
 
     private var transitionName: String {
