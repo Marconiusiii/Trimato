@@ -30,4 +30,44 @@ struct NativeModalFormTests {
         #expect(controller.primaryButton.keyEquivalent == "\r")
         #expect(controller.cancelButton.keyEquivalent == "\u{1b}")
     }
+
+    @Test @MainActor func nativePrimaryButtonInvokesTheCurrentActionOnce() {
+        let registration = NativeModalActionRegistration()
+        let owner = UUID()
+        var invocationCount = 0
+        registration.configure(owner: owner, enabled: true) { invocationCount += 1 }
+        let controller = NativeModalPanelViewController(
+            hostingController: NSHostingController(rootView: AnyView(Text("Form"))),
+            primaryTitle: "Apply",
+            cancelTitle: "Cancel",
+            registration: registration,
+            cancel: {}
+        )
+        controller.loadViewIfNeeded()
+
+        controller.primaryButton.performClick(nil)
+
+        #expect(invocationCount == 1)
+    }
+
+    @Test @MainActor func resetDisablesTheButtonWithoutInvokingItsAction() {
+        let registration = NativeModalActionRegistration()
+        let owner = UUID()
+        var invocationCount = 0
+        registration.configure(owner: owner, enabled: true) { invocationCount += 1 }
+        let controller = NativeModalPanelViewController(
+            hostingController: NSHostingController(rootView: AnyView(Text("Form"))),
+            primaryTitle: "Apply",
+            cancelTitle: "Cancel",
+            registration: registration,
+            cancel: {}
+        )
+        controller.loadViewIfNeeded()
+
+        registration.reset()
+        controller.primaryButton.performClick(nil)
+
+        #expect(!controller.primaryButton.isEnabled)
+        #expect(invocationCount == 0)
+    }
 }

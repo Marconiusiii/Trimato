@@ -4,37 +4,83 @@ import SwiftUI
 
 @MainActor
 final class NativeModalActionRegistration: ObservableObject {
-    @Published private(set) var isEnabled = false
-    @Published private(set) var invocation = 0
+    nonisolated let objectWillChange = ObservableObjectPublisher()
+    private(set) var isEnabled = false
+    private var actionOwner: UUID?
+    private var action: (() -> Void)?
+    private var enabledObserverOwner: UUID?
+    private var enabledObserver: ((Bool) -> Void)?
 
-    func setEnabled(_ enabled: Bool) {
-        if isEnabled != enabled { isEnabled = enabled }
+    func configure(owner: UUID, enabled: Bool, action: @escaping () -> Void) {
+        actionOwner = owner
+        self.action = action
+        setEnabled(enabled)
     }
 
-    fileprivate func invoke() {
+    func clear(owner: UUID) {
+        guard actionOwner == owner else { return }
+        actionOwner = nil
+        action = nil
+        setEnabled(false)
+    }
+
+    func observeEnabled(owner: UUID, _ observer: @escaping (Bool) -> Void) {
+        enabledObserverOwner = owner
+        enabledObserver = observer
+        observer(isEnabled)
+    }
+
+    func stopObservingEnabled(owner: UUID) {
+        guard enabledObserverOwner == owner else { return }
+        enabledObserverOwner = nil
+        enabledObserver = nil
+    }
+
+    func invoke() {
         guard isEnabled else { return }
-        invocation += 1
+        action?()
     }
 
-    fileprivate func reset() {
-        isEnabled = false
-        invocation = 0
+    func reset() {
+        actionOwner = nil
+        action = nil
+        setEnabled(false)
+    }
+
+    private func setEnabled(_ enabled: Bool) {
+        guard isEnabled != enabled else { return }
+        isEnabled = enabled
+        enabledObserver?(enabled)
     }
 }
 
-private struct NativeModalPrimaryActionModifier: ViewModifier {
-    @ObservedObject var registration: NativeModalActionRegistration
+private struct NativeModalPrimaryActionBridge: NSViewRepresentable {
+    let registration: NativeModalActionRegistration
     let enabled: Bool
     let action: () -> Void
 
-    func body(content: Content) -> some View {
-        content
-            .onAppear { registration.setEnabled(enabled) }
-            .onChange(of: enabled) { _, value in registration.setEnabled(value) }
-            .onChange(of: registration.invocation) { _, invocation in
-                guard invocation > 0 else { return }
-                action()
-            }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        view.setAccessibilityElement(false)
+        context.coordinator.registration = registration
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        registration.configure(owner: context.coordinator.id, enabled: enabled, action: action)
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.registration?.clear(owner: coordinator.id)
+    }
+
+    final class Coordinator {
+        let id = UUID()
+        weak var registration: NativeModalActionRegistration?
+
+        init() {}
     }
 }
 
@@ -44,7 +90,7 @@ extension View {
         enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
-        modifier(NativeModalPrimaryActionModifier(
+        background(NativeModalPrimaryActionBridge(
             registration: registration,
             enabled: enabled,
             action: action
@@ -143,6 +189,7 @@ struct NativeModalSheetPresenter<Content: View>: NSViewRepresentable {
         private var registration: NativeModalActionRegistration?
         private var cancel: (() -> Void)?
         private var dismissed: (() -> Void)?
+        private var pendingDismissed: (() -> Void)?
         private var content: AnyView?
         private var sheetObserver: NSObjectProtocol?
 
@@ -206,7 +253,12 @@ struct NativeModalSheetPresenter<Content: View>: NSViewRepresentable {
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.configureDefaultButton() }
             }
-            parent.beginSheet(panel)
+            parent.beginSheet(panel) { [weak self] _ in
+                guard let self else { return }
+                let pendingDismissed = self.pendingDismissed
+                self.pendingDismissed = nil
+                pendingDismissed?()
+            }
             configureDefaultButton()
         }
 
@@ -220,6 +272,7 @@ struct NativeModalSheetPresenter<Content: View>: NSViewRepresentable {
 
         private func closePanel(notify: Bool) {
             guard let panel else { return }
+            pendingDismissed = notify ? dismissed : nil
             if let sheetObserver {
                 NotificationCenter.default.removeObserver(sheetObserver)
                 self.sheetObserver = nil
@@ -227,9 +280,9 @@ struct NativeModalSheetPresenter<Content: View>: NSViewRepresentable {
             panel.sheetParent?.endSheet(panel)
             panel.orderOut(nil)
             self.panel = nil
+            panelController?.disconnect()
             panelController = nil
             registration?.reset()
-            if notify { dismissed?() }
         }
 
         func invalidate() {
@@ -239,6 +292,7 @@ struct NativeModalSheetPresenter<Content: View>: NSViewRepresentable {
             content = nil
             cancel = nil
             dismissed = nil
+            pendingDismissed = nil
         }
     }
 }
@@ -250,7 +304,7 @@ final class NativeModalPanelViewController: NSViewController {
     private let hostingController: NSHostingController<AnyView>
     private let registration: NativeModalActionRegistration
     private let cancel: () -> Void
-    private var enabledSubscription: AnyCancellable?
+    private let enabledObservationID = UUID()
     private(set) var requiredContentSize = NSSize(width: 480, height: 240)
 
     init(
@@ -313,9 +367,13 @@ final class NativeModalPanelViewController: NSViewController {
         ])
         requiredContentSize = NSSize(width: width, height: height)
         view = rootView
-        enabledSubscription = registration.$isEnabled
-            .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.primaryButton.isEnabled = $0 }
+        registration.observeEnabled(owner: enabledObservationID) { [weak self] enabled in
+            self?.primaryButton.isEnabled = enabled
+        }
+    }
+
+    func disconnect() {
+        registration.stopObservingEnabled(owner: enabledObservationID)
     }
 
     @objc private func primaryPressed() {
