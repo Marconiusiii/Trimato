@@ -10,12 +10,14 @@ struct EditorWorkspaceView: View {
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @StateObject private var projectSettingsActions = NativeModalActionRegistration()
     @StateObject private var transitionActions = NativeModalActionRegistration()
+    @StateObject private var captionFinalizationActions = NativeModalActionRegistration()
     @State private var restoresEditorFocusAfterTransitionSheet = false
     @State private var timelineFocusAfterTransitionSheet: TimelineElementSelection?
     @State private var pendingTransitions: [TimelineTransition]?
     @State private var transitionTask: Task<Void, Never>?
     @State private var transitionOutcome = OperationProgressOutcome.completed
     @State private var transitionFinished = false
+    @State private var captionFinalizationFocusTarget: UUID?
     @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
@@ -112,6 +114,26 @@ struct EditorWorkspaceView: View {
                     transitionSheet(for: request)
                 }
             })
+            .background(NativeModalSheetPresenter(
+                isPresented: controller.captionFinalizationReport != nil,
+                title: "Finalize Captions",
+                primaryTitle: "Show Caption",
+                cancelTitle: "Done",
+                registration: captionFinalizationActions,
+                cancel: controller.dismissCaptionFinalizationReport,
+                dismissed: finishCaptionFinalizationReport
+            ) {
+                if let report = controller.captionFinalizationReport {
+                    CaptionFinalizationResultsView(
+                        report: report,
+                        nativeModalActions: captionFinalizationActions,
+                        showCaption: { cueID in
+                            captionFinalizationFocusTarget = cueID
+                            controller.dismissCaptionFinalizationReport()
+                        }
+                    )
+                }
+            })
             .alert(item: $controller.presentedError) { error in
                 Alert(
                     title: Text(error.title),
@@ -119,6 +141,12 @@ struct EditorWorkspaceView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
+    }
+
+    private func finishCaptionFinalizationReport() {
+        guard let cueID = captionFinalizationFocusTarget else { return }
+        captionFinalizationFocusTarget = nil
+        controller.revealCaptionFinalizationIssue(cueID)
     }
 
     private var progressEditor: some View {

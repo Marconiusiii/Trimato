@@ -52,11 +52,11 @@ struct CaptionFinalizerTests {
         }
     }
 
-    @Test func finalizationBorrowsNoMoreThanFifteenFramesAfterOut() {
+    @Test func finalizationExtendsBeyondFifteenFramesWhenTimeIsAvailable() {
         let draft = CaptionCue(
             start: ProjectTime(seconds: 1),
             end: ProjectTime(seconds: 2),
-            text: "One two three four",
+            text: "One two three four five",
             isDraft: true
         )
 
@@ -71,7 +71,8 @@ struct CaptionFinalizerTests {
         #expect(result.issues.isEmpty)
         #expect(result.cues.count == 1)
         #expect(result.cues[0].start == draft.start)
-        #expect(result.cues[0].end == ProjectTime(seconds: 2.5))
+        #expect(result.cues[0].end > ProjectTime(seconds: 2.5))
+        #expect(result.cues[0].end <= ProjectTime(seconds: 10))
     }
 
     @Test func finalizationNeverExtendsPastTheNextCaption() {
@@ -97,8 +98,42 @@ struct CaptionFinalizerTests {
 
         #expect(result.finalizedPassages == 0)
         #expect(result.issues.count == 1)
+        #expect(result.issues[0].displayName == "Caption: One two three four")
+        #expect(result.issues[0].markedStart == draft.start)
+        #expect(result.issues[0].markedEnd == draft.end)
+        #expect(result.issues[0].requiredDuration != nil)
+        #expect(abs(result.issues[0].availableDuration - 1.2) < 0.000_001)
         #expect(result.cues.first(where: { $0.id == draft.id })?.isDraft == true)
         #expect(result.cues.first(where: { $0.id == next.id }) == next)
+    }
+
+    @Test func finalizationHandlesASequenceOfTwentyThreeDraftPassages() {
+        let drafts = (0..<23).map { index in
+            let start = 1.0 + Double(index) * 3.0
+            return CaptionCue(
+                start: ProjectTime(seconds: start),
+                end: ProjectTime(seconds: start + 1),
+                text: "One two three four five",
+                isDraft: true
+            )
+        }
+
+        let result = CaptionFinalizer.finalize(
+            cues: drafts,
+            projectDuration: ProjectTime(seconds: 72),
+            width: 1_920,
+            height: 1_080,
+            frameRate: 30
+        )
+
+        #expect(result.issues.isEmpty)
+        #expect(result.finalizedPassages == 23)
+        #expect(result.cues.count == 23)
+        #expect(result.cues.allSatisfy { !$0.isDraft })
+        for (draft, finalized) in zip(drafts, result.cues) {
+            #expect(finalized.start == draft.start)
+            #expect(finalized.end > draft.end)
+        }
     }
 
     @Test func manualLineBreakRemainsInTheFinalCaption() {

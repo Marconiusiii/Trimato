@@ -79,6 +79,37 @@ struct CaptionWorkflowTests {
         #expect(controller.project.captionCue(id: id)?.isDraft == true)
     }
 
+    @Test func finalizationFailuresProduceDetailedResultsWithoutUsingPresentedError() throws {
+        let controller = controller()
+        let firstID = try controller.addCaptionCue(
+            start: ProjectTime(seconds: 1),
+            end: ProjectTime(seconds: 2),
+            text: "One two three four"
+        )
+        _ = try controller.addCaptionCue(
+            start: ProjectTime(seconds: 2.2),
+            end: ProjectTime(seconds: 4),
+            text: "Next caption"
+        )
+
+        controller.finalizeCaptions()
+
+        let report = try #require(controller.captionFinalizationReport)
+        #expect(controller.presentedError == nil)
+        #expect(report.finalizedPassages == 1)
+        #expect(report.issues.count == 1)
+        #expect(report.issues[0].cueID == firstID)
+        #expect(report.issues[0].displayName == "Caption: One two three four")
+        #expect(report.issues[0].requiredDuration != nil)
+
+        controller.dismissCaptionFinalizationReport()
+        controller.revealCaptionFinalizationIssue(firstID)
+        #expect(controller.activeTimelineTrackID == controller.project.captionTrack?.id)
+        #expect(controller.selectedCaptionCueID == firstID)
+        #expect(controller.timelineFocusRestoreTarget == .caption(firstID))
+        #expect(controller.timelineFocusRestoreRequest == 1)
+    }
+
     @Test func captionsCannotExtendPastProjectMedia() {
         let controller = controller()
         #expect(throws: CaptionFileError.self) {

@@ -1,8 +1,22 @@
 import Foundation
 
-nonisolated struct CaptionFinalizationIssue: Equatable, Sendable {
+nonisolated struct CaptionFinalizationIssue: Equatable, Identifiable, Sendable {
     let cueID: UUID
+    let captionNumber: Int
+    let text: String
+    let markedStart: ProjectTime
+    let markedEnd: ProjectTime
+    let requiredDuration: Double?
+    let availableDuration: Double
     let message: String
+
+    var id: UUID { cueID }
+
+    var displayName: String {
+        let firstLine = text.components(separatedBy: .newlines).first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return firstLine.isEmpty ? "Caption \(captionNumber)" : "Caption: \(firstLine)"
+    }
 }
 
 nonisolated struct CaptionFinalizationResult: Equatable, Sendable {
@@ -37,14 +51,13 @@ nonisolated enum CaptionFinalizer {
 
     private enum FinalizeOutcome {
         case success([CaptionCue])
-        case failure(String)
+        case failure(message: String, requiredDuration: Double?, availableDuration: Double)
     }
 
     private static let targetWordsPerMinute = 160.0
     private static let minimumFramesPerCue = 40.0
     private static let maximumSecondsPerCue = 6.0
     private static let maximumWordsPerCue = 50
-    private static let outroExtensionFrames = 15.0
 
     static func finalize(
         cues: [CaptionCue],
@@ -78,9 +91,18 @@ nonisolated enum CaptionFinalizer {
                 output.append(contentsOf: finalized)
                 finalizedPassages += 1
                 createdCues += finalized.count
-            case .failure(let message):
+            case .failure(let message, let requiredDuration, let availableDuration):
                 output.append(cue)
-                issues.append(CaptionFinalizationIssue(cueID: cue.id, message: message))
+                issues.append(CaptionFinalizationIssue(
+                    cueID: cue.id,
+                    captionNumber: index + 1,
+                    text: cue.text,
+                    markedStart: cue.start,
+                    markedEnd: cue.end,
+                    requiredDuration: requiredDuration,
+                    availableDuration: availableDuration,
+                    message: message
+                ))
             }
         }
 
@@ -101,7 +123,15 @@ nonisolated enum CaptionFinalizer {
         frameRate: Double
     ) -> FinalizeOutcome {
         let words = words(in: cue.text)
-        guard !words.isEmpty else { return .failure("Enter caption text.") }
+        let availableEnd = min(nextStart.seconds, projectDuration.seconds)
+        let availableDuration = max(availableEnd - cue.start.seconds, 0)
+        guard !words.isEmpty else {
+            return .failure(
+                message: "Enter caption text.",
+                requiredDuration: nil,
+                availableDuration: availableDuration
+            )
+        }
         let originalDuration = cue.duration.seconds
         let requiredReadingDuration = Double(words.count) * 60 / targetWordsPerMinute
         let minimumSegmentCount = max(
@@ -114,26 +144,30 @@ nonisolated enum CaptionFinalizer {
             width: width,
             height: height
         ) else {
-            return .failure("This passage cannot be divided into captions of two lines or fewer.")
+            return .failure(
+                message: "The text cannot be divided into captions of two lines or fewer.",
+                requiredDuration: nil,
+                availableDuration: availableDuration
+            )
         }
 
         let requiredMinimumDuration = Double(segments.count) * minimumFramesPerCue / frameRate
         let unsnappedDuration = max(originalDuration, requiredReadingDuration, requiredMinimumDuration)
         let usedDuration = ceil(unsnappedDuration * frameRate - 0.000_001) / frameRate
         let requestedEnd = cue.start.seconds + usedDuration
-        let extensionLimit = min(
-            cue.end.seconds + outroExtensionFrames / frameRate,
-            nextStart.seconds,
-            projectDuration.seconds
-        )
-        let availableEnd = usedDuration > originalDuration ? extensionLimit : cue.end.seconds
-        let availableDuration = max(availableEnd - cue.start.seconds, 0)
-
-        guard requestedEnd <= cue.start.seconds + availableDuration + 0.000_001 else {
-            return .failure("This passage contains too much text for its marked duration and the available time after it.")
+        guard requestedEnd <= availableEnd + 0.000_001 else {
+            return .failure(
+                message: "The text needs more display time before the next caption or the end of the project.",
+                requiredDuration: usedDuration,
+                availableDuration: availableDuration
+            )
         }
         guard usedDuration <= Double(segments.count) * maximumSecondsPerCue + 0.000_001 else {
-            return .failure("This passage remains onscreen too long for the number of captions it contains.")
+            return .failure(
+                message: "The passage needs to be divided into more captions.",
+                requiredDuration: usedDuration,
+                availableDuration: availableDuration
+            )
         }
         guard let durations = distributedDurations(
             weights: segments.map { Double($0.range.count) },
@@ -141,7 +175,11 @@ nonisolated enum CaptionFinalizer {
             minimum: minimumFramesPerCue / frameRate,
             maximum: maximumSecondsPerCue
         ) else {
-            return .failure("This passage cannot be divided into readable caption durations.")
+            return .failure(
+                message: "The passage cannot be divided into readable caption durations.",
+                requiredDuration: usedDuration,
+                availableDuration: availableDuration
+            )
         }
 
         var finalized: [CaptionCue] = []

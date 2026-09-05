@@ -19,6 +19,14 @@ struct ProjectPresentedError: Identifiable {
     let message: String
 }
 
+struct CaptionFinalizationReport: Identifiable, Equatable {
+    let id = UUID()
+    let finalizedPassages: Int
+    let createdCues: Int
+    let issues: [CaptionFinalizationIssue]
+    let fatalError: String?
+}
+
 @MainActor
 final class ProjectController: ObservableObject {
     let document: ProjectDocument
@@ -49,6 +57,7 @@ final class ProjectController: ObservableObject {
     }
     @Published var isShowingProjectSettings = false
     @Published var presentedError: ProjectPresentedError?
+    @Published var captionFinalizationReport: CaptionFinalizationReport?
     @Published private(set) var isExporting = false
     @Published private(set) var exportProgress: Double?
     @Published private(set) var isPresentingExportPanel = false
@@ -599,28 +608,36 @@ final class ProjectController: ObservableObject {
                 }
             }
             activeTimelineTrackID = project.captionTrack?.id
-            if let issue = result.issues.first {
-                selectedCaptionCueID = issue.cueID
-                selection = .project
-                let finalized = result.finalizedPassages == 1
-                    ? "1 passage was finalized"
-                    : "\(result.finalizedPassages) passages were finalized"
-                let remaining = result.issues.count == 1
-                    ? "1 passage needs attention."
-                    : "\(result.issues.count) passages need attention."
-                presentedError = ProjectPresentedError(
-                    title: "Some Captions Need Attention",
-                    message: "\(finalized). \(remaining) \(issue.message)"
+            if !result.issues.isEmpty {
+                captionFinalizationReport = CaptionFinalizationReport(
+                    finalizedPassages: result.finalizedPassages,
+                    createdCues: result.createdCues,
+                    issues: result.issues,
+                    fatalError: nil
                 )
             } else {
                 announce("Captions finalized")
             }
         } catch {
-            presentedError = ProjectPresentedError(
-                title: "Captions Could Not Be Finalized",
-                message: error.localizedDescription
+            captionFinalizationReport = CaptionFinalizationReport(
+                finalizedPassages: 0,
+                createdCues: 0,
+                issues: [],
+                fatalError: error.localizedDescription
             )
         }
+    }
+
+    func dismissCaptionFinalizationReport() {
+        captionFinalizationReport = nil
+    }
+
+    func revealCaptionFinalizationIssue(_ cueID: UUID) {
+        guard project.captionCue(id: cueID) != nil else { return }
+        activeTimelineTrackID = project.captionTrack?.id
+        focusTimelineElement(.caption(cueID))
+        movePlayheadToCaption(id: cueID)
+        requestTimelineFocusRestore(to: .caption(cueID))
     }
 
     func updateCaptionCue(_ cue: CaptionCue) throws {
