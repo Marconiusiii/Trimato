@@ -89,6 +89,10 @@ final class DefaultActionButton: NSButton {
 @MainActor
 final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
     private var didClose = false
+    private var closeRequested = false
+    private var windowIsClosing = false
+    private var modalSession: NSApplication.ModalSession?
+    private var modalSessionTimer: Timer?
     private let closed: () -> Void
 
     init<Content: View>(
@@ -128,33 +132,67 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func showModal() {
-        guard let window else { return }
-        showWindow(nil)
-        window.makeKeyAndOrderFront(nil)
-        Task { @MainActor [weak self, weak window] in
-            guard let self, let window, window.isVisible else { return }
-            NSApp.runModal(for: window)
-            if window.isVisible { window.orderOut(nil) }
-            self.finishOnce()
-        }
+        guard let window, modalSession == nil else { return }
+        modalSession = NSApp.beginModalSession(for: window)
+        advanceModalSession()
+        guard modalSession != nil else { return }
+        let timer = Timer(
+            timeInterval: 1.0 / 30.0,
+            target: self,
+            selector: #selector(advanceModalSession),
+            userInfo: nil,
+            repeats: true
+        )
+        modalSessionTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     func closeModal() {
-        guard let window else {
-            finishOnce()
+        guard modalSession != nil else {
+            closeWindowAndFinish()
             return
         }
-        if NSApp.modalWindow === window {
-            NSApp.stopModal()
-        }
-        window.orderOut(nil)
-        window.close()
-        finishOnce()
+        closeRequested = true
     }
 
     func windowWillClose(_ notification: Notification) {
-        if NSApp.modalWindow === window {
-            NSApp.stopModal()
+        guard modalSession != nil else {
+            finishOnce()
+            return
+        }
+        windowIsClosing = true
+        closeRequested = true
+    }
+
+    @objc private func advanceModalSession() {
+        guard let modalSession else { return }
+        if closeRequested {
+            NSApp.abortModal()
+            endModalSession(modalSession)
+            return
+        }
+
+        let response = NSApp.runModalSession(modalSession)
+        if closeRequested {
+            NSApp.abortModal()
+            endModalSession(modalSession)
+        } else if response != .continue {
+            endModalSession(modalSession)
+        }
+    }
+
+    private func endModalSession(_ modalSession: NSApplication.ModalSession) {
+        modalSessionTimer?.invalidate()
+        modalSessionTimer = nil
+        NSApp.endModalSession(modalSession)
+        self.modalSession = nil
+        closeWindowAndFinish()
+    }
+
+    private func closeWindowAndFinish() {
+        if !windowIsClosing {
+            window?.orderOut(nil)
+            window?.close()
         }
         finishOnce()
     }

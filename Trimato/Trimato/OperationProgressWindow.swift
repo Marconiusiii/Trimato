@@ -274,11 +274,9 @@ private struct OperationProgressContent: View {
                 let bounded = min(max(progress, 0), 1)
                 ProgressView(value: bounded, total: 1)
                     .accessibilityLabel(session.title)
-                    .accessibilityValue("\(Int((bounded * 100).rounded())) percent")
             } else {
                 ProgressView()
                     .accessibilityLabel(session.title)
-                    .accessibilityValue("In progress")
             }
 
             if session.canCancel {

@@ -71,6 +71,9 @@ struct UIArchitectureTests {
             contentsOf: sourceDirectory.appendingPathComponent("NativeModalFormController.swift"),
             encoding: .utf8
         )
-        #expect(modalSource.contains("NSApp.runModal(for: window)"))
+        #expect(!modalSource.contains("NSApp.runModal(for: window)"))
+        #expect(modalSource.contains("NSApp.beginModalSession(for: window)"))
+        #expect(modalSource.contains("NSApp.runModalSession(modalSession)"))
+        #expect(modalSource.contains("NSApp.endModalSession(modalSession)"))
     }
 }
