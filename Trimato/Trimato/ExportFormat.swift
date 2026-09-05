@@ -276,6 +276,44 @@ final class ExportSavePanel {
 
 @MainActor
 final class CaptionExportSavePanel {
+    enum Format: CaseIterable {
+        case webVTT
+        case subRip
+        case plainText
+
+        var title: String {
+            switch self {
+            case .webVTT: "WebVTT"
+            case .subRip: "SRT"
+            case .plainText: "Plain Text"
+            }
+        }
+
+        var fileExtension: String {
+            switch self {
+            case .webVTT: "vtt"
+            case .subRip: "srt"
+            case .plainText: "txt"
+            }
+        }
+
+        var contentType: UTType {
+            switch self {
+            case .webVTT: .webVTTCaption
+            case .subRip: .subRipCaption
+            case .plainText: .plainText
+            }
+        }
+
+        var captionFileFormat: CaptionFileFormat? {
+            switch self {
+            case .webVTT: .webVTT
+            case .subRip: .subRip
+            case .plainText: nil
+            }
+        }
+    }
+
     private let panel = NSSavePanel()
     private let formatPicker = NSPopUpButton()
 
@@ -286,7 +324,7 @@ final class CaptionExportSavePanel {
         panel.nameFieldStringValue = "\(baseName).vtt"
         panel.allowedContentTypes = [.webVTTCaption]
         panel.isExtensionHidden = false
-        formatPicker.addItems(withTitles: CaptionFileFormat.allCases.map(\.title))
+        formatPicker.addItems(withTitles: Format.allCases.map(\.title))
         formatPicker.target = self
         formatPicker.action = #selector(formatChanged)
         let formatLabel = NSTextField(labelWithString: "Format")
@@ -299,11 +337,11 @@ final class CaptionExportSavePanel {
         panel.accessoryView = accessory
     }
 
-    var selectedFormat: CaptionFileFormat {
-        CaptionFileFormat.allCases[formatPicker.indexOfSelectedItem]
+    var selectedFormat: Format {
+        Format.allCases[formatPicker.indexOfSelectedItem]
     }
 
-    func selection(parentWindow: NSWindow) async -> (URL, CaptionFileFormat)? {
+    func selection(parentWindow: NSWindow) async -> (URL, Format)? {
         let response = await panel.beginSheetModal(for: parentWindow)
         panel.orderOut(nil)
         guard response == .OK, let url = panel.url else { return nil }

@@ -1578,10 +1578,8 @@ final class VideoPlayerViewModel: ObservableObject {
                 seconds: currentTime,
                 frameRate: effectiveFeedbackFrameRate
             )
-        case .onDemand:
-            return "Timecode available on demand"
-        case .off:
-            return "Timecode feedback off"
+        case .onDemand, .off:
+            return ""
         }
     }
 

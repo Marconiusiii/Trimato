@@ -53,6 +53,19 @@ import Testing
         #expect(vtt.contains("00:00:01.250 --> 00:00:03.500"))
     }
 
+    @Test func exportsPlainTextWithProjectTitleAndCaptionParagraphs() throws {
+        let cues = [
+            CaptionCue(start: ProjectTime(seconds: 4), end: ProjectTime(seconds: 5), text: "Second\ncaption"),
+            CaptionCue(start: ProjectTime(seconds: 1), end: ProjectTime(seconds: 2), text: "First caption")
+        ]
+        let text = String(
+            decoding: try CaptionFileCodec.encodePlainText(cues, projectTitle: "Making Coffee"),
+            as: UTF8.self
+        )
+        #expect(text == "Making Coffee\n\nFirst caption\n\nSecond caption\n")
+        #expect(!text.contains("-->"))
+    }
+
     @Test func clipsAndShiftsCuesForAnExportRange() {
         let cues = [
             CaptionCue(start: ProjectTime(seconds: 4), end: ProjectTime(seconds: 7), text: "One"),

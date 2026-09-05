@@ -82,6 +82,7 @@ nonisolated struct ProjectPreviewInput: Equatable {
         value.name = ""
         value.folders = []
         value.targetDuration = nil
+        value.tracks.removeAll { $0.kind == .captions }
         let used = Set((value.tracks.flatMap(\.clips) + value.primaryTimeline).map(\.assetID)
                        + value.cutaways.map(\.assetID))
         value.media = value.media.filter { used.contains($0.id) }.map { asset in
@@ -172,6 +173,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var captionPlaybackID: UUID?
     private var captionPlaybackEnd: ProjectTime?
     private var captionPlaybackSettlingTime: ProjectTime?
+    private var resumeProjectPlaybackAfterCaptionSettles = false
     private var temporaryMediaURLs: [URL] = []
     private var projectDuration = ProjectTime.zero
     private var videoEndTime = ProjectTime.zero
@@ -363,7 +365,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         mediaURLs: [UUID: URL],
         initialTime: ProjectTime
     ) {
-        stopCaptionRangePlayback()
+        stopCaptionRangePlayback(preservingSettlingPosition: false)
         buildTask?.cancel()
         cancelFrameStepping()
         let preparationID = UUID()
@@ -491,7 +493,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         initialTime: ProjectTime,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
-        stopCaptionRangePlayback()
+        stopCaptionRangePlayback(preservingSettlingPosition: false)
         buildTask?.cancel()
         cancelFrameStepping()
         let requestID = UUID()
@@ -654,6 +656,11 @@ final class ProjectPlayerViewModel: ObservableObject {
         guard canControlPlayback else { return }
         clearNavigationAccessibilityCallout()
         cancelFrameStepping()
+        if captionPlaybackSettlingTime != nil {
+            resumeProjectPlaybackAfterCaptionSettles = true
+            jklIndex = 1
+            return
+        }
         if hasCaptionPlaybackActivity {
             stopCaptionRangePlayback()
             jklIndex = 1
@@ -670,7 +677,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func playCaptionRange(_ range: ProjectTimeRange) {
         guard canControlPlayback, range.isValid else { return }
-        stopCaptionRangePlayback()
+        stopCaptionRangePlayback(preservingSettlingPosition: false)
         let playbackID = UUID()
         captionPlaybackID = playbackID
         captionPlaybackTask = Task { @MainActor [weak self] in
@@ -696,13 +703,23 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
-    func stopCaptionRangePlayback() {
+    func stopCaptionRangePlayback(preservingSettlingPosition: Bool = true) {
+        if preservingSettlingPosition, captionPlaybackSettlingTime != nil {
+            player.pause()
+            captionPlaybackEnd = nil
+            if let captionBoundaryObserver {
+                player.removeTimeObserver(captionBoundaryObserver)
+                self.captionBoundaryObserver = nil
+            }
+            return
+        }
         captionPlaybackID = nil
         captionPlaybackTask?.cancel()
         captionPlaybackTask = nil
         player.currentItem?.cancelPendingSeeks()
         captionPlaybackEnd = nil
         captionPlaybackSettlingTime = nil
+        resumeProjectPlaybackAfterCaptionSettles = false
         player.pause()
         if let captionBoundaryObserver {
             player.removeTimeObserver(captionBoundaryObserver)
@@ -722,6 +739,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         captionPlaybackTask = nil
         captionPlaybackEnd = nil
         captionPlaybackSettlingTime = finalTime
+        resumeProjectPlaybackAfterCaptionSettles = false
         player.pause()
         if let captionBoundaryObserver {
             player.removeTimeObserver(captionBoundaryObserver)
@@ -742,6 +760,11 @@ final class ProjectPlayerViewModel: ObservableObject {
             self.captionPlaybackSettlingTime = nil
             self.captionPlaybackTask = nil
             self.captionPlaybackID = nil
+            if self.resumeProjectPlaybackAfterCaptionSettles {
+                self.resumeProjectPlaybackAfterCaptionSettles = false
+                self.jklIndex = 1
+                self.player.rate = 1
+            }
         }
     }
 
@@ -823,7 +846,9 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func pressJ() {
         guard canControlPlayback else { return }
-        if hasCaptionPlaybackActivity { stopCaptionRangePlayback() }
+        if hasCaptionPlaybackActivity {
+            stopCaptionRangePlayback(preservingSettlingPosition: false)
+        }
         clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         jklIndex = jklIndex > 0 ? -1 : max(jklIndex - 1, -jklSpeeds.count)
@@ -836,7 +861,9 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func pressL() {
         guard canControlPlayback else { return }
-        if hasCaptionPlaybackActivity { stopCaptionRangePlayback() }
+        if hasCaptionPlaybackActivity {
+            stopCaptionRangePlayback(preservingSettlingPosition: false)
+        }
         clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         jklIndex = jklIndex < 0 ? 1 : min(jklIndex + 1, jklSpeeds.count)
@@ -961,7 +988,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             inMarker: inMarker,
             outMarker: outMarker,
             frameRate: projectFrameRate,
-            editPoint: editPoints.first { $0.time == destination }
+            editPoint: editPoints.first { $0.time == destination },
+            includeTimecode: AppPreferences.timecodeFeedback == .live
         ))
         seekPrecisely(to: destination)
     }
@@ -1041,16 +1069,18 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func refreshAccessibilityTimecode() {
         let value: String
-        switch AppPreferences.timecodeFeedback {
-        case .live:
-            value = navigationAccessibilityCallout ?? AppPreferences.spokenTimecode(
-                seconds: currentTime.seconds,
-                frameRate: projectFrameRate
-            )
-        case .onDemand:
-            value = "Timecode available on demand"
-        case .off:
-            value = "Timecode feedback off"
+        if let navigationAccessibilityCallout {
+            value = navigationAccessibilityCallout
+        } else {
+            switch AppPreferences.timecodeFeedback {
+            case .live:
+                value = AppPreferences.spokenTimecode(
+                    seconds: currentTime.seconds,
+                    frameRate: projectFrameRate
+                )
+            case .onDemand, .off:
+                value = ""
+            }
         }
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
@@ -1143,7 +1173,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         inMarker: ProjectTime?,
         outMarker: ProjectTime?,
         frameRate: Double,
-        editPoint: ProjectEditPoint? = nil
+        editPoint: ProjectEditPoint? = nil,
+        includeTimecode: Bool = true
     ) -> String {
         let pointName: String
         if destination == .zero {
@@ -1157,6 +1188,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         } else {
             pointName = editPoint?.spokenName ?? "Edit point"
         }
+        guard includeTimecode else { return pointName }
         var timeLabel = accessibilityTimeLabel(
             time: destination,
             showingFrames: false,

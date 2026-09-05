@@ -283,6 +283,15 @@ struct ProjectPlaybackTests {
 
         #expect(!viewModel.isPlaying)
         #expect(viewModel.currentTime == range.end)
+
+        viewModel.togglePlayback()
+        for _ in 0..<100 where !viewModel.isPlaying {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(viewModel.isPlaying)
+        #expect(ProjectTime(viewModel.player.currentTime()) >= range.end)
+        viewModel.togglePlayback()
     }
 
     @Test func editNavigationUsesOnlyTheSelectedTrackBoundaries() throws {
@@ -561,6 +570,20 @@ struct ProjectPlaybackTests {
             outMarker: outMarker,
             frameRate: 30
         ) == "End, 10 seconds")
+        #expect(ProjectPlayerViewModel.navigationAnnouncement(
+            destination: ProjectTime(seconds: 5),
+            duration: duration,
+            inMarker: inMarker,
+            outMarker: outMarker,
+            frameRate: 30,
+            editPoint: ProjectEditPoint(
+                time: ProjectTime(seconds: 5),
+                hasVideo: false,
+                hasAudio: false,
+                captionText: "Fresh coffee is ready."
+            ),
+            includeTimecode: false
+        ) == "Caption: Fresh coffee is ready.")
     }
 
     @Test func projectPreviewFailuresRetainTheUnderlyingMediaReason() {

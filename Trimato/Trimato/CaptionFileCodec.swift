@@ -36,6 +36,24 @@ nonisolated enum CaptionFileCodec {
         return Data(result.utf8)
     }
 
+    static func encodePlainText(_ cues: [CaptionCue], projectTitle: String) throws -> Data {
+        let sorted = try cues.map { try $0.validated() }.sorted {
+            if $0.start == $1.start { return $0.end < $1.end }
+            return $0.start < $1.start
+        }
+        let paragraphs = sorted.map { cue in
+            cue.text.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        }
+        .filter { !$0.isEmpty }
+        let title = projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = paragraphs.joined(separator: "\n\n")
+        let result = title + (body.isEmpty ? "" : "\n\n\(body)") + "\n"
+        return Data(result.utf8)
+    }
+
     static func cues(_ cues: [CaptionCue], within range: ProjectTimeRange?) -> [CaptionCue] {
         guard let range else { return cues }
         return cues.compactMap { cue in

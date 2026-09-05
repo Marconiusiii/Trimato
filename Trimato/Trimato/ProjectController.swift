@@ -482,7 +482,13 @@ final class ProjectController: ObservableObject {
             guard let self, let (url, format) = await panel.selection(parentWindow: parentWindow) else { return }
             do {
                 let range = self.projectPlayer?.exportRange
-                let data = try CaptionFileCodec.encode(CaptionFileCodec.cues(cues, within: range), format: format)
+                let exportedCues = CaptionFileCodec.cues(cues, within: range)
+                let data: Data
+                if let captionFormat = format.captionFileFormat {
+                    data = try CaptionFileCodec.encode(exportedCues, format: captionFormat)
+                } else {
+                    data = try CaptionFileCodec.encodePlainText(exportedCues, projectTitle: self.project.name)
+                }
                 try data.write(to: url, options: .atomic)
                 self.announce("Captions exported")
             } catch {

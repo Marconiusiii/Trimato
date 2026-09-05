@@ -20,21 +20,24 @@ private struct GeneralSettingsView: View {
     @StateObject private var notificationModel = ExportNotificationSettingsModel()
 
     var body: some View {
-        Form {
-            Section("Export notifications") {
-                LabeledContent("Permission", value: notificationModel.state.statusText)
-                Text(notificationModel.state.explanation)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 20) {
+            GroupBox("Export notifications") {
+                VStack(alignment: .leading, spacing: 10) {
+                    LabeledContent("Permission", value: notificationModel.state.statusText)
+                    Text(notificationModel.state.explanation)
+                        .foregroundStyle(.secondary)
 
-                if notificationModel.state == .notRequested {
-                    Button("Allow export notifications…") {
-                        notificationModel.requestAuthorization()
+                    if notificationModel.state == .notRequested {
+                        Button("Allow export notifications…") {
+                            notificationModel.requestAuthorization()
+                        }
+                        .disabled(notificationModel.isRequesting)
                     }
-                    .disabled(notificationModel.isRequesting)
                 }
             }
         }
-        .formStyle(.grouped)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(20)
         .onAppear { notificationModel.refresh() }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification
@@ -51,28 +54,33 @@ private struct AccessibilitySettingsView: View {
     private var timecodeVerbosity = TimecodeVerbosity.default
 
     var body: some View {
-        Form {
-            Section("VoiceOver") {
-                Picker("Timecode Feedback", selection: $timecodeFeedback) {
-                    ForEach(TimecodeFeedback.allCases) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-
-                if timecodeFeedback != .off {
-                    Picker("Timecode Verbosity", selection: $timecodeVerbosity) {
-                        ForEach(TimecodeVerbosity.allCases) { option in
+        VStack(alignment: .leading, spacing: 20) {
+            GroupBox("VoiceOver") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Picker("Timecode Feedback", selection: $timecodeFeedback) {
+                        ForEach(TimecodeFeedback.allCases) { option in
                             Text(option.title).tag(option)
                         }
                     }
-                }
+                    .pickerStyle(.segmented)
 
-                if timecodeFeedback == .onDemand {
-                    Text("Press T to hear the current timecode.")
-                        .foregroundStyle(.secondary)
+                    if timecodeFeedback != .off {
+                        Picker("Timecode Verbosity", selection: $timecodeVerbosity) {
+                            ForEach(TimecodeVerbosity.allCases) { option in
+                                Text(option.title).tag(option)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    if timecodeFeedback == .onDemand {
+                        Text("Press T to hear the current timecode.")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
-        .formStyle(.grouped)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(20)
     }
 }

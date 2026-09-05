@@ -57,6 +57,24 @@ struct ProjectPreviewInvalidationTests {
         #expect(ProjectPreviewInput(changed) == ProjectPreviewInput(original))
     }
 
+    @Test func captionChangesDoNotRebuildPlayback() throws {
+        let original = try fixture()
+        let input = ProjectPreviewInput(original)
+        var changed = original
+        try changed.addCaptionCues([
+            CaptionCue(
+                start: ProjectTime(seconds: 1),
+                end: ProjectTime(seconds: 3),
+                text: "Fresh coffee"
+            )
+        ])
+        #expect(ProjectPreviewInput(changed) == input)
+
+        let captionTrackIndex = try #require(changed.tracks.firstIndex(where: { $0.kind == .captions }))
+        changed.tracks[captionTrackIndex].captionCues[0].text = "Fresh coffee is ready"
+        #expect(ProjectPreviewInput(changed) == input)
+    }
+
     @Test func timelineSegmentsFiltersAndAudioStillRebuildPlayback() throws {
         let original = try fixture()
         let input = ProjectPreviewInput(original)

@@ -81,45 +81,48 @@ struct MediaCacheSettingsView: View {
     @State private var confirmation: CacheConfirmation?
 
     var body: some View {
-        Form {
-            Section("Playback proxy storage") {
-                LabeledContent("Storage used", value: formattedSize)
-                LabeledContent("Proxy files", value: formattedFileCount)
-                LabeledContent("Storage limit", value: "10 GB")
-                LabeledContent("Stored in", value: "macOS Caches")
-                Text("Trimato creates a reusable playback proxy only when macOS cannot play an original file directly. Compatible media may use no proxy storage.")
-                    .foregroundStyle(.secondary)
-                Text("This total does not include projects, original media, exports, transition renders, audio previews, or export intermediates.")
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 20) {
+            GroupBox("Playback proxy storage") {
+                VStack(alignment: .leading, spacing: 10) {
+                    LabeledContent("Storage used", value: formattedSize)
+                    LabeledContent("Proxy files", value: formattedFileCount)
+                    LabeledContent("Storage limit", value: "10 GB")
+                    LabeledContent("Stored in", value: "macOS Caches")
+                    Text("Trimato creates a reusable playback proxy only when macOS cannot play an original file directly. Compatible media may use no proxy storage.")
+                        .foregroundStyle(.secondary)
+                    Text("This total does not include projects, original media, exports, transition renders, audio previews, or export intermediates.")
+                        .foregroundStyle(.secondary)
 
-                Button("Refresh storage usage") {
-                    model.refresh(announceCompletion: true)
+                    Button("Refresh storage usage") {
+                        model.refresh(announceCompletion: true)
+                    }
+                    .disabled(model.isRefreshing || model.isWorking)
                 }
-                .disabled(model.isRefreshing || model.isWorking)
-
             }
 
-            Section("Manage playback proxies") {
-                Button("Clear proxies not used recently…") {
-                    confirmation = .unused
-                }
-                .disabled(model.isWorking || model.isRefreshing)
-                Text("Removes playback proxies that have not been used in the last seven days.")
-                    .foregroundStyle(.secondary)
+            GroupBox("Manage playback proxies") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button("Clear proxies not used recently…") {
+                        confirmation = .unused
+                    }
+                    .disabled(model.isWorking || model.isRefreshing)
+                    Text("Removes playback proxies that have not been used in the last seven days.")
+                        .foregroundStyle(.secondary)
 
-                Button("Clear all playback proxies…") {
-                    confirmation = .all
+                    Button("Clear all playback proxies…") {
+                        confirmation = .all
+                    }
+                    .disabled(model.isWorking || model.isRefreshing)
+                    Text("Removes every playback proxy except those required by an open project or editor.")
+                        .foregroundStyle(.secondary)
                 }
-                .disabled(model.isWorking || model.isRefreshing)
-                Text("Removes every playback proxy except those required by an open project or editor.")
-                    .foregroundStyle(.secondary)
-
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(20)
         .operationProgress(model.isWorking || model.isRefreshing ? OperationProgress(
             title: model.isWorking ? "Clearing playback proxies" : "Refreshing storage usage"
         ) : nil, outcome: model.errorMessage == nil ? .completed : .failed)
-        .formStyle(.grouped)
         .onAppear {
             model.refresh()
         }
