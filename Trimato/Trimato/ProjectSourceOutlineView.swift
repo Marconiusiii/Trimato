@@ -265,7 +265,9 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
             let row = nodes[id].map(outlineView.row(forItem:)) ?? -1
             guard row >= 0 else { return }
             outlineView.scrollRowToVisible(row)
-            outlineView.window?.makeFirstResponder(outlineView)
+            guard outlineView.acceptsFirstResponder,
+                  outlineView.window?.makeFirstResponder(outlineView) == true else { return }
+            NSAccessibility.post(element: outlineView, notification: .focusedUIElementChanged)
         }
 
         private func expandAncestors(of id: ProjectSourceItemID) {

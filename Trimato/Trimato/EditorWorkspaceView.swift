@@ -14,6 +14,7 @@ struct EditorWorkspaceView: View {
     @State private var transitionTask: Task<Void, Never>?
     @State private var transitionOutcome = OperationProgressOutcome.completed
     @State private var transitionFinished = false
+    @State private var hasRequestedInitialProjectFocus = false
     @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
@@ -49,9 +50,14 @@ struct EditorWorkspaceView: View {
                     }
                 )
                 ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-                projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
+                projectWindowSaveCoordinator.onWindowBecameKey { [weak controller, weak projectPlayer] in
                     guard let controller else { return }
                     ExternalMediaOpenCoordinator.shared.activate(controller: controller)
+                    Task { @MainActor in
+                        await Task.yield()
+                        guard projectPlayer?.isInitialPreparationPending == false else { return }
+                        requestInitialProjectFocus()
+                    }
                 }
                 projectWindowSaveCoordinator.onLastProjectWindowWillClose {
                     openWindow(id: "project-launcher")
@@ -163,7 +169,13 @@ struct EditorWorkspaceView: View {
 
     private func initialPreparationDismissed() {
         guard projectPlayer.errorMessage == nil else { return }
-        controller.requestEditorFocusRestore()
+        requestInitialProjectFocus()
+    }
+
+    private func requestInitialProjectFocus() {
+        guard !hasRequestedInitialProjectFocus else { return }
+        hasRequestedInitialProjectFocus = true
+        controller.requestProjectSourceFocus(to: .timeline(controller.project.id))
     }
 
     private var exportOperation: OperationProgress? {
@@ -421,6 +433,9 @@ struct ProjectViewerView: View {
                       let selection = controller.editorClipSelection(at: viewModel.currentTime) else { return }
                 openClipEditor(selection)
             }
+            viewModel.onOpenGenerator { [weak controller] in
+                controller?.requestGenerator()
+            }
             viewModel.onSelectAdjacentTrack { [weak controller] offset in
                 controller?.selectAdjacentTrack(offset, restoreTimelineFocus: false)
             }
@@ -441,7 +456,6 @@ struct ProjectViewerView: View {
                 controller.trimActiveTrackClip(edge: .tail, at: viewModel.currentTime)
             }
             requestPreparation()
-            pendingProjectPlayheadFocus = true
         }
         .onChange(of: controller.project) { previous, project in
             guard !controller.consumePreparedTransitionPreview(for: project),

@@ -196,6 +196,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var quickCrossTransition: (() -> Void)?
     private var quickFade: (() -> Void)?
     private var openClipAtPlayhead: (() -> Void)?
+    private var openGenerator: (() -> Void)?
     private var selectAdjacentTrack: ((Int) -> Void)?
     private var positionActiveClipHead: (() -> Void)?
     private var positionActiveClipTail: (() -> Void)?
@@ -279,6 +280,10 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func onOpenClipAtPlayhead(_ handler: @escaping () -> Void) {
         openClipAtPlayhead = handler
+    }
+
+    func onOpenGenerator(_ handler: @escaping () -> Void) {
+        openGenerator = handler
     }
 
     func onSelectAdjacentTrack(_ handler: @escaping (Int) -> Void) {
@@ -1291,6 +1296,16 @@ final class ProjectPlayerViewModel: ObservableObject {
                   !TimelineKeyboardFocus.isInTimeline,
                   !self.isEditingText(in: event.window) else { return event }
 
+            if Self.isGeneratorKeyboardCommand(
+                type: event.type,
+                isRepeat: event.isARepeat,
+                character: event.charactersIgnoringModifiers,
+                modifiers: event.modifierFlags
+            ) {
+                self.openGenerator?()
+                return nil
+            }
+
             guard self.canControlPlayback else {
                 return Self.recognizesEditorKeyboardCommand(
                     type: event.type,
@@ -1404,6 +1419,19 @@ final class ProjectPlayerViewModel: ObservableObject {
                 return event
             }
         }
+    }
+
+    nonisolated static func isGeneratorKeyboardCommand(
+        type: NSEvent.EventType,
+        isRepeat: Bool,
+        character: String?,
+        modifiers: NSEvent.ModifierFlags
+    ) -> Bool {
+        let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+        return type == .keyDown
+            && !isRepeat
+            && modifiers.intersection(commandSet).isEmpty
+            && character?.lowercased() == "g"
     }
 
     nonisolated static func recognizesEditorKeyboardCommand(

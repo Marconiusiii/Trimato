@@ -41,6 +41,7 @@ final class ProjectController: ObservableObject {
     @Published var transitionRequest: TransitionRequest?
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
+    @Published private(set) var projectSourceFocusRequest = ProjectSourceFocusRequest()
     @Published private(set) var timelineFocusRestoreRequest = 0
     @Published private(set) var timelineListFocusRestoreRequest = 0
     @Published private(set) var timelineContentRevision = 0
@@ -956,6 +957,11 @@ final class ProjectController: ObservableObject {
 
     func requestEditorFocusRestore() {
         editorFocusRestoreRequest += 1
+    }
+
+    func requestProjectSourceFocus(to item: ProjectSourceItemID) {
+        projectSourceFocusRequest.target = item
+        projectSourceFocusRequest.revision += 1
     }
 
     func installEditorAccessibilityFocusProvider(_ provider: @escaping () -> Bool) {

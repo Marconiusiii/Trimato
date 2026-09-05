@@ -43,7 +43,6 @@ struct ProjectBrowserView: View {
     @State private var renamedFolderName = ""
     @State private var assetPendingDeletion: MediaAssetRecord?
     @State private var cancelledDeletionFocusID: UUID?
-    @State private var sourceFocusRequest = ProjectSourceFocusRequest()
     @State private var newTrackRequest: NewTrackFromSourceRequest?
     @State private var newTrackSourceFocusTarget: ProjectSourceItemID?
     @State private var newTrackTimelineFocusTarget: TimelineElementSelection?
@@ -94,7 +93,7 @@ struct ProjectBrowserView: View {
                 requestRenameFolder: beginRenamingFolder,
                 requestDeleteAsset: beginDeletingAsset,
                 requestNewTrack: beginNewTrackFromSource,
-                focusRequest: sourceFocusRequest
+                focusRequest: controller.projectSourceFocusRequest
             )
 
             Divider()
@@ -271,8 +270,7 @@ struct ProjectBrowserView: View {
     }
 
     private func requestSourceFocus(_ target: ProjectSourceItemID) {
-        sourceFocusRequest.target = target
-        sourceFocusRequest.revision += 1
+        controller.requestProjectSourceFocus(to: target)
     }
 
     private func beginNewTrackFromSource(_ assetID: UUID, _ kind: NewTrackSourceKind) {

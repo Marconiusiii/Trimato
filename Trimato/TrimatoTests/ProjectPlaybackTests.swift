@@ -211,6 +211,43 @@ struct ProjectPlaybackTests {
         ))
     }
 
+    @Test func generatorKeyboardCommandRequiresAPlainInitialKeyPress() {
+        #expect(ProjectPlayerViewModel.isGeneratorKeyboardCommand(
+            type: .keyDown,
+            isRepeat: false,
+            character: "g",
+            modifiers: []
+        ))
+        #expect(!ProjectPlayerViewModel.isGeneratorKeyboardCommand(
+            type: .keyDown,
+            isRepeat: false,
+            character: "g",
+            modifiers: [.command]
+        ))
+        #expect(!ProjectPlayerViewModel.isGeneratorKeyboardCommand(
+            type: .keyDown,
+            isRepeat: false,
+            character: "G",
+            modifiers: [.shift]
+        ))
+        #expect(!ProjectPlayerViewModel.isGeneratorKeyboardCommand(
+            type: .keyDown,
+            isRepeat: true,
+            character: "g",
+            modifiers: []
+        ))
+    }
+
+    @Test func projectSourceFocusRequestsRetainTheirTargetAndAdvance() {
+        let project = TrimatoProject()
+        let controller = ProjectController(document: ProjectDocument(project: project))
+
+        #expect(controller.projectSourceFocusRequest.revision == 0)
+        controller.requestProjectSourceFocus(to: .timeline(project.id))
+        #expect(controller.projectSourceFocusRequest.target == .timeline(project.id))
+        #expect(controller.projectSourceFocusRequest.revision == 1)
+    }
+
     @Test func projectPlayheadSliderUsesOneFrameAsItsNativeAdjustmentStep() {
         #expect(abs(ProjectPlayerViewModel.playbackFractionStep(
             duration: ProjectTime(seconds: 10),

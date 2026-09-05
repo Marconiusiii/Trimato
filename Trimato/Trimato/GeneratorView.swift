@@ -249,6 +249,7 @@ struct GeneratorView: View {
         .frame(minWidth: 560, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .task {
+            await Task.yield()
             headingFocused = true
         }
         .onChange(of: session.definition) { previous, _ in
