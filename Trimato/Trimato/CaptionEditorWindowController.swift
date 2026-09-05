@@ -62,12 +62,16 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
                 }
             },
             play: { [weak controller] in controller?.playCaptionRange(range) },
-            finished: { [weak self] in self?.finish(origin: origin) }
+            finished: { [weak self] in self?.finish() }
         )
+        let focusRequest = NativeModalFocusRequest()
         let modalWindow = NativeModalWindowController(
             title: session.title,
             contentSize: NSSize(width: 560, height: 390),
-            rootView: CaptionEditorView(session: session),
+            rootView: CaptionEditorView(session: session, focusRequest: focusRequest),
+            focusRequest: focusRequest,
+            returnWindow: projectWindow,
+            returned: { [weak self] in self?.restoreFocus(origin: origin) },
             closed: { [weak self, weak session] in
                 session?.finishOnce()
                 self?.activeSession = nil
@@ -81,17 +85,19 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
         modalWindow.showModal()
     }
 
-    private func finish(origin: FocusOrigin) {
+    private func finish() {
         controller?.stopCaptionPlayback()
         controller?.setCaptionEditorOpen(false)
-        projectWindow?.makeKeyAndOrderFront(nil)
+        projectWindow = nil
+    }
+
+    private func restoreFocus(origin: FocusOrigin) {
         switch origin {
         case .editor:
             controller?.requestEditorFocusRestore()
         case .timeline(let cueID):
             controller?.requestTimelineFocusRestore(to: .caption(cueID))
         }
-        projectWindow = nil
     }
 
     private var currentProjectWindow: NSWindow? {
@@ -170,7 +176,9 @@ final class CaptionEditorWindowSession: ObservableObject, Identifiable {
 
 struct CaptionEditorView: View {
     @ObservedObject var session: CaptionEditorWindowSession
+    @ObservedObject var focusRequest: NativeModalFocusRequest
     @FocusState private var textFocused: Bool
+    @AccessibilityFocusState private var textVoiceOverFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -190,6 +198,7 @@ struct CaptionEditorView: View {
             TextEditor(text: $session.text)
                 .font(.body)
                 .focused($textFocused)
+                .accessibilityFocused($textVoiceOverFocused)
                 .accessibilityLabel("Caption Text")
                 .frame(minHeight: 150)
 
@@ -223,9 +232,13 @@ struct CaptionEditorView: View {
         .padding(20)
         .frame(minWidth: 520, minHeight: 350)
         .navigationTitle(session.title)
-        .task {
-            await Task.yield()
-            textFocused = true
+        .onChange(of: focusRequest.revision) { _, revision in
+            guard revision > 0 else { return }
+            Task { @MainActor in
+                await Task.yield()
+                textFocused = true
+                textVoiceOverFocused = true
+            }
         }
     }
 }

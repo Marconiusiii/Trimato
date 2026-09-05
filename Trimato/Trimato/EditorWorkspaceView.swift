@@ -136,8 +136,7 @@ struct EditorWorkspaceView: View {
         CaptionFinalizationWindowCoordinator.shared.present(
             report: report,
             parentWindow: projectWindowSaveCoordinator.attachedWindow,
-            reveal: { [weak controller, weak projectWindowSaveCoordinator] cueID in
-                projectWindowSaveCoordinator?.attachedWindow?.makeKeyAndOrderFront(nil)
+            reveal: { [weak controller] cueID in
                 controller?.revealCaptionFinalizationIssue(cueID)
             }
         )
@@ -411,9 +410,6 @@ struct ProjectViewerView: View {
                 (NSWorkspace.shared.isVoiceOverEnabled || controller?.timelineHasKeyboardFocus != true) &&
                     focusScope?.containsInputFocus == true
             }
-            viewModel.scopeProjectKeyboardCommands { [weak focusScope] in
-                focusScope?.boundaryView?.window?.isKeyWindow == true
-            }
             viewModel.onBladeAtPlayhead { [weak controller] in
                 controller?.splitClipAtPlayhead()
             }
@@ -470,7 +466,6 @@ struct ProjectViewerView: View {
             restoreProjectPlayheadFocus()
         }
         .onChange(of: focusedAccessibilityTarget) { _, target in
-            focusScope.voiceOverContainsFocus = target != nil
             if target != nil { controller.setProjectInfoTarget(.editor) }
             if target == .playhead {
                 viewModel.refreshAccessibilityValueForFocus()

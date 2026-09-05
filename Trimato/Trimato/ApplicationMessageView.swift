@@ -39,26 +39,32 @@ final class ApplicationMessageWindowCoordinator {
     ) -> UUID {
         let session = ApplicationMessageSession(descriptor: descriptor, dismissed: dismissed)
         let id = session.id
-        let controller = NativeModalWindowController(
-            title: descriptor.title,
-            contentSize: NSSize(width: 460, height: 190),
-            rootView: ApplicationMessageView(
-                descriptor: descriptor,
-                done: { ApplicationMessageWindowCoordinator.shared.dismiss(id: id) }
-            ),
-            closed: { [weak self, weak session] in
-                session?.finish()
-                self?.sessions[id] = nil
-                self?.windows[id] = nil
-            }
-        )
         sessions[id] = session
-        windows[id] = controller
         Task { @MainActor [weak self] in
             while NSApp.modalWindow?.identifier?.rawValue == "Trimato.OperationProgress" {
                 try? await Task.sleep(for: .milliseconds(50))
             }
-            self?.windows[id]?.showModal()
+            guard let self, self.sessions[id] != nil else { return }
+            let focusRequest = NativeModalFocusRequest()
+            let returnWindow = NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
+            let controller = NativeModalWindowController(
+                title: descriptor.title,
+                contentSize: NSSize(width: 460, height: 190),
+                rootView: ApplicationMessageView(
+                    descriptor: descriptor,
+                    focusRequest: focusRequest,
+                    done: { ApplicationMessageWindowCoordinator.shared.dismiss(id: id) }
+                ),
+                focusRequest: focusRequest,
+                returnWindow: returnWindow,
+                closed: { [weak self, weak session] in
+                    session?.finish()
+                    self?.sessions[id] = nil
+                    self?.windows[id] = nil
+                }
+            )
+            self.windows[id] = controller
+            controller.showModal()
         }
         return id
     }
@@ -97,6 +103,7 @@ private struct ApplicationMessagePresenter: ViewModifier {
 
 struct ApplicationMessageView: View {
     let descriptor: ApplicationMessageDescriptor
+    @ObservedObject var focusRequest: NativeModalFocusRequest
     let done: () -> Void
     @AccessibilityFocusState private var okFocused: Bool
 
@@ -116,9 +123,12 @@ struct ApplicationMessageView: View {
         .padding(24)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
-        .task {
-            await Task.yield()
-            okFocused = true
+        .onChange(of: focusRequest.revision) { _, revision in
+            guard revision > 0 else { return }
+            Task { @MainActor in
+                await Task.yield()
+                okFocused = true
+            }
         }
     }
 }

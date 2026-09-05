@@ -217,15 +217,19 @@ final class OperationProgressWindowCoordinator {
         let session = OperationProgressWindowSession(operation: operation)
         let id = session.id
         let returnWindow = NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
+        let focusRequest = NativeModalFocusRequest()
         let controller = NativeModalWindowController(
             title: operation.title,
             contentSize: NSSize(width: 400, height: operation.detail == nil ? 150 : 190),
             closable: false,
             identifier: .init("Trimato.OperationProgress"),
-            rootView: OperationProgressContent(session: session),
-            closed: { [weak self, weak session, weak returnWindow] in
-                returnWindow?.makeKeyAndOrderFront(nil)
-                session?.completeDismissal()
+            rootView: OperationProgressContent(session: session, focusRequest: focusRequest),
+            focusRequest: focusRequest,
+            returnWindow: returnWindow,
+            returned: { [session] in
+                session.completeDismissal()
+            },
+            closed: { [weak self] in
                 self?.sessions[id] = nil
                 self?.windows[id] = nil
             }
@@ -257,6 +261,7 @@ final class OperationProgressWindowCoordinator {
 
 private struct OperationProgressContent: View {
     @ObservedObject var session: OperationProgressWindowSession
+    @ObservedObject var focusRequest: NativeModalFocusRequest
     @FocusState private var cancelKeyboardFocused: Bool
     @AccessibilityFocusState private var cancelVoiceOverFocused: Bool
     @AccessibilityFocusState private var progressVoiceOverFocused: Bool
@@ -292,13 +297,16 @@ private struct OperationProgressContent: View {
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
         .navigationTitle(session.title)
-        .task {
-            await Task.yield()
-            if session.canCancel {
-                cancelKeyboardFocused = true
-                cancelVoiceOverFocused = true
-            } else {
-                progressVoiceOverFocused = true
+        .onChange(of: focusRequest.revision) { _, revision in
+            guard revision > 0 else { return }
+            Task { @MainActor in
+                await Task.yield()
+                if session.canCancel {
+                    cancelKeyboardFocused = true
+                    cancelVoiceOverFocused = true
+                } else {
+                    progressVoiceOverFocused = true
+                }
             }
         }
         .onChange(of: session.isFinished, initial: true) { _, finished in

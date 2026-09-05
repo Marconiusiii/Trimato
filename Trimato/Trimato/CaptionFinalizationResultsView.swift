@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CaptionFinalizationResultsView: View {
     let report: CaptionFinalizationReport
+    @ObservedObject var focusRequest: NativeModalFocusRequest
     let showCaption: (UUID) -> Void
     let done: () -> Void
 
@@ -61,14 +62,17 @@ struct CaptionFinalizationResultsView: View {
         }
         .padding(24)
         .frame(minWidth: 520)
-        .task {
-            selection = report.issues.first?.id
-            await Task.yield()
-            if report.fatalError == nil, !report.issues.isEmpty {
-                resultsFocused = true
-            } else {
-                doneKeyboardFocused = true
-                doneVoiceOverFocused = true
+        .onChange(of: focusRequest.revision) { _, revision in
+            guard revision > 0 else { return }
+            Task { @MainActor in
+                await Task.yield()
+                selection = report.issues.first?.id
+                if report.fatalError == nil, !report.issues.isEmpty {
+                    resultsFocused = true
+                } else {
+                    doneKeyboardFocused = true
+                    doneVoiceOverFocused = true
+                }
             }
         }
     }

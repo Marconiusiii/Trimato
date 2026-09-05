@@ -76,4 +76,52 @@ struct UIArchitectureTests {
         #expect(modalSource.contains("NSApp.runModalSession(modalSession)"))
         #expect(modalSource.contains("NSApp.endModalSession(modalSession)"))
     }
+
+    @Test func projectSourceFocusDoesNotIndexAccessibilityRowsOrRunInline() throws {
+        let source = try String(
+            contentsOf: sourceDirectory.appendingPathComponent("ProjectSourceOutlineView.swift"),
+            encoding: .utf8
+        )
+        #expect(!source.contains("accessibilityRows()"))
+        #expect(source.contains("accessibilitySelectedRows()?.first"))
+        #expect(source.contains("Task { @MainActor [weak self] in"))
+    }
+
+    @Test func generatorHasOneEditorScopedKeyboardRoute() throws {
+        let appSource = try String(
+            contentsOf: sourceDirectory.appendingPathComponent("TrimatoApp.swift"),
+            encoding: .utf8
+        )
+        let playerSource = try String(
+            contentsOf: sourceDirectory.appendingPathComponent("ProjectPlayerViewModel.swift"),
+            encoding: .utf8
+        )
+        #expect(!appSource.contains(".keyboardShortcut(\"g\", modifiers: [])"))
+        #expect(!playerSource.contains("projectKeyboardCommandsAreActive"))
+        #expect(playerSource.contains("case \"g\":"))
+        #expect(playerSource.contains("self.openGenerator?()"))
+    }
+
+    @Test func nativeModalFocusStartsAfterTheWindowBecomesKey() throws {
+        let modalSource = try String(
+            contentsOf: sourceDirectory.appendingPathComponent("NativeModalFormController.swift"),
+            encoding: .utf8
+        )
+        #expect(modalSource.contains("func windowDidBecomeKey"))
+        #expect(modalSource.contains("focusRequest?.request()"))
+
+        for filename in [
+            "ApplicationMessageView.swift",
+            "CaptionEditorWindowController.swift",
+            "CaptionFinalizationResultsView.swift",
+            "GeneratorView.swift",
+            "OperationProgressWindow.swift",
+        ] {
+            let source = try String(
+                contentsOf: sourceDirectory.appendingPathComponent(filename),
+                encoding: .utf8
+            )
+            #expect(source.contains("focusRequest.revision"), "Missing keyed focus lifecycle in \(filename)")
+        }
+    }
 }

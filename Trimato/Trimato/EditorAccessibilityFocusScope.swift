@@ -7,12 +7,11 @@ final class EditorAccessibilityFocusScope: ObservableObject {
     static let identifierPrefix = "trimato.editor."
 
     weak var boundaryView: NSView?
-    var voiceOverContainsFocus = false
 
     var containsInputFocus: Bool {
         Self.resolveInputFocus(
             voiceOverEnabled: NSWorkspace.shared.isVoiceOverEnabled,
-            voiceOverContainsFocus: voiceOverContainsFocus,
+            voiceOverContainsFocus: containsVoiceOverFocus,
             keyboardContainsFocus: containsKeyboardFocus
         )
     }
@@ -27,13 +26,24 @@ final class EditorAccessibilityFocusScope: ObservableObject {
 
     private var containsKeyboardFocus: Bool {
         guard let boundaryView, let window = boundaryView.window, window.isKeyWindow,
+              let responder = window.firstResponder as? NSView else { return false }
+        if responder === boundaryView || responder.isDescendant(of: boundaryView) { return true }
+        guard responder.window === window else { return false }
+        let windowFrame = boundaryView.convert(boundaryView.bounds, to: nil)
+        let responderFrame = responder.convert(responder.bounds, to: nil)
+        guard !responderFrame.isEmpty else { return false }
+        return windowFrame.intersects(responderFrame)
+    }
+
+    private var containsVoiceOverFocus: Bool {
+        guard let boundaryView, boundaryView.window?.isKeyWindow == true,
               let focusedElement = NSApp.accessibilityFocusedUIElement as? NSObject else { return false }
         if hasEditorIdentifier(focusedElement) { return true }
         if TimelineKeyboardFocus.isInTimeline { return false }
-        if focusedElement === boundaryView { return true }
         let frameSelector = NSSelectorFromString("accessibilityFrame")
         guard focusedElement.responds(to: frameSelector),
-              let frameValue = focusedElement.value(forKey: "accessibilityFrame") as? NSValue else { return false }
+              let frameValue = focusedElement.value(forKey: "accessibilityFrame") as? NSValue,
+              let window = boundaryView.window else { return false }
         let focusedFrame = frameValue.rectValue
         guard !focusedFrame.isEmpty else { return false }
         let windowFrame = boundaryView.convert(boundaryView.bounds, to: nil)

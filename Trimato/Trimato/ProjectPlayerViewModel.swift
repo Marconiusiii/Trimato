@@ -191,7 +191,6 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var isSteppingFrames = false
     private var keyEventMonitor: Any?
     private var keyboardCommandsAreActive: (() -> Bool)?
-    private var projectKeyboardCommandsAreActive: (() -> Bool)?
     private var bladeAtPlayhead: (() -> Void)?
     private var standardTransition: (() -> Void)?
     private var quickCrossTransition: (() -> Void)?
@@ -257,10 +256,6 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func scopeKeyboardCommands(to isActive: @escaping () -> Bool) {
         keyboardCommandsAreActive = isActive
-    }
-
-    func scopeProjectKeyboardCommands(to isActive: @escaping () -> Bool) {
-        projectKeyboardCommandsAreActive = isActive
     }
 
     func onPlayheadChange(_ handler: @escaping (ProjectTime) -> Void) {
@@ -1299,17 +1294,6 @@ final class ProjectPlayerViewModel: ObservableObject {
             guard let self, NSApp.modalWindow == nil,
                   !self.isEditingText(in: event.window) else { return event }
 
-            if Self.shouldHandleGeneratorKeyboardCommand(
-                type: event.type,
-                isRepeat: event.isARepeat,
-                character: event.charactersIgnoringModifiers,
-                modifiers: event.modifierFlags,
-                projectWindowActive: self.projectKeyboardCommandsAreActive?() == true
-            ) {
-                self.openGenerator?()
-                return nil
-            }
-
             guard self.keyboardCommandsAreActive?() == true,
                   !TimelineKeyboardFocus.isInTimeline else { return event }
 
@@ -1399,6 +1383,10 @@ final class ProjectPlayerViewModel: ObservableObject {
                     return nil
                 }
                 switch event.charactersIgnoringModifiers?.lowercased() {
+                case "g":
+                    guard modifiers.isEmpty else { return event }
+                    self.openGenerator?()
+                    return nil
                 case "c": self.openClipAtPlayhead?(); return nil
                 case "x": self.quickCrossTransition?(); return nil
                 case "f": self.quickFade?(); return nil
@@ -1428,34 +1416,6 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
-    nonisolated static func isGeneratorKeyboardCommand(
-        type: NSEvent.EventType,
-        isRepeat: Bool,
-        character: String?,
-        modifiers: NSEvent.ModifierFlags
-    ) -> Bool {
-        let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
-        return type == .keyDown
-            && !isRepeat
-            && modifiers.intersection(commandSet).isEmpty
-            && character?.lowercased() == "g"
-    }
-
-    nonisolated static func shouldHandleGeneratorKeyboardCommand(
-        type: NSEvent.EventType,
-        isRepeat: Bool,
-        character: String?,
-        modifiers: NSEvent.ModifierFlags,
-        projectWindowActive: Bool
-    ) -> Bool {
-        projectWindowActive && isGeneratorKeyboardCommand(
-            type: type,
-            isRepeat: isRepeat,
-            character: character,
-            modifiers: modifiers
-        )
-    }
-
     nonisolated static func recognizesEditorKeyboardCommand(
         type: NSEvent.EventType,
         keyCode: UInt16,
@@ -1480,6 +1440,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
         guard unmodified else { return false }
         if keyCode == 49 || keyCode == 123 || keyCode == 124 { return true }
+        if key == "g" { return relevantModifiers.isEmpty }
         return ["[", "]", "c", "x", "f", "i", "o", "j", "k", "l"].contains(key)
     }
 

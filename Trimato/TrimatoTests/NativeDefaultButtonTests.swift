@@ -11,6 +11,7 @@ struct NativeDefaultButtonTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let button = DefaultActionButton(title: "Apply", target: nil, action: nil)
         button.keyEquivalent = "\r"
         button.keyEquivalentModifierMask = []

@@ -166,6 +166,9 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
         private var expandedIDs: Set<ProjectSourceItemID> = []
         private var handledFocusRevision = 0
         private var handledPastedFocusRevision = 0
+        private var pendingFocusRequest: ProjectSourceFocusRequest?
+        private var pendingPastedFocusRequest: ProjectSourceFocusRequest?
+        private var focusTask: Task<Void, Never>?
         private var isUpdating = false
         private let cellIdentifier = NSUserInterfaceItemIdentifier("ProjectSourceCell")
         private let assetButtonIdentifier = NSUserInterfaceItemIdentifier("ProjectSourceAssetButton")
@@ -199,12 +202,8 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                 restoreSelection(source.selection)
             }
 
-            if focusRequestIsNew(source.focusRequest) {
-                focus(source.focusRequest.target)
-            }
-            if pastedFocusRequestIsNew(source.pastedFocusRequest) {
-                focus(source.pastedFocusRequest.target)
-            }
+            captureFocusRequests(from: source)
+            schedulePendingFocus()
         }
 
         private func updateNode(
@@ -219,16 +218,63 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
             return node
         }
 
-        private func focusRequestIsNew(_ request: ProjectSourceFocusRequest) -> Bool {
-            guard request.revision > handledFocusRevision else { return false }
-            handledFocusRevision = request.revision
-            return request.target != nil
+        private func captureFocusRequests(from source: ProjectSourceNativeOutline) {
+            if source.focusRequest.revision > handledFocusRevision,
+               source.focusRequest.revision != pendingFocusRequest?.revision,
+               source.focusRequest.target != nil {
+                pendingFocusRequest = source.focusRequest
+            }
+            if source.pastedFocusRequest.revision > handledPastedFocusRevision,
+               source.pastedFocusRequest.revision != pendingPastedFocusRequest?.revision,
+               source.pastedFocusRequest.target != nil {
+                pendingPastedFocusRequest = source.pastedFocusRequest
+            }
         }
 
-        private func pastedFocusRequestIsNew(_ request: ProjectSourceFocusRequest) -> Bool {
-            guard request.revision > handledPastedFocusRevision else { return false }
-            handledPastedFocusRevision = request.revision
-            return request.target != nil
+        private func schedulePendingFocus() {
+            guard focusTask == nil,
+                  pendingPastedFocusRequest != nil || pendingFocusRequest != nil else { return }
+            focusTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self, !Task.isCancelled else { return }
+                var didFocus = false
+                for delay in [0, 100, 250] {
+                    if delay > 0 {
+                        try? await Task.sleep(for: .milliseconds(delay))
+                    }
+                    guard !Task.isCancelled else { return }
+                    if self.focusNextPendingRequest() {
+                        didFocus = true
+                        break
+                    }
+                }
+                self.focusTask = nil
+                if didFocus,
+                   self.pendingPastedFocusRequest != nil || self.pendingFocusRequest != nil {
+                    self.schedulePendingFocus()
+                }
+            }
+        }
+
+        func projectSourceWindowDidBecomeKey() {
+            schedulePendingFocus()
+        }
+
+        @discardableResult
+        private func focusNextPendingRequest() -> Bool {
+            if let request = pendingPastedFocusRequest,
+               focus(request.target) {
+                handledPastedFocusRevision = request.revision
+                pendingPastedFocusRequest = nil
+                return true
+            }
+            if let request = pendingFocusRequest,
+               focus(request.target) {
+                handledFocusRevision = request.revision
+                pendingFocusRequest = nil
+                return true
+            }
+            return false
         }
 
         private var selectedID: ProjectSourceItemID? {
@@ -259,18 +305,44 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
             isUpdating = wasUpdating
         }
 
-        private func focus(_ id: ProjectSourceItemID?) {
-            guard let outlineView, let id else { return }
+        @discardableResult
+        private func focus(_ id: ProjectSourceItemID?) -> Bool {
+            guard let outlineView, let id,
+                  let window = outlineView.window, window.isKeyWindow else { return false }
             restoreSelection(id)
             let row = nodes[id].map(outlineView.row(forItem:)) ?? -1
-            guard row >= 0 else { return }
+            guard row >= 0 else { return false }
             outlineView.scrollRowToVisible(row)
-            guard outlineView.acceptsFirstResponder,
-                  outlineView.window?.makeFirstResponder(outlineView) == true else { return }
-            guard let rows = outlineView.accessibilityRows(), rows.indices.contains(row) else { return }
-            let focusedRow = rows[row]
-            NSApp.setAccessibilityApplicationFocusedUIElement(focusedRow)
-            NSAccessibility.post(element: focusedRow, notification: .focusedUIElementChanged)
+            guard let selectedRow = outlineView.accessibilitySelectedRows()?.first else { return false }
+
+            let focusedElement: Any
+            if case .asset = id,
+               let button = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? ProjectSourceAssetButton {
+                guard button.acceptsFirstResponder,
+                      window.makeFirstResponder(button), window.firstResponder === button else { return false }
+                focusedElement = NSAccessibility.unignoredDescendant(of: button) ?? button
+            } else {
+                guard outlineView.acceptsFirstResponder,
+                      window.makeFirstResponder(outlineView), window.firstResponder === outlineView else { return false }
+                focusedElement = selectedRow
+            }
+            NSApp.setAccessibilityApplicationFocusedUIElement(focusedElement)
+            NSAccessibility.post(element: outlineView, notification: .selectedRowsChanged)
+            NSAccessibility.post(element: focusedElement, notification: .focusedUIElementChanged)
+            return accessibilityFocusMatches(focusedElement)
+        }
+
+        private func accessibilityFocusMatches(_ expected: Any) -> Bool {
+            guard let actual = NSApp.accessibilityFocusedUIElement as? NSObject,
+                  let expected = expected as? NSObject else { return false }
+            if actual === expected { return true }
+            let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
+            guard actual.responds(to: identifierSelector), expected.responds(to: identifierSelector),
+                  let actualIdentifier = actual.value(forKey: "accessibilityIdentifier") as? String,
+                  let expectedIdentifier = expected.value(forKey: "accessibilityIdentifier") as? String else {
+                return false
+            }
+            return actualIdentifier == expectedIdentifier
         }
 
         private func expandAncestors(of id: ProjectSourceItemID) {
@@ -568,6 +640,29 @@ private final class ProjectSourceNode: NSObject {
 
 private final class ProjectSourceAppKitOutlineView: NSOutlineView {
     weak var owner: ProjectSourceNativeOutline.Coordinator?
+    private var keyWindowObserver: NSObjectProtocol?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let keyWindowObserver {
+            NotificationCenter.default.removeObserver(keyWindowObserver)
+            self.keyWindowObserver = nil
+        }
+        guard let window else { return }
+        keyWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.owner?.projectSourceWindowDidBecomeKey()
+            }
+        }
+    }
+
+    deinit {
+        if let keyWindowObserver { NotificationCenter.default.removeObserver(keyWindowObserver) }
+    }
 
     override func keyDown(with event: NSEvent) {
         if NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags),

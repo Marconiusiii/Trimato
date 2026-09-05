@@ -19,23 +19,26 @@ final class GeneratorWindowRegistry {
     func present(id: UUID, parentWindow: NSWindow? = nil) {
         guard windows[id] == nil, let session = sessions[id] else { return }
         let returnWindow = parentWindow ?? NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
+        let focusRequest = NativeModalFocusRequest()
+        let returnsToEditor = session.editing == nil
         let controller = NativeModalWindowController(
             title: "Generator",
             contentSize: NSSize(width: 560, height: 650),
             resizable: true,
             rootView: GeneratorView(
                 session: session,
+                focusRequest: focusRequest,
                 close: { GeneratorWindowRegistry.shared.dismiss(id: id) }
             ),
-            becameKey: { [weak session] in
-                session?.requestInitialFocus()
+            focusRequest: focusRequest,
+            returnWindow: returnWindow,
+            returned: { [weak projectController = session.controller] in
+                if returnsToEditor { projectController?.requestEditorFocusRestore() }
             },
-            closed: { [weak self, weak session, weak returnWindow] in
+            closed: { [weak self, weak session] in
                 session?.cancelPreparation()
                 self?.sessions[id] = nil
                 self?.windows[id] = nil
-                returnWindow?.makeKeyAndOrderFront(nil)
-                session?.controller?.requestEditorFocusRestore()
             }
         )
         windows[id] = controller
@@ -61,7 +64,6 @@ final class GeneratorSession: ObservableObject, Identifiable {
     var usesFrames: Bool { durationUnit == .frames }
     @Published var progress: Double?
     @Published var errorMessage: String?
-    @Published private(set) var initialFocusRequest = 0
     private var operation: Task<Void, Never>?
     private var operationID = UUID()
     private var completionAction: (() -> Void)?
@@ -71,10 +73,6 @@ final class GeneratorSession: ObservableObject, Identifiable {
         let action = completionAction
         completionAction = nil
         action?()
-    }
-
-    func requestInitialFocus() {
-        initialFocusRequest += 1
     }
 
     init(controller: ProjectController, editing: EditorSelection? = nil) {
@@ -190,6 +188,7 @@ final class GeneratorSession: ObservableObject, Identifiable {
 
 struct GeneratorView: View {
     @ObservedObject var session: GeneratorSession
+    @ObservedObject var focusRequest: NativeModalFocusRequest
     let close: () -> Void
     @FocusState private var typePickerKeyboardFocused: Bool
     @AccessibilityFocusState private var typePickerVoiceOverFocused: Bool
@@ -258,10 +257,13 @@ struct GeneratorView: View {
         .padding(20)
         .frame(minWidth: 560, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .onChange(of: session.initialFocusRequest, initial: true) { _, request in
-            guard request > 0 else { return }
-            typePickerKeyboardFocused = true
-            typePickerVoiceOverFocused = true
+        .onChange(of: focusRequest.revision) { _, revision in
+            guard revision > 0 else { return }
+            Task { @MainActor in
+                await Task.yield()
+                typePickerKeyboardFocused = true
+                typePickerVoiceOverFocused = true
+            }
         }
         .onChange(of: session.definition) { previous, _ in
             session.definitionChanged(from: previous)

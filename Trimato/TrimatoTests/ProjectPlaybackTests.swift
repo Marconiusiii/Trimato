@@ -211,44 +211,24 @@ struct ProjectPlaybackTests {
         ))
     }
 
-    @Test func generatorKeyboardCommandRequiresAPlainInitialKeyPress() {
-        #expect(ProjectPlayerViewModel.isGeneratorKeyboardCommand(
+    @Test func generatorIsAnEditorCommandOnlyForAPlainKeyPress() {
+        #expect(ProjectPlayerViewModel.recognizesEditorKeyboardCommand(
             type: .keyDown,
-            isRepeat: false,
+            keyCode: 5,
             character: "g",
             modifiers: []
         ))
-        #expect(!ProjectPlayerViewModel.isGeneratorKeyboardCommand(
+        #expect(!ProjectPlayerViewModel.recognizesEditorKeyboardCommand(
             type: .keyDown,
-            isRepeat: false,
+            keyCode: 5,
             character: "g",
             modifiers: [.command]
         ))
-        #expect(!ProjectPlayerViewModel.isGeneratorKeyboardCommand(
+        #expect(!ProjectPlayerViewModel.recognizesEditorKeyboardCommand(
             type: .keyDown,
-            isRepeat: false,
+            keyCode: 5,
             character: "G",
             modifiers: [.shift]
-        ))
-        #expect(!ProjectPlayerViewModel.isGeneratorKeyboardCommand(
-            type: .keyDown,
-            isRepeat: true,
-            character: "g",
-            modifiers: []
-        ))
-        #expect(ProjectPlayerViewModel.shouldHandleGeneratorKeyboardCommand(
-            type: .keyDown,
-            isRepeat: false,
-            character: "g",
-            modifiers: [],
-            projectWindowActive: true
-        ))
-        #expect(!ProjectPlayerViewModel.shouldHandleGeneratorKeyboardCommand(
-            type: .keyDown,
-            isRepeat: false,
-            character: "g",
-            modifiers: [],
-            projectWindowActive: false
         ))
     }
 

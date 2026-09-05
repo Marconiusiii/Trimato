@@ -1,5 +1,15 @@
 import AppKit
+import Combine
 import SwiftUI
+
+@MainActor
+final class NativeModalFocusRequest: ObservableObject {
+    @Published private(set) var revision = 0
+
+    func request() {
+        revision += 1
+    }
+}
 
 /// A narrow AppKit bridge for the one behavior SwiftUI has not exposed
 /// consistently in Trimato: a primary action that is also the window's real
@@ -93,7 +103,9 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
     private var windowIsClosing = false
     private var modalSession: NSApplication.ModalSession?
     private var modalSessionTimer: Timer?
-    private let becameKey: () -> Void
+    private let focusRequest: NativeModalFocusRequest?
+    private weak var returnWindow: NSWindow?
+    private let returned: () -> Void
     private let closed: () -> Void
 
     init<Content: View>(
@@ -103,10 +115,14 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
         closable: Bool = true,
         identifier: NSUserInterfaceItemIdentifier? = nil,
         rootView: Content,
-        becameKey: @escaping () -> Void = {},
+        focusRequest: NativeModalFocusRequest? = nil,
+        returnWindow: NSWindow? = nil,
+        returned: @escaping () -> Void = {},
         closed: @escaping () -> Void
     ) {
-        self.becameKey = becameKey
+        self.focusRequest = focusRequest
+        self.returnWindow = returnWindow
+        self.returned = returned
         self.closed = closed
         let hostingController = NSHostingController(rootView: rootView)
         var styleMask: NSWindow.StyleMask = [.titled]
@@ -168,7 +184,7 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        becameKey()
+        focusRequest?.request()
     }
 
     @objc private func advanceModalSession() {
@@ -208,6 +224,31 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
         guard !didClose else { return }
         didClose = true
         closed()
+        restoreReturnWindow()
+    }
+
+    private func restoreReturnWindow() {
+        guard let returnWindow else {
+            returned()
+            return
+        }
+        let returned = returned
+        returnWindow.makeKeyAndOrderFront(nil)
+        Task { @MainActor [weak returnWindow] in
+            for _ in 0..<20 {
+                guard let returnWindow else {
+                    returned()
+                    return
+                }
+                if returnWindow.isKeyWindow {
+                    await Task.yield()
+                    returned()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            returned()
+        }
     }
 }
 
