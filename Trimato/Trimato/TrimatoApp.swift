@@ -16,7 +16,7 @@ struct TrimatoApp: App {
     @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
     @Environment(\.openWindow) private var openWindow
 
-    private var captionProjectController: ProjectController? {
+    private var projectCommandController: ProjectController? {
         ProjectCommandContext.resolve(
             focused: projectController,
             active: activeProjects.activeProjectController
@@ -160,56 +160,53 @@ struct TrimatoApp: App {
             }
             ClipPlacementCommands()
             CommandMenu("Timeline") {
-                Button("New Caption…") { captionProjectController?.requestCaptionEditor() }
+                Button("New Caption…") { projectCommandController?.requestCaptionEditor() }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .disabled(
-                        captionProjectController == nil ||
-                        captionProjectController?.isExporting == true ||
-                        captionProjectController?.isImporting == true
-                    )
-                Button("Finalize Captions") { projectController?.finalizeCaptions() }
-                    .disabled(projectController?.canFinalizeCaptions != true)
-                Button("Export Captions…") { projectController?.exportCaptions() }
-                    .disabled(projectController?.project.captionTrack?.captionCues.isEmpty != false)
-                Button("Generator…") { projectController?.requestGenerator() }
+                    .disabled(projectCommandController?.canCreateCaption != true)
+                Button("Finalize Captions") { projectCommandController?.finalizeCaptions() }
+                    .disabled(projectCommandController?.canFinalizeCaptions != true)
+                Button("Export Captions…") { projectCommandController?.exportCaptions() }
+                    .disabled(projectCommandController?.project.captionTrack?.captionCues.isEmpty != false)
+                Button("Generator…") { projectCommandController?.requestGenerator() }
                     .keyboardShortcut("g", modifiers: .command)
-                    .disabled(projectController == nil)
+                    .disabled(projectCommandController == nil)
                 Divider()
-                Button("Blade at Playhead (Command-B)") { projectController?.splitClipAtPlayhead() }
-                    .disabled(projectController?.project.primaryTimeline.isEmpty != false)
-                Button("Add Transition…") { projectController?.requestTransitionForSelection() }
+                Button("Blade at Playhead (Command-B)") { projectCommandController?.splitClipAtPlayhead() }
+                    .disabled(projectCommandController?.project.primaryTimeline.isEmpty != false)
+                Button("Add Transition…") { projectCommandController?.requestTransitionForSelection() }
                     .keyboardShortcut("t", modifiers: .command)
-                    .disabled(projectController?.project.tracks.contains(where: { !$0.clips.isEmpty }) != true)
+                    .disabled(projectCommandController?.project.tracks.contains(where: { !$0.clips.isEmpty }) != true)
                 Divider()
-                Button("Previous Track") { projectController?.selectAdjacentTrack(-1) }
+                Button("Previous Track") { projectCommandController?.selectAdjacentTrack(-1) }
                     .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-                    .disabled(projectController?.project.tracks.isEmpty != false)
-                Button("Next Track") { projectController?.selectAdjacentTrack(1) }
+                    .disabled(projectCommandController?.project.tracks.isEmpty != false)
+                Button("Next Track") { projectCommandController?.selectAdjacentTrack(1) }
                     .keyboardShortcut(.downArrow, modifiers: [.command, .option])
-                    .disabled(projectController?.project.tracks.isEmpty != false)
+                    .disabled(projectCommandController?.project.tracks.isEmpty != false)
                 Divider()
                 Menu("Move To…") {
                     ForEach(TimelineMoveDestination.allCases, id: \.self) { destination in
                         Button(destination.title) {
-                            guard let controller = projectController, let target = controller.selectedTimelineClip else { return }
+                            guard let controller = projectCommandController,
+                                  let target = controller.selectedTimelineClip else { return }
                             controller.moveClip(to: destination, targetID: target.id)
                         }
-                        .disabled(projectController?.selectedTimelineClip.map { clip in
-                            projectController?.canMoveClip(to: destination, targetID: clip.id) != true
+                        .disabled(projectCommandController?.selectedTimelineClip.map { clip in
+                            projectCommandController?.canMoveClip(to: destination, targetID: clip.id) != true
                         } ?? true)
                     }
                 }
-                Button("Move Clip Earlier") { projectController?.moveSelectedClip(by: -1) }
+                Button("Move Clip Earlier") { projectCommandController?.moveSelectedClip(by: -1) }
                     .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-                    .disabled(projectController?.selectedTimelineClip == nil)
-                Button("Move Clip Later") { projectController?.moveSelectedClip(by: 1) }
+                    .disabled(projectCommandController?.selectedTimelineClip == nil)
+                Button("Move Clip Later") { projectCommandController?.moveSelectedClip(by: 1) }
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-                    .disabled(projectController?.selectedTimelineClip == nil)
+                    .disabled(projectCommandController?.selectedTimelineClip == nil)
                 Toggle("Mute Track", isOn: Binding(
-                    get: { projectController?.activeTimelineTrack?.isMuted ?? false },
-                    set: { projectController?.setActiveTrackMuted($0) }
+                    get: { projectCommandController?.activeTimelineTrack?.isMuted ?? false },
+                    set: { projectCommandController?.setActiveTrackMuted($0) }
                 ))
-                .disabled(projectController?.activeTimelineTrack?.kind != .audio)
+                .disabled(projectCommandController?.activeTimelineTrack?.kind != .audio)
             }
         }
 
