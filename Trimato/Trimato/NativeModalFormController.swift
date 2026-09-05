@@ -93,6 +93,7 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
     private var windowIsClosing = false
     private var modalSession: NSApplication.ModalSession?
     private var modalSessionTimer: Timer?
+    private let becameKey: () -> Void
     private let closed: () -> Void
 
     init<Content: View>(
@@ -102,8 +103,10 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
         closable: Bool = true,
         identifier: NSUserInterfaceItemIdentifier? = nil,
         rootView: Content,
+        becameKey: @escaping () -> Void = {},
         closed: @escaping () -> Void
     ) {
+        self.becameKey = becameKey
         self.closed = closed
         let hostingController = NSHostingController(rootView: rootView)
         var styleMask: NSWindow.StyleMask = [.titled]
@@ -162,6 +165,10 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
         }
         windowIsClosing = true
         closeRequested = true
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        becameKey()
     }
 
     @objc private func advanceModalSession() {

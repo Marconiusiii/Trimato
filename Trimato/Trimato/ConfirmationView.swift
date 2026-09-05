@@ -6,19 +6,21 @@ struct ConfirmationView: View {
     let confirmTitle: String
     let cancel: () -> Void
     let confirm: () -> Void
-    @AccessibilityFocusState private var headingFocused: Bool
+    @FocusState private var cancelKeyboardFocused: Bool
+    @AccessibilityFocusState private var cancelVoiceOverFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
             Text(message)
             HStack {
                 Spacer()
                 Button("Cancel", action: cancel)
                     .keyboardShortcut(.cancelAction)
+                    .focused($cancelKeyboardFocused)
+                    .accessibilityFocused($cancelVoiceOverFocused)
                 Button(confirmTitle, role: .destructive, action: confirm)
             }
         }
@@ -27,7 +29,8 @@ struct ConfirmationView: View {
         .fixedSize(horizontal: false, vertical: true)
         .task {
             await Task.yield()
-            headingFocused = true
+            cancelKeyboardFocused = true
+            cancelVoiceOverFocused = true
         }
     }
 }

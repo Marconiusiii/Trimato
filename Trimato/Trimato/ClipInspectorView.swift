@@ -239,17 +239,17 @@ enum ProjectInfoTimeFormatter {
 
 struct ProjectInfoView: View {
     let snapshot: ProjectInfoSnapshot
-    @AccessibilityFocusState private var headingFocused: Bool
+    @AccessibilityFocusState private var focusedRowID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(snapshot.title)
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
             ForEach(snapshot.rows) { row in
                 Text("\(row.label): \(row.value)")
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityFocused($focusedRowID, equals: row.id)
             }
         }
         .padding(24)
@@ -257,7 +257,7 @@ struct ProjectInfoView: View {
         .navigationTitle(snapshot.title)
         .task {
             await Task.yield()
-            headingFocused = true
+            focusedRowID = snapshot.rows.first?.id
         }
     }
 }

@@ -257,7 +257,9 @@ final class OperationProgressWindowCoordinator {
 
 private struct OperationProgressContent: View {
     @ObservedObject var session: OperationProgressWindowSession
-    @AccessibilityFocusState private var headingFocused: Bool
+    @FocusState private var cancelKeyboardFocused: Bool
+    @AccessibilityFocusState private var cancelVoiceOverFocused: Bool
+    @AccessibilityFocusState private var progressVoiceOverFocused: Bool
     @State private var dismissalScheduled = false
 
     var body: some View {
@@ -265,7 +267,6 @@ private struct OperationProgressContent: View {
             Text(session.title)
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
 
             if let detail = session.detail {
                 Text(detail)
@@ -274,13 +275,17 @@ private struct OperationProgressContent: View {
             if let progress = session.progress, progress.isFinite {
                 let bounded = min(max(progress, 0), 1)
                 ProgressView(value: bounded, total: 1)
+                    .accessibilityFocused($progressVoiceOverFocused)
             } else {
                 ProgressView()
+                    .accessibilityFocused($progressVoiceOverFocused)
             }
 
             if session.canCancel {
                 Button("Cancel", action: session.cancel)
                     .keyboardShortcut(.cancelAction)
+                    .focused($cancelKeyboardFocused)
+                    .accessibilityFocused($cancelVoiceOverFocused)
             }
         }
         .padding(24)
@@ -289,7 +294,12 @@ private struct OperationProgressContent: View {
         .navigationTitle(session.title)
         .task {
             await Task.yield()
-            headingFocused = true
+            if session.canCancel {
+                cancelKeyboardFocused = true
+                cancelVoiceOverFocused = true
+            } else {
+                progressVoiceOverFocused = true
+            }
         }
         .onChange(of: session.isFinished, initial: true) { _, finished in
             guard finished, !dismissalScheduled else { return }

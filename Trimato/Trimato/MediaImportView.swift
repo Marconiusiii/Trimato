@@ -6,14 +6,13 @@ struct MediaImportView: View {
     let progress: Double?
     let cancel: () -> Void
 
-    @AccessibilityFocusState private var headingFocused: Bool
+    @AccessibilityFocusState private var progressFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Preparing Video")
                 .font(.title2.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("File: \(filename)")
@@ -26,10 +25,12 @@ struct MediaImportView: View {
                 ProgressView(value: progress, total: 1)
                     .accessibilityLabel("Import progress")
                     .accessibilityValue("\(Int((progress * 100).rounded())) percent")
+                    .accessibilityFocused($progressFocused)
             } else {
                 ProgressView()
                     .accessibilityLabel("Import progress")
                     .accessibilityValue("In progress")
+                    .accessibilityFocused($progressFocused)
             }
 
             HStack {
@@ -45,7 +46,8 @@ struct MediaImportView: View {
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled()
         .task {
-            headingFocused = true
+            await Task.yield()
+            progressFocused = true
         }
     }
 }

@@ -343,7 +343,6 @@ struct EditorWorkspaceView: View {
 
 struct ProjectViewerView: View {
     private enum AccessibilityTarget: Hashable {
-        case heading
         case videoFrame
         case playhead
         case goToBeginning
@@ -387,7 +386,6 @@ struct ProjectViewerView: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 .accessibilityIdentifier("trimato.editor.heading")
-                .accessibilityFocused($focusedAccessibilityTarget, equals: .heading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -412,6 +410,9 @@ struct ProjectViewerView: View {
             viewModel.scopeKeyboardCommands { [weak focusScope, weak controller] in
                 (NSWorkspace.shared.isVoiceOverEnabled || controller?.timelineHasKeyboardFocus != true) &&
                     focusScope?.containsInputFocus == true
+            }
+            viewModel.scopeProjectKeyboardCommands { [weak focusScope] in
+                focusScope?.boundaryView?.window?.isKeyWindow == true
             }
             viewModel.onBladeAtPlayhead { [weak controller] in
                 controller?.splitClipAtPlayhead()

@@ -51,7 +51,8 @@ struct AddClipFilterView: View {
     let cancel: () -> Void
     @State private var selection: ClipFilterKind
     @State private var draft: ClipFilter
-    @AccessibilityFocusState private var headingFocused: Bool
+    @FocusState private var pickerKeyboardFocused: Bool
+    @AccessibilityFocusState private var pickerVoiceOverFocused: Bool
 
     init(
         audio: Bool,
@@ -72,7 +73,6 @@ struct AddClipFilterView: View {
             Text("Add Filter")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
             if available.isEmpty {
                 Text("All available filters have been added to this clip.")
             } else {
@@ -80,6 +80,8 @@ struct AddClipFilterView: View {
                     Picker("Filter", selection: $selection) {
                         ForEach(available) { Text($0.title).tag($0) }
                     }
+                    .focused($pickerKeyboardFocused)
+                    .accessibilityFocused($pickerVoiceOverFocused)
                     Text(selection.description)
                     ClipFilterParameters(filter: $draft)
                 }
@@ -95,7 +97,12 @@ struct AddClipFilterView: View {
         .padding(20)
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear { headingFocused = true }
+        .task {
+            await Task.yield()
+            guard !available.isEmpty else { return }
+            pickerKeyboardFocused = true
+            pickerVoiceOverFocused = true
+        }
         .onChange(of: selection) { _, kind in draft = ClipFilter(kind: kind) }
     }
 }

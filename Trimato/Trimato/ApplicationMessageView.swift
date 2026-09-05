@@ -98,19 +98,19 @@ private struct ApplicationMessagePresenter: ViewModifier {
 struct ApplicationMessageView: View {
     let descriptor: ApplicationMessageDescriptor
     let done: () -> Void
-    @AccessibilityFocusState private var headingFocused: Bool
+    @AccessibilityFocusState private var okFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(descriptor.title)
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
             Text(descriptor.message)
                 .textSelection(.enabled)
             HStack {
                 Spacer()
                 NativeDefaultButton(title: "OK", action: done)
+                    .accessibilityFocused($okFocused)
             }
         }
         .padding(24)
@@ -118,7 +118,7 @@ struct ApplicationMessageView: View {
         .fixedSize(horizontal: false, vertical: true)
         .task {
             await Task.yield()
-            headingFocused = true
+            okFocused = true
         }
     }
 }

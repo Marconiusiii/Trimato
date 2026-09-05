@@ -27,6 +27,9 @@ final class GeneratorWindowRegistry {
                 session: session,
                 close: { GeneratorWindowRegistry.shared.dismiss(id: id) }
             ),
+            becameKey: { [weak session] in
+                session?.requestInitialFocus()
+            },
             closed: { [weak self, weak session, weak returnWindow] in
                 session?.cancelPreparation()
                 self?.sessions[id] = nil
@@ -58,6 +61,7 @@ final class GeneratorSession: ObservableObject, Identifiable {
     var usesFrames: Bool { durationUnit == .frames }
     @Published var progress: Double?
     @Published var errorMessage: String?
+    @Published private(set) var initialFocusRequest = 0
     private var operation: Task<Void, Never>?
     private var operationID = UUID()
     private var completionAction: (() -> Void)?
@@ -67,6 +71,10 @@ final class GeneratorSession: ObservableObject, Identifiable {
         let action = completionAction
         completionAction = nil
         action?()
+    }
+
+    func requestInitialFocus() {
+        initialFocusRequest += 1
     }
 
     init(controller: ProjectController, editing: EditorSelection? = nil) {
@@ -183,14 +191,14 @@ final class GeneratorSession: ObservableObject, Identifiable {
 struct GeneratorView: View {
     @ObservedObject var session: GeneratorSession
     let close: () -> Void
-    @AccessibilityFocusState private var headingFocused: Bool
+    @FocusState private var typePickerKeyboardFocused: Bool
+    @AccessibilityFocusState private var typePickerVoiceOverFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Generator")
                 .font(.title2)
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
             Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
 
             Form {
@@ -200,6 +208,8 @@ struct GeneratorView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .focused($typePickerKeyboardFocused)
+                .accessibilityFocused($typePickerVoiceOverFocused)
                 .help(session.definition.kind.description)
                 .disabled(session.editing != nil)
 
@@ -248,9 +258,10 @@ struct GeneratorView: View {
         .padding(20)
         .frame(minWidth: 560, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .task {
-            await Task.yield()
-            headingFocused = true
+        .onChange(of: session.initialFocusRequest, initial: true) { _, request in
+            guard request > 0 else { return }
+            typePickerKeyboardFocused = true
+            typePickerVoiceOverFocused = true
         }
         .onChange(of: session.definition) { previous, _ in
             session.definitionChanged(from: previous)

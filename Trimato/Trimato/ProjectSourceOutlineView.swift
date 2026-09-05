@@ -267,7 +267,10 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
             outlineView.scrollRowToVisible(row)
             guard outlineView.acceptsFirstResponder,
                   outlineView.window?.makeFirstResponder(outlineView) == true else { return }
-            NSAccessibility.post(element: outlineView, notification: .focusedUIElementChanged)
+            guard let rows = outlineView.accessibilityRows(), rows.indices.contains(row) else { return }
+            let focusedRow = rows[row]
+            NSApp.setAccessibilityApplicationFocusedUIElement(focusedRow)
+            NSAccessibility.post(element: focusedRow, notification: .focusedUIElementChanged)
         }
 
         private func expandAncestors(of id: ProjectSourceItemID) {

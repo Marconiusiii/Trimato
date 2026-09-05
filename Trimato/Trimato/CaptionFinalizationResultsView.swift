@@ -6,14 +6,15 @@ struct CaptionFinalizationResultsView: View {
     let done: () -> Void
 
     @State private var selection: UUID?
-    @AccessibilityFocusState private var headingFocused: Bool
+    @AccessibilityFocusState private var resultsFocused: Bool
+    @FocusState private var doneKeyboardFocused: Bool
+    @AccessibilityFocusState private var doneVoiceOverFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Finalize Captions")
                 .font(.title2)
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
 
             Text(summary)
 
@@ -40,6 +41,7 @@ struct CaptionFinalizationResultsView: View {
                     .width(min: 250, ideal: 330)
                 }
                 .frame(width: 720, height: 300)
+                .accessibilityFocused($resultsFocused)
             }
 
             HStack {
@@ -53,14 +55,21 @@ struct CaptionFinalizationResultsView: View {
                 }
                 Button("Done", action: done)
                     .keyboardShortcut(.cancelAction)
+                    .focused($doneKeyboardFocused)
+                    .accessibilityFocused($doneVoiceOverFocused)
             }
         }
         .padding(24)
         .frame(minWidth: 520)
         .task {
             selection = report.issues.first?.id
-            try? await Task.sleep(for: .milliseconds(200))
-            headingFocused = true
+            await Task.yield()
+            if report.fatalError == nil, !report.issues.isEmpty {
+                resultsFocused = true
+            } else {
+                doneKeyboardFocused = true
+                doneVoiceOverFocused = true
+            }
         }
     }
 

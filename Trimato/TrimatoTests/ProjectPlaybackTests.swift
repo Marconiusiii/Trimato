@@ -236,6 +236,20 @@ struct ProjectPlaybackTests {
             character: "g",
             modifiers: []
         ))
+        #expect(ProjectPlayerViewModel.shouldHandleGeneratorKeyboardCommand(
+            type: .keyDown,
+            isRepeat: false,
+            character: "g",
+            modifiers: [],
+            projectWindowActive: true
+        ))
+        #expect(!ProjectPlayerViewModel.shouldHandleGeneratorKeyboardCommand(
+            type: .keyDown,
+            isRepeat: false,
+            character: "g",
+            modifiers: [],
+            projectWindowActive: false
+        ))
     }
 
     @Test func projectSourceFocusRequestsRetainTheirTargetAndAdvance() {

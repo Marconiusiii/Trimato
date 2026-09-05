@@ -202,7 +202,8 @@ struct ProjectCreationView: View {
     @State private var usesTargetDuration: Bool
     @State private var targetSeconds: Double
     @State private var validationError: String?
-    @AccessibilityFocusState private var headingFocused: Bool
+    @FocusState private var nameKeyboardFocused: Bool
+    @AccessibilityFocusState private var nameVoiceOverFocused: Bool
     @AccessibilityFocusState private var validationErrorFocused: Bool
 
     init(
@@ -250,7 +251,6 @@ struct ProjectCreationView: View {
             Text(heading)
                 .font(.title2)
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
 
             if let externalError {
                 VStack(alignment: .leading, spacing: 6) {
@@ -264,6 +264,8 @@ struct ProjectCreationView: View {
 
             Form {
                 TextField("Project Name", text: $name)
+                    .focused($nameKeyboardFocused)
+                    .accessibilityFocused($nameVoiceOverFocused)
 
                 Picker("Project Format", selection: $mode) {
                     Text("Automatic from First Clip").tag(ProjectFormatMode.automatic)
@@ -326,7 +328,12 @@ struct ProjectCreationView: View {
         .frame(width: 480)
         .onAppear {
             submitHandlerReady?(submit)
-            headingFocused = true
+        }
+        .task {
+            await Task.yield()
+            guard externalError == nil else { return }
+            nameKeyboardFocused = true
+            nameVoiceOverFocused = true
         }
         .onChange(of: externalError) { _, message in
             if message != nil { validationErrorFocused = true }
