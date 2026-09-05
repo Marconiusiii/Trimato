@@ -49,4 +49,28 @@ struct UIArchitectureTests {
         }
         #expect(Set(panelFiles.map(\.lastPathComponent)) == ["ProjectCreationWorkflow.swift"])
     }
+
+    @Test func blockingWorkflowsAreNotModelessSwiftUIScenes() throws {
+        let appSource = try String(
+            contentsOf: sourceDirectory.appendingPathComponent("TrimatoApp.swift"),
+            encoding: .utf8
+        )
+        let forbiddenScenes = [
+            "WindowGroup(\"Generator\"",
+            "WindowGroup(\"Finalize Captions\"",
+            "WindowGroup(\"Caption Editor\"",
+            "WindowGroup(\"Progress\"",
+            "WindowGroup(\"Message\"",
+        ]
+
+        for scene in forbiddenScenes {
+            #expect(!appSource.contains(scene), "Blocking workflow remains a modeless scene: \(scene)")
+        }
+
+        let modalSource = try String(
+            contentsOf: sourceDirectory.appendingPathComponent("NativeModalFormController.swift"),
+            encoding: .utf8
+        )
+        #expect(modalSource.contains("NSApp.runModal(for: window)"))
+    }
 }

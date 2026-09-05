@@ -69,18 +69,19 @@ struct EditorWorkspaceView: View {
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
             .onChange(of: controller.generatorRequestID) { _, id in
-                if let id { openWindow(id: "generator", value: id) }
+                if let id {
+                    GeneratorWindowRegistry.shared.present(
+                        id: id,
+                        parentWindow: projectWindowSaveCoordinator.attachedWindow
+                    )
+                    controller.generatorRequestID = nil
+                }
             }
             .onChange(of: controller.isShowingProjectSettings) { _, isShowing in
                 if !isShowing { controller.requestEditorFocusRestore() }
             }
             .onChange(of: controller.captionFinalizationReport) { _, report in
                 if let report { presentCaptionFinalizationReport(report) }
-            }
-            .onChange(of: captionEditorWindows.requestedSessionID) { _, sessionID in
-                guard let sessionID else { return }
-                openWindow(id: "caption-editor", value: sessionID)
-                captionEditorWindows.consumeRequestedSession()
             }
             .onDisappear {
                 ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
@@ -125,15 +126,15 @@ struct EditorWorkspaceView: View {
     }
 
     private func presentCaptionFinalizationReport(_ report: CaptionFinalizationReport) {
-        let sessionID = CaptionFinalizationWindowRegistry.shared.register(
+        controller.dismissCaptionFinalizationReport()
+        CaptionFinalizationWindowCoordinator.shared.present(
             report: report,
+            parentWindow: projectWindowSaveCoordinator.attachedWindow,
             reveal: { [weak controller, weak projectWindowSaveCoordinator] cueID in
                 projectWindowSaveCoordinator?.attachedWindow?.makeKeyAndOrderFront(nil)
                 controller?.revealCaptionFinalizationIssue(cueID)
             }
         )
-        controller.dismissCaptionFinalizationReport()
-        openWindow(id: "caption-finalization", value: sessionID)
     }
 
     private var progressEditor: some View {

@@ -52,12 +52,117 @@ struct NativeDefaultButton: NSViewRepresentable {
 final class DefaultActionButton: NSButton {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self)
+        guard let window else { return }
+        let center = NotificationCenter.default
+        center.addObserver(
+            self,
+            selector: #selector(windowStateChanged),
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+        center.addObserver(
+            self,
+            selector: #selector(windowStateChanged),
+            name: NSWindow.didUpdateNotification,
+            object: window
+        )
         installAsDefaultButton()
     }
 
     func installAsDefaultButton() {
         guard let window else { return }
+        guard window.defaultButtonCell !== cell else { return }
         window.defaultButtonCell = cell as? NSButtonCell
+        window.enableKeyEquivalentForDefaultButtonCell()
+    }
+
+    @objc private func windowStateChanged() {
+        installAsDefaultButton()
+    }
+}
+
+/// Owns a real standalone AppKit modal window while allowing each feature to
+/// supply standard SwiftUI content. The window is deliberately excluded from
+/// the Window menu and remains the only interactive Trimato window until its
+/// owning feature closes it.
+@MainActor
+final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
+    private var didClose = false
+    private let closed: () -> Void
+
+    init<Content: View>(
+        title: String,
+        contentSize: NSSize,
+        resizable: Bool = false,
+        closable: Bool = true,
+        identifier: NSUserInterfaceItemIdentifier? = nil,
+        rootView: Content,
+        closed: @escaping () -> Void
+    ) {
+        self.closed = closed
+        let hostingController = NSHostingController(rootView: rootView)
+        var styleMask: NSWindow.StyleMask = [.titled]
+        if closable { styleMask.insert(.closable) }
+        if resizable { styleMask.insert(.resizable) }
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: contentSize),
+            styleMask: styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        window.title = title
+        window.identifier = identifier
+        window.contentViewController = hostingController
+        window.isReleasedWhenClosed = false
+        window.isExcludedFromWindowsMenu = true
+        window.collectionBehavior.insert(.transient)
+        window.center()
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func showModal() {
+        guard let window else { return }
+        showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
+        Task { @MainActor [weak self, weak window] in
+            guard let self, let window, window.isVisible else { return }
+            NSApp.runModal(for: window)
+            if window.isVisible { window.orderOut(nil) }
+            self.finishOnce()
+        }
+    }
+
+    func closeModal() {
+        guard let window else {
+            finishOnce()
+            return
+        }
+        if NSApp.modalWindow === window {
+            NSApp.stopModal()
+        }
+        window.orderOut(nil)
+        window.close()
+        finishOnce()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if NSApp.modalWindow === window {
+            NSApp.stopModal()
+        }
+        finishOnce()
+    }
+
+    private func finishOnce() {
+        guard !didClose else { return }
+        didClose = true
+        closed()
     }
 }
 

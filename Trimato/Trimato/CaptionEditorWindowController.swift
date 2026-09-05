@@ -4,8 +4,6 @@ import SwiftUI
 
 @MainActor
 final class CaptionEditorWindowCoordinator: ObservableObject {
-    @Published private(set) var requestedSessionID: UUID?
-
     private enum FocusOrigin {
         case editor
         case timeline(CaptionCue.ID)
@@ -13,7 +11,8 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
 
     private weak var controller: ProjectController?
     private weak var projectWindow: NSWindow?
-    private var activeSessionID: UUID?
+    private var activeSession: CaptionEditorWindowSession?
+    private var activeWindow: NativeModalWindowController?
 
     init(controller: ProjectController) {
         self.controller = controller
@@ -39,17 +38,11 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
     }
 
     func close() {
-        guard let activeSessionID,
-              let session = CaptionEditorWindowRegistry.shared.session(id: activeSessionID) else { return }
-        session.cancel()
-    }
-
-    func consumeRequestedSession() {
-        requestedSessionID = nil
+        activeSession?.cancel()
     }
 
     private func open(cue: CaptionCue?, range: ProjectTimeRange, origin: FocusOrigin) {
-        guard activeSessionID == nil, let controller else { return }
+        guard activeWindow == nil, let controller else { return }
         controller.stopCaptionPlayback()
         projectWindow = currentProjectWindow
 
@@ -71,16 +64,26 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
             play: { [weak controller] in controller?.playCaptionRange(range) },
             finished: { [weak self] in self?.finish(origin: origin) }
         )
-        CaptionEditorWindowRegistry.shared.register(session)
-        activeSessionID = session.id
+        let modalWindow = NativeModalWindowController(
+            title: session.title,
+            contentSize: NSSize(width: 560, height: 390),
+            rootView: CaptionEditorView(session: session),
+            closed: { [weak self, weak session] in
+                session?.finishOnce()
+                self?.activeSession = nil
+                self?.activeWindow = nil
+            }
+        )
+        session.closeAction = { [weak modalWindow] in modalWindow?.closeModal() }
+        activeSession = session
+        activeWindow = modalWindow
         controller.setCaptionEditorOpen(true)
-        requestedSessionID = session.id
+        modalWindow.showModal()
     }
 
     private func finish(origin: FocusOrigin) {
         controller?.stopCaptionPlayback()
         controller?.setCaptionEditorOpen(false)
-        activeSessionID = nil
         projectWindow?.makeKeyAndOrderFront(nil)
         switch origin {
         case .editor:
@@ -106,7 +109,7 @@ final class CaptionEditorWindowSession: ObservableObject, Identifiable {
     let actionTitle: String
     @Published var text: String
     @Published private(set) var errorMessage: String?
-    @Published private(set) var closeRequested = false
+    var closeAction: (() -> Void)?
 
     private let saveAction: (String) throws -> Void
     private let playAction: () -> Void
@@ -136,7 +139,7 @@ final class CaptionEditorWindowSession: ObservableObject, Identifiable {
         guard canSave else { return }
         do {
             try saveAction(text)
-            closeRequested = true
+            closeAction?()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -155,50 +158,17 @@ final class CaptionEditorWindowSession: ObservableObject, Identifiable {
     }
 
     func dismissError() { errorMessage = nil }
-    func cancel() { closeRequested = true }
+    func cancel() { closeAction?() }
 
     func finishOnce() {
+        closeAction = nil
         let action = finishedAction
         finishedAction = nil
         action?()
     }
 }
 
-@MainActor
-final class CaptionEditorWindowRegistry: ObservableObject {
-    static let shared = CaptionEditorWindowRegistry()
-    @Published private var sessions: [UUID: CaptionEditorWindowSession] = [:]
-
-    func register(_ session: CaptionEditorWindowSession) { sessions[session.id] = session }
-    func session(id: UUID) -> CaptionEditorWindowSession? { sessions[id] }
-    func remove(id: UUID) { sessions[id] = nil }
-}
-
-struct CaptionEditorWindowRoot: View {
-    let sessionID: UUID
-    @ObservedObject private var registry = CaptionEditorWindowRegistry.shared
-    @Environment(\.dismissWindow) private var dismissWindow
-
-    var body: some View {
-        Group {
-            if let session = registry.session(id: sessionID) {
-                CaptionEditorView(session: session)
-                    .onChange(of: session.closeRequested, initial: true) { _, shouldClose in
-                        guard shouldClose else { return }
-                        dismissWindow(id: "caption-editor", value: sessionID)
-                    }
-                    .onDisappear {
-                        session.finishOnce()
-                        registry.remove(id: sessionID)
-                    }
-            } else {
-                EmptyView()
-            }
-        }
-    }
-}
-
-private struct CaptionEditorView: View {
+struct CaptionEditorView: View {
     @ObservedObject var session: CaptionEditorWindowSession
     @FocusState private var textFocused: Bool
 

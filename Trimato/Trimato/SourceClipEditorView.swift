@@ -10,7 +10,6 @@ struct SourceClipEditorView: View {
     @ObservedObject var controller: ProjectController
     let asset: MediaAssetRecord
     private var currentAsset: MediaAssetRecord { controller.asset(for: editSelection) ?? asset }
-    @Environment(\.openWindow) private var openWindow
     let editSelection: EditorSelection
     let initialSegments: [SourceSegment]
     @ObservedObject var commandContext: ClipPlacementCommandContext
@@ -68,7 +67,13 @@ struct SourceClipEditorView: View {
                         if currentAsset.generator != nil {
                             Button("Edit Generator…") {
                                 controller.requestGenerator(editing: editSelection)
-                                if let id = controller.generatorRequestID { openWindow(id: "generator", value: id) }
+                                if let id = controller.generatorRequestID {
+                                    GeneratorWindowRegistry.shared.present(
+                                        id: id,
+                                        parentWindow: commandContext.hostWindow
+                                    )
+                                    controller.generatorRequestID = nil
+                                }
                             }.disabled(commandContext.hasUncommittedChanges)
                         }
                     }.padding(.horizontal, 20)

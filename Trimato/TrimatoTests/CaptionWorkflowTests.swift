@@ -133,6 +133,7 @@ struct CaptionWorkflowTests {
 
     @Test func captionWindowSessionCanSaveAndFinishExactlyOnce() {
         var savedText: String?
+        var closeCount = 0
         var finishCount = 0
         let caption = CaptionEditorWindowSession(
             cue: nil,
@@ -144,6 +145,7 @@ struct CaptionWorkflowTests {
             play: {},
             finished: { finishCount += 1 }
         )
+        caption.closeAction = { closeCount += 1 }
 
         caption.text = "Coffee is ready."
         caption.save()
@@ -151,7 +153,7 @@ struct CaptionWorkflowTests {
         caption.finishOnce()
 
         #expect(savedText == "Coffee is ready.")
-        #expect(caption.closeRequested)
+        #expect(closeCount == 1)
         #expect(finishCount == 1)
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import SwiftUI
 
@@ -25,26 +26,45 @@ final class ApplicationMessageSession: ObservableObject, Identifiable {
 }
 
 @MainActor
-final class ApplicationMessageRegistry: ObservableObject {
-    static let shared = ApplicationMessageRegistry()
+final class ApplicationMessageWindowCoordinator {
+    static let shared = ApplicationMessageWindowCoordinator()
 
-    @Published private var sessions: [UUID: ApplicationMessageSession] = [:]
+    private var sessions: [UUID: ApplicationMessageSession] = [:]
+    private var windows: [UUID: NativeModalWindowController] = [:]
 
-    func register(
+    @discardableResult
+    func present(
         _ descriptor: ApplicationMessageDescriptor,
         dismissed: @escaping () -> Void
     ) -> UUID {
         let session = ApplicationMessageSession(descriptor: descriptor, dismissed: dismissed)
-        sessions[session.id] = session
-        return session.id
+        let id = session.id
+        let controller = NativeModalWindowController(
+            title: descriptor.title,
+            contentSize: NSSize(width: 460, height: 190),
+            rootView: ApplicationMessageView(
+                descriptor: descriptor,
+                done: { ApplicationMessageWindowCoordinator.shared.dismiss(id: id) }
+            ),
+            closed: { [weak self, weak session] in
+                session?.finish()
+                self?.sessions[id] = nil
+                self?.windows[id] = nil
+            }
+        )
+        sessions[id] = session
+        windows[id] = controller
+        Task { @MainActor [weak self] in
+            while NSApp.modalWindow?.identifier?.rawValue == "Trimato.OperationProgress" {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            self?.windows[id]?.showModal()
+        }
+        return id
     }
 
-    func session(id: UUID) -> ApplicationMessageSession? {
-        sessions[id]
-    }
-
-    func remove(id: UUID) {
-        sessions[id] = nil
+    func dismiss(id: UUID) {
+        windows[id]?.closeModal()
     }
 }
 
@@ -61,53 +81,21 @@ private struct ApplicationMessagePresenter: ViewModifier {
     let message: ApplicationMessageDescriptor?
     let dismissed: () -> Void
 
-    @Environment(\.openWindow) private var openWindow
     @State private var presentedMessage: ApplicationMessageDescriptor?
 
     func body(content: Content) -> some View {
         content.onChange(of: message, initial: true) { _, message in
             guard let message, message != presentedMessage else { return }
             presentedMessage = message
-            let sessionID = ApplicationMessageRegistry.shared.register(message) {
+            ApplicationMessageWindowCoordinator.shared.present(message) {
                 presentedMessage = nil
                 dismissed()
             }
-            openWindow(id: "application-message", value: sessionID)
         }
     }
 }
 
-struct ApplicationMessageWindowRoot: View {
-    let sessionID: UUID
-    @ObservedObject private var registry = ApplicationMessageRegistry.shared
-    @Environment(\.dismissWindow) private var dismissWindow
-
-    var body: some View {
-        Group {
-            if let session = registry.session(id: sessionID) {
-                ApplicationMessageView(
-                    descriptor: session.descriptor,
-                    done: {
-                        session.finish()
-                        close()
-                    }
-                )
-                .onDisappear {
-                    session.finish()
-                    registry.remove(id: sessionID)
-                }
-            } else {
-                EmptyView()
-            }
-        }
-    }
-
-    private func close() {
-        dismissWindow(id: "application-message", value: sessionID)
-    }
-}
-
-private struct ApplicationMessageView: View {
+struct ApplicationMessageView: View {
     let descriptor: ApplicationMessageDescriptor
     let done: () -> Void
     @AccessibilityFocusState private var headingFocused: Bool

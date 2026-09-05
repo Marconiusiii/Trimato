@@ -86,7 +86,6 @@ private struct OperationProgressPresenter: ViewModifier {
     let completionPending: Bool
     let dismissed: () -> Void
 
-    @Environment(\.openWindow) private var openWindow
     @State private var sessionID: UUID?
 
     private var snapshot: OperationProgressSnapshot {
@@ -110,20 +109,21 @@ private struct OperationProgressPresenter: ViewModifier {
     private func synchronize() {
         if let operation {
             if let sessionID,
-               let session = OperationProgressWindowRegistry.shared.session(id: sessionID) {
-                session.update(operation)
+               OperationProgressWindowCoordinator.shared.update(operation, id: sessionID) {
             } else {
-                let sessionID = OperationProgressWindowRegistry.shared.register(operation)
+                let sessionID = OperationProgressWindowCoordinator.shared.present(operation)
                 self.sessionID = sessionID
-                openWindow(id: "operation-progress", value: sessionID)
             }
             return
         }
 
-        guard !completionPending, let sessionID,
-              let session = OperationProgressWindowRegistry.shared.session(id: sessionID) else { return }
+        guard !completionPending, let sessionID else { return }
         self.sessionID = nil
-        session.finish(outcome: outcome, dismissed: dismissed)
+        OperationProgressWindowCoordinator.shared.finish(
+            id: sessionID,
+            outcome: outcome,
+            dismissed: dismissed
+        )
     }
 }
 
@@ -209,44 +209,53 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
 }
 
 @MainActor
-final class OperationProgressWindowRegistry: ObservableObject {
-    static let shared = OperationProgressWindowRegistry()
+final class OperationProgressWindowCoordinator {
+    static let shared = OperationProgressWindowCoordinator()
 
-    @Published private var sessions: [UUID: OperationProgressWindowSession] = [:]
+    private var sessions: [UUID: OperationProgressWindowSession] = [:]
+    private var windows: [UUID: NativeModalWindowController] = [:]
 
-    func register(_ operation: OperationProgress) -> UUID {
+    func present(_ operation: OperationProgress) -> UUID {
         let session = OperationProgressWindowSession(operation: operation)
-        sessions[session.id] = session
-        return session.id
-    }
-
-    func session(id: UUID) -> OperationProgressWindowSession? {
-        sessions[id]
-    }
-
-    func remove(id: UUID) {
-        sessions[id] = nil
-    }
-}
-
-struct OperationProgressWindowRoot: View {
-    let sessionID: UUID
-    @ObservedObject private var registry = OperationProgressWindowRegistry.shared
-
-    var body: some View {
-        Group {
-            if let session = registry.session(id: sessionID) {
-                OperationProgressContent(session: session)
-            } else {
-                EmptyView()
+        let id = session.id
+        let controller = NativeModalWindowController(
+            title: operation.title,
+            contentSize: NSSize(width: 400, height: operation.detail == nil ? 150 : 190),
+            closable: false,
+            identifier: .init("Trimato.OperationProgress"),
+            rootView: OperationProgressContent(session: session),
+            closed: { [weak self] in
+                self?.sessions[id] = nil
+                self?.windows[id] = nil
             }
-        }
+        )
+        sessions[id] = session
+        windows[id] = controller
+        controller.showModal()
+        return id
+    }
+
+    func update(_ operation: OperationProgress, id: UUID) -> Bool {
+        guard let session = sessions[id] else { return false }
+        session.update(operation)
+        return true
+    }
+
+    func finish(
+        id: UUID,
+        outcome: OperationProgressOutcome,
+        dismissed: @escaping () -> Void
+    ) {
+        sessions[id]?.finish(outcome: outcome, dismissed: dismissed)
+    }
+
+    func close(id: UUID) {
+        windows[id]?.closeModal()
     }
 }
 
 private struct OperationProgressContent: View {
     @ObservedObject var session: OperationProgressWindowSession
-    @Environment(\.dismissWindow) private var dismissWindow
     @AccessibilityFocusState private var headingFocused: Bool
     @State private var dismissalScheduled = false
 
@@ -291,8 +300,7 @@ private struct OperationProgressContent: View {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(250))
                 session.completeDismissal()
-                OperationProgressWindowRegistry.shared.remove(id: session.id)
-                dismissWindow(id: "operation-progress", value: session.id)
+                OperationProgressWindowCoordinator.shared.close(id: session.id)
             }
         }
     }

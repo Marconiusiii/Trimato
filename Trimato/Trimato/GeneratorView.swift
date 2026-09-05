@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import SwiftUI
 
@@ -13,6 +14,34 @@ nonisolated enum GeneratorDurationUnit: String, CaseIterable, Identifiable {
 final class GeneratorWindowRegistry {
     static let shared = GeneratorWindowRegistry()
     var sessions: [UUID: GeneratorSession] = [:]
+    private var windows: [UUID: NativeModalWindowController] = [:]
+
+    func present(id: UUID, parentWindow: NSWindow? = nil) {
+        guard windows[id] == nil, let session = sessions[id] else { return }
+        let returnWindow = parentWindow ?? NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
+        let controller = NativeModalWindowController(
+            title: "Generator",
+            contentSize: NSSize(width: 560, height: 650),
+            resizable: true,
+            rootView: GeneratorView(
+                session: session,
+                close: { GeneratorWindowRegistry.shared.dismiss(id: id) }
+            ),
+            closed: { [weak self, weak session, weak returnWindow] in
+                session?.cancelPreparation()
+                session?.controller?.requestEditorFocusRestore()
+                self?.sessions[id] = nil
+                self?.windows[id] = nil
+                returnWindow?.makeKeyAndOrderFront(nil)
+            }
+        )
+        windows[id] = controller
+        controller.showModal()
+    }
+
+    func dismiss(id: UUID) {
+        windows[id]?.closeModal()
+    }
 }
 
 @MainActor
@@ -156,7 +185,7 @@ final class GeneratorSession: ObservableObject, Identifiable {
 
 struct GeneratorView: View {
     @ObservedObject var session: GeneratorSession
-    @Environment(\.dismiss) private var dismiss
+    let close: () -> Void
     @AccessibilityFocusState private var headingFocused: Bool
 
     var body: some View {
@@ -211,7 +240,7 @@ struct GeneratorView: View {
                 .disabled(session.progress != nil)
             Button(session.progress == nil ? "Cancel" : "Cancel Preparation", role: .cancel) {
                 session.cancelPreparation()
-                dismiss()
+                close()
             }
             .keyboardShortcut(.cancelAction)
         }
@@ -228,11 +257,6 @@ struct GeneratorView: View {
         }
         .onChange(of: session.definition) { previous, _ in
             session.definitionChanged(from: previous)
-        }
-        .onDisappear {
-            session.cancelPreparation()
-            GeneratorWindowRegistry.shared.sessions.removeValue(forKey: session.id)
-            session.controller?.requestEditorFocusRestore()
         }
         .applicationMessage(session.errorMessage.map {
             ApplicationMessageDescriptor(title: "Generator Could Not Be Prepared", message: $0)
@@ -277,16 +301,16 @@ struct GeneratorView: View {
     @ViewBuilder
     private var placementControls: some View {
         if session.editing != nil {
-            Button("Update Generator") { session.prepare(placement: .insert) { dismiss() } }
+            Button("Update Generator") { session.prepare(placement: .insert, finished: close) }
         } else {
             GroupBox("Add to Timeline") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Button("Append") { session.prepare(placement: .append) { dismiss() } }
-                    Button("Insert and Split") { session.prepare(placement: .insert) { dismiss() } }
-                    Button("Insert and Overwrite") { session.prepare(placement: .replaceRemainder) { dismiss() } }
+                    Button("Append") { session.prepare(placement: .append, finished: close) }
+                    Button("Insert and Split") { session.prepare(placement: .insert, finished: close) }
+                    Button("Insert and Overwrite") { session.prepare(placement: .replaceRemainder, finished: close) }
                     if session.definition.kind != .silence {
                         Button("Insert on Top in New Video Track") {
-                            session.prepare(placement: .insert, onTop: true) { dismiss() }
+                            session.prepare(placement: .insert, onTop: true, finished: close)
                         }
                     }
                 }

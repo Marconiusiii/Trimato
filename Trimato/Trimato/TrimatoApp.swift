@@ -213,17 +213,6 @@ struct TrimatoApp: App {
             }
         }
 
-        WindowGroup("Generator", id: "generator", for: UUID.self) { $id in
-            if let id, let session = GeneratorWindowRegistry.shared.sessions[id] {
-                GeneratorView(session: session)
-            } else {
-                Text("Open a Generator from the project Editor.").padding()
-            }
-        }
-        .defaultSize(width: 560, height: 650)
-        .windowResizability(.contentMinSize)
-        .commandsRemoved()
-
         WindowGroup("Clip Editor", for: ExternalMediaOpenRequest.self) { $request in
             if let request {
                 StandaloneClipEditorView(request: request)
@@ -241,40 +230,6 @@ struct TrimatoApp: App {
         WindowGroup("Get Info", id: "get-info", for: ProjectInfoSnapshot.self) { $snapshot in
             if let snapshot {
                 ProjectInfoView(snapshot: snapshot)
-            }
-        }
-        .windowResizability(.contentSize)
-        .commandsRemoved()
-
-        WindowGroup("Finalize Captions", id: "caption-finalization", for: UUID.self) { $sessionID in
-            if let sessionID {
-                CaptionFinalizationWindowRoot(sessionID: sessionID)
-            }
-        }
-        .defaultSize(width: 780, height: 460)
-        .windowResizability(.contentMinSize)
-        .commandsRemoved()
-
-        WindowGroup("Caption Editor", id: "caption-editor", for: UUID.self) { $sessionID in
-            if let sessionID {
-                CaptionEditorWindowRoot(sessionID: sessionID)
-            }
-        }
-        .defaultSize(width: 560, height: 390)
-        .windowResizability(.contentSize)
-        .commandsRemoved()
-
-        WindowGroup("Progress", id: "operation-progress", for: UUID.self) { $sessionID in
-            if let sessionID {
-                OperationProgressWindowRoot(sessionID: sessionID)
-            }
-        }
-        .windowResizability(.contentSize)
-        .commandsRemoved()
-
-        WindowGroup("Message", id: "application-message", for: UUID.self) { $sessionID in
-            if let sessionID {
-                ApplicationMessageWindowRoot(sessionID: sessionID)
             }
         }
         .windowResizability(.contentSize)
