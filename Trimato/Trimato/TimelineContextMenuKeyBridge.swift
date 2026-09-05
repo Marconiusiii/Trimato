@@ -374,6 +374,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
         var actions: TimelineCollectionActions?
         var previousFocusRequest = -1
         var previousListFocusRequest = -1
+        var pendingFocusTarget: TimelineElementSelection?
         var movingClipID: UUID?
         var emptyTitle = "No clips on this track"
 
@@ -396,12 +397,16 @@ struct TimelineClipsCollection: NSViewRepresentable {
             }
             if previousFocusRequest != source.focusRequest, source.focusRequest > 0 {
                 previousFocusRequest = source.focusRequest
-                if let target = source.focusTarget { select(target) }
+                if let target = source.focusTarget {
+                    pendingFocusTarget = target
+                    select(target)
+                }
             } else {
                 previousFocusRequest = source.focusRequest
             }
             if previousListFocusRequest != source.listFocusRequest, source.listFocusRequest > 0 {
                 previousListFocusRequest = source.listFocusRequest
+                pendingFocusTarget = nil
                 collectionView?.deselectAll(nil)
                 scrollView?.window?.makeFirstResponder(collectionView)
             } else {
@@ -432,6 +437,19 @@ struct TimelineClipsCollection: NSViewRepresentable {
             actions?.focus(models[index].selection)
         }
 
+        func collectionView(
+            _ collectionView: NSCollectionView,
+            willDisplay item: NSCollectionViewItem,
+            forRepresentedObjectAt indexPath: IndexPath
+        ) {
+            guard let target = pendingFocusTarget,
+                  models.indices.contains(indexPath.item),
+                  models[indexPath.item].selection == target,
+                  let timelineItem = item as? TimelineCollectionItem else { return }
+            pendingFocusTarget = nil
+            collectionView.window?.makeFirstResponder(timelineItem.button)
+        }
+
         private func configure(_ item: TimelineCollectionItem, with model: TimelineCollectionItemModel) {
             item.configure(model: model,
                            activate: { [weak self] selection in self?.actions?.activate(selection) },
@@ -447,6 +465,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             collectionView.scrollToItems(at: [path], scrollPosition: .centeredHorizontally)
             collectionView.layoutSubtreeIfNeeded()
             if let button = (collectionView.item(at: path) as? TimelineCollectionItem)?.button {
+                pendingFocusTarget = nil
                 collectionView.window?.makeFirstResponder(button)
             }
         }

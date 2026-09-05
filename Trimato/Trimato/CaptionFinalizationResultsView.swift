@@ -2,8 +2,8 @@ import SwiftUI
 
 struct CaptionFinalizationResultsView: View {
     let report: CaptionFinalizationReport
-    let nativeModalActions: NativeModalActionRegistration
     let showCaption: (UUID) -> Void
+    let done: () -> Void
 
     @State private var selection: UUID?
     @AccessibilityFocusState private var headingFocused: Bool
@@ -41,14 +41,22 @@ struct CaptionFinalizationResultsView: View {
                 }
                 .frame(width: 720, height: 300)
             }
+
+            HStack {
+                Spacer()
+                if report.fatalError == nil {
+                    NativeDefaultButton(
+                        title: "Show Caption",
+                        isEnabled: selection != nil,
+                        action: showSelectedCaption
+                    )
+                }
+                Button("Done", action: done)
+                    .keyboardShortcut(.cancelAction)
+            }
         }
         .padding(24)
         .frame(minWidth: 520)
-        .nativeModalPrimaryAction(
-            nativeModalActions,
-            enabled: selection != nil,
-            action: showSelectedCaption
-        )
         .task {
             selection = report.issues.first?.id
             try? await Task.sleep(for: .milliseconds(200))

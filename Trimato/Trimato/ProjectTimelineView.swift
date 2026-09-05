@@ -45,12 +45,11 @@ struct ProjectTimelineView: View {
     @State private var transitionFocusReturn: TimelineElementSelection?
     @State private var transitionPendingDeletion: TimelineTransition?
     @State private var clipPendingDeletion: TimelineClip?
+    @State private var clipDeletionFocusID: UUID?
+    @State private var clipDeletionWasConfirmed = false
+    @State private var clipDeletionFallback: TimelineElementSelection?
     @State private var errorMessage: String?
     @State private var errorTitle = "Timeline Change Failed"
-    @StateObject private var renameClipActions = NativeModalActionRegistration()
-    @StateObject private var renameTrackActions = NativeModalActionRegistration()
-    @StateObject private var addTrackActions = NativeModalActionRegistration()
-    @StateObject private var editTransitionActions = NativeModalActionRegistration()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -133,73 +132,49 @@ struct ProjectTimelineView: View {
             guard let element else { return }
             controller.focusTimelineElement(element)
         }
-        .background(NativeModalSheetPresenter(
-            isPresented: isRenamingClip,
-            title: "Rename Timeline Clip",
-            primaryTitle: "Rename",
-            registration: renameClipActions,
-            cancel: { isRenamingClip = false }
-        ) { renameClipSheet })
-        .background(NativeModalSheetPresenter(
-            isPresented: isRenamingTrack,
-            title: "Rename Track",
-            primaryTitle: "Rename",
-            registration: renameTrackActions,
-            cancel: { isRenamingTrack = false }
-        ) { renameTrackSheet })
-        .background(NativeModalSheetPresenter(
-            isPresented: isAddingTrack,
-            title: "Add Track",
-            primaryTitle: "Add Track",
-            registration: addTrackActions,
-            cancel: { isAddingTrack = false }
-        ) {
+        .sheet(isPresented: $isRenamingClip) { renameClipSheet }
+        .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
+        .sheet(isPresented: $isAddingTrack) {
             AddTrackView(
                 add: { kind, name in
                     controller.addTrack(kind: kind, name: name)
                     isAddingTrack = false
                 },
-                cancel: { isAddingTrack = false },
-                nativeModalActions: addTrackActions
+                cancel: { isAddingTrack = false }
             )
-        })
-        .background(NativeModalSheetPresenter(
-            isPresented: editingTransition != nil,
-            title: "Transition Editor",
-            primaryTitle: "Update Transition",
-            registration: editTransitionActions,
-            cancel: { editingTransition = nil },
-            dismissed: finishTransitionEditing
-        ) {
-            if let transition = editingTransition {
-                TransitionEditorView(
-                    transition: transition,
-                    contextDescription: transitionContextDescription(transition),
-                    update: { updated in
-                        do {
-                            try controller.updateTransition(updated)
-                            editingTransition = nil
-                        } catch { presentTimelineError(error) }
-                    },
-                    delete: {
-                        transitionFocusReturn = fallbackFocusAfterDeleting(transition)
-                        transitionPendingDeletion = transition
-                        editingTransition = nil
-                    },
-                    cancel: { editingTransition = nil },
-                    nativeModalActions: editTransitionActions
-                )
-            }
-        })
-        .alert(errorTitle, isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "The timeline could not be updated.")
         }
-        .background(TimelineClipDeletionAlertBridge(clip: clipPendingDeletion, completed: finishClipDeletion))
+        .sheet(item: $editingTransition, onDismiss: finishTransitionEditing) { transition in
+            TransitionEditorView(
+                transition: transition,
+                contextDescription: transitionContextDescription(transition),
+                update: { updated in
+                    do {
+                        try controller.updateTransition(updated)
+                        editingTransition = nil
+                    } catch { presentTimelineError(error) }
+                },
+                delete: {
+                    transitionFocusReturn = fallbackFocusAfterDeleting(transition)
+                    transitionPendingDeletion = transition
+                    editingTransition = nil
+                },
+                cancel: { editingTransition = nil }
+            )
+        }
+        .sheet(item: $clipPendingDeletion, onDismiss: finishClipDeletion) { clip in
+            ConfirmationView(
+                title: TimelineClipDeletionConfirmation.title,
+                message: TimelineClipDeletionConfirmation.message(clipName: clip.displayName),
+                confirmTitle: "Delete Clip",
+                cancel: { clipPendingDeletion = nil },
+                confirm: { confirmClipDeletion(clip) }
+            )
+        }
+        .applicationMessage(errorMessage.map {
+            ApplicationMessageDescriptor(title: errorTitle, message: $0)
+        }) {
+            errorMessage = nil
+        }
     }
 
     @ViewBuilder
@@ -469,6 +444,9 @@ struct ProjectTimelineView: View {
         // Cancellation can then request the same row once after dismissal.
         focusedElement = nil
         keyboardFocusedElement = nil
+        clipDeletionFocusID = id
+        clipDeletionWasConfirmed = false
+        clipDeletionFallback = nil
         clipPendingDeletion = clip
     }
 
@@ -549,12 +527,21 @@ struct ProjectTimelineView: View {
         }
     }
 
-    private func finishClipDeletion(_ clipID: UUID, confirmed: Bool, window: NSWindow) {
-        guard let clip = clipPendingDeletion, clip.id == clipID else { return }
-        let fallback = fallbackFocusAfterDeletingClip(clipID)
+    private func confirmClipDeletion(_ clip: TimelineClip) {
+        clipDeletionFallback = fallbackFocusAfterDeletingClip(clip.id)
+        clipDeletionWasConfirmed = true
         clipPendingDeletion = nil
+    }
+
+    private func finishClipDeletion() {
+        guard let clipID = clipDeletionFocusID else { return }
+        let confirmed = clipDeletionWasConfirmed
+        let fallback = clipDeletionFallback
+        clipDeletionFocusID = nil
+        clipDeletionWasConfirmed = false
+        clipDeletionFallback = nil
         if confirmed {
-            deleteAfterFocusing(fallback, in: window) {
+            deleteAfterFocusing(fallback, in: NSApp.keyWindow) {
                 controller.deleteTimelineClip(
                     id: clipID,
                     selecting: editorSelection(for: fallback) ?? .project
@@ -589,15 +576,18 @@ struct ProjectTimelineView: View {
                 TextField("Clip Name", text: $renamedClipName)
                     .labelsHidden()
             }
+            NativeModalActions(
+                primaryTitle: "Rename",
+                cancel: { isRenamingClip = false }
+            ) {
+                do {
+                    try controller.renameTimelineEntry(controller.selection, to: renamedClipName)
+                    isRenamingClip = false
+                } catch { presentTimelineError(error) }
+            }
         }
         .padding(20)
         .frame(width: 380)
-        .nativeModalPrimaryAction(renameClipActions) {
-            do {
-                try controller.renameTimelineEntry(controller.selection, to: renamedClipName)
-                isRenamingClip = false
-            } catch { presentTimelineError(error) }
-        }
     }
 
     private var renameTrackSheet: some View {
@@ -607,15 +597,18 @@ struct ProjectTimelineView: View {
                 TextField("Track Name", text: $trackName)
                     .labelsHidden()
             }
+            NativeModalActions(
+                primaryTitle: "Rename",
+                cancel: { isRenamingTrack = false }
+            ) {
+                do {
+                    try controller.renameActiveTrack(to: trackName)
+                    isRenamingTrack = false
+                } catch { presentTimelineError(error) }
+            }
         }
         .padding(20)
         .frame(width: 380)
-        .nativeModalPrimaryAction(renameTrackActions) {
-            do {
-                try controller.renameActiveTrack(to: trackName)
-                isRenamingTrack = false
-            } catch { presentTimelineError(error) }
-        }
     }
 
     private func canMoveActiveTrack(by offset: Int) -> Bool {
@@ -669,87 +662,9 @@ struct ProjectTimelineView: View {
 
 }
 
-/// NSAlert supplies a completion callback after its native sheet ends; SwiftUI's
-/// alert button action runs before that dismissal has finished.
-struct TimelineClipDeletionAlertBridge: NSViewRepresentable {
-    let clip: TimelineClip?
-    let completed: (UUID, Bool, NSWindow) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> Anchor {
-        let view = Anchor()
-        view.owner = context.coordinator
-        view.setAccessibilityElement(false)
-        return view
-    }
-
-    func updateNSView(_ view: Anchor, context: Context) {
-        context.coordinator.update(clip: clip, parent: view.window, completed: completed)
-    }
-
-    static func dismantleNSView(_ view: Anchor, coordinator: Coordinator) {
-        coordinator.invalidate()
-    }
-
-    final class Anchor: NSView {
-        weak var owner: Coordinator?
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            owner?.parent = window
-            owner?.presentIfPossible()
-        }
-    }
-
-    @MainActor final class Coordinator {
-        weak var parent: NSWindow?
-        private var clip: TimelineClip?
-        private var presentedClipID: UUID?
-        private var alert: NSAlert?
-        private var completed: ((UUID, Bool, NSWindow) -> Void)?
-
-        func update(clip: TimelineClip?, parent: NSWindow?, completed: @escaping (UUID, Bool, NSWindow) -> Void) {
-            self.clip = clip
-            self.parent = parent
-            self.completed = completed
-            if clip == nil { presentedClipID = nil }
-            presentIfPossible()
-        }
-
-        func presentIfPossible() {
-            guard alert == nil, let clip, presentedClipID != clip.id,
-                  let parent, parent.isKeyWindow, parent.attachedSheet == nil else { return }
-            let alert = NSAlert()
-            alert.messageText = TimelineClipDeletionConfirmation.title
-            alert.informativeText = TimelineClipDeletionConfirmation.message(clipName: clip.displayName)
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Delete Clip").hasDestructiveAction = true
-            self.alert = alert
-            presentedClipID = clip.id
-            alert.beginSheetModal(for: parent) { [weak self, weak parent] response in
-                guard let self, let parent, self.presentedClipID == clip.id else { return }
-                self.alert = nil
-                self.completed?(clip.id, response == .alertSecondButtonReturn, parent)
-            }
-        }
-
-        func invalidate() {
-            presentedClipID = nil
-            completed = nil
-            clip = nil
-            if let alert {
-                alert.window.sheetParent?.endSheet(alert.window)
-                alert.window.orderOut(nil)
-            }
-            alert = nil
-        }
-    }
-}
-
 private struct AddTrackView: View {
     let add: (TimelineTrackKind, String) -> Void
     let cancel: () -> Void
-    let nativeModalActions: NativeModalActionRegistration
 
     @State private var trackName = ""
     @State private var trackKind = TimelineTrackKind.audio
@@ -768,10 +683,14 @@ private struct AddTrackView: View {
                 TextField("Track name", text: $trackName)
                     .labelsHidden()
             }
+            NativeModalActions(
+                primaryTitle: "Add Track",
+                cancel: cancel,
+                primary: { add(trackKind, trackName) }
+            )
         }
         .padding(20)
         .frame(width: 380)
-        .nativeModalPrimaryAction(nativeModalActions) { add(trackKind, trackName) }
     }
 }
 

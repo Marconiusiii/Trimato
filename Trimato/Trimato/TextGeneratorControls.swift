@@ -45,17 +45,16 @@ struct TextGeneratorControls: View {
                 do { fitReport = try TextGeneratorRenderer.layout(definition).report }
                 catch { fitReport = error.localizedDescription }
             }
+            if let fitReport {
+                LabeledContent("Text Fit") {
+                    Text(fitReport)
+                        .textSelection(.enabled)
+                }
+                Button("Dismiss Text Fit") { self.fitReport = nil }
+            }
             Button("Reset Style") {
                 definition.textSettings.apply(definition.textSettings.template)
             }
-        }
-        .alert("Text Fit", isPresented: Binding(
-            get: { fitReport != nil },
-            set: { if !$0 { fitReport = nil } }
-        )) {
-            Button("OK") { fitReport = nil }
-        } message: {
-            Text(fitReport ?? "")
         }
     }
 

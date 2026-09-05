@@ -6,7 +6,6 @@ struct QuickTransitionView: View {
     let request: TransitionRequest
     let add: ([TimelineTransition]) -> Void
     let finished: () -> Void
-    let nativeModalActions: NativeModalActionRegistration
 
     @State private var addIntro = true
     @State private var addOutro = true
@@ -17,15 +16,6 @@ struct QuickTransitionView: View {
     @State private var presentedError: TransitionPresentedError?
 
     var body: some View {
-        form
-        .alert(presentedError?.title ?? "Transition error", isPresented: errorIsPresented) {
-            Button("OK") { presentedError = nil }
-        } message: {
-            Text(presentedError?.message ?? "Trimato could not apply the transition.")
-        }
-    }
-
-    private var form: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
                 .font(.headline)
@@ -48,14 +38,21 @@ struct QuickTransitionView: View {
                 if request.mode == .quickCross { TransitionDurationField(text: $durationText) }
             }
 
+            if let presentedError {
+                Text(presentedError.message)
+                    .foregroundStyle(.red)
+            }
+
+            NativeModalActions(
+                primaryTitle: request.mode == .quickFade ? "Apply Fade" : applyButtonTitle,
+                primaryEnabled: request.mode != .quickFade || addIntro || addOutro,
+                cancel: finished,
+                primary: apply
+            )
+
         }
         .padding(20)
         .frame(width: 430)
-        .nativeModalPrimaryAction(
-            nativeModalActions,
-            enabled: request.mode != .quickFade || addIntro || addOutro,
-            action: apply
-        )
     }
 
     private var transitionName: String {
@@ -64,13 +61,8 @@ struct QuickTransitionView: View {
     }
 
 
-    private var errorIsPresented: Binding<Bool> {
-        Binding(
-            get: { presentedError != nil },
-            set: { presented in
-                if !presented { presentedError = nil }
-            }
-        )
+    private var applyButtonTitle: String {
+        track?.kind == .audio ? "Apply Cross Fade" : "Apply Cross Dissolve"
     }
 
     private var track: TimelineTrack? { project.track(id: request.trackID) }

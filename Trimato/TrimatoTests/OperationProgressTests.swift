@@ -1,53 +1,57 @@
-import AppKit
 import Testing
 @testable import Trimato
 
 struct OperationProgressTests {
-    @Test @MainActor func nativeProgressPresentationIsDeferredOutOfTheViewUpdate() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let coordinator = OperationProgressBridge.Coordinator()
-        defer { coordinator.invalidate(); window.close() }
+    @Test @MainActor func progressSessionCarriesUpdatesIntoItsWindow() {
+        let session = OperationProgressWindowSession(operation: OperationProgress(
+            title: "Preparing Project",
+            progress: 0.1,
+            detail: "Loading media"
+        ), postsAnnouncements: false)
 
-        coordinator.update(OperationProgress(title: "Preparing Project"),
-                           outcome: .completed, completionPending: false, dismissed: {}, parent: window)
+        session.update(OperationProgress(
+            title: "Preparing Project",
+            progress: 0.8,
+            detail: "Preparing timeline"
+        ))
 
-        #expect(coordinator.hasScheduledPresentation)
-        #expect(window.attachedSheet == nil)
+        #expect(session.title == "Preparing Project")
+        #expect(session.progress == 0.8)
+        #expect(session.detail == "Preparing timeline")
+        #expect(!session.isFinished)
     }
 
-    @Test @MainActor func nativeProgressDismissalIsDeferredOutOfTheViewUpdate() async {
-        let coordinator = OperationProgressBridge.Coordinator()
-        defer { coordinator.invalidate() }
+    @Test @MainActor func completedSessionRunsItsDismissalExactlyOnce() {
+        let session = OperationProgressWindowSession(
+            operation: OperationProgress(title: "Applying Filter"),
+            postsAnnouncements: false
+        )
+        var dismissalCount = 0
 
-        let dismissal = coordinator.scheduleDismissal()
+        session.finish(outcome: .completed) { dismissalCount += 1 }
+        session.finish(outcome: .failed) { dismissalCount += 10 }
+        session.completeDismissal()
+        session.completeDismissal()
 
-        #expect(coordinator.hasScheduledDismissal)
-        await dismissal.value
-        #expect(!coordinator.hasScheduledDismissal)
+        #expect(session.isFinished)
+        #expect(session.outcome == .completed)
+        #expect(dismissalCount == 1)
     }
 
-    @Test @MainActor func inactiveWindowNeverPresentsProgressAndCompletedWorkIsNotReplayed() async throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let coordinator = OperationProgressBridge.Coordinator()
-        defer { coordinator.invalidate(); window.close() }
-        try #require(!window.isKeyWindow)
+    @Test @MainActor func cancellingDisablesCancelAndPreservesCancelledOutcome() {
+        var cancellationCount = 0
+        let session = OperationProgressWindowSession(operation: OperationProgress(
+            title: "Applying Filter",
+            cancel: { cancellationCount += 1 }
+        ), postsAnnouncements: false)
 
-        coordinator.update(OperationProgress(title: "Applying Clip Effects", progress: 0.1),
-                           outcome: .completed, completionPending: false, dismissed: {}, parent: window)
-        #expect(window.attachedSheet == nil)
-        coordinator.update(OperationProgress(title: "Applying Clip Effects", progress: 0.8),
-                           outcome: .completed, completionPending: false, dismissed: {}, parent: window)
-        #expect(window.attachedSheet == nil)
-        coordinator.update(nil, outcome: .completed, completionPending: false, dismissed: {}, parent: window)
+        session.cancel()
+        session.cancel()
+        session.finish(outcome: .completed, dismissed: {})
 
-        // A queued native notification must not resurrect an already finished operation.
-        NotificationCenter.default.post(name: NSWindow.didEndSheetNotification, object: window)
-        await Task.yield()
-        #expect(window.attachedSheet == nil)
+        #expect(cancellationCount == 1)
+        #expect(!session.canCancel)
+        #expect(session.outcome == .cancelled)
     }
 
     @Test func speaksMilestonesWithoutAWindowOrFocusedControl() {

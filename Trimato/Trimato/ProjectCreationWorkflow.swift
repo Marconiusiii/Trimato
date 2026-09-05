@@ -36,6 +36,7 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
         private var initialProject: TrimatoProject?
         private var isCompleting = false
         private var isChoosingLocation = false
+        private var creationErrorMessage: String?
 
         func update(from source: ProjectCreationSheetPresenter, parent: NSWindow?) {
             self.source = source
@@ -75,7 +76,8 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
                 initialProject: initialProject,
                 heading: "New Project",
                 finish: { [weak self] values in self?.chooseProjectLocation(for: values) },
-                submitHandlerReady: { [weak self] submit in self?.submitProjectCreation = submit }
+                submitHandlerReady: { [weak self] submit in self?.submitProjectCreation = submit },
+                externalError: creationErrorMessage
             )
             let hostingController = NSHostingController(rootView: rootView)
             let panelViewController = ProjectCreationPanelViewController(
@@ -114,6 +116,7 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
                   let initialProject,
                   let parentWindow else { return }
             let project = values.applying(to: initialProject)
+            creationErrorMessage = nil
             self.initialProject = project
             let panel = NSSavePanel()
             panel.title = "Save Project"
@@ -161,18 +164,12 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
         }
 
         private func presentCreationError(_ error: Error) {
-            guard let parentWindow else { return }
-            let alert = NSAlert()
-            alert.messageText = "Project Could Not Be Created"
             if (error as? CocoaError)?.code == .fileWriteFileExists {
-                alert.informativeText = "A folder with that name already exists. Choose a different project folder name or location."
+                creationErrorMessage = "A folder with that name already exists. Choose a different project folder name or location."
             } else {
-                alert.informativeText = error.localizedDescription
+                creationErrorMessage = error.localizedDescription
             }
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: parentWindow) { [weak self] _ in
-                self?.presentIfPossible()
-            }
+            presentIfPossible()
         }
 
         private func cancelProjectCreation() {
@@ -193,6 +190,7 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
             panelViewController = nil
             submitProjectCreation = nil
             initialProject = nil
+            creationErrorMessage = nil
         }
     }
 }

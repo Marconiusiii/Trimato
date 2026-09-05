@@ -8,16 +8,12 @@ struct EditorWorkspaceView: View {
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var captionEditorWindows: CaptionEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
-    @StateObject private var projectSettingsActions = NativeModalActionRegistration()
-    @StateObject private var transitionActions = NativeModalActionRegistration()
-    @StateObject private var captionFinalizationActions = NativeModalActionRegistration()
     @State private var restoresEditorFocusAfterTransitionSheet = false
     @State private var timelineFocusAfterTransitionSheet: TimelineElementSelection?
     @State private var pendingTransitions: [TimelineTransition]?
     @State private var transitionTask: Task<Void, Never>?
     @State private var transitionOutcome = OperationProgressOutcome.completed
     @State private var transitionFinished = false
-    @State private var captionFinalizationFocusTarget: UUID?
     @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
@@ -78,16 +74,21 @@ struct EditorWorkspaceView: View {
             .onChange(of: controller.isShowingProjectSettings) { _, isShowing in
                 if !isShowing { controller.requestEditorFocusRestore() }
             }
+            .onChange(of: controller.captionFinalizationReport) { _, report in
+                if let report { presentCaptionFinalizationReport(report) }
+            }
+            .onChange(of: captionEditorWindows.requestedSessionID) { _, sessionID in
+                guard let sessionID else { return }
+                openWindow(id: "caption-editor", value: sessionID)
+                captionEditorWindows.consumeRequestedSession()
+            }
             .onDisappear {
                 ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
             }
-            .background(NativeModalSheetPresenter(
-                isPresented: controller.isShowingProjectSettings,
-                title: "Project Settings",
-                primaryTitle: "Save Project Settings",
-                registration: projectSettingsActions,
-                cancel: controller.dismissProjectSettings
-            ) {
+            .sheet(isPresented: Binding(
+                get: { controller.isShowingProjectSettings },
+                set: { if !$0 { controller.dismissProjectSettings() } }
+            )) {
                 ProjectCreationView(
                     initialProject: controller.project,
                     heading: "Project Settings",
@@ -99,54 +100,40 @@ struct EditorWorkspaceView: View {
                         )
                         controller.dismissProjectSettings()
                     },
-                    nativeModalActions: projectSettingsActions
+                    primaryTitle: "Save Project Settings",
+                    cancel: controller.dismissProjectSettings
                 )
-            })
-            .background(NativeModalSheetPresenter(
-                isPresented: controller.transitionRequest != nil,
-                title: transitionPanelTitle,
-                primaryTitle: transitionPrimaryTitle,
-                registration: transitionActions,
-                cancel: dismissTransitionSheet,
-                dismissed: transitionSheetDismissed
-            ) {
+            }
+            .sheet(isPresented: Binding(
+                get: { controller.transitionRequest != nil },
+                set: { if !$0 { dismissTransitionSheet() } }
+            ), onDismiss: transitionSheetDismissed) {
                 if let request = controller.transitionRequest {
                     transitionSheet(for: request)
                 }
-            })
-            .background(NativeModalSheetPresenter(
-                isPresented: controller.captionFinalizationReport != nil,
-                title: "Finalize Captions",
-                primaryTitle: "Show Caption",
-                cancelTitle: "Done",
-                registration: captionFinalizationActions,
-                cancel: controller.dismissCaptionFinalizationReport,
-                dismissed: finishCaptionFinalizationReport
-            ) {
-                if let report = controller.captionFinalizationReport {
-                    CaptionFinalizationResultsView(
-                        report: report,
-                        nativeModalActions: captionFinalizationActions,
-                        showCaption: { cueID in
-                            captionFinalizationFocusTarget = cueID
-                            controller.dismissCaptionFinalizationReport()
-                        }
-                    )
-                }
-            })
-            .alert(item: $controller.presentedError) { error in
-                Alert(
-                    title: Text(error.title),
-                    message: Text(error.message),
-                    dismissButton: .default(Text("OK"))
-                )
+            }
+            .applicationMessage(controller.presentedError.map {
+                ApplicationMessageDescriptor(title: $0.title, message: $0.message)
+            }) {
+                controller.presentedError = nil
+            }
+            .applicationMessage(projectWindowSaveCoordinator.presentedError.map {
+                ApplicationMessageDescriptor(title: $0.title, message: $0.message)
+            }) {
+                projectWindowSaveCoordinator.presentedError = nil
             }
     }
 
-    private func finishCaptionFinalizationReport() {
-        guard let cueID = captionFinalizationFocusTarget else { return }
-        captionFinalizationFocusTarget = nil
-        controller.revealCaptionFinalizationIssue(cueID)
+    private func presentCaptionFinalizationReport(_ report: CaptionFinalizationReport) {
+        let sessionID = CaptionFinalizationWindowRegistry.shared.register(
+            report: report,
+            reveal: { [weak controller, weak projectWindowSaveCoordinator] cueID in
+                projectWindowSaveCoordinator?.attachedWindow?.makeKeyAndOrderFront(nil)
+                controller?.revealCaptionFinalizationIssue(cueID)
+            }
+        )
+        controller.dismissCaptionFinalizationReport()
+        openWindow(id: "caption-finalization", value: sessionID)
     }
 
     private var progressEditor: some View {
@@ -241,16 +228,14 @@ struct EditorWorkspaceView: View {
                 project: controller.project,
                 request: request,
                 add: addTransitions,
-                cancel: dismissStandardTransition,
-                nativeModalActions: transitionActions
+                cancel: dismissStandardTransition
             )
         } else {
             QuickTransitionView(
                 project: controller.project,
                 request: request,
                 add: addTransitions,
-                finished: dismissQuickTransition,
-                nativeModalActions: transitionActions
+                finished: dismissQuickTransition
             )
         }
     }
@@ -480,14 +465,6 @@ struct ProjectViewerView: View {
         .onChange(of: viewModel.isPreparing) { _, preparing in
             preparationChanged(preparing)
         }
-        .alert(item: Binding(
-            get: { viewModel.presentedPreviewFailure },
-            set: { failure in
-                if failure == nil { viewModel.dismissPreviewFailure() }
-            }
-        )) { failure in
-            previewFailureAlert(failure)
-        }
     }
 
     private func prepare() {
@@ -532,36 +509,6 @@ struct ProjectViewerView: View {
         }
     }
 
-    private func previewFailureAlert(_ failure: ProjectPreviewFailure) -> Alert {
-        if let transitionID = failure.transitionID {
-            return Alert(
-                title: Text(failure.title),
-                message: Text(failure.message),
-                primaryButton: .destructive(Text("Remove Transition")) {
-                    viewModel.dismissPreviewFailure()
-                    controller.deleteTransition(id: transitionID)
-                    controller.requestEditorFocusRestore()
-                },
-                secondaryButton: .cancel(Text("Dismiss")) {
-                    viewModel.dismissPreviewFailure()
-                    controller.requestEditorFocusRestore()
-                }
-            )
-        }
-        return Alert(
-            title: Text(failure.title),
-            message: Text(failure.message),
-            primaryButton: .default(Text("Retry")) {
-                viewModel.dismissPreviewFailure()
-                prepare()
-            },
-            secondaryButton: .cancel(Text("Dismiss")) {
-                viewModel.dismissPreviewFailure()
-                controller.requestEditorFocusRestore()
-            }
-        )
-    }
-
     private var videoArea: some View {
         ZStack {
             Color.black
@@ -585,6 +532,8 @@ struct ProjectViewerView: View {
                 EmptyView()
             } else if viewModel.preparationWasCancelled {
                 Button("Retry Project Preview", action: prepare)
+            } else if let failure = viewModel.presentedPreviewFailure {
+                previewFailureView(failure)
             } else if viewModel.errorMessage != nil {
                 VStack(spacing: 12) {
                     Text("Project preview unavailable")
@@ -601,6 +550,35 @@ struct ProjectViewerView: View {
                 .frame(height: 1)
                 .accessibilityHidden(true)
         }
+    }
+
+    private func previewFailureView(_ failure: ProjectPreviewFailure) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(failure.title)
+                .font(.headline)
+            Text(failure.message)
+                .textSelection(.enabled)
+            HStack {
+                if let transitionID = failure.transitionID {
+                    Button("Remove Transition", role: .destructive) {
+                        viewModel.dismissPreviewFailure()
+                        controller.deleteTransition(id: transitionID)
+                        controller.requestEditorFocusRestore()
+                    }
+                } else {
+                    Button("Retry") {
+                        viewModel.dismissPreviewFailure()
+                        prepare()
+                    }
+                }
+                Button("Dismiss") {
+                    viewModel.dismissPreviewFailure()
+                    controller.requestEditorFocusRestore()
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: 480)
     }
 
     private var controlsArea: some View {

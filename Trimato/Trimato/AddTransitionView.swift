@@ -5,7 +5,6 @@ struct AddTransitionView: View {
     let request: TransitionRequest
     let add: ([TimelineTransition]) -> Void
     let cancel: () -> Void
-    let nativeModalActions: NativeModalActionRegistration
 
     @State private var addIntro = false
     @State private var addOutro = false
@@ -20,15 +19,6 @@ struct AddTransitionView: View {
     @State private var presentedError: TransitionPresentedError?
 
     var body: some View {
-        form
-        .alert(presentedError?.title ?? "Transition error", isPresented: errorIsPresented) {
-            Button("OK") { presentedError = nil }
-        } message: {
-            Text(presentedError?.message ?? "Trimato could not apply the transition.")
-        }
-    }
-
-    private var form: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Transition")
                 .font(.headline)
@@ -44,14 +34,21 @@ struct AddTransitionView: View {
                 if addOutro { transitionControls(edge: .outro) }
             }
 
+            if let presentedError {
+                Text(presentedError.message)
+                    .foregroundStyle(.red)
+            }
+
+            NativeModalActions(
+                primaryTitle: "Add",
+                primaryEnabled: addIntro || addOutro,
+                cancel: cancel,
+                primary: apply
+            )
+
         }
         .padding(20)
         .frame(width: 440)
-        .nativeModalPrimaryAction(
-            nativeModalActions,
-            enabled: addIntro || addOutro,
-            action: apply
-        )
     }
 
     private var applicationName: String {
@@ -60,15 +57,6 @@ struct AddTransitionView: View {
         return "Transitions"
     }
 
-
-    private var errorIsPresented: Binding<Bool> {
-        Binding(
-            get: { presentedError != nil },
-            set: { presented in
-                if !presented { presentedError = nil }
-            }
-        )
-    }
 
     private var introTransitionName: String {
         track?.kind == .video ? introVideoType.title : introAudioType.title

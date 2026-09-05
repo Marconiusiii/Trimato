@@ -129,23 +129,24 @@ struct MediaCacheSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.refresh()
         }
-        .alert(item: $confirmation) { confirmation in
-            Alert(
-                title: Text(confirmation.title),
-                message: Text(confirmation.message),
-                primaryButton: .destructive(Text(confirmation.actionTitle)) {
-                    model.clear(confirmation.scope)
-                },
-                secondaryButton: .cancel()
-            )
+        .sheet(item: $confirmation) { confirmation in
+            ConfirmationView(
+                title: confirmation.title,
+                message: confirmation.message,
+                confirmTitle: confirmation.actionTitle,
+                cancel: { self.confirmation = nil }
+            ) {
+                self.confirmation = nil
+                model.clear(confirmation.scope)
+            }
         }
-        .alert("Playback proxy storage could not be changed", isPresented: Binding(
-            get: { model.errorMessage != nil },
-            set: { presented in if !presented { model.errorMessage = nil } }
-        )) {
-            Button("OK") { model.errorMessage = nil }
-        } message: {
-            Text(model.errorMessage ?? "Playback proxy storage could not be changed.")
+        .applicationMessage(model.errorMessage.map {
+            ApplicationMessageDescriptor(
+                title: "Playback Proxy Storage Could Not Be Changed",
+                message: $0
+            )
+        }) {
+            model.errorMessage = nil
         }
     }
 

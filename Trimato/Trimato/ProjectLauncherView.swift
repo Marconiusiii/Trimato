@@ -37,12 +37,10 @@ struct ProjectLauncherView: View {
         .onReceive(NotificationCenter.default.publisher(for: .trimatoProjectDidOpen)) { _ in
             closeLauncher()
         }
-        .alert(item: $presentedError) { error in
-            Alert(
-                title: Text(error.title),
-                message: Text(error.message),
-                dismissButton: .default(Text("OK"))
-            )
+        .applicationMessage(presentedError.map {
+            ApplicationMessageDescriptor(title: $0.title, message: $0.message)
+        }) {
+            presentedError = nil
         }
     }
 

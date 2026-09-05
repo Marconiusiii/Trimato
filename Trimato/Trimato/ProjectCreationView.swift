@@ -184,7 +184,9 @@ struct ProjectCreationView: View {
     let heading: String
     let finish: (ProjectSettingsValues) -> Void
     let submitHandlerReady: ((@escaping () -> Void) -> Void)?
-    let nativeModalActions: NativeModalActionRegistration?
+    let primaryTitle: String?
+    let cancel: (() -> Void)?
+    let externalError: String?
 
     @State private var name: String
     @State private var mode: ProjectFormatMode
@@ -208,12 +210,16 @@ struct ProjectCreationView: View {
         heading: String,
         finish: @escaping (ProjectSettingsValues) -> Void,
         submitHandlerReady: ((@escaping () -> Void) -> Void)? = nil,
-        nativeModalActions: NativeModalActionRegistration? = nil
+        primaryTitle: String? = nil,
+        cancel: (() -> Void)? = nil,
+        externalError: String? = nil
     ) {
         self.heading = heading
         self.finish = finish
         self.submitHandlerReady = submitHandlerReady
-        self.nativeModalActions = nativeModalActions
+        self.primaryTitle = primaryTitle
+        self.cancel = cancel
+        self.externalError = externalError
         let project = initialProject
         _name = State(initialValue: project.name)
         _mode = State(initialValue: project.format.mode)
@@ -245,6 +251,16 @@ struct ProjectCreationView: View {
                 .font(.title2)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($headingFocused)
+
+            if let externalError {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Project Could Not Be Created")
+                        .font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(externalError)
+                }
+                .accessibilityFocused($validationErrorFocused)
+            }
 
             Form {
                 TextField("Project Name", text: $name)
@@ -297,6 +313,14 @@ struct ProjectCreationView: View {
                 }
             }
 
+            if let primaryTitle, let cancel {
+                NativeModalActions(
+                    primaryTitle: primaryTitle,
+                    cancel: cancel,
+                    primary: submit
+                )
+            }
+
         }
         .padding(24)
         .frame(width: 480)
@@ -304,7 +328,9 @@ struct ProjectCreationView: View {
             submitHandlerReady?(submit)
             headingFocused = true
         }
-        .nativeModalPrimaryAction(nativeModalActions, action: submit)
+        .onChange(of: externalError) { _, message in
+            if message != nil { validationErrorFocused = true }
+        }
     }
 
     private var resolvedWidth: Int {

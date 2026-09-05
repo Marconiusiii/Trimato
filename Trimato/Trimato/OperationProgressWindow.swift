@@ -1,7 +1,7 @@
 import AppKit
+import Combine
 import SwiftUI
 
-/// Speech is independent of the focused control. A new operation owns a fresh ledger.
 nonisolated struct OperationProgressAnnouncements {
     private(set) var milestone = -1
     private(set) var finished = false
@@ -15,27 +15,36 @@ nonisolated struct OperationProgressAnnouncements {
             return "\(title)."
         }
         determinate = true
-        // Rendering can finish before validation and installation. Only finish() says 100%.
         let next = min(90, Int(min(max(progress, 0), 1) * 10) * 10)
         guard next > milestone else { return nil }
         milestone = next
         return "\(title), \(next) percent."
     }
 
-    mutating func finish(title: String, outcome: OperationProgressOutcome, announceCompletion: Bool = true) -> String? {
+    mutating func finish(
+        title: String,
+        outcome: OperationProgressOutcome,
+        announceCompletion: Bool = true
+    ) -> String? {
         guard !finished else { return nil }
         finished = true
         switch outcome {
         case .completed:
             guard announceCompletion else { return nil }
             return determinate ? "\(title), 100 percent, complete." : "\(title), complete."
-        case .cancelled: return "\(title), cancelled."
-        case .failed: return "\(title), failed."
+        case .cancelled:
+            return "\(title), cancelled."
+        case .failed:
+            return "\(title), failed."
         }
     }
 }
 
-nonisolated enum OperationProgressOutcome { case completed, cancelled, failed }
+nonisolated enum OperationProgressOutcome: Equatable {
+    case completed
+    case cancelled
+    case failed
+}
 
 struct OperationProgress {
     let title: String
@@ -45,6 +54,16 @@ struct OperationProgress {
     var announceCompletion = true
 }
 
+private struct OperationProgressSnapshot: Equatable {
+    let title: String?
+    let progress: Double?
+    let detail: String?
+    let canCancel: Bool
+    let announceCompletion: Bool
+    let outcome: OperationProgressOutcome
+    let completionPending: Bool
+}
+
 extension View {
     func operationProgress(
         _ operation: OperationProgress?,
@@ -52,249 +71,229 @@ extension View {
         completionPending: Bool = false,
         dismissed: @escaping () -> Void = {}
     ) -> some View {
-        background(OperationProgressBridge(operation: operation, outcome: outcome, completionPending: completionPending, dismissed: dismissed))
+        modifier(OperationProgressPresenter(
+            operation: operation,
+            outcome: outcome,
+            completionPending: completionPending,
+            dismissed: dismissed
+        ))
     }
 }
 
-private struct OperationProgressContent: View {
-    let operation: OperationProgress
-    @AccessibilityFocusState private var headingFocused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(operation.title)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($headingFocused)
-            if let detail = operation.detail { Text(detail) }
-            if let progress = operation.progress, progress.isFinite {
-                ProgressView(value: min(max(progress, 0), 1), total: 1)
-                    .accessibilityLabel(operation.title)
-            } else {
-                ProgressView(operation.title)
-            }
-            if let cancel = operation.cancel {
-                Button("Cancel", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
-            }
-        }
-        .padding(24)
-        .frame(width: 400)
-        .fixedSize(horizontal: false, vertical: true)
-        .task {
-            await Task.yield()
-            headingFocused = true
-        }
-    }
-}
-
-/// A document-modal NSPanel is a separate window, never an overlay in the editor.
-/// If a configuration sheet is closing, wait for its native end-sheet notification.
-struct OperationProgressBridge: NSViewRepresentable {
+private struct OperationProgressPresenter: ViewModifier {
     let operation: OperationProgress?
     let outcome: OperationProgressOutcome
     let completionPending: Bool
     let dismissed: () -> Void
 
-    func makeNSView(context: Context) -> ProgressAnchor {
-        let view = ProgressAnchor()
-        view.owner = context.coordinator
-        view.setAccessibilityElement(false)
-        return view
+    @Environment(\.openWindow) private var openWindow
+    @State private var sessionID: UUID?
+
+    private var snapshot: OperationProgressSnapshot {
+        OperationProgressSnapshot(
+            title: operation?.title,
+            progress: operation?.progress,
+            detail: operation?.detail,
+            canCancel: operation?.cancel != nil,
+            announceCompletion: operation?.announceCompletion ?? true,
+            outcome: outcome,
+            completionPending: completionPending
+        )
     }
 
-    func updateNSView(_ view: ProgressAnchor, context: Context) {
-        context.coordinator.update(operation, outcome: outcome, completionPending: completionPending, dismissed: dismissed, parent: view.window)
-    }
-
-    static func dismantleNSView(_ view: ProgressAnchor, coordinator: Coordinator) {
-        coordinator.invalidate()
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    final class ProgressAnchor: NSView {
-        weak var owner: Coordinator?
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            owner?.attach(window)
+    func body(content: Content) -> some View {
+        content.onChange(of: snapshot, initial: true) { _, _ in
+            synchronize()
         }
     }
 
-    @MainActor final class Coordinator {
-        private weak var parent: NSWindow?
-        private var panel: NSPanel?
-        private var hosting: NSHostingController<OperationProgressContent>?
-        private var pending: OperationProgress?
-        private var activeTitle: String?
-        private var announceCompletion = true
-        private var activeDetail: String?
-        private var announcements = OperationProgressAnnouncements()
-        private var observers: [NSObjectProtocol] = []
-        private var cancelled = false
-        private var presentationTask: Task<Void, Never>?
-        private var dismissalTask: Task<Void, Never>?
-        private var sheetEndAction: (() -> Void)?
-
-        var hasScheduledPresentation: Bool { presentationTask != nil }
-        var hasScheduledDismissal: Bool { dismissalTask != nil }
-
-        func attach(_ parent: NSWindow?) {
-            guard self.parent !== parent else { schedulePresentation(); return }
-            observers.forEach(NotificationCenter.default.removeObserver)
-            observers.removeAll()
-            self.parent = parent
-            if let parent {
-                for name in [NSWindow.didEndSheetNotification, NSWindow.didBecomeKeyNotification] {
-                    observers.append(NotificationCenter.default.addObserver(
-                        forName: name, object: parent, queue: .main
-                    ) { [weak self] _ in
-                        // Recheck ownership after native sheet dismissal or activation.
-                        Task { @MainActor [weak self] in
-                            if name == NSWindow.didEndSheetNotification { self?.finishSheetDismissal() }
-                            self?.schedulePresentation()
-                        }
-                    })
-                }
+    private func synchronize() {
+        if let operation {
+            if let sessionID,
+               let session = OperationProgressWindowRegistry.shared.session(id: sessionID) {
+                session.update(operation)
+            } else {
+                let sessionID = OperationProgressWindowRegistry.shared.register(operation)
+                self.sessionID = sessionID
+                openWindow(id: "operation-progress", value: sessionID)
             }
-            schedulePresentation()
+            return
         }
 
-        func update(_ operation: OperationProgress?, outcome: OperationProgressOutcome, completionPending: Bool,
-                    dismissed: @escaping () -> Void, parent: NSWindow?) {
-            pending = operation
-            guard let operation else {
-                attach(parent)
-                guard let title = activeTitle else {
-                    if completionPending { Task { @MainActor in dismissed() } }
-                    return
-                }
-                activeTitle = nil
-                let shouldAnnounce = ownsInteraction
-                let message = shouldAnnounce
-                    ? announcements.finish(title: title, outcome: cancelled ? .cancelled : outcome,
-                                           announceCompletion: announceCompletion)
-                    : nil
-                if panel != nil {
-                    sheetEndAction = { [weak self] in
-                        self?.speak(message)
-                        dismissed()
-                    }
-                    scheduleDismissal()
-                } else {
-                    if shouldAnnounce { speak(message) }
-                    Task { @MainActor in dismissed() }
-                }
-                return
+        guard !completionPending, let sessionID,
+              let session = OperationProgressWindowRegistry.shared.session(id: sessionID) else { return }
+        self.sessionID = nil
+        session.finish(outcome: outcome, dismissed: dismissed)
+    }
+}
+
+@MainActor
+final class OperationProgressWindowSession: ObservableObject, Identifiable {
+    let id = UUID()
+    @Published private(set) var title: String
+    @Published private(set) var progress: Double?
+    @Published private(set) var detail: String?
+    @Published private(set) var isFinished = false
+    @Published private(set) var outcome = OperationProgressOutcome.completed
+
+    private var cancelAction: (() -> Void)?
+    private var dismissedAction: (() -> Void)?
+    private var announceCompletion: Bool
+    private var announcements = OperationProgressAnnouncements()
+    private var wasCancelled = false
+    private let postsAnnouncements: Bool
+
+    init(operation: OperationProgress, postsAnnouncements: Bool = true) {
+        title = operation.title
+        progress = operation.progress
+        detail = operation.detail
+        cancelAction = operation.cancel
+        announceCompletion = operation.announceCompletion
+        self.postsAnnouncements = postsAnnouncements
+        speak(announcements.update(title: operation.title, progress: operation.progress))
+    }
+
+    var canCancel: Bool {
+        cancelAction != nil && !wasCancelled && !isFinished
+    }
+
+    func update(_ operation: OperationProgress) {
+        let detailChanged = detail != operation.detail
+        title = operation.title
+        progress = operation.progress
+        detail = operation.detail
+        cancelAction = operation.cancel
+        announceCompletion = operation.announceCompletion
+        if detailChanged, let detail = operation.detail {
+            speak(detail)
+        }
+        speak(announcements.update(title: operation.title, progress: operation.progress))
+    }
+
+    func cancel() {
+        guard canCancel else { return }
+        wasCancelled = true
+        objectWillChange.send()
+        cancelAction?()
+    }
+
+    func finish(outcome: OperationProgressOutcome, dismissed: @escaping () -> Void) {
+        guard !isFinished else { return }
+        self.outcome = wasCancelled ? .cancelled : outcome
+        dismissedAction = dismissed
+        isFinished = true
+        speak(announcements.finish(
+            title: title,
+            outcome: self.outcome,
+            announceCompletion: announceCompletion
+        ))
+    }
+
+    func completeDismissal() {
+        let action = dismissedAction
+        dismissedAction = nil
+        action?()
+    }
+
+    private func speak(_ message: String?) {
+        guard postsAnnouncements, let message, NSApp.isActive, let application = NSApp else { return }
+        NSAccessibility.post(
+            element: application,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.low.rawValue,
+            ]
+        )
+    }
+}
+
+@MainActor
+final class OperationProgressWindowRegistry: ObservableObject {
+    static let shared = OperationProgressWindowRegistry()
+
+    @Published private var sessions: [UUID: OperationProgressWindowSession] = [:]
+
+    func register(_ operation: OperationProgress) -> UUID {
+        let session = OperationProgressWindowSession(operation: operation)
+        sessions[session.id] = session
+        return session.id
+    }
+
+    func session(id: UUID) -> OperationProgressWindowSession? {
+        sessions[id]
+    }
+
+    func remove(id: UUID) {
+        sessions[id] = nil
+    }
+}
+
+struct OperationProgressWindowRoot: View {
+    let sessionID: UUID
+    @ObservedObject private var registry = OperationProgressWindowRegistry.shared
+
+    var body: some View {
+        Group {
+            if let session = registry.session(id: sessionID) {
+                OperationProgressContent(session: session)
+            } else {
+                EmptyView()
             }
-            dismissalTask?.cancel()
-            dismissalTask = nil
-            announceCompletion = operation.announceCompletion
-            if activeTitle == nil {
-                activeTitle = operation.title
-                activeDetail = operation.detail
-                cancelled = false
-                announcements = OperationProgressAnnouncements()
+        }
+    }
+}
+
+private struct OperationProgressContent: View {
+    @ObservedObject var session: OperationProgressWindowSession
+    @Environment(\.dismissWindow) private var dismissWindow
+    @AccessibilityFocusState private var headingFocused: Bool
+    @State private var dismissalScheduled = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(session.title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($headingFocused)
+
+            if let detail = session.detail {
+                Text(detail)
             }
-            if activeDetail != operation.detail {
-                activeDetail = operation.detail
-                announcements = OperationProgressAnnouncements()
-                if ownsInteraction { speak(operation.detail) }
+
+            if let progress = session.progress, progress.isFinite {
+                let bounded = min(max(progress, 0), 1)
+                ProgressView(value: bounded, total: 1)
+                    .accessibilityLabel(session.title)
+                    .accessibilityValue("\(Int((bounded * 100).rounded())) percent")
+            } else {
+                ProgressView()
+                    .accessibilityLabel(session.title)
+                    .accessibilityValue("In progress")
             }
-            attach(parent)
-            schedulePresentation()
-            panel?.title = operation.title
-            hosting?.rootView = OperationProgressContent(operation: displayed(operation))
-            if ownsInteraction { speak(announcements.update(title: operation.title, progress: operation.progress)) }
-        }
 
-        private var ownsInteraction: Bool {
-            panel != nil && NSApp.isActive && (panel?.isKeyWindow == true || parent?.isKeyWindow == true)
-        }
-
-        private func displayed(_ operation: OperationProgress) -> OperationProgress {
-            var result = operation
-            if let cancel = operation.cancel {
-                result.cancel = { [weak self] in
-                    guard let self, !self.cancelled else { return }
-                    self.cancelled = true
-                    cancel()
-                }
-            }
-            return result
-        }
-
-        private func presentIfPossible() {
-            guard panel == nil, let operation = pending, let parent else { return }
-            guard NSApp.isActive, parent.isKeyWindow, parent.attachedSheet == nil else { return }
-            let hosting = NSHostingController(rootView: OperationProgressContent(operation: displayed(operation)))
-            let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 448, height: 180),
-                                styleMask: [.titled], backing: .buffered, defer: false)
-            panel.title = operation.title
-            panel.contentViewController = hosting
-            panel.isReleasedWhenClosed = false
-            self.hosting = hosting
-            self.panel = panel
-            parent.beginSheet(panel)
-            speak(announcements.update(title: operation.title, progress: operation.progress))
-        }
-
-        private func schedulePresentation() {
-            guard presentationTask == nil else { return }
-            presentationTask = Task { @MainActor [weak self] in
-                await Task.yield()
-                guard let self else { return }
-                self.presentationTask = nil
-                self.presentIfPossible()
+            if session.canCancel {
+                Button("Cancel", action: session.cancel)
+                    .keyboardShortcut(.cancelAction)
             }
         }
-
-        @discardableResult
-        func scheduleDismissal() -> Task<Void, Never> {
-            if let dismissalTask { return dismissalTask }
-            let task = Task { @MainActor [weak self] in
-                await Task.yield()
-                guard let self, !Task.isCancelled else { return }
-                self.dismissalTask = nil
-                self.closePanel()
+        .padding(24)
+        .frame(width: 400)
+        .fixedSize(horizontal: false, vertical: true)
+        .navigationTitle(session.title)
+        .task {
+            await Task.yield()
+            headingFocused = true
+        }
+        .onChange(of: session.isFinished, initial: true) { _, finished in
+            guard finished, !dismissalScheduled else { return }
+            dismissalScheduled = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(250))
+                session.completeDismissal()
+                OperationProgressWindowRegistry.shared.remove(id: session.id)
+                dismissWindow(id: "operation-progress", value: session.id)
             }
-            dismissalTask = task
-            return task
-        }
-
-        private func closePanel() {
-            guard let panel else { return }
-            let sheetParent = panel.sheetParent
-            sheetParent?.endSheet(panel)
-            panel.orderOut(nil)
-            self.panel = nil
-            hosting = nil
-            if sheetParent == nil { finishSheetDismissal() }
-        }
-
-        private func finishSheetDismissal() {
-            let action = sheetEndAction
-            sheetEndAction = nil
-            action?()
-        }
-
-        func invalidate() {
-            presentationTask?.cancel()
-            presentationTask = nil
-            dismissalTask?.cancel()
-            dismissalTask = nil
-            sheetEndAction = nil
-            pending = nil
-            activeTitle = nil
-            closePanel()
-            observers.forEach(NotificationCenter.default.removeObserver)
-            observers.removeAll()
-        }
-
-        private func speak(_ message: String?) {
-            guard let message, let application = NSApp else { return }
-            NSAccessibility.post(element: application, notification: .announcementRequested,
-                                 userInfo: [.announcement: message,
-                                            .priority: NSAccessibilityPriorityLevel.low.rawValue])
         }
     }
 }

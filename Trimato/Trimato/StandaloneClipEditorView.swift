@@ -145,21 +145,15 @@ struct StandaloneClipEditorView: View {
                 commandContext.createProject()
             }
         }
-        .alert("Clip Could Not Be Opened", isPresented: Binding(
-            get: { viewModel.mediaOpenErrorMessage != nil },
-            set: { if !$0 { viewModel.dismissMediaOpenError() } }
-        )) {
-            Button("OK") { viewModel.dismissMediaOpenError() }
-        } message: {
-            Text(viewModel.mediaOpenErrorMessage ?? "Trimato could not open the selected clip.")
+        .applicationMessage(viewModel.mediaOpenErrorMessage.map {
+            ApplicationMessageDescriptor(title: "Clip Could Not Be Opened", message: $0)
+        }) {
+            viewModel.dismissMediaOpenError()
         }
-        .alert("Project Could Not Be Created", isPresented: Binding(
-            get: { commandContext.creationError != nil },
-            set: { if !$0 { commandContext.creationError = nil } }
-        )) {
-            Button("OK") { commandContext.creationError = nil }
-        } message: {
-            Text(commandContext.creationError ?? "The project could not be created from this clip.")
+        .applicationMessage(commandContext.creationError.map {
+            ApplicationMessageDescriptor(title: "Project Could Not Be Created", message: $0)
+        }) {
+            commandContext.creationError = nil
         }
     }
 

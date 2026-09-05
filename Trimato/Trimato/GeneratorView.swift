@@ -234,13 +234,10 @@ struct GeneratorView: View {
             GeneratorWindowRegistry.shared.sessions.removeValue(forKey: session.id)
             session.controller?.requestEditorFocusRestore()
         }
-        .alert("Generator Could Not Be Prepared", isPresented: Binding(
-            get: { session.errorMessage != nil },
-            set: { if !$0 { session.errorMessage = nil } }
-        )) {
-            Button("OK") { session.errorMessage = nil }
-        } message: {
-            Text(session.errorMessage ?? "")
+        .applicationMessage(session.errorMessage.map {
+            ApplicationMessageDescriptor(title: "Generator Could Not Be Prepared", message: $0)
+        }) {
+            session.errorMessage = nil
         }
     }
 

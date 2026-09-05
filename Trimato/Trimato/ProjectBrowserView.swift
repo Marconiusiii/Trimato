@@ -42,13 +42,11 @@ struct ProjectBrowserView: View {
     @State private var folderBeingRenamed: ProjectFolder?
     @State private var renamedFolderName = ""
     @State private var assetPendingDeletion: MediaAssetRecord?
+    @State private var cancelledDeletionFocusID: UUID?
     @State private var sourceFocusRequest = ProjectSourceFocusRequest()
     @State private var newTrackRequest: NewTrackFromSourceRequest?
     @State private var newTrackSourceFocusTarget: ProjectSourceItemID?
     @State private var newTrackTimelineFocusTarget: TimelineElementSelection?
-    @StateObject private var newFolderActions = NativeModalActionRegistration()
-    @StateObject private var renameFolderActions = NativeModalActionRegistration()
-    @StateObject private var newTrackActions = NativeModalActionRegistration()
 
     init(
         controller: ProjectController,
@@ -109,51 +107,31 @@ struct ProjectBrowserView: View {
             .padding(8)
             .background(.bar)
         }
-        .background(NativeModalSheetPresenter(
-            isPresented: showingNewFolder,
-            title: "New Project Folder",
-            primaryTitle: "Create",
-            registration: newFolderActions,
-            cancel: { showingNewFolder = false }
-        ) {
+        .sheet(isPresented: $showingNewFolder) {
             folderEditor(
                 title: "New Project Folder",
                 fieldValue: $folderName,
-                registration: newFolderActions
+                primaryTitle: "Create",
+                cancel: { showingNewFolder = false }
             ) {
                 controller.createFolder(named: folderName)
                 folderName = ""
                 showingNewFolder = false
             }
-        })
-        .background(NativeModalSheetPresenter(
-            isPresented: folderBeingRenamed != nil,
-            title: "Rename Project Folder",
-            primaryTitle: "Rename",
-            registration: renameFolderActions,
-            cancel: { folderBeingRenamed = nil }
-        ) {
-            if let folder = folderBeingRenamed {
-                folderEditor(
-                    title: "Rename Project Folder",
-                    fieldValue: $renamedFolderName,
-                    registration: renameFolderActions
-                ) {
-                    controller.renameFolder(folder.id, to: renamedFolderName)
-                    folderBeingRenamed = nil
-                }
+        }
+        .sheet(item: $folderBeingRenamed) { folder in
+            folderEditor(
+                title: "Rename Project Folder",
+                fieldValue: $renamedFolderName,
+                primaryTitle: "Rename",
+                cancel: { folderBeingRenamed = nil }
+            ) {
+                controller.renameFolder(folder.id, to: renamedFolderName)
+                folderBeingRenamed = nil
             }
-        })
-        .background(NativeModalSheetPresenter(
-            isPresented: newTrackRequest != nil,
-            title: newTrackRequest?.kind.heading ?? "New Track",
-            primaryTitle: "Create Track",
-            registration: newTrackActions,
-            cancel: { newTrackRequest = nil },
-            dismissed: newTrackSheetDismissed
-        ) {
-            if let request = newTrackRequest,
-               let asset = controller.project.asset(id: request.assetID) {
+        }
+        .sheet(item: $newTrackRequest, onDismiss: newTrackSheetDismissed) { request in
+            if let asset = controller.project.asset(id: request.assetID) {
                 NewTrackFromSourceView(
                     kind: request.kind,
                     suggestedTrackName: request.kind.suggestedTrackName(
@@ -164,16 +142,21 @@ struct ProjectBrowserView: View {
                     create: { name in
                         createNewTrackFromSource(request, asset: asset, name: name)
                     },
-                    close: { newTrackRequest = nil },
-                    nativeModalActions: newTrackActions
+                    close: { newTrackRequest = nil }
                 )
             }
-        })
-        .alert(ProjectSourceDeletionConfirmation.title, isPresented: deleteAssetConfirmationPresented) {
-            Button("Cancel", role: .cancel) { cancelAssetDeletion() }
-            Button("Delete Source Clip", role: .destructive) { confirmAssetDeletion() }
-        } message: {
-            Text(deleteAssetConfirmationMessage)
+        }
+        .sheet(item: $assetPendingDeletion, onDismiss: restoreCancelledDeletionFocus) { asset in
+            ConfirmationView(
+                title: ProjectSourceDeletionConfirmation.title,
+                message: ProjectSourceDeletionConfirmation.message(
+                    clipName: asset.name,
+                    timelineUseCount: controller.project.sourceAssetTimelineUseCount(asset.id)
+                ),
+                confirmTitle: "Delete Source Clip",
+                cancel: cancelAssetDeletion,
+                confirm: confirmAssetDeletion
+            )
         }
     }
 
@@ -263,35 +246,24 @@ struct ProjectBrowserView: View {
         guard let asset = controller.project.asset(id: assetID) else { return }
         sourceSelection = .asset(assetID)
         controller.selection = .asset(assetID)
+        cancelledDeletionFocusID = assetID
         assetPendingDeletion = asset
     }
 
-    private var deleteAssetConfirmationPresented: Binding<Bool> {
-        Binding(
-            get: { assetPendingDeletion != nil },
-            set: { presented in
-                if !presented, assetPendingDeletion != nil { cancelAssetDeletion() }
-            }
-        )
-    }
-
-    private var deleteAssetConfirmationMessage: String {
-        guard let asset = assetPendingDeletion else { return "Remove this clip from Project Source?" }
-        return ProjectSourceDeletionConfirmation.message(
-            clipName: asset.name,
-            timelineUseCount: controller.project.sourceAssetTimelineUseCount(asset.id)
-        )
-    }
-
     private func cancelAssetDeletion() {
-        guard let asset = assetPendingDeletion else { return }
         assetPendingDeletion = nil
-        requestSourceFocus(.asset(asset.id))
+    }
+
+    private func restoreCancelledDeletionFocus() {
+        guard let id = cancelledDeletionFocusID else { return }
+        cancelledDeletionFocusID = nil
+        requestSourceFocus(.asset(id))
     }
 
     private func confirmAssetDeletion() {
         guard let asset = assetPendingDeletion else { return }
         let target = ProjectSourceItem.deletionFocus(afterDeleting: asset.id, in: controller.project)
+        cancelledDeletionFocusID = nil
         assetPendingDeletion = nil
         sourceSelection = target
         controller.deleteSourceAsset(asset.id)
@@ -351,7 +323,8 @@ struct ProjectBrowserView: View {
     private func folderEditor(
         title: String,
         fieldValue: Binding<String>,
-        registration: NativeModalActionRegistration,
+        primaryTitle: String,
+        cancel: @escaping () -> Void,
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -361,10 +334,15 @@ struct ProjectBrowserView: View {
                 TextField("Folder Name", text: fieldValue)
                     .labelsHidden()
             }
+            NativeModalActions(
+                primaryTitle: primaryTitle,
+                primaryEnabled: !fieldValue.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                cancel: cancel,
+                primary: action
+            )
         }
         .padding(20)
         .frame(width: 360)
-        .nativeModalPrimaryAction(registration, action: action)
     }
 
     private func beginRenamingFolder(_ id: UUID) {

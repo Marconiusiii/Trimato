@@ -9,15 +9,13 @@ struct TransitionEditorView: View {
     let update: (TimelineTransition) -> Void
     let delete: () -> Void
     let cancel: () -> Void
-    let nativeModalActions: NativeModalActionRegistration
 
     init(
         transition: TimelineTransition,
         contextDescription: String? = nil,
         update: @escaping (TimelineTransition) -> Void,
         delete: @escaping () -> Void,
-        cancel: @escaping () -> Void,
-        nativeModalActions: NativeModalActionRegistration
+        cancel: @escaping () -> Void
     ) {
         _draft = State(initialValue: transition)
         _transitionName = State(initialValue: transition.displayName)
@@ -26,7 +24,6 @@ struct TransitionEditorView: View {
         self.update = update
         self.delete = delete
         self.cancel = cancel
-        self.nativeModalActions = nativeModalActions
     }
 
     var body: some View {
@@ -49,18 +46,20 @@ struct TransitionEditorView: View {
             }
 
             Button("Delete Transition", role: .destructive, action: delete)
+
+            if let validationMessage {
+                Text(validationMessage)
+                    .foregroundStyle(.red)
+            }
+
+            NativeModalActions(
+                primaryTitle: "Update Transition",
+                cancel: cancel,
+                primary: applyUpdate
+            )
         }
         .padding(20)
         .frame(width: 430)
-        .alert("Transition Could Not Be Updated", isPresented: Binding(
-            get: { validationMessage != nil },
-            set: { if !$0 { validationMessage = nil } }
-        )) {
-            Button("OK") { validationMessage = nil }
-        } message: {
-            Text(validationMessage ?? "The transition could not be updated.")
-        }
-        .nativeModalPrimaryAction(nativeModalActions, action: applyUpdate)
     }
 
     @ViewBuilder

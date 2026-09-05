@@ -101,15 +101,10 @@ struct ContentView: View {
         .operationProgress(viewModel.isExporting ? OperationProgress(
             title: "Exporting Clip", progress: viewModel.exportProgress, cancel: viewModel.cancelExport
         ) : nil, outcome: viewModel.exportErrorMessage == nil ? .completed : .failed)
-        .alert("Clip Could Not Be Exported", isPresented: Binding(
-            get: { viewModel.exportErrorMessage != nil },
-            set: { presented in
-                if !presented { viewModel.dismissExportError() }
-            }
-        )) {
-            Button("OK") { viewModel.dismissExportError() }
-        } message: {
-            Text(viewModel.exportErrorMessage ?? "Trimato could not create the selected file.")
+        .applicationMessage(viewModel.exportErrorMessage.map {
+            ApplicationMessageDescriptor(title: "Clip Could Not Be Exported", message: $0)
+        }) {
+            viewModel.dismissExportError()
         }
         .onDisappear {
             viewModel.closeMedia()

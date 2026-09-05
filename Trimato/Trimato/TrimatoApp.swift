@@ -246,6 +246,40 @@ struct TrimatoApp: App {
         .windowResizability(.contentSize)
         .commandsRemoved()
 
+        WindowGroup("Finalize Captions", id: "caption-finalization", for: UUID.self) { $sessionID in
+            if let sessionID {
+                CaptionFinalizationWindowRoot(sessionID: sessionID)
+            }
+        }
+        .defaultSize(width: 780, height: 460)
+        .windowResizability(.contentMinSize)
+        .commandsRemoved()
+
+        WindowGroup("Caption Editor", id: "caption-editor", for: UUID.self) { $sessionID in
+            if let sessionID {
+                CaptionEditorWindowRoot(sessionID: sessionID)
+            }
+        }
+        .defaultSize(width: 560, height: 390)
+        .windowResizability(.contentSize)
+        .commandsRemoved()
+
+        WindowGroup("Progress", id: "operation-progress", for: UUID.self) { $sessionID in
+            if let sessionID {
+                OperationProgressWindowRoot(sessionID: sessionID)
+            }
+        }
+        .windowResizability(.contentSize)
+        .commandsRemoved()
+
+        WindowGroup("Message", id: "application-message", for: UUID.self) { $sessionID in
+            if let sessionID {
+                ApplicationMessageWindowRoot(sessionID: sessionID)
+            }
+        }
+        .windowResizability(.contentSize)
+        .commandsRemoved()
+
         Settings {
             TrimatoSettingsView()
         }

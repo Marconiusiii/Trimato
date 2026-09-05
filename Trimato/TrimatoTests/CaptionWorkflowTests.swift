@@ -131,39 +131,27 @@ struct CaptionWorkflowTests {
         #expect(video.captionDelivery == .webVTT)
     }
 
-    @Test func captionSheetCanCloseAndOpenAgainOnTheSameProjectWindow() async {
-        let parent = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-
-        await presentAndCloseCaptionSheet(on: parent)
-        #expect(parent.attachedSheet == nil)
-
-        await presentAndCloseCaptionSheet(on: parent)
-        #expect(parent.attachedSheet == nil)
-    }
-
-    private func presentAndCloseCaptionSheet(on parent: NSWindow) async {
-        let caption = CaptionEditorWindowController(
+    @Test func captionWindowSessionCanSaveAndFinishExactlyOnce() {
+        var savedText: String?
+        var finishCount = 0
+        let caption = CaptionEditorWindowSession(
             cue: nil,
             range: ProjectTimeRange(
                 start: ProjectTime(seconds: 1),
                 duration: ProjectTime(seconds: 2)
             ),
-            save: { _ in },
+            save: { savedText = $0 },
             play: {},
-            cancel: {}
+            finished: { finishCount += 1 }
         )
 
-        await withCheckedContinuation { continuation in
-            caption.present(asSheetOf: parent) {
-                continuation.resume()
-            }
-            #expect(parent.attachedSheet === caption.window)
-            caption.closeSheet()
-        }
+        caption.text = "Coffee is ready."
+        caption.save()
+        caption.finishOnce()
+        caption.finishOnce()
+
+        #expect(savedText == "Coffee is ready.")
+        #expect(caption.closeRequested)
+        #expect(finishCount == 1)
     }
 }

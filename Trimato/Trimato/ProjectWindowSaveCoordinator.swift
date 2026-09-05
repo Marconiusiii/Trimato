@@ -23,6 +23,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private var undoManagerHandler: ((UndoManager) -> Void)?
     private var lastProjectWindowWillCloseHandler: (() -> Void)?
     private var isApplicationTerminating = false
+    @Published var presentedError: ProjectPresentedError?
 
     init(projectDocument: ProjectDocument) {
         self.projectDocument = projectDocument
@@ -179,12 +180,10 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     }
 
     private func presentSaveUnavailableError() {
-        guard let window else { return }
-        let alert = NSAlert()
-        alert.messageText = "Project Could Not Be Saved"
-        alert.informativeText = "Trimato could not access the native project document. The project will remain open so your changes are not lost."
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+        presentedError = ProjectPresentedError(
+            title: "Project Could Not Be Saved",
+            message: "Trimato could not access the native project document. The project will remain open so your changes are not lost."
+        )
     }
 
     private func synchronizeNativeDocumentChangeState(_ hasUnsavedChanges: Bool) {

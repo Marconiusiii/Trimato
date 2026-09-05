@@ -54,6 +54,12 @@ enum ClipEditorPlacementCommand: CaseIterable, Identifiable {
     }
 }
 
+enum ClipEditorCloseDecision {
+    case update
+    case discard
+    case cancel
+}
+
 /// AppKit Clip Editor windows live outside a SwiftUI document scene. Publish their
 /// native key-window owner explicitly so the app menu does not depend on a child
 /// popup or a SwiftUI focused value crossing that scene boundary.
@@ -110,6 +116,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     weak var hostWindow: NSWindow?
     @Published var presentedError: ProjectPresentedError?
     @Published var trackPlacementAction: PlacementAction?
+    @Published var closeConfirmationRequested = false
     @Published private(set) var trackPlacementIsAudioOnly = false
     private var draft: ClipEditorDraft
     private var baselineAudioSettings: AudioClipSettings?
@@ -117,6 +124,8 @@ final class ClipPlacementCommandContext: ObservableObject {
     @Published var filters: [ClipFilter] = []
     @Published var effectsReady = true
     private var baselineFilters: [ClipFilter] = []
+    var closeDecisionHandler: ((ClipEditorCloseDecision) -> Void)?
+    private var pendingCloseDecision: ClipEditorCloseDecision?
 
     init(
         controller: ProjectController,
@@ -337,6 +346,21 @@ final class ClipPlacementCommandContext: ObservableObject {
         self.isKeyWindow = isKeyWindow
     }
 
+    func requestCloseConfirmation() {
+        closeConfirmationRequested = true
+    }
+
+    func chooseCloseDecision(_ decision: ClipEditorCloseDecision) {
+        pendingCloseDecision = decision
+        closeConfirmationRequested = false
+    }
+
+    func completeCloseConfirmation() {
+        guard let decision = pendingCloseDecision else { return }
+        pendingCloseDecision = nil
+        closeDecisionHandler?(decision)
+    }
+
     private func presentPlacementError(
         _ placement: PlacementAction,
         trackID: UUID?,
@@ -452,6 +476,9 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         super.init(window: window)
         window.delegate = self
         commandContext.hostWindow = window
+        commandContext.closeDecisionHandler = { [weak self] decision in
+            self?.handleCloseDecision(decision)
+        }
     }
 
     @available(*, unavailable)
@@ -489,35 +516,30 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard !closeWasConfirmed, commandContext.hasUncommittedChanges else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Update Clip Before Closing?"
-        alert.informativeText = "This timeline clip has changes that have not been applied to the project."
-        alert.addButton(withTitle: "Update Clip")
-        alert.addButton(withTitle: "Close without Updating")
-        alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: sender) { [weak self, weak sender] response in
-            guard let self, let sender else { return }
-            switch response {
-            case .alertFirstButtonReturn:
-                guard self.commandContext.performUpdate() else {
-                    let completion = self.pendingCloseCompletion
-                    self.pendingCloseCompletion = nil
-                    completion?(false)
-                    return
-                }
-                self.closeWasConfirmed = true
-                sender.performClose(nil)
-            case .alertSecondButtonReturn:
-                self.closeWasConfirmed = true
-                sender.performClose(nil)
-            default:
-                let completion = self.pendingCloseCompletion
-                self.pendingCloseCompletion = nil
-                completion?(false)
-                break
-            }
-        }
+        commandContext.requestCloseConfirmation()
         return false
+    }
+
+    private func handleCloseDecision(_ decision: ClipEditorCloseDecision) {
+        guard let window else { return }
+        switch decision {
+        case .update:
+            guard commandContext.performUpdate() else {
+                let completion = pendingCloseCompletion
+                pendingCloseCompletion = nil
+                completion?(false)
+                return
+            }
+            closeWasConfirmed = true
+            window.performClose(nil)
+        case .discard:
+            closeWasConfirmed = true
+            window.performClose(nil)
+        case .cancel:
+            let completion = pendingCloseCompletion
+            pendingCloseCompletion = nil
+            completion?(false)
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -553,21 +575,47 @@ private struct ClipEditorWindowView: View {
                   NSApp.modalWindow == nil else { return }
             commandContext.hostWindow?.performClose(nil)
         }
-        .alert(item: Binding(
-            get: {
-                commandContext.trackPlacementAction == nil ? commandContext.presentedError : nil
-            },
-            set: { value in
-                if value == nil { commandContext.presentedError = nil }
-            }
-        )) { error in
-            Alert(
-                title: Text(error.title),
-                message: Text(error.message),
-                dismissButton: .default(Text("OK"))
-            )
+        .sheet(isPresented: $commandContext.closeConfirmationRequested,
+               onDismiss: commandContext.completeCloseConfirmation) {
+            ClipEditorCloseConfirmationView(commandContext: commandContext)
+        }
+        .applicationMessage(
+            commandContext.trackPlacementAction == nil
+                ? commandContext.presentedError.map {
+                    ApplicationMessageDescriptor(title: $0.title, message: $0.message)
+                }
+                : nil
+        ) {
+            commandContext.presentedError = nil
         }
         .frame(minWidth: 740, minHeight: 580)
+    }
+}
+
+private struct ClipEditorCloseConfirmationView: View {
+    @ObservedObject var commandContext: ClipPlacementCommandContext
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Update Clip Before Closing?")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Text("This timeline clip has changes that have not been applied to the project.")
+            HStack {
+                Button("Cancel") { commandContext.chooseCloseDecision(.cancel) }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Close without Updating", role: .destructive) {
+                    commandContext.chooseCloseDecision(.discard)
+                }
+                NativeDefaultButton(title: "Update Clip") {
+                    commandContext.chooseCloseDecision(.update)
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 500)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
