@@ -70,6 +70,18 @@ enum ProjectCompositionError: LocalizedError {
     }
 }
 
+private enum CachedCompositionTrack {
+    case available(AVAssetTrack)
+    case unavailable
+
+    var track: AVAssetTrack? {
+        switch self {
+        case .available(let track): track
+        case .unavailable: nil
+        }
+    }
+}
+
 struct ProjectTransitionRenderError: LocalizedError {
     let transitionID: UUID
     let transitionName: String
@@ -145,6 +157,15 @@ enum ProjectCompositionBuilder {
             : .original
     }
 
+    nonisolated static func requiresPlayabilityInspection(
+        for record: MediaAssetRecord,
+        purpose: ProjectCompositionPurpose
+    ) -> Bool {
+        if purpose == .finalExport { return true }
+        if record.playbackMode == nil { return true }
+        return record.playbackMode == .cachedProxy && record.proxyCacheKey == nil
+    }
+
     static func build(
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
@@ -174,6 +195,9 @@ enum ProjectCompositionBuilder {
             )
         }
         var assets: [UUID: AVURLAsset] = [:]
+        var videoSourceTracks: [UUID: CachedCompositionTrack] = [:]
+        var audioSourceTracks: [UUID: CachedCompositionTrack] = [:]
+        var videoTransforms: [UUID: CGAffineTransform] = [:]
         var temporaryMediaURLs: [URL] = filteredURLs
         var shouldPreserveTemporaryMedia = false
         defer {
@@ -194,7 +218,12 @@ enum ProjectCompositionBuilder {
                 cache: &assets,
                 temporaryMediaURLs: &temporaryMediaURLs
             )
-            guard let video = try await asset.loadTracks(withMediaType: .video).first else {
+            guard let video = try await sourceTrack(
+                for: assetRecord.id,
+                mediaType: .video,
+                asset: asset,
+                cache: &videoSourceTracks
+            ) else {
                 throw ProjectCompositionError.missingVideo(assetRecord.name)
             }
             guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
@@ -205,7 +234,12 @@ enum ProjectCompositionBuilder {
                 )
             }
             guard let cutawayVideo else { throw ProjectCompositionError.cannotCreateTrack }
-            let transform = try await displayTransform(for: video, renderSize: renderSize)
+            let transform = try await cachedDisplayTransform(
+                for: assetRecord.id,
+                track: video,
+                renderSize: renderSize,
+                cache: &videoTransforms
+            )
             var cutawayCursor = cutaway.start
             for segment in cutaway.segments {
                 let range = segment.sourceRange.cmTimeRange
@@ -234,14 +268,29 @@ enum ProjectCompositionBuilder {
                         record, urls: mediaURLs, purpose: purpose, cache: &assets,
                         temporaryMediaURLs: &temporaryMediaURLs
                     )
-                    guard let source = try await asset.loadTracks(withMediaType: .video).first else {
+                    guard let source = try await sourceTrack(
+                        for: record.id,
+                        mediaType: .video,
+                        asset: asset,
+                        cache: &videoSourceTracks
+                    ) else {
                         // Older primary records can describe picture even when the
                         // resolved source contains only audio. Keep that audio usable.
                         if timelineTrack.role == .primaryVideo,
-                           try await !asset.loadTracks(withMediaType: .audio).isEmpty { continue }
+                           try await sourceTrack(
+                               for: record.id,
+                               mediaType: .audio,
+                               asset: asset,
+                               cache: &audioSourceTracks
+                           ) != nil { continue }
                         throw ProjectCompositionError.missingVideo(record.name)
                     }
-                    let transform = try await displayTransform(for: source, renderSize: renderSize)
+                    let transform = try await cachedDisplayTransform(
+                        for: record.id,
+                        track: source,
+                        renderSize: renderSize,
+                        cache: &videoTransforms
+                    )
                     var destination = clip.visibleTimelineStart
                     for segment in clip.visibleSegments {
                         try compositionTrack.insertTimeRange(segment.sourceRange.cmTimeRange, of: source, at: destination.cmTime)
@@ -271,7 +320,12 @@ enum ProjectCompositionBuilder {
                         record, urls: mediaURLs, purpose: purpose, cache: &assets,
                         temporaryMediaURLs: &temporaryMediaURLs
                     )
-                    var source = try await asset.loadTracks(withMediaType: .audio).first
+                    var source = try await sourceTrack(
+                        for: record.id,
+                        mediaType: .audio,
+                        asset: asset,
+                        cache: &audioSourceTracks
+                    )
                     var renderedAudioAsset: AVURLAsset?
                     var usesRenderedAudio = false
                     if !clip.audioSettings.isNeutral, let sourceURL = mediaURLs[clip.assetID] {
@@ -322,8 +376,8 @@ enum ProjectCompositionBuilder {
                         withExtendedLifetime(renderedAudioAsset) {}
                         continue
                     }
+                    let available = try await source.load(.timeRange)
                     for segment in clip.visibleSegments {
-                        let available = try await source.load(.timeRange)
                         let portion = CMTimeRangeGetIntersection(segment.sourceRange.cmTimeRange, otherRange: available)
                         if portion.isValid, !portion.isEmpty {
                             let offset = CMTimeSubtract(portion.start, segment.sourceRange.start.cmTime)
@@ -613,7 +667,9 @@ enum ProjectCompositionBuilder {
             return asset
         }
         var asset = AVURLAsset(url: url)
-        let isPlayable = (try? await asset.load(.isPlayable)) ?? false
+        let isPlayable = requiresPlayabilityInspection(for: record, purpose: purpose)
+            ? ((try? await asset.load(.isPlayable)) ?? false)
+            : true
         if purpose == .finalExport,
            record.playbackMode == .cachedProxy || !isPlayable {
             let intermediateURL = try await ProjectRenderMediaManager.createIntermediate(
@@ -640,6 +696,30 @@ enum ProjectCompositionBuilder {
         }
         cache[record.id] = asset
         return asset
+    }
+
+    private static func sourceTrack(
+        for assetID: UUID,
+        mediaType: AVMediaType,
+        asset: AVURLAsset,
+        cache: inout [UUID: CachedCompositionTrack]
+    ) async throws -> AVAssetTrack? {
+        if let cached = cache[assetID] { return cached.track }
+        let track = try await asset.loadTracks(withMediaType: mediaType).first
+        cache[assetID] = track.map(CachedCompositionTrack.available) ?? .unavailable
+        return track
+    }
+
+    private static func cachedDisplayTransform(
+        for assetID: UUID,
+        track: AVAssetTrack,
+        renderSize: CGSize,
+        cache: inout [UUID: CGAffineTransform]
+    ) async throws -> CGAffineTransform {
+        if let cached = cache[assetID] { return cached }
+        let transform = try await displayTransform(for: track, renderSize: renderSize)
+        cache[assetID] = transform
+        return transform
     }
 
     static func displayTransform(

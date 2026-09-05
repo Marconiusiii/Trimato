@@ -1,13 +1,27 @@
 import AppKit
 import SwiftUI
 
+nonisolated enum ProjectCommandContext {
+    static func resolve<Project>(focused: Project?, active: Project?) -> Project? {
+        focused ?? active
+    }
+}
+
 @main
 struct TrimatoApp: App {
     @NSApplicationDelegateAdaptor(TrimatoApplicationDelegate.self) private var appDelegate
     @FocusedObject private var viewModel: VideoPlayerViewModel?
     @FocusedObject private var projectPlayer: ProjectPlayerViewModel?
     @FocusedObject private var projectController: ProjectController?
+    @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
     @Environment(\.openWindow) private var openWindow
+
+    private var captionProjectController: ProjectController? {
+        ProjectCommandContext.resolve(
+            focused: projectController,
+            active: activeProjects.activeProjectController
+        )
+    }
 
     var body: some Scene {
         Window("Trimato", id: "project-launcher") {
@@ -146,9 +160,13 @@ struct TrimatoApp: App {
             }
             ClipPlacementCommands()
             CommandMenu("Timeline") {
-                Button("New Caption…") { projectController?.requestCaptionEditor() }
+                Button("New Caption…") { captionProjectController?.requestCaptionEditor() }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .disabled(projectController?.canCreateCaption != true)
+                    .disabled(
+                        captionProjectController == nil ||
+                        captionProjectController?.isExporting == true ||
+                        captionProjectController?.isImporting == true
+                    )
                 Button("Finalize Captions") { projectController?.finalizeCaptions() }
                     .disabled(projectController?.canFinalizeCaptions != true)
                 Button("Export Captions…") { projectController?.exportCaptions() }

@@ -14,13 +14,10 @@ nonisolated struct ProjectEditPoint: Equatable, Sendable {
     let time: ProjectTime
     var hasVideo: Bool
     var hasAudio: Bool
-    var hasCaptionStart = false
-    var hasCaptionEnd = false
+    var captionText: String? = nil
 
     var spokenName: String {
-        if hasCaptionStart, hasCaptionEnd { return "Caption boundary" }
-        if hasCaptionStart { return "Caption start" }
-        if hasCaptionEnd { return "Caption end" }
+        if let captionText { return "Caption: \(captionText)" }
         if hasVideo, hasAudio { return "Video and audio edit point" }
         if hasVideo { return "Video edit point" }
         if hasAudio { return "Audio edit point" }
@@ -1184,7 +1181,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             hasAudio: false
         )
 
-        func add(_ time: ProjectTime, kind: TimelineTrackKind, captionEdge: CaptionEdge? = nil) {
+        func add(_ time: ProjectTime, kind: TimelineTrackKind, captionText: String? = nil) {
             var point = points[time] ?? ProjectEditPoint(
                 time: time,
                 hasVideo: false,
@@ -1194,10 +1191,8 @@ final class ProjectPlayerViewModel: ObservableObject {
                 point.hasVideo = true
             } else if kind == .audio {
                 point.hasAudio = true
-            } else if captionEdge == .start {
-                point.hasCaptionStart = true
-            } else if captionEdge == .end {
-                point.hasCaptionEnd = true
+            } else if let captionText {
+                point.captionText = captionText
             }
             points[time] = point
         }
@@ -1213,8 +1208,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 add(clip.visibleTimelineEnd, kind: track.kind)
             }
             for cue in track.captionCues {
-                add(cue.start, kind: .captions, captionEdge: .start)
-                add(cue.end, kind: .captions, captionEdge: .end)
+                add(cue.start, kind: .captions, captionText: cue.text)
             }
         } else {
             var cursor = ProjectTime.zero
@@ -1227,10 +1221,6 @@ final class ProjectPlayerViewModel: ObservableObject {
         return points.values
             .filter { $0.time >= .zero && $0.time <= project.duration }
             .sorted { $0.time < $1.time }
-    }
-
-    private nonisolated enum CaptionEdge {
-        case start, end
     }
 
     nonisolated static func videoEnd(in project: TrimatoProject) -> ProjectTime {

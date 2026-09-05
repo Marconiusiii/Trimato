@@ -355,7 +355,7 @@ struct ProjectPlaybackTests {
         #expect(points.contains { $0.time == ProjectTime(seconds: 15) && $0.hasAudio })
     }
 
-    @Test func captionTrackNavigationNamesCueEdges() throws {
+    @Test func captionTrackNavigationUsesOnlyCueStartsAndIncludesCaptionText() throws {
         var project = TrimatoProject(name: "Captions")
         let trackID = project.createTrack(kind: .captions, name: "Captions")
         let first = CaptionCue(
@@ -372,9 +372,10 @@ struct ProjectPlaybackTests {
 
         let points = ProjectPlayerViewModel.editPoints(in: project, trackID: trackID)
 
-        #expect(points.first { $0.time == ProjectTime(seconds: 1) }?.spokenName == "Caption start")
-        #expect(points.first { $0.time == ProjectTime(seconds: 3) }?.spokenName == "Caption boundary")
-        #expect(points.first { $0.time == ProjectTime(seconds: 5) }?.spokenName == "Caption end")
+        #expect(points.map(\.time) == [0, 1, 3, 5].map { ProjectTime(seconds: Double($0)) })
+        #expect(points.first { $0.time == ProjectTime(seconds: 1) }?.spokenName == "Caption: First caption")
+        #expect(points.first { $0.time == ProjectTime(seconds: 3) }?.spokenName == "Caption: Second caption")
+        #expect(points.first { $0.time == ProjectTime(seconds: 5) }?.spokenName == "Edit point")
     }
 
     @Test func videoEndIgnoresLongerLayeredAudioTracks() throws {

@@ -6,6 +6,30 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct ProjectCompositionTests {
+    @Test func previewTrustsSavedNativePlaybackModes() {
+        var asset = fixtureAsset(name: "Native", duration: 1)
+
+        asset.playbackMode = .nativePassthrough
+        #expect(!ProjectCompositionBuilder.requiresPlayabilityInspection(for: asset, purpose: .preview))
+
+        asset.playbackMode = .nativeMP4Export
+        #expect(!ProjectCompositionBuilder.requiresPlayabilityInspection(for: asset, purpose: .preview))
+
+        asset.playbackMode = nil
+        #expect(ProjectCompositionBuilder.requiresPlayabilityInspection(for: asset, purpose: .preview))
+        #expect(ProjectCompositionBuilder.requiresPlayabilityInspection(for: asset, purpose: .finalExport))
+    }
+
+    @Test func previewInspectsMalformedProxyRecordsWithoutCacheKeys() {
+        var asset = fixtureAsset(name: "Proxy", duration: 1)
+        asset.playbackMode = .cachedProxy
+        asset.proxyCacheKey = UUID()
+        #expect(!ProjectCompositionBuilder.requiresPlayabilityInspection(for: asset, purpose: .preview))
+
+        asset.proxyCacheKey = nil
+        #expect(ProjectCompositionBuilder.requiresPlayabilityInspection(for: asset, purpose: .preview))
+    }
+
     @Test func projectWithoutCutawaysExportsACompleteMP4() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

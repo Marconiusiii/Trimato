@@ -735,6 +735,18 @@ struct TrimatoTests {
         ) == .unavailable)
     }
 
+    @Test func projectMenuCommandsFallBackToTheActiveProject() {
+        let focused = "focused"
+        let active = "active"
+
+        #expect(ProjectCommandContext.resolve(focused: focused, active: active) == focused)
+        #expect(ProjectCommandContext.resolve(focused: Optional<String>.none, active: active) == active)
+        #expect(ProjectCommandContext.resolve(
+            focused: Optional<String>.none,
+            active: Optional<String>.none
+        ) == nil)
+    }
+
     @Test func importProgressAnnouncementsUseRestrainedMilestones() {
         #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.01) == 0)
         #expect(VideoPlayerViewModel.importProgressMilestone(for: 0.24) == 0)
