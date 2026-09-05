@@ -77,25 +77,11 @@ final class MediaCacheSettingsModel: ObservableObject {
 }
 
 struct MediaCacheSettingsView: View {
-    @StateObject private var notificationModel = ExportNotificationSettingsModel()
     @StateObject private var model = MediaCacheSettingsModel()
     @State private var confirmation: CacheConfirmation?
 
     var body: some View {
         Form {
-            Section("Export notifications") {
-                LabeledContent("Permission", value: notificationModel.state.statusText)
-                Text(notificationModel.state.explanation)
-                    .foregroundStyle(.secondary)
-
-                if notificationModel.state == .notRequested {
-                    Button("Allow export notifications…") {
-                        notificationModel.requestAuthorization()
-                    }
-                    .disabled(notificationModel.isRequesting)
-                }
-            }
-
             Section("Playback proxy storage") {
                 LabeledContent("Storage used", value: formattedSize)
                 LabeledContent("Proxy files", value: formattedFileCount)
@@ -134,13 +120,10 @@ struct MediaCacheSettingsView: View {
             title: model.isWorking ? "Clearing playback proxies" : "Refreshing storage usage"
         ) : nil, outcome: model.errorMessage == nil ? .completed : .failed)
         .formStyle(.grouped)
-        .frame(width: 600, height: 600)
         .onAppear {
-            notificationModel.refresh()
             model.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            notificationModel.refresh()
             model.refresh()
         }
         .alert(item: $confirmation) { confirmation in

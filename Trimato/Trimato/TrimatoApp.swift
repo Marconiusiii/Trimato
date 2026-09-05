@@ -229,7 +229,7 @@ struct TrimatoApp: App {
         .commandsRemoved()
 
         Settings {
-            MediaCacheSettingsView()
+            TrimatoSettingsView()
         }
 
         Window("FFmpeg License", id: "ffmpeg-license") {

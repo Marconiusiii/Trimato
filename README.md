@@ -286,7 +286,7 @@ Accessibility is part of Trimato's editing model rather than an additional mode.
 - Get Info opens a standard macOS window titled for the focused item. Each field is exposed to VoiceOver as one qualified label and value, and the window closes with the standard window controls or Command-W.
 - Quick transition sheets return VoiceOver focus to the Editor after applying or canceling so repeated playback and editing remain in context.
 - Timeline list items expose names and positions without continuously speaking start, end, and duration values. Press Command-I for exact timing and other information about the focused item.
-- Timecode updates do not continuously interrupt VoiceOver speech.
+- Settings has General, Accessibility, and Storage panes. Accessibility includes Timecode Feedback controls for Live, On Demand, or Off feedback and Default, Short, or Frames verbosity. In On Demand mode, press T in Editor or Clip Editor to hear the current time.
 - Import preparation appears in a native modal sheet so the inactive editor does not remain in the active VoiceOver context.
 - Import, export, transition, generator, and filter operations use separate progress windows with cancellation and restrained spoken percentage announcements.
 - In, Out, navigation, editing, completion, and failure actions provide spoken feedback.

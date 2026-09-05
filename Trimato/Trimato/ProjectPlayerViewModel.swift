@@ -893,9 +893,10 @@ final class ProjectPlayerViewModel: ObservableObject {
     private func stepFrame(forward: Bool) {
         guard canControlPlayback, !arrowHolding else { return }
         clearNavigationAccessibilityCallout()
+        stepEndTask?.cancel()
+        stepEndTask = nil
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
-        scheduleStepEnd()
         jklIndex = 0
         player.pause()
         let destination = Self.frameStepDestination(
@@ -965,6 +966,18 @@ final class ProjectPlayerViewModel: ObservableObject {
                 toleranceBefore: .zero,
                 toleranceAfter: .zero
             )
+            guard !Task.isCancelled, self.frameStepPosition == target else { return }
+            self.finishFrameStepping()
+        }
+    }
+
+    private func finishFrameStepping() {
+        switch AppPreferences.timecodeFeedback {
+        case .live:
+            scheduleStepEnd()
+        case .onDemand, .off:
+            isSteppingFrames = false
+            refreshAccessibilityTimecode()
         }
     }
 
@@ -999,14 +1012,28 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func refreshAccessibilityTimecode() {
-        let value = Self.accessibilityTimeValue(
-            time: currentTime,
-            showingFrames: showingFrames,
-            frameRate: projectFrameRate,
-            navigationCallout: navigationAccessibilityCallout
-        )
+        let value: String
+        switch AppPreferences.timecodeFeedback {
+        case .live:
+            value = navigationAccessibilityCallout ?? AppPreferences.spokenTimecode(
+                seconds: currentTime.seconds,
+                frameRate: projectFrameRate
+            )
+        case .onDemand:
+            value = "Timecode available on demand"
+        case .off:
+            value = "Timecode feedback off"
+        }
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
+    }
+
+    private func announceCurrentTimecodeOnDemand() {
+        guard AppPreferences.timecodeFeedback == .onDemand else { return }
+        announce(AppPreferences.spokenTimecode(
+            seconds: (frameStepPosition ?? currentTime).seconds,
+            frameRate: projectFrameRate
+        ))
     }
 
     private func setNavigationAccessibilityCallout(_ callout: String) {
@@ -1034,22 +1061,11 @@ final class ProjectPlayerViewModel: ObservableObject {
         showingFrames: Bool,
         frameRate: Double
     ) -> String {
-        if showingFrames {
-            let frame = max(Int((time.seconds * max(frameRate, 1)).rounded(.towardZero)), 0)
-            return "Frame \(frame)"
-        }
-
-        let milliseconds = max(Int((time.seconds * 1_000).rounded()), 0)
-        let hours = milliseconds / 3_600_000
-        let minutes = (milliseconds / 60_000) % 60
-        let seconds = (milliseconds / 1_000) % 60
-        let remainder = milliseconds % 1_000
-        var components: [String] = []
-        if hours > 0 { components.append("\(hours) hour\(hours == 1 ? "" : "s")") }
-        if minutes > 0 { components.append("\(minutes) minute\(minutes == 1 ? "" : "s")") }
-        components.append("\(seconds) second\(seconds == 1 ? "" : "s")")
-        components.append("\(remainder) millisecond\(remainder == 1 ? "" : "s")")
-        return components.joined(separator: ", ")
+        AppPreferences.spokenTimecode(
+            seconds: time.seconds,
+            frameRate: frameRate,
+            verbosity: showingFrames ? .frames : .default
+        )
     }
 
     nonisolated static func accessibilityTimeValue(
@@ -1276,6 +1292,10 @@ final class ProjectPlayerViewModel: ObservableObject {
                 case "c": self.openClipAtPlayhead?(); return nil
                 case "x": self.quickCrossTransition?(); return nil
                 case "f": self.quickFade?(); return nil
+                case "t":
+                    guard AppPreferences.timecodeFeedback == .onDemand else { return event }
+                    self.announceCurrentTimecodeOnDemand()
+                    return nil
                 case "i": self.markIn(); return nil
                 case "o": self.markOut(); return nil
                 case "j": self.pressJ(); return nil

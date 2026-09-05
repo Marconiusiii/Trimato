@@ -583,9 +583,10 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func stepForward() {
         guard hasMedia, !arrowHolding else { return }
+        stepEndTask?.cancel()
+        stepEndTask = nil
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
-        scheduleStepEnd()
         seekOneFrame(forward: true) { [weak self] target in
             self?.scheduleScrubAudio(returningTo: target)
         }
@@ -593,9 +594,10 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func stepBackward() {
         guard hasMedia, !arrowHolding else { return }
+        stepEndTask?.cancel()
+        stepEndTask = nil
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
-        scheduleStepEnd()
         seekOneFrame(forward: false) { [weak self] target in
             self?.scheduleScrubAudio(returningTo: target)
         }
@@ -1037,6 +1039,18 @@ final class VideoPlayerViewModel: ObservableObject {
             self.isScrubbing = false
             self.player.pause()
             await self.player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+            guard !Task.isCancelled, self.frameStepPosition == target else { return }
+            self.finishFrameStepping()
+        }
+    }
+
+    private func finishFrameStepping() {
+        switch AppPreferences.timecodeFeedback {
+        case .live:
+            scheduleStepEnd()
+        case .onDemand, .off:
+            isSteppingFrames = false
+            refreshAccessibilityTimecode()
         }
     }
 
@@ -1233,7 +1247,7 @@ final class VideoPlayerViewModel: ObservableObject {
             self.currentTime = secs.isFinite ? secs : 0
             if self.frameRate > 0 { self.currentFrame = Int(self.currentTime * Double(self.frameRate)) }
             if !self.isPlaying && !self.isScrubbing && !self.isSteppingFrames {
-                self.accessibilityTimecodeLabel = self.buildAccessibilityLabel()
+                self.refreshAccessibilityTimecode()
             }
         }
     }
@@ -1336,6 +1350,10 @@ final class VideoPlayerViewModel: ObservableObject {
                 // Letter shortcuts — ignore key repeat.
                 if !event.isARepeat, unmodified {
                     switch event.charactersIgnoringModifiers?.lowercased() {
+                    case "t":
+                        guard AppPreferences.timecodeFeedback == .onDemand else { return event }
+                        self.announceCurrentTimecodeOnDemand()
+                        return nil
                     case "i": self.markIn(); return nil
                     case "o": self.markOut(); return nil
                     case "j": self.pressJ(); return nil
@@ -1554,20 +1572,35 @@ final class VideoPlayerViewModel: ObservableObject {
     // MARK: - Private: accessibility & timecode formatting
 
     private func buildAccessibilityLabel() -> String {
-        if showingFrames { return "Frame \(currentFrame)" }
-        let parts = displayTimecode.split(separator: ":")
-        guard parts.count == 3 else { return displayTimecode }
-        let h = Int(parts[0]) ?? 0
-        let m = Int(parts[1]) ?? 0
-        let secMs = parts[2].split(separator: ".")
-        let s  = Int(secMs.first ?? "0") ?? 0
-        let ms = Int(secMs.last  ?? "0") ?? 0
-        var c: [String] = []
-        if h > 0 { c.append("\(h) hour\(h == 1 ? "" : "s")") }
-        if m > 0 { c.append("\(m) minute\(m == 1 ? "" : "s")") }
-        c.append("\(s) second\(s == 1 ? "" : "s")")
-        c.append("\(ms) millisecond\(ms == 1 ? "" : "s")")
-        return c.joined(separator: ", ")
+        switch AppPreferences.timecodeFeedback {
+        case .live:
+            return AppPreferences.spokenTimecode(
+                seconds: currentTime,
+                frameRate: effectiveFeedbackFrameRate
+            )
+        case .onDemand:
+            return "Timecode available on demand"
+        case .off:
+            return "Timecode feedback off"
+        }
+    }
+
+    private var effectiveFeedbackFrameRate: Double {
+        frameRate > 0 ? Double(frameRate) : 30
+    }
+
+    private func refreshAccessibilityTimecode() {
+        let value = buildAccessibilityLabel()
+        guard accessibilityTimecodeLabel != value else { return }
+        accessibilityTimecodeLabel = value
+    }
+
+    private func announceCurrentTimecodeOnDemand() {
+        guard AppPreferences.timecodeFeedback == .onDemand else { return }
+        announce(AppPreferences.spokenTimecode(
+            seconds: max(CMTimeGetSeconds(effectivePlayheadTime), 0),
+            frameRate: effectiveFeedbackFrameRate
+        ))
     }
 
     static func formatTimecode(_ time: CMTime) -> String {
