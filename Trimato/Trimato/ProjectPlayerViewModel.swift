@@ -1068,20 +1068,23 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func refreshAccessibilityTimecode() {
-        let value: String
-        if let navigationAccessibilityCallout {
-            value = navigationAccessibilityCallout
-        } else {
-            switch AppPreferences.timecodeFeedback {
-            case .live:
-                value = AppPreferences.spokenTimecode(
-                    seconds: currentTime.seconds,
-                    frameRate: projectFrameRate
-                )
-            case .onDemand, .off:
-                value = ""
-            }
-        }
+        let value = Self.accessibilityTimecodeValue(
+            time: currentTime,
+            frameRate: projectFrameRate,
+            feedback: AppPreferences.timecodeFeedback,
+            verbosity: AppPreferences.timecodeVerbosity,
+            currentValue: accessibilityTimecodeLabel,
+            navigationCallout: navigationAccessibilityCallout
+        )
+        guard accessibilityTimecodeLabel != value else { return }
+        accessibilityTimecodeLabel = value
+    }
+
+    func refreshAccessibilityValueForFocus() {
+        let value = AppPreferences.spokenTimecode(
+            seconds: currentTime.seconds,
+            frameRate: projectFrameRate
+        )
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
     }
@@ -1137,6 +1140,25 @@ final class ProjectPlayerViewModel: ObservableObject {
             showingFrames: showingFrames,
             frameRate: frameRate
         )
+    }
+
+    nonisolated static func accessibilityTimecodeValue(
+        time: ProjectTime,
+        frameRate: Double,
+        feedback: TimecodeFeedback,
+        verbosity: TimecodeVerbosity,
+        currentValue: String,
+        navigationCallout: String?
+    ) -> String {
+        if let navigationCallout { return navigationCallout }
+        if feedback == .live || currentValue.isEmpty {
+            return AppPreferences.spokenTimecode(
+                seconds: time.seconds,
+                frameRate: frameRate,
+                verbosity: verbosity
+            )
+        }
+        return currentValue
     }
 
     nonisolated static func frameStepDestination(

@@ -1579,7 +1579,12 @@ final class VideoPlayerViewModel: ObservableObject {
                 frameRate: effectiveFeedbackFrameRate
             )
         case .onDemand, .off:
-            return ""
+            return accessibilityTimecodeLabel.isEmpty
+                ? AppPreferences.spokenTimecode(
+                    seconds: currentTime,
+                    frameRate: effectiveFeedbackFrameRate
+                )
+                : accessibilityTimecodeLabel
         }
     }
 
@@ -1589,6 +1594,15 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private func refreshAccessibilityTimecode() {
         let value = buildAccessibilityLabel()
+        guard accessibilityTimecodeLabel != value else { return }
+        accessibilityTimecodeLabel = value
+    }
+
+    func refreshAccessibilityValueForFocus() {
+        let value = AppPreferences.spokenTimecode(
+            seconds: max(CMTimeGetSeconds(effectivePlayheadTime), 0),
+            frameRate: effectiveFeedbackFrameRate
+        )
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
     }

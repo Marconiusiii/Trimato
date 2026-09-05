@@ -443,6 +443,9 @@ struct ProjectViewerView: View {
         .onChange(of: focusedAccessibilityTarget) { _, target in
             focusScope.voiceOverContainsFocus = target != nil
             if target != nil { controller.setProjectInfoTarget(.editor) }
+            if target == .playhead {
+                viewModel.refreshAccessibilityValueForFocus()
+            }
         }
         // Timeline edits rebuild playback in the background. They must never
         // present a sheet or announce preparation over the active Clip Editor.
@@ -485,6 +488,7 @@ struct ProjectViewerView: View {
             return
         }
         pendingProjectPlayheadFocus = false
+        viewModel.refreshAccessibilityValueForFocus()
         focusedAccessibilityTarget = .playhead
     }
 

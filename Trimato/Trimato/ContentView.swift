@@ -51,8 +51,14 @@ struct ContentView: View {
         .focusedObject(viewModel)
         .background(ClipEditorEntryFocusBridge(owner: entryFocus, ready: entryFocusReady))
         .onChange(of: entryFocus.request) {
+            viewModel.refreshAccessibilityValueForFocus()
             playheadKeyboardFocused = true
             playheadVoiceOverFocused = true
+        }
+        .onChange(of: playheadVoiceOverFocused) { _, focused in
+            if focused {
+                viewModel.refreshAccessibilityValueForFocus()
+            }
         }
         .toolbar {
             ToolbarItemGroup {
@@ -207,7 +213,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!viewModel.hasMedia)
-                .accessibilityLabel(viewModel.accessibilityTimecodeLabel)
+                .accessibilityLabel("Clip timecode")
+                .accessibilityValue(viewModel.accessibilityTimecodeLabel)
                 .accessibilityHint(
                     viewModel.hasVideo
                         ? (viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
