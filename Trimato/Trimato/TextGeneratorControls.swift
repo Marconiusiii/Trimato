@@ -68,13 +68,13 @@ struct TextGeneratorControls: View {
                 ForEach(TextFontWeight.allCases) { Text($0.title).tag($0) }
             }
 
-            TextField("Font Size in Pixels", value: $definition.textFontSizePixels,
+            TextField("Font Size in Points", value: $definition.textFontSizePoints,
                       format: .number.precision(.fractionLength(0...2)))
             Picker("Text Alignment", selection: settings.alignment) {
                 ForEach(TextAlignmentChoice.allCases) { Text($0.title).tag($0) }
             }
 
-            TextField("Additional Line Spacing in Pixels", value: $definition.textLineSpacingPixels,
+            TextField("Additional Line Spacing in Points", value: $definition.textLineSpacingPoints,
                       format: .number.precision(.fractionLength(0...2)))
                 .help("Extra space between lines. Zero adds no extra space.")
         }
@@ -141,31 +141,34 @@ struct TextGeneratorControls: View {
     }
 }
 
-// The editor uses video pixels; existing projects keep their resolution-independent style.
-extension GeneratorDefinition {
-    var textFontSizePixels: Double {
-        get { Double(height) * textSettings.sizePercent / 100 }
+// Text is edited on a resolution-independent 1080-point canvas. The saved percentage
+// keeps existing projects visually consistent when they render at another resolution.
+nonisolated extension GeneratorDefinition {
+    static let textTypographyReferenceHeight = 1080.0
+
+    var textFontSizePoints: Double {
+        get { Self.textTypographyReferenceHeight * textSettings.sizePercent / 100 }
         set {
-            let spacing = textLineSpacingPixels
-            textSettings.sizePercent = newValue / Double(height) * 100
-            if newValue > 0, newValue.isFinite { textLineSpacingPixels = spacing }
+            let spacing = textLineSpacingPoints
+            textSettings.sizePercent = newValue / Self.textTypographyReferenceHeight * 100
+            if newValue > 0, newValue.isFinite { textLineSpacingPoints = spacing }
         }
     }
 
-    var textLineSpacingPixels: Double {
-        get { textFontSizePixels * textSettings.lineSpacing / 100 }
-        set { textSettings.lineSpacing = newValue / textFontSizePixels * 100 }
+    var textLineSpacingPoints: Double {
+        get { textFontSizePoints * textSettings.lineSpacing / 100 }
+        set { textSettings.lineSpacing = newValue / textFontSizePoints * 100 }
     }
 
     var textTypographyError: String? {
         guard height > 0 else { return nil } // Definition validation reports invalid video dimensions.
-        let minimum = Double(height) / 100
-        let maximum = Double(height) / 4
-        if !textFontSizePixels.isFinite || !(minimum...maximum).contains(textFontSizePixels) {
-            return "Font Size must be between \(minimum.formatted()) and \(maximum.formatted()) pixels for this video."
+        let minimum = Self.textTypographyReferenceHeight / 100
+        let maximum = Self.textTypographyReferenceHeight / 4
+        if !textFontSizePoints.isFinite || !(minimum...maximum).contains(textFontSizePoints) {
+            return "Font Size must be between \(minimum.formatted()) and \(maximum.formatted()) points."
         }
-        if !textLineSpacingPixels.isFinite || !(0...textFontSizePixels).contains(textLineSpacingPixels) {
-            return "Additional Line Spacing must be between 0 and \(textFontSizePixels.formatted()) pixels."
+        if !textLineSpacingPoints.isFinite || !(0...textFontSizePoints).contains(textLineSpacingPoints) {
+            return "Additional Line Spacing must be between 0 and \(textFontSizePoints.formatted()) points."
         }
         return nil
     }

@@ -7,22 +7,21 @@ nonisolated struct OperationProgressAnnouncements {
     private(set) var finished = false
     private var determinate = false
 
-    mutating func update(title: String, progress: Double?) -> String? {
+    mutating func update(progress: Double?) -> String? {
         guard !finished else { return nil }
         guard let progress, progress.isFinite else {
             guard milestone == -1 else { return nil }
             milestone = 0
-            return "\(title)."
+            return nil
         }
         determinate = true
         let next = min(90, Int(min(max(progress, 0), 1) * 10) * 10)
         guard next > milestone else { return nil }
         milestone = next
-        return "\(title), \(next) percent."
+        return "\(next) percent."
     }
 
     mutating func finish(
-        title: String,
         outcome: OperationProgressOutcome,
         announceCompletion: Bool = true
     ) -> String? {
@@ -31,11 +30,11 @@ nonisolated struct OperationProgressAnnouncements {
         switch outcome {
         case .completed:
             guard announceCompletion else { return nil }
-            return determinate ? "\(title), 100 percent, complete." : "\(title), complete."
+            return determinate ? "100 percent, complete." : "Complete."
         case .cancelled:
-            return "\(title), cancelled."
+            return "Cancelled."
         case .failed:
-            return "\(title), failed."
+            return "Failed."
         }
     }
 }
@@ -150,7 +149,7 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
         cancelAction = operation.cancel
         announceCompletion = operation.announceCompletion
         self.postsAnnouncements = postsAnnouncements
-        speak(announcements.update(title: operation.title, progress: operation.progress))
+        _ = announcements.update(progress: operation.progress)
     }
 
     var canCancel: Bool {
@@ -167,7 +166,7 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
         if detailChanged, let detail = operation.detail {
             speak(detail)
         }
-        speak(announcements.update(title: operation.title, progress: operation.progress))
+        speak(announcements.update(progress: operation.progress))
     }
 
     func cancel() {
@@ -183,7 +182,6 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
         dismissedAction = dismissed
         isFinished = true
         speak(announcements.finish(
-            title: title,
             outcome: self.outcome,
             announceCompletion: announceCompletion
         ))
@@ -218,13 +216,16 @@ final class OperationProgressWindowCoordinator {
     func present(_ operation: OperationProgress) -> UUID {
         let session = OperationProgressWindowSession(operation: operation)
         let id = session.id
+        let returnWindow = NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
         let controller = NativeModalWindowController(
             title: operation.title,
             contentSize: NSSize(width: 400, height: operation.detail == nil ? 150 : 190),
             closable: false,
             identifier: .init("Trimato.OperationProgress"),
             rootView: OperationProgressContent(session: session),
-            closed: { [weak self] in
+            closed: { [weak self, weak session, weak returnWindow] in
+                returnWindow?.makeKeyAndOrderFront(nil)
+                session?.completeDismissal()
                 self?.sessions[id] = nil
                 self?.windows[id] = nil
             }
@@ -273,10 +274,8 @@ private struct OperationProgressContent: View {
             if let progress = session.progress, progress.isFinite {
                 let bounded = min(max(progress, 0), 1)
                 ProgressView(value: bounded, total: 1)
-                    .accessibilityLabel(session.title)
             } else {
                 ProgressView()
-                    .accessibilityLabel(session.title)
             }
 
             if session.canCancel {
@@ -297,7 +296,6 @@ private struct OperationProgressContent: View {
             dismissalScheduled = true
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(250))
-                session.completeDismissal()
                 OperationProgressWindowCoordinator.shared.close(id: session.id)
             }
         }

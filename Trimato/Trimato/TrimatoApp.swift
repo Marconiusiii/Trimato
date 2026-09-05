@@ -168,7 +168,7 @@ struct TrimatoApp: App {
                 Button("Export Captions…") { projectCommandController?.exportCaptions() }
                     .disabled(projectCommandController?.project.captionTrack?.captionCues.isEmpty != false)
                 Button("Generator…") { projectCommandController?.requestGenerator() }
-                    .keyboardShortcut("g", modifiers: .command)
+                    .keyboardShortcut("g", modifiers: [])
                     .disabled(projectCommandController == nil)
                 Divider()
                 Button("Blade at Playhead (Command-B)") { projectCommandController?.splitClipAtPlayhead() }

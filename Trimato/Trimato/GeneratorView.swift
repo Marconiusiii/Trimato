@@ -29,10 +29,10 @@ final class GeneratorWindowRegistry {
             ),
             closed: { [weak self, weak session, weak returnWindow] in
                 session?.cancelPreparation()
-                session?.controller?.requestEditorFocusRestore()
                 self?.sessions[id] = nil
                 self?.windows[id] = nil
                 returnWindow?.makeKeyAndOrderFront(nil)
+                session?.controller?.requestEditorFocusRestore()
             }
         )
         windows[id] = controller
@@ -60,14 +60,12 @@ final class GeneratorSession: ObservableObject, Identifiable {
     @Published var errorMessage: String?
     private var operation: Task<Void, Never>?
     private var operationID = UUID()
-    @Published private(set) var hasPreparedPlacement = false
     private var completionAction: (() -> Void)?
 
     func progressWindowDismissed() {
         guard progress == nil else { return }
         let action = completionAction
         completionAction = nil
-        hasPreparedPlacement = false
         action?()
     }
 
@@ -120,7 +118,6 @@ final class GeneratorSession: ObservableObject, Identifiable {
     func cancelPreparation() {
         operationID = UUID()
         completionAction = nil
-        hasPreparedPlacement = false
         operation?.cancel()
         operation = nil
         if progress != nil { progress = nil }
@@ -168,16 +165,16 @@ final class GeneratorSession: ObservableObject, Identifiable {
                     try controller.placeGenerator(definition, placement: placement, at: playhead,
                                                   trackID: destination, newTrackName: name, expectedProject: expected)
                 }
-                progress = nil
                 operation = nil
                 completionAction = finished
-                hasPreparedPlacement = true
+                progress = nil
             } catch is CancellationError {
                 return
             } catch {
                 guard operationID == requestID else { return }
-                progress = nil
+                operation = nil
                 errorMessage = error.localizedDescription
+                progress = nil
             }
         }
     }
@@ -247,7 +244,6 @@ struct GeneratorView: View {
         .operationProgress(session.progress.map { OperationProgress(
             title: "Preparing Generator", progress: $0, cancel: session.cancelPreparation
         ) }, outcome: session.errorMessage == nil ? .completed : .failed,
-                           completionPending: session.hasPreparedPlacement,
                            dismissed: session.progressWindowDismissed)
         .padding(20)
         .frame(minWidth: 560, alignment: .leading)

@@ -91,7 +91,7 @@ struct GeneratorAccessibilityTests {
         }
         let groups: [(String, [String], [String])] = [
             ("Typography", ["Font", "Weight", "Text Alignment"],
-             ["Font Size in Pixels", "Additional Line Spacing in Pixels"]),
+             ["Font Size in Points", "Additional Line Spacing in Points"]),
             ("Appearance", ["Text Color", "Full-frame Background", "Outline Color", "Panel Color"],
              ["Text Color Hexadecimal", "Outline Color Hexadecimal", "Panel Color Hexadecimal", "Panel Opacity in Percent"]),
             ("Layout", ["Screen Position"],
@@ -126,19 +126,21 @@ struct GeneratorAccessibilityTests {
 
     }
 
-    @Test func pixelEditingPreservesSavedStyleAndIndependentSpacing() {
+    @Test func pointEditingPreservesSavedStyleAndIndependentSpacing() {
         var value = GeneratorDefinition()
         value.height = 1080
-        #expect(abs(value.textFontSizePixels - 64.8) < 0.0001)
-        #expect(abs(value.textLineSpacingPixels - 9.72) < 0.0001)
-        value.textLineSpacingPixels = 12
-        value.textFontSizePixels = 72
-        #expect(abs(value.textLineSpacingPixels - 12) < 0.0001)
-        #expect(abs(value.textFontSizePixels - 72) < 0.0001)
+        #expect(abs(value.textFontSizePoints - 64.8) < 0.0001)
+        #expect(abs(value.textLineSpacingPoints - 9.72) < 0.0001)
+        value.height = 2160
+        #expect(abs(value.textFontSizePoints - 64.8) < 0.0001)
+        value.textLineSpacingPoints = 12
+        value.textFontSizePoints = 72
+        #expect(abs(value.textLineSpacingPoints - 12) < 0.0001)
+        #expect(abs(value.textFontSizePoints - 72) < 0.0001)
         #expect(value.textTypographyError == nil)
-        value.textLineSpacingPixels = -1
-        #expect(value.textTypographyError?.contains("pixels") == true)
-        value.textFontSizePixels = 0
+        value.textLineSpacingPoints = -1
+        #expect(value.textTypographyError?.contains("points") == true)
+        value.textFontSizePoints = 0
         #expect(value.textTypographyError?.contains("Font Size") == true)
     }
 }

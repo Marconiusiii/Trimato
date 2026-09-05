@@ -27,7 +27,10 @@ nonisolated enum TextGeneratorRenderer {
         try definition.validate()
         let settings = definition.textSettings
         let width = Double(definition.width), height = Double(definition.height)
-        let fontSize = height * settings.sizePercent / 100
+        let outputScale = height / GeneratorDefinition.textTypographyReferenceHeight
+        let fontSizePoints = definition.textFontSizePoints
+        let fontSize = fontSizePoints * outputScale
+        let lineSpacing = definition.textLineSpacingPoints * outputScale
         let safe = CGRect(x: width * settings.safeMargin / 100, y: height * settings.safeMargin / 100,
                           width: width * (1 - settings.safeMargin / 50), height: height * (1 - settings.safeMargin / 50))
         let decorationPadding = max(settings.panelEnabled ? fontSize * 0.3 : 0,
@@ -40,8 +43,8 @@ nonisolated enum TextGeneratorRenderer {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = switch settings.alignment { case .left: .left; case .center: .center; case .right: .right }
         paragraph.lineBreakMode = .byWordWrapping
-        paragraph.lineSpacing = fontSize * settings.lineSpacing / 100
-        paragraph.paragraphSpacing = fontSize * settings.lineSpacing / 100
+        paragraph.lineSpacing = lineSpacing
+        paragraph.paragraphSpacing = lineSpacing
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font(settings.font, weight: settings.weight, size: fontSize),
             .foregroundColor: nsColor(settings.color), .paragraphStyle: paragraph
@@ -89,7 +92,7 @@ nonisolated enum TextGeneratorRenderer {
         let fits = visible.location + visible.length == text.length && needed.height <= available.height &&
             safe.insetBy(dx: -0.5, dy: -0.5).contains(painted)
         var warnings: [String] = []
-        if fontSize < 16 { warnings.append("The main text is smaller than 16 pixels in this project and may be difficult to read.") }
+        if fontSizePoints < 16 { warnings.append("The main text is smaller than 16 points and may be difficult to read.") }
         if settings.background == .black && !settings.panelEnabled && !settings.outlineEnabled,
            contrast(settings.color, against: TextGeneratorColor(choice: .black)) < 4.5 {
             warnings.append("Text contrast against the black background is low.")
