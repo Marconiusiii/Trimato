@@ -1,9 +1,17 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Trimato
 
 @Suite("Project source hierarchy")
 struct ProjectSourceItemTests {
+    @Test func controlReturnAndControlKeypadEnterMatchTheNativeContextMenuShortcut() {
+        #expect(NativeContextMenuShortcut.matches(keyCode: 36, modifiers: .control))
+        #expect(NativeContextMenuShortcut.matches(keyCode: 76, modifiers: .control))
+        #expect(!NativeContextMenuShortcut.matches(keyCode: 36, modifiers: []))
+        #expect(!NativeContextMenuShortcut.matches(keyCode: 36, modifiers: [.control, .shift]))
+    }
+
     @Test func timelineAndClipsFolderAppearUnderTheProjectRoot() {
         let first = makeAsset(name: "Interview")
         let second = makeAsset(name: "Cutaway")

@@ -565,9 +565,20 @@ private final class ProjectSourceAppKitOutlineView: NSOutlineView {
     weak var owner: ProjectSourceNativeOutline.Coordinator?
 
     override func keyDown(with event: NSEvent) {
+        if NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags),
+           selectedRow >= 0,
+           let node = item(atRow: selectedRow) as? ProjectSourceNode,
+           let menu = owner?.menu(for: node.id) {
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
         switch event.keyCode {
         case 36, 76:
-            owner?.openSelectedItem()
+            if event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
+                owner?.openSelectedItem()
+            } else {
+                super.keyDown(with: event)
+            }
         case 51, 117:
             owner?.deleteSelectedItem()
         default:
@@ -642,6 +653,17 @@ private final class ProjectSourceAssetButton: NSButton {
         guard let assetID else { return super.menu(for: event) }
         owner?.selectAsset(assetID)
         return owner?.menu(for: .asset(assetID))
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard NativeContextMenuShortcut.matches(
+            keyCode: event.keyCode,
+            modifiers: event.modifierFlags
+        ), let menu = menu(for: event) else {
+            super.keyDown(with: event)
+            return
+        }
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
     @objc private func pressed() {

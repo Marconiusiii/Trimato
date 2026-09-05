@@ -103,7 +103,6 @@ struct ProjectTimelineView: View {
             HStack {
                 Menu("Selected Element Actions") { selectedElementActions }
                     .disabled(!hasSelectedElement)
-                    .keyboardShortcut(.return, modifiers: .control)
                 Spacer()
             }
             .padding(8)
@@ -246,6 +245,7 @@ struct ProjectTimelineView: View {
                 toggleClipMovement: controller.toggleClipMovement,
                 moveClip: { destination, id in controller.moveClip(to: destination, targetID: id) },
                 canMoveClip: { destination, id in controller.canMoveClip(to: destination, targetID: id) },
+                movePlayheadToCaption: controller.movePlayheadToCaption,
                 delete: deleteTimelineElement
             )
         )
@@ -362,6 +362,8 @@ struct ProjectTimelineView: View {
                 deleteTimelineTransition(transition.id)
             }
         } else if let cue = controller.selectedCaptionCue {
+            Button("Move Playhead to Caption") { controller.movePlayheadToCaption(id: cue.id) }
+            Divider()
             Button("Edit Caption…") { openCaptionEditor(cue) }
             Button("Delete Caption", role: .destructive) { deleteCaptionCue(cue.id) }
         }

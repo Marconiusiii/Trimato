@@ -36,6 +36,13 @@ nonisolated enum TimelineElementAccessibilityIdentifier {
 import AppKit
 import SwiftUI
 
+nonisolated enum NativeContextMenuShortcut {
+    static func matches(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+        let relevant = modifiers.intersection([.command, .control, .option, .shift])
+        return (keyCode == 36 || keyCode == 76) && relevant == .control
+    }
+}
+
 nonisolated enum TimelineKeyAction: Equatable {
     case toggleMovement, beginMovement, finishMovement, cancelMovement, delete
     case openEditor, earlier, later, copy, paste, moveAfter, previewBefore, previewAfter
@@ -307,6 +314,7 @@ struct TimelineCollectionActions {
     let toggleClipMovement: (UUID) -> Void
     let moveClip: (TimelineMoveDestination, UUID) -> Void
     let canMoveClip: (TimelineMoveDestination, UUID) -> Bool
+    let movePlayheadToCaption: (UUID) -> Void
     let delete: (TimelineElementSelection) -> Void
 }
 
@@ -330,7 +338,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
         layout.minimumLineSpacing = 8
         layout.sectionInset = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
 
-        let collection = NSCollectionView()
+        let collection = TimelineCollectionView()
         collection.collectionViewLayout = layout
         collection.isSelectable = true
         collection.allowsMultipleSelection = false
@@ -349,6 +357,9 @@ struct TimelineClipsCollection: NSViewRepresentable {
         scroll.drawsBackground = false
         context.coordinator.collectionView = collection
         context.coordinator.scrollView = scroll
+        collection.contextMenuProvider = { [weak coordinator = context.coordinator] in
+            coordinator?.menuForSelectedItem()
+        }
         return scroll
     }
 
@@ -467,11 +478,22 @@ struct TimelineClipsCollection: NSViewRepresentable {
             case .transition:
                 add("Edit Transition…", to: menu) { [weak self] in self?.actions?.activate(selection) }
                 add("Delete Transition", to: menu) { [weak self] in self?.actions?.delete(selection) }
-            case .caption:
+            case .caption(let id):
+                add("Move Playhead to Caption", to: menu) { [weak self] in
+                    self?.actions?.movePlayheadToCaption(id)
+                }
+                menu.addItem(.separator())
                 add("Edit Caption…", to: menu) { [weak self] in self?.actions?.activate(selection) }
                 add("Delete Caption", to: menu) { [weak self] in self?.actions?.delete(selection) }
             }
             return menu
+        }
+
+        func menuForSelectedItem() -> NSMenu? {
+            guard let collectionView,
+                  let index = collectionView.selectionIndexPaths.first?.item,
+                  models.indices.contains(index) else { return nil }
+            return makeMenu(for: models[index].selection)
         }
 
         @discardableResult
@@ -595,5 +617,31 @@ private final class TimelineCollectionButton: NSButton {
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let selection else { return super.menu(for: event) }
         return menuProvider?(selection)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard NativeContextMenuShortcut.matches(
+            keyCode: event.keyCode,
+            modifiers: event.modifierFlags
+        ), let menu = menu(for: event) else {
+            super.keyDown(with: event)
+            return
+        }
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+}
+
+private final class TimelineCollectionView: NSCollectionView {
+    var contextMenuProvider: (() -> NSMenu?)?
+
+    override func keyDown(with event: NSEvent) {
+        guard NativeContextMenuShortcut.matches(
+            keyCode: event.keyCode,
+            modifiers: event.modifierFlags
+        ), let menu = contextMenuProvider?() else {
+            super.keyDown(with: event)
+            return
+        }
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 }

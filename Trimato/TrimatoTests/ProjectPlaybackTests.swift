@@ -285,29 +285,25 @@ struct ProjectPlaybackTests {
         #expect(viewModel.currentTime == range.end)
     }
 
-    @Test func editNavigationIncludesStorylineAndCutawayBoundariesWithoutDuplicates() {
+    @Test func editNavigationUsesOnlyTheSelectedTrackBoundaries() throws {
         let firstAsset = fixtureAsset(name: "Interview", duration: 5)
         let secondAsset = fixtureAsset(name: "Closing", duration: 5)
-        let cutawayAsset = fixtureAsset(name: "Cutaway", duration: 4)
+        var musicAsset = fixtureAsset(name: "Music", duration: 4)
+        musicAsset.naturalWidth = nil
+        musicAsset.naturalHeight = nil
         var project = TrimatoProject(name: "Playback")
-        project.media = [firstAsset, secondAsset, cutawayAsset]
-        project.primaryTimeline = [
-            TimelineClip(assetID: firstAsset.id, name: firstAsset.name, segments: firstAsset.sourceEdit),
-            TimelineClip(assetID: secondAsset.id, name: secondAsset.name, segments: secondAsset.sourceEdit),
-        ]
-        project.cutaways = [
-            TimelineCutaway(
-                assetID: cutawayAsset.id,
-                name: cutawayAsset.name,
-                start: ProjectTime(seconds: 2),
-                segments: cutawayAsset.sourceEdit,
-                audioMode: .primaryAudio
-            )
-        ]
+        project.media = [firstAsset, secondAsset, musicAsset]
+        _ = try project.append(asset: firstAsset)
+        let videoTrackID = try #require(project.tracks.first { $0.role == .primaryVideo }?.id)
+        _ = try project.append(asset: secondAsset, toTrack: videoTrackID)
+        let audioTrackID = project.createTrack(kind: .audio, name: "Music")
+        _ = try project.append(asset: musicAsset, toTrack: audioTrackID)
 
-        let points = ProjectPlayerViewModel.editPoints(in: project).map(\.time)
+        let videoPoints = ProjectPlayerViewModel.editPoints(in: project, trackID: videoTrackID).map(\.time)
+        let audioPoints = ProjectPlayerViewModel.editPoints(in: project, trackID: audioTrackID).map(\.time)
 
-        #expect(points == [0, 2, 5, 6, 10].map { ProjectTime(seconds: Double($0)) })
+        #expect(videoPoints == [0, 5, 10].map { ProjectTime(seconds: Double($0)) })
+        #expect(audioPoints == [0, 4, 10].map { ProjectTime(seconds: Double($0)) })
     }
 
     @Test func emptyProjectHasOnePlaybackBoundary() {
@@ -326,13 +322,15 @@ struct ProjectPlaybackTests {
         let musicTrackID = project.createTrack(kind: .audio, name: "Music")
         _ = try project.append(asset: music, toTrack: musicTrackID)
 
-        let points = ProjectPlayerViewModel.editPoints(in: project)
+        let videoTrackID = try #require(project.tracks.first { $0.role == .primaryVideo }?.id)
+        let videoPoints = ProjectPlayerViewModel.editPoints(in: project, trackID: videoTrackID)
+        let audioPoints = ProjectPlayerViewModel.editPoints(in: project, trackID: musicTrackID)
 
-        let sharedStart = try #require(points.first { $0.time == .zero })
-        #expect(sharedStart.spokenName == "Video and audio edit point")
-        let audioEnd = try #require(points.first { $0.time == ProjectTime(seconds: 3) })
+        let videoStart = try #require(videoPoints.first { $0.time == .zero })
+        #expect(videoStart.spokenName == "Video edit point")
+        let audioEnd = try #require(audioPoints.first { $0.time == ProjectTime(seconds: 3) })
         #expect(audioEnd.spokenName == "Audio edit point")
-        let videoEnd = try #require(points.first { $0.time == ProjectTime(seconds: 5) })
+        let videoEnd = try #require(videoPoints.first { $0.time == ProjectTime(seconds: 5) })
         #expect(videoEnd.spokenName == "Video edit point")
     }
 
@@ -350,11 +348,33 @@ struct ProjectPlaybackTests {
             at: ProjectTime(seconds: 15)
         )
 
-        let points = ProjectPlayerViewModel.editPoints(in: project)
+        let points = ProjectPlayerViewModel.editPoints(in: project, trackID: trackID)
 
         #expect(points.allSatisfy { $0.time >= .zero })
         #expect(!points.contains { $0.time == ProjectTime(seconds: -45) })
         #expect(points.contains { $0.time == ProjectTime(seconds: 15) && $0.hasAudio })
+    }
+
+    @Test func captionTrackNavigationNamesCueEdges() throws {
+        var project = TrimatoProject(name: "Captions")
+        let trackID = project.createTrack(kind: .captions, name: "Captions")
+        let first = CaptionCue(
+            start: ProjectTime(seconds: 1),
+            end: ProjectTime(seconds: 3),
+            text: "First caption"
+        )
+        let second = CaptionCue(
+            start: ProjectTime(seconds: 3),
+            end: ProjectTime(seconds: 5),
+            text: "Second caption"
+        )
+        try project.addCaptionCues([first, second])
+
+        let points = ProjectPlayerViewModel.editPoints(in: project, trackID: trackID)
+
+        #expect(points.first { $0.time == ProjectTime(seconds: 1) }?.spokenName == "Caption start")
+        #expect(points.first { $0.time == ProjectTime(seconds: 3) }?.spokenName == "Caption boundary")
+        #expect(points.first { $0.time == ProjectTime(seconds: 5) }?.spokenName == "Caption end")
     }
 
     @Test func videoEndIgnoresLongerLayeredAudioTracks() throws {

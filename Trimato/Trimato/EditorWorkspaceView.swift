@@ -379,6 +379,7 @@ struct ProjectViewerView: View {
         .focusedObject(viewModel)
         .onAppear {
             controller.installProjectPlayer(viewModel)
+            viewModel.selectEditPointTrack(controller.activeTimelineTrackID, in: controller.project)
             controller.installEditorAccessibilityFocusProvider { [weak focusScope] in
                 focusScope?.containsInputFocus == true
             }
@@ -432,6 +433,9 @@ struct ProjectViewerView: View {
             guard !controller.consumePreparedTransitionPreview(for: project),
                   ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
             requestPreparation()
+        }
+        .onChange(of: controller.activeTimelineTrackID) { _, trackID in
+            viewModel.selectEditPointTrack(trackID, in: controller.project)
         }
         .onChange(of: controller.editorFocusRestoreRequest) {
             restoreProjectPlayheadFocus()

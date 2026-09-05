@@ -14,8 +14,13 @@ nonisolated struct ProjectEditPoint: Equatable, Sendable {
     let time: ProjectTime
     var hasVideo: Bool
     var hasAudio: Bool
+    var hasCaptionStart = false
+    var hasCaptionEnd = false
 
     var spokenName: String {
+        if hasCaptionStart, hasCaptionEnd { return "Caption boundary" }
+        if hasCaptionStart { return "Caption start" }
+        if hasCaptionEnd { return "Caption end" }
         if hasVideo, hasAudio { return "Video and audio edit point" }
         if hasVideo { return "Video edit point" }
         if hasAudio { return "Audio edit point" }
@@ -175,6 +180,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var videoEndTime = ProjectTime.zero
     private var projectFrameRate = 30.0
     private var editPoints: [ProjectEditPoint] = []
+    private var navigationTrackID: UUID?
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8]
     private var arrowHolding = false
@@ -224,8 +230,10 @@ final class ProjectPlayerViewModel: ObservableObject {
                     return
                 }
                 let projectTime = ProjectTime(time)
-                if let end = self.captionPlaybackEnd, projectTime >= end {
-                    self.finishCaptionRangePlayback(at: end)
+                if let playbackID = self.captionPlaybackID,
+                   let end = self.captionPlaybackEnd,
+                   projectTime >= end {
+                    self.finishCaptionRangePlayback(at: end, playbackID: playbackID)
                 } else {
                     self.updateDisplayedTime(projectTime)
                 }
@@ -373,7 +381,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         updateDisplayedTime(boundedInitialTime)
         if let inMarker, inMarker > projectDuration { self.inMarker = nil }
         if let outMarker, outMarker > projectDuration { self.outMarker = nil }
-        editPoints = Self.editPoints(in: project)
+        editPoints = Self.editPoints(in: project, trackID: navigationTrackID)
         removeTemporaryMedia()
         guard project.tracks.contains(where: { !$0.clips.isEmpty }) else {
             player.replaceCurrentItem(with: nil)
@@ -556,7 +564,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             projectDuration = duration
             videoEndTime = Self.videoEnd(in: project)
             projectFrameRate = max(project.format.frameRate ?? 30, 1)
-            editPoints = Self.editPoints(in: project)
+            editPoints = Self.editPoints(in: project, trackID: navigationTrackID)
             updateDisplayedTime(boundedInitialTime)
             hasPreparedPlayerItem = true
             isPreparing = false
@@ -649,6 +657,12 @@ final class ProjectPlayerViewModel: ObservableObject {
         guard canControlPlayback else { return }
         clearNavigationAccessibilityCallout()
         cancelFrameStepping()
+        if hasCaptionPlaybackActivity {
+            stopCaptionRangePlayback()
+            jklIndex = 1
+            player.rate = 1
+            return
+        }
         if isPlaying {
             stop()
         } else {
@@ -676,10 +690,11 @@ final class ProjectPlayerViewModel: ObservableObject {
                 forTimes: [NSValue(time: range.end.cmTime)],
                 queue: .main
             ) { [weak self] in
-                MainActor.assumeIsolated { self?.finishCaptionRangePlayback(at: range.end) }
+                MainActor.assumeIsolated {
+                    self?.finishCaptionRangePlayback(at: range.end, playbackID: playbackID)
+                }
             }
             self.captionPlaybackTask = nil
-            self.captionPlaybackID = nil
             self.player.play()
         }
     }
@@ -688,6 +703,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         captionPlaybackID = nil
         captionPlaybackTask?.cancel()
         captionPlaybackTask = nil
+        player.currentItem?.cancelPendingSeeks()
         captionPlaybackEnd = nil
         captionPlaybackSettlingTime = nil
         player.pause()
@@ -697,9 +713,14 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
-    private func finishCaptionRangePlayback(at end: ProjectTime) {
+    private var hasCaptionPlaybackActivity: Bool {
+        captionPlaybackID != nil || captionPlaybackEnd != nil ||
+            captionPlaybackSettlingTime != nil || captionPlaybackTask != nil
+    }
+
+    private func finishCaptionRangePlayback(at end: ProjectTime, playbackID: UUID) {
+        guard captionPlaybackID == playbackID else { return }
         let finalTime = min(end, projectDuration)
-        captionPlaybackID = nil
         captionPlaybackTask?.cancel()
         captionPlaybackTask = nil
         captionPlaybackEnd = nil
@@ -712,16 +733,24 @@ final class ProjectPlayerViewModel: ObservableObject {
         updateDisplayedTime(finalTime)
         captionPlaybackTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = await self.player.seek(
+            let finished = await self.player.seek(
                 to: finalTime.cmTime,
                 toleranceBefore: .zero,
                 toleranceAfter: .zero
             )
-            guard !Task.isCancelled, self.captionPlaybackSettlingTime == finalTime else { return }
+            guard finished, !Task.isCancelled,
+                  self.captionPlaybackID == playbackID,
+                  self.captionPlaybackSettlingTime == finalTime else { return }
             self.updateDisplayedTime(finalTime)
             self.captionPlaybackSettlingTime = nil
             self.captionPlaybackTask = nil
+            self.captionPlaybackID = nil
         }
+    }
+
+    func selectEditPointTrack(_ trackID: UUID?, in project: TrimatoProject) {
+        navigationTrackID = trackID
+        editPoints = Self.editPoints(in: project, trackID: trackID)
     }
 
     func stageInsertionPlayhead(_ time: ProjectTime, duration: ProjectTime) {
@@ -797,6 +826,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func pressJ() {
         guard canControlPlayback else { return }
+        if hasCaptionPlaybackActivity { stopCaptionRangePlayback() }
         clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         jklIndex = jklIndex > 0 ? -1 : max(jklIndex - 1, -jklSpeeds.count)
@@ -809,6 +839,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func pressL() {
         guard canControlPlayback else { return }
+        if hasCaptionPlaybackActivity { stopCaptionRangePlayback() }
         clearNavigationAccessibilityCallout()
         cancelFrameStepping()
         jklIndex = jklIndex < 0 ? 1 : min(jklIndex + 1, jklSpeeds.count)
@@ -1141,7 +1172,10 @@ final class ProjectPlayerViewModel: ObservableObject {
         return "\(pointName), \(timeLabel)"
     }
 
-    nonisolated static func editPoints(in project: TrimatoProject) -> [ProjectEditPoint] {
+    nonisolated static func editPoints(
+        in project: TrimatoProject,
+        trackID: UUID? = nil
+    ) -> [ProjectEditPoint] {
         var points: [ProjectTime: ProjectEditPoint] = [:]
         points[.zero] = ProjectEditPoint(time: .zero, hasVideo: false, hasAudio: false)
         points[project.duration] = ProjectEditPoint(
@@ -1150,7 +1184,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             hasAudio: false
         )
 
-        func add(_ time: ProjectTime, kind: TimelineTrackKind) {
+        func add(_ time: ProjectTime, kind: TimelineTrackKind, captionEdge: CaptionEdge? = nil) {
             var point = points[time] ?? ProjectEditPoint(
                 time: time,
                 hasVideo: false,
@@ -1160,33 +1194,43 @@ final class ProjectPlayerViewModel: ObservableObject {
                 point.hasVideo = true
             } else if kind == .audio {
                 point.hasAudio = true
+            } else if captionEdge == .start {
+                point.hasCaptionStart = true
+            } else if captionEdge == .end {
+                point.hasCaptionEnd = true
             }
             points[time] = point
         }
 
-        var cursor = ProjectTime.zero
-        for clip in project.primaryTimeline {
-            add(cursor, kind: .video)
-            cursor = cursor + clip.duration
-            add(cursor, kind: .video)
-        }
-        for track in project.tracks {
+        let selectedTrack = trackID.flatMap(project.track(id:))
+            ?? project.tracks.first(where: { $0.role == .primaryVideo })
+            ?? project.tracks.first(where: { $0.role == .primaryAudio })
+            ?? project.orderedTimelineTracks.first
+
+        if let track = selectedTrack {
             for clip in track.clips {
-                add(clip.timelineStart, kind: track.kind)
-                add(clip.timelineEnd, kind: track.kind)
+                add(clip.visibleTimelineStart, kind: track.kind)
+                add(clip.visibleTimelineEnd, kind: track.kind)
             }
-        }
-        for cutaway in project.cutaways {
-            add(cutaway.start, kind: .video)
-            add(cutaway.end, kind: .video)
-            if cutaway.audioMode == .sourceAudio {
-                add(cutaway.start, kind: .audio)
-                add(cutaway.end, kind: .audio)
+            for cue in track.captionCues {
+                add(cue.start, kind: .captions, captionEdge: .start)
+                add(cue.end, kind: .captions, captionEdge: .end)
+            }
+        } else {
+            var cursor = ProjectTime.zero
+            for clip in project.primaryTimeline {
+                add(cursor, kind: .video)
+                cursor = cursor + clip.duration
+                add(cursor, kind: .video)
             }
         }
         return points.values
             .filter { $0.time >= .zero && $0.time <= project.duration }
             .sorted { $0.time < $1.time }
+    }
+
+    private nonisolated enum CaptionEdge {
+        case start, end
     }
 
     nonisolated static func videoEnd(in project: TrimatoProject) -> ProjectTime {

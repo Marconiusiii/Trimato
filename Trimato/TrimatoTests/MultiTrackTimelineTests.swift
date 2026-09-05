@@ -9,6 +9,24 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MultiTrackTimelineTests {
+    @Test func movePlayheadToCaptionUsesTheCueStart() throws {
+        let asset = fixtureAsset(name: "Interview", duration: 10)
+        let cue = CaptionCue(
+            start: ProjectTime(seconds: 2.5),
+            end: ProjectTime(seconds: 4),
+            text: "Coffee is ready."
+        )
+        var project = TrimatoProject()
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        try project.addCaptionCues([cue])
+        let controller = ProjectController(document: ProjectDocument(project: project))
+
+        controller.movePlayheadToCaption(id: cue.id)
+
+        #expect(controller.timelinePlayhead == cue.start)
+    }
+
     @Test func deletingTimelineClipCanSelectTheSurvivingPrecedingClipWithoutProjectInterim() throws {
         let asset = fixtureAsset(name: "Interview", duration: 10)
         var project = TrimatoProject()

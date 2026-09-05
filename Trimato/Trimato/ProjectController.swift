@@ -145,6 +145,13 @@ final class ProjectController: ObservableObject {
         projectPlayer?.stopCaptionRangePlayback()
     }
 
+    func movePlayheadToCaption(id: UUID) {
+        guard let cue = project.captionCue(id: id) else { return }
+        let destination = min(max(cue.start, .zero), project.duration)
+        projectPlayer?.seek(to: destination)
+        if timelinePlayhead != destination { timelinePlayhead = destination }
+    }
+
     func clearCaptionMarkers() {
         projectPlayer?.clearCaptionMarkers()
     }
