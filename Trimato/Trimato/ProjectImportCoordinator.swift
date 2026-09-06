@@ -66,7 +66,10 @@ enum ProjectImportCoordinator {
         return try CaptionFileCodec.decode(data: Data(contentsOf: url), format: format)
     }
 
-    static func importAsset(at url: URL) async throws -> MediaAssetRecord {
+    static func importAsset(
+        at url: URL,
+        progress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
+    ) async throws -> MediaAssetRecord {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
@@ -80,7 +83,8 @@ enum ProjectImportCoordinator {
         let preparation = try await preparePlayback(
             at: url,
             metadata: metadata,
-            preferredCacheKey: nil
+            preferredCacheKey: nil,
+            progress: progress
         )
 
         return MediaAssetRecord(
@@ -104,7 +108,8 @@ enum ProjectImportCoordinator {
 
     static func preparePlayback(
         at url: URL,
-        preferredCacheKey: UUID?
+        preferredCacheKey: UUID?,
+        progress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
     ) async throws -> PlaybackPreparation {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -112,7 +117,8 @@ enum ProjectImportCoordinator {
         return try await preparePlayback(
             at: url,
             metadata: metadata,
-            preferredCacheKey: preferredCacheKey
+            preferredCacheKey: preferredCacheKey,
+            progress: progress
         )
     }
 
@@ -127,7 +133,8 @@ enum ProjectImportCoordinator {
             hasAudio: Bool,
             playbackMode: ProjectMediaPlaybackMode
         ),
-        preferredCacheKey: UUID?
+        preferredCacheKey: UUID?,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws -> PlaybackPreparation {
         let fingerprint = try MediaCacheManager.sourceFingerprint(for: url)
         let cacheKey = metadata.playbackMode == .cachedProxy ? preferredCacheKey ?? UUID() : nil
@@ -137,8 +144,11 @@ enum ProjectImportCoordinator {
                 duration: metadata.duration,
                 cacheKey: cacheKey,
                 fingerprint: fingerprint,
-                hasVideo: metadata.hasVideo
+                hasVideo: metadata.hasVideo,
+                progress: progress
             )
+        } else {
+            progress(1)
         }
         return PlaybackPreparation(
             mode: metadata.playbackMode,

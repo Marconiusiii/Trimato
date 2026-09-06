@@ -20,6 +20,9 @@ struct SourceClipEditorView: View {
     @State private var preparationID = UUID()
     @State private var preparationTask: Task<Void, Never>?
     @State private var sourcePreparationError: String?
+    @State private var sourcePreparationProgress: Double?
+    @State private var sourcePreparationDetail: String?
+    @State private var sourcePreparationOutcome = OperationProgressOutcome.completed
     @State private var cacheOwnerID = UUID()
     @StateObject private var preview = ClipPreviewCoordinator()
     @State private var previewRequest: ClipPreviewCoordinator.Request?
@@ -95,6 +98,12 @@ struct SourceClipEditorView: View {
                     .padding(.bottom, 12)
             }
         }
+        .operationProgress(
+            clipPreparationOperation,
+            outcome: clipPreparationOutcome,
+            returnWindow: commandContext.hostWindow,
+            waitsForReturnWindow: true
+        )
         .operationProgress(showsPreviewProgress && preview.state == .preparing ? OperationProgress(
             title: "Applying Clip Effects", progress: preview.progress,
             cancel: preview.cancel
@@ -124,6 +133,9 @@ struct SourceClipEditorView: View {
             previewRequest = nil
             showsPreviewProgress = false
             preparationTask?.cancel()
+            sourcePreparationProgress = nil
+            sourcePreparationDetail = nil
+            sourcePreparationOutcome = .completed
             commandContext.acceptExternalGeneratorUpdate()
             viewModel.closeMedia()
             loadIfNeeded()
@@ -273,6 +285,9 @@ struct SourceClipEditorView: View {
         preparationID = requestID
         preparingSource = true
         sourcePreparationError = nil
+        sourcePreparationProgress = nil
+        sourcePreparationDetail = "\(currentAsset.name): Preparing media"
+        sourcePreparationOutcome = .completed
         preparationTask = Task { @MainActor in
             defer {
                 if preparationID == requestID {
@@ -281,7 +296,14 @@ struct SourceClipEditorView: View {
                 }
             }
             do {
-                let source = try await controller.preparedMediaSource(for: currentAsset)
+                let source = try await controller.preparedMediaSource(
+                    for: currentAsset,
+                    progress: { progress in
+                        guard preparationID == requestID else { return }
+                        sourcePreparationDetail = "\(currentAsset.name): Creating playback proxy"
+                        sourcePreparationProgress = progress
+                    }
+                )
                 try Task.checkCancellation()
                 guard preparationID == requestID else { return }
                 if let cacheKey = controller.project.asset(id: currentAsset.id)?.proxyCacheKey {
@@ -300,13 +322,56 @@ struct SourceClipEditorView: View {
                     initialOutMarker: opening.outMarker
                 )
             } catch is CancellationError {
+                guard preparationID == requestID else { return }
+                loadedAssetID = nil
+                sourcePreparationOutcome = .cancelled
                 return
             } catch {
                 guard preparationID == requestID else { return }
                 loadedAssetID = nil
                 sourcePreparationError = error.localizedDescription
+                sourcePreparationOutcome = .failed
             }
         }
+    }
+
+    private var clipPreparationOperation: OperationProgress? {
+        if preparingSource {
+            return OperationProgress(
+                title: "Preparing Clip",
+                progress: sourcePreparationProgress,
+                detail: sourcePreparationDetail,
+                cancel: cancelClipPreparation
+            )
+        }
+        guard viewModel.isPreparingMedia else { return nil }
+        return OperationProgress(
+            title: "Preparing Clip",
+            progress: viewModel.mediaProgress,
+            detail: clipPreparationDetail,
+            cancel: cancelClipPreparation
+        )
+    }
+
+    private var clipPreparationDetail: String? {
+        guard let status = viewModel.mediaStatus else { return currentAsset.name }
+        return "\(currentAsset.name): \(status)"
+    }
+
+    private var clipPreparationOutcome: OperationProgressOutcome {
+        if sourcePreparationOutcome != .completed { return sourcePreparationOutcome }
+        return viewModel.mediaPreparationOutcome
+    }
+
+    private func cancelClipPreparation() {
+        preparationID = UUID()
+        preparationTask?.cancel()
+        preparationTask = nil
+        preparingSource = false
+        loadedAssetID = nil
+        sourcePreparationProgress = nil
+        sourcePreparationOutcome = .cancelled
+        viewModel.cancelMediaLoad()
     }
 
     private func place(_ placement: PlacementAction) {

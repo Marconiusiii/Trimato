@@ -34,15 +34,24 @@ nonisolated struct AudioWaveformData: Equatable, Sendable {
 }
 
 nonisolated enum AudioWaveformAnalyzer {
-    static func analyze(asset: AVAsset, maximumCount: Int = 4_096) async throws -> AudioWaveformData {
+    static func analyze(
+        asset: AVAsset,
+        maximumCount: Int = 4_096,
+        progress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
+    ) async throws -> AudioWaveformData {
         try await Task.detached(priority: .utility) {
-            try await analyzeSynchronously(asset: asset, maximumCount: maximumCount)
+            try await analyzeSynchronously(
+                asset: asset,
+                maximumCount: maximumCount,
+                progress: progress
+            )
         }.value
     }
 
     private static func analyzeSynchronously(
         asset: AVAsset,
-        maximumCount: Int
+        maximumCount: Int,
+        progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws -> AudioWaveformData {
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
             return AudioWaveformData(samples: [], duration: 0)
@@ -69,6 +78,8 @@ nonisolated enum AudioWaveformAnalyzer {
         }
 
         var peaks = Array(repeating: Float.zero, count: maximumCount)
+        var lastReportedPercent = -1
+        await progress(0)
         while reader.status == .reading {
             try Task.checkCancellation()
             guard let sampleBuffer = output.copyNextSampleBuffer() else { break }
@@ -94,6 +105,13 @@ nonisolated enum AudioWaveformAnalyzer {
             let frameCount = max(CMSampleBufferGetNumSamples(sampleBuffer), 1)
             let floatPointer = UnsafeRawPointer(pointer).assumingMemoryBound(to: Float.self)
             let start = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+            if start.isFinite {
+                let percent = min(max(Int(start / duration * 100), 0), 99)
+                if percent > lastReportedPercent {
+                    lastReportedPercent = percent
+                    await progress(Double(percent) / 100)
+                }
+            }
             let declaredDuration = CMSampleBufferGetDuration(sampleBuffer).seconds
             let sampleRate = streamDescription?.mSampleRate ?? 0
             let bufferDuration = declaredDuration.isFinite && declaredDuration > 0
@@ -112,6 +130,7 @@ nonisolated enum AudioWaveformAnalyzer {
         }
         let maximum = peaks.max() ?? 0
         if maximum > 0 { peaks = peaks.map { min(max($0 / maximum, 0), 1) } }
+        await progress(1)
         return AudioWaveformData(samples: peaks, duration: duration)
     }
 }

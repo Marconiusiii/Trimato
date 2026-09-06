@@ -34,6 +34,7 @@ final class StandaloneClipCommandContext: ObservableObject {
     @Published var creationError: String?
     private weak var viewModel: VideoPlayerViewModel?
     private var createAction: (() -> Void)?
+    private var closeAction: (() -> Void)?
     private var viewModelSubscription: AnyCancellable?
 
     init(viewModel: VideoPlayerViewModel) {
@@ -51,10 +52,19 @@ final class StandaloneClipCommandContext: ObservableObject {
         createAction = action
     }
 
+    func configureCloseAction(_ action: @escaping () -> Void) {
+        closeAction = action
+    }
+
     func createProject() {
         guard canCreateProject else { return }
         isCreatingProject = true
         createAction?()
+    }
+
+    func close() {
+        guard NSApp.modalWindow == nil else { return }
+        closeAction?()
     }
 
     func finishCreatingProject() {
@@ -112,6 +122,10 @@ struct StandaloneClipEditorView: View {
             .padding(.vertical, 12)
             .background(EditorTheme.controlSurface)
         }
+        .operationProgress(
+            mediaPreparationOperation,
+            outcome: viewModel.mediaPreparationOutcome
+        )
         .operationProgress(commandContext.isCreatingProject ? OperationProgress(
             title: "Creating Project", cancel: { creationTask?.cancel() }
         ) : nil, outcome: commandContext.creationError == nil ? .completed : .failed,
@@ -123,9 +137,15 @@ struct StandaloneClipEditorView: View {
         }
         .focusedObject(viewModel)
         .focusedObject(commandContext)
+        .onExitCommand {
+            commandContext.close()
+        }
         .navigationTitle("\((request.displayName as NSString).deletingPathExtension) — \(editorName)")
         .frame(minWidth: 700, minHeight: 600)
         .onAppear {
+            commandContext.configureCloseAction {
+                dismissWindow(value: request)
+            }
             guard loadedRequestID != request.id else {
                 resourceAccess?.begin()
                 return
@@ -182,5 +202,18 @@ struct StandaloneClipEditorView: View {
     private var editorName: String {
         guard viewModel.hasMedia else { return "Clip Editor" }
         return ClipEditorMediaKind.name(hasVideo: viewModel.hasVideo)
+    }
+
+    private var mediaPreparationOperation: OperationProgress? {
+        guard viewModel.isPreparingMedia else { return nil }
+        let detail = viewModel.mediaStatus.map { status in
+            viewModel.mediaFilename.isEmpty ? status : "\(viewModel.mediaFilename): \(status)"
+        }
+        return OperationProgress(
+            title: "Preparing Clip",
+            progress: viewModel.mediaProgress,
+            detail: detail,
+            cancel: viewModel.cancelMediaLoad
+        )
     }
 }

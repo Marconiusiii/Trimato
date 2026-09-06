@@ -218,7 +218,9 @@ struct TrimatoApp: App {
             }
         }
         .defaultSize(width: 940, height: 760)
-        .commandsRemoved()
+        .commandsReplaced {
+            StandaloneClipFileCommands()
+        }
 
         Window("About Trimato", id: "about") {
             AboutView()
@@ -373,6 +375,20 @@ private struct ProjectFileCommands: Commands {
             Button("Import Files\u{2026}") { controller?.importFiles() }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(controller == nil || controller?.isImporting == true)
+        }
+    }
+}
+
+private struct StandaloneClipFileCommands: Commands {
+    @FocusedObject private var commandContext: StandaloneClipCommandContext?
+
+    var body: some Commands {
+        CommandGroup(replacing: .saveItem) {
+            Button("Close Clip Editor") {
+                commandContext?.close()
+            }
+            .keyboardShortcut("w", modifiers: .command)
+            .disabled(commandContext == nil)
         }
     }
 }

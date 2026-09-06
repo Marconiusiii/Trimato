@@ -49,6 +49,9 @@ final class ProjectController: ObservableObject {
     @Published private(set) var applyingTransitionProgress: Double?
     @Published var isImporting = false
     @Published private(set) var canCancelImport = false
+    @Published private(set) var importProgress: Double?
+    @Published private(set) var importDetail: String?
+    @Published private(set) var importOutcome = OperationProgressOutcome.completed
     private var importTask: Task<Void, Never>?
     private var projectFilePanel: NSOpenPanel?
 
@@ -1400,7 +1403,10 @@ final class ProjectController: ObservableObject {
         return url
     }
 
-    func preparedMediaSource(for requestedAsset: MediaAssetRecord) async throws -> MediaSource? {
+    func preparedMediaSource(
+        for requestedAsset: MediaAssetRecord,
+        progress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
+    ) async throws -> MediaSource? {
         guard var asset = project.asset(id: requestedAsset.id),
               let originalURL = resolveURL(for: asset) else { return nil }
         if let generator = asset.generator {
@@ -1412,7 +1418,8 @@ final class ProjectController: ObservableObject {
             let previousCacheKey = asset.proxyCacheKey
             let preparation = try await ProjectImportCoordinator.preparePlayback(
                 at: originalURL,
-                preferredCacheKey: asset.sourceFingerprint == nil ? asset.proxyCacheKey : nil
+                preferredCacheKey: asset.sourceFingerprint == nil ? asset.proxyCacheKey : nil,
+                progress: progress
             )
             asset.playbackMode = preparation.mode
             asset.proxyCacheKey = preparation.cacheKey
@@ -1453,7 +1460,8 @@ final class ProjectController: ObservableObject {
                 duration: asset.duration.seconds,
                 cacheKey: cacheKey,
                 fingerprint: fingerprint,
-                hasVideo: asset.hasVideo
+                hasVideo: asset.hasVideo,
+                progress: progress
             )
             return MediaSource(
                 originalURL: originalURL,
@@ -1516,8 +1524,12 @@ final class ProjectController: ObservableObject {
         guard !isImporting, !urls.isEmpty else { return }
         isImporting = true
         canCancelImport = true
+        importProgress = nil
+        importDetail = "Finding files"
+        importOutcome = .completed
         importTask = Task { @MainActor in
             defer {
+                if Task.isCancelled { importOutcome = .cancelled }
                 isImporting = false
                 canCancelImport = false
                 importTask = nil
@@ -1532,6 +1544,38 @@ final class ProjectController: ObservableObject {
             var importPaths = Set(project.media.map {
                 URL(fileURLWithPath: $0.originalPath).standardizedFileURL.path
             })
+            var totalCandidates = 0
+            for selectedURL in urls {
+                guard !Task.isCancelled else { return }
+                let scoped = selectedURL.startAccessingSecurityScopedResource()
+                defer { if scoped { selectedURL.stopAccessingSecurityScopedResource() } }
+                if let media = try? ProjectImportCoordinator.importableMediaURLs(in: selectedURL),
+                   let captions = try? ProjectImportCoordinator.importableCaptionURLs(in: selectedURL) {
+                    totalCandidates += media.count + captions.count
+                }
+            }
+            var completedCandidates = 0
+            if totalCandidates > 0 { importProgress = 0 }
+
+            @MainActor
+            func updateOverallProgress(_ currentFileProgress: Double) {
+                guard totalCandidates > 0 else {
+                    importProgress = nil
+                    return
+                }
+                let bounded = min(max(currentFileProgress, 0), 1)
+                importProgress = min(
+                    max((Double(completedCandidates) + bounded) / Double(totalCandidates), 0),
+                    1
+                )
+            }
+
+            @MainActor
+            func finishCandidate() {
+                completedCandidates += 1
+                updateOverallProgress(0)
+            }
+
             for selectedURL in urls {
                 guard !Task.isCancelled else { return }
                 let scoped = selectedURL.startAccessingSecurityScopedResource()
@@ -1547,13 +1591,27 @@ final class ProjectController: ObservableObject {
                     var assets: [MediaAssetRecord] = []
                     for candidate in candidates {
                         guard !Task.isCancelled else { return }
+                        importDetail = "\(candidate.lastPathComponent): Importing media"
                         let standardizedPath = candidate.standardizedFileURL.path
-                        guard importPaths.insert(standardizedPath).inserted else { continue }
+                        guard importPaths.insert(standardizedPath).inserted else {
+                            finishCandidate()
+                            continue
+                        }
                         do {
-                            assets.append(try await ProjectImportCoordinator.importAsset(at: candidate))
+                            assets.append(try await ProjectImportCoordinator.importAsset(
+                                at: candidate,
+                                progress: { progress in
+                                    self.importDetail = "\(candidate.lastPathComponent): Creating playback proxy"
+                                    updateOverallProgress(progress)
+                                }
+                            ))
+                        } catch is CancellationError {
+                            importOutcome = .cancelled
+                            return
                         } catch {
                             failures.append((candidate.lastPathComponent, error.localizedDescription))
                         }
+                        finishCandidate()
                     }
                     if !assets.isEmpty {
                         groups.append(ImportGroup(
@@ -1565,6 +1623,7 @@ final class ProjectController: ObservableObject {
                     }
                     for candidate in captionCandidates {
                         guard !Task.isCancelled else { return }
+                        importDetail = "\(candidate.lastPathComponent): Importing captions"
                         do {
                             let cues = try ProjectImportCoordinator.importCaptionCues(at: candidate)
                             if let last = cues.map(\.end).max(), last > project.nonCaptionDuration {
@@ -1574,6 +1633,7 @@ final class ProjectController: ObservableObject {
                         } catch {
                             failures.append((candidate.lastPathComponent, error.localizedDescription))
                         }
+                        finishCandidate()
                     }
                 } catch {
                     failures.append((selectedURL.lastPathComponent, error.localizedDescription))
@@ -1614,7 +1674,6 @@ final class ProjectController: ObservableObject {
                     }
                 }
             }
-            isImporting = false
             if !additions.isEmpty, !importedCaptionCues.isEmpty {
                 announce("Imported \(additions.count) clip\(additions.count == 1 ? "" : "s") and \(importedCaptionCues.count) caption\(importedCaptionCues.count == 1 ? "" : "s")")
             } else if !additions.isEmpty {
@@ -1623,12 +1682,15 @@ final class ProjectController: ObservableObject {
                 announce("Imported \(importedCaptionCues.count) caption\(importedCaptionCues.count == 1 ? "" : "s")")
             }
             if !failures.isEmpty {
+                importOutcome = .failed
                 let details = failures.map { "\($0.name): \($0.message)" }.joined(separator: "\n")
                 presentedError = ProjectPresentedError(
                     title: additions.isEmpty && importedCaptionCues.isEmpty ? "Import Failed" : "Some Files Could Not Be Imported",
                     message: details
                 )
                 announce(additions.isEmpty && importedCaptionCues.isEmpty ? "Import failed" : "Some files could not be imported")
+            } else {
+                importOutcome = .completed
             }
         }
     }

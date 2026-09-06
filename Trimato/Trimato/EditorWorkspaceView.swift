@@ -161,9 +161,10 @@ struct EditorWorkspaceView: View {
             )
             .operationProgress(
                 importOperation,
-                outcome: controller.presentedError == nil ? .completed : .failed,
+                outcome: controller.importOutcome,
                 returnWindow: projectWindowSaveCoordinator.attachedWindow,
-                waitsForReturnWindow: true
+                waitsForReturnWindow: true,
+                dismissed: restoreImportFocus
             )
             .operationProgress(transitionOperation, outcome: transitionOutcome,
                                completionPending: transitionTask != nil,
@@ -200,9 +201,17 @@ struct EditorWorkspaceView: View {
 
     private var importOperation: OperationProgress? {
         guard controller.isImporting else { return nil }
-        var operation = OperationProgress(title: "Importing Files")
+        var operation = OperationProgress(
+            title: "Importing Files",
+            progress: controller.importProgress,
+            detail: controller.importDetail
+        )
         if controller.canCancelImport { operation.cancel = { controller.cancelImport() } }
         return operation
+    }
+
+    private func restoreImportFocus() {
+        initialImportFocusRequest += 1
     }
 
     private var transitionOperation: OperationProgress? {

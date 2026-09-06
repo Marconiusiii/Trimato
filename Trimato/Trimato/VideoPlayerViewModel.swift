@@ -146,9 +146,12 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var mediaStatus: String?
     @Published private(set) var mediaProgress: Double?
     @Published private(set) var mediaFilename = ""
+    @Published private(set) var mediaPreparationOutcome = OperationProgressOutcome.completed
     @Published private(set) var isApplyingEdit = false
     @Published private(set) var projectSourceSegments: [SourceSegment] = []
     @Published private(set) var placementSourceSegments: [SourceSegment] = []
+
+    var isPreparingMedia: Bool { isLoadingMedia || isPreparingWaveform }
 
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
@@ -170,7 +173,6 @@ final class VideoPlayerViewModel: ObservableObject {
     private var frameStepPosition: CMTime?
     private var exportTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
-    private var frameIndexTask: Task<Void, Never>?
     private var waveformTask: Task<Void, Never>?
     private var sourceWaveform: AudioWaveformData?
     private var editTask: Task<Void, Never>?
@@ -198,7 +200,6 @@ final class VideoPlayerViewModel: ObservableObject {
         stepEndTask?.cancel()
         exportTask?.cancel()
         loadTask?.cancel()
-        frameIndexTask?.cancel()
         waveformID = UUID()
         waveformTask?.cancel()
         editTask?.cancel()
@@ -361,8 +362,6 @@ final class VideoPlayerViewModel: ObservableObject {
         sourceFilename = url.lastPathComponent
         loadID = nil
         loadTask?.cancel()
-        frameIndexTask?.cancel()
-        frameIndexTask = nil
         waveformID = UUID()
         waveformTask?.cancel()
         waveformTask = nil
@@ -392,9 +391,10 @@ final class VideoPlayerViewModel: ObservableObject {
         exportProgress = nil
         exportErrorMessage = nil
         mediaOpenErrorMessage = nil
-        mediaStatus = "Inspecting \(url.lastPathComponent)"
+        mediaStatus = "Inspecting media"
         mediaFilename = url.lastPathComponent
         mediaProgress = nil
+        mediaPreparationOutcome = .completed
         isLoadingMedia = true
         player.replaceCurrentItem(with: nil)
         hasMedia = false
@@ -430,6 +430,24 @@ final class VideoPlayerViewModel: ObservableObject {
                 }
                 let loadedDuration = try await source.playbackAsset.load(.duration)
                 try Task.checkCancellation()
+                var sourceFrameTimestamps = source.frameTimestamps
+                if source.hasVideo && sourceFrameTimestamps.isEmpty {
+                    self.beginFrameIndexing()
+                    do {
+                        sourceFrameTimestamps = try await FFmpegMediaProbe.frameTimestamps(
+                            url: source.playbackURL,
+                            duration: loadedDuration.seconds,
+                            progress: { [weak self] progress in
+                                self?.updateFrameIndexProgress(progress)
+                            }
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        sourceFrameTimestamps = []
+                    }
+                    try Task.checkCancellation()
+                }
                 let requestedRanges = sourceSegments?.map(\.sourceRange.cmTimeRange)
                     .filter { $0.isValid && $0.duration > .zero } ?? []
                 let timeline = requestedRanges.isEmpty
@@ -456,31 +474,27 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.outMarker = initialOutMarker?.cmTime
                 self.refreshPlacementSourceSegments()
                 self.editedFrameTimestamps = EditedCompositionBuilder.editedFrameTimestamps(
-                    sourceTimestamps: source.frameTimestamps,
+                    sourceTimestamps: sourceFrameTimestamps,
                     sourceRanges: timeline.sourceRanges
                 )
                 self.hasMedia = true
-                self.isLoadingMedia = false
-                self.mediaProgress = nil
-                self.mediaStatus = source.usesProxy
-                    ? "Ready using a playback proxy"
-                    : "Ready"
-                self.loadID = nil
-                self.loadTask = nil
-                if source.hasVideo && source.frameTimestamps.isEmpty {
-                    self.indexFramesInBackground(
-                        at: source.playbackURL,
-                        sourceRanges: timeline.sourceRanges
-                    )
-                }
                 if source.hasAudio && !source.hasVideo {
                     self.prepareWaveform(asset: source.playbackAsset)
+                } else {
+                    self.mediaProgress = nil
+                    self.mediaStatus = source.usesProxy
+                        ? "Ready using a playback proxy"
+                        : "Ready"
                 }
+                self.isLoadingMedia = false
+                self.loadID = nil
+                self.loadTask = nil
             } catch is CancellationError {
                 ProxyMediaManager.removeProxy(at: preparedProxyURL)
                 guard self.loadID == operationID else { return }
                 self.isLoadingMedia = false
                 self.mediaProgress = nil
+                self.mediaPreparationOutcome = .cancelled
                 self.loadID = nil
                 self.loadTask = nil
             } catch {
@@ -490,9 +504,9 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.mediaProgress = nil
                 self.mediaStatus = "Open failed: \(error.localizedDescription)"
                 self.mediaOpenErrorMessage = error.localizedDescription
+                self.mediaPreparationOutcome = .failed
                 self.loadID = nil
                 self.loadTask = nil
-                self.announce("Open failed. \(error.localizedDescription)")
             }
         }
     }
@@ -509,15 +523,13 @@ final class VideoPlayerViewModel: ObservableObject {
         isLoadingMedia = false
         mediaProgress = nil
         mediaStatus = "Import canceled"
-        announce("Import canceled")
+        mediaPreparationOutcome = .cancelled
     }
 
     func closeMedia() {
         loadID = nil
         loadTask?.cancel()
         loadTask = nil
-        frameIndexTask?.cancel()
-        frameIndexTask = nil
         waveformID = UUID()
         waveformTask?.cancel()
         waveformTask = nil
@@ -1221,20 +1233,6 @@ final class VideoPlayerViewModel: ObservableObject {
         )
     }
 
-    private func indexFramesInBackground(at url: URL, sourceRanges: [CMTimeRange]) {
-        frameIndexTask?.cancel()
-        frameIndexTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let timestamps = (try? await FFmpegMediaProbe.frameTimestamps(url: url)) ?? []
-            guard !Task.isCancelled, self.mediaSource?.playbackURL == url else { return }
-            self.editedFrameTimestamps = EditedCompositionBuilder.editedFrameTimestamps(
-                sourceTimestamps: timestamps,
-                sourceRanges: sourceRanges
-            )
-            self.frameIndexTask = nil
-        }
-    }
-
     // MARK: - Private: observers & key monitor
 
     private func setupTimeObserver() {
@@ -1407,23 +1405,35 @@ final class VideoPlayerViewModel: ObservableObject {
         sourceWaveform = nil
         waveformSamples = []
         isPreparingWaveform = true
+        mediaStatus = "Preparing audio waveform"
+        mediaProgress = 0
         waveformTask = Task { @MainActor [weak self] in
             do {
-                let waveform = try await AudioWaveformAnalyzer.analyze(asset: asset)
+                let waveform = try await AudioWaveformAnalyzer.analyze(
+                    asset: asset,
+                    progress: { [weak self] progress in
+                        self?.mediaProgress = progress
+                    }
+                )
                 try Task.checkCancellation()
                 guard let self, self.waveformID == requestID else { return }
                 self.sourceWaveform = waveform
                 self.refreshWaveformSamples()
                 self.isPreparingWaveform = false
+                self.mediaProgress = nil
+                self.mediaStatus = "Ready"
                 self.waveformTask = nil
             } catch is CancellationError {
                 guard self?.waveformID == requestID else { return }
                 self?.isPreparingWaveform = false
+                self?.mediaProgress = nil
                 self?.waveformTask = nil
             } catch {
                 guard self?.waveformID == requestID else { return }
                 self?.waveformSamples = []
                 self?.isPreparingWaveform = false
+                self?.mediaProgress = nil
+                self?.mediaStatus = "Ready"
                 self?.waveformTask = nil
             }
         }
@@ -1548,7 +1558,6 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private func updateImportStatus(_ status: String) {
         mediaStatus = status
-        announce(status)
     }
 
     private func beginFrameIndexing() {
