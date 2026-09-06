@@ -62,18 +62,6 @@ struct TrimatoApp: App {
                     projectController?.selectedTransition == nil
                     && projectController?.selectedCaptionCue == nil
                 )
-                Button("Trim Start to Playhead") {
-                    if let projectPlayer { projectPlayer.trimActiveClipStartToPlayhead() }
-                    else { viewModel?.trimStartToPlayhead() }
-                }
-                    .keyboardShortcut("[", modifiers: .command)
-                    .disabled(projectPlayer?.canControlPlayback != true && viewModel?.canTrimStart != true)
-                Button("Trim End from Playhead") {
-                    if let projectPlayer { projectPlayer.trimActiveClipEndToPlayhead() }
-                    else { viewModel?.trimEndFromPlayhead() }
-                }
-                    .keyboardShortcut("]", modifiers: .command)
-                    .disabled(projectPlayer?.canControlPlayback != true && viewModel?.canTrimEnd != true)
             }
             CommandMenu("Playback") {
                 Button("Play or Pause (Space)") {
@@ -160,21 +148,36 @@ struct TrimatoApp: App {
             }
             ClipPlacementCommands()
             CommandMenu("Timeline") {
-                Button("New Caption…") { projectCommandController?.requestCaptionEditor() }
-                    .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .disabled(projectCommandController?.canCreateCaption != true)
-                Button("Finalize Captions") { projectCommandController?.finalizeCaptions() }
-                    .disabled(projectCommandController?.canFinalizeCaptions != true)
-                Button("Export Captions…") { projectCommandController?.exportCaptions() }
-                    .disabled(projectCommandController?.project.captionTrack?.captionCues.isEmpty != false)
                 Button("Generator…") { projectCommandController?.requestGenerator() }
                     .disabled(projectCommandController == nil)
                 Divider()
-                Button("Blade at Playhead (Command-B)") { projectCommandController?.splitClipAtPlayhead() }
+                Button("Blade at Playhead") { projectCommandController?.splitClipAtPlayhead() }
                     .disabled(projectCommandController?.project.primaryTimeline.isEmpty != false)
+                Button("Trim Start to Playhead") {
+                    if let projectPlayer { projectPlayer.trimActiveClipStartToPlayhead() }
+                    else { viewModel?.trimStartToPlayhead() }
+                }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(projectPlayer?.canControlPlayback != true && viewModel?.canTrimStart != true)
+                Button("Trim End from Playhead") {
+                    if let projectPlayer { projectPlayer.trimActiveClipEndToPlayhead() }
+                    else { viewModel?.trimEndFromPlayhead() }
+                }
+                    .keyboardShortcut("]", modifiers: .command)
+                    .disabled(projectPlayer?.canControlPlayback != true && viewModel?.canTrimEnd != true)
                 Button("Add Transition…") { projectCommandController?.requestTransitionForSelection() }
                     .keyboardShortcut("t", modifiers: .command)
                     .disabled(projectCommandController?.project.tracks.contains(where: { !$0.clips.isEmpty }) != true)
+                Divider()
+                Menu("Captions") {
+                    Button("New Caption…") { projectCommandController?.requestCaptionEditor() }
+                        .keyboardShortcut("c", modifiers: [.command, .shift])
+                        .disabled(projectCommandController?.canCreateCaption != true)
+                    Button("Finalize Captions") { projectCommandController?.finalizeCaptions() }
+                        .disabled(projectCommandController?.canFinalizeCaptions != true)
+                    Button("Export Captions…") { projectCommandController?.exportCaptions() }
+                        .disabled(projectCommandController?.project.captionTrack?.captionCues.isEmpty != false)
+                }
                 Divider()
                 Button("Previous Track") { projectCommandController?.selectAdjacentTrack(-1) }
                     .keyboardShortcut(.upArrow, modifiers: [.command, .option])
@@ -268,8 +271,7 @@ private struct GetInfoCommands: Commands {
     }
 
     var body: some Commands {
-        CommandGroup(after: .pasteboard) {
-            Divider()
+        CommandGroup(after: .newItem) {
             Button("Get Info") {
                 if let context = clipCommands.activeContext {
                     Task { @MainActor in
