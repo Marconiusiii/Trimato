@@ -126,7 +126,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
                 item.videoComposition = result.videoComposition
                 item.audioMix = result.audioMix
                 item.audioTimePitchAlgorithm = .spectral
-                if isDescriber && limitToRange && end > start { item.forwardPlaybackEndTime = ProjectTime(seconds: end).cmTime }
+                if isDescriber && limitToRange && !mixed && !recording && end > start { item.forwardPlaybackEndTime = ProjectTime(seconds: end).cmTime }
                 player.replaceCurrentItem(with: item)
                 await player.seek(to: ProjectTime(seconds: start).cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
                 try Task.checkCancellation()
@@ -266,32 +266,32 @@ struct ProjectRecordingView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(session.purpose.toolTitle).font(.title2).accessibilityAddTraits(.isHeader)
             VideoPlayerView(player: session.player).frame(height: 180)
-            TextField("Clip name", text: $session.name)
-                .focused($keyboardFocus, equals: .name)
-                .accessibilityFocused($textFocus, equals: .name)
-                .disabled(session.saving)
-            HStack {
-                TextField(session.isDescriber ? "In, seconds" : "Insert at, seconds", value: $session.start, format: .number)
-                if session.isDescriber { TextField("Out, seconds", value: $session.end, format: .number) }
+            LabeledContent("Clip name") {
+                TextField("", text: $session.name)
+                    .focused($keyboardFocus, equals: .name)
+                    .accessibilityFocused($textFocus, equals: .name)
+                    .disabled(session.saving)
+                    .labelsHidden()
             }
-            .disabled(capture.isBusy || session.busy)
             HStack {
-                Button(session.playing ? "Stop playback" : "Play show") { session.preview(mixed: false, limitToRange: false) }
+                LabeledContent(session.isDescriber ? "In, seconds" : "Insert at, seconds") {
+                    TextField("", value: $session.start, format: .number).labelsHidden()
+                }
                 if session.isDescriber {
-                    Button("Play range") { session.preview(mixed: false) }.disabled(!session.validRange)
-                    Button("Mark In") { session.start = session.position }
-                    Button("Mark Out") { session.end = session.position }
+                    LabeledContent("Out, seconds") { TextField("", value: $session.end, format: .number).labelsHidden() }
                 }
             }
             .disabled(capture.isBusy || session.busy)
             if session.isDescriber {
                 Text("Description transcript").font(.headline).accessibilityAddTraits(.isHeader)
-                TextEditor(text: $session.text)
-                    .accessibilityLabel("Description text")
+                LabeledContent("Description text") {
+                    TextEditor(text: $session.text)
+                    .labelsHidden()
                     .focused($keyboardFocus, equals: .transcript)
                     .accessibilityFocused($textFocus, equals: .transcript)
                     .frame(height: 100)
                     .disabled(session.saving)
+                }
                 HStack {
                     Toggle("Speed up to fit", isOn: $session.fitLongTake)
                         .onChange(of: session.fitLongTake) { _, value in if value { session.trimLongTake = false } }
@@ -300,8 +300,12 @@ struct ProjectRecordingView: View {
                 }
                 .disabled(session.busy || capture.isBusy)
                 HStack {
-                    TextField("Show audio reduction, dB", value: $session.ducking.decibels, format: .number)
-                    TextField("Fade time, seconds", value: $session.ducking.fadeSeconds, format: .number)
+                    LabeledContent("Show audio reduction, dB") {
+                        TextField("", value: $session.ducking.decibels, format: .number).labelsHidden()
+                    }
+                    LabeledContent("Fade time, seconds") {
+                        TextField("", value: $session.ducking.fadeSeconds, format: .number).labelsHidden()
+                    }
                 }
                 .disabled(session.busy)
                 Button("Apply audio reduction") { session.controller?.updateDescriptionDucking(session.ducking) }
@@ -320,6 +324,9 @@ struct ProjectRecordingView: View {
             }
             if let summary = capture.summary {
                 Text("Take length: \(summary.duration, specifier: "%.2f") seconds")
+                if session.isDescriber && summary.duration > session.end - session.start {
+                    Text("Beyond Out: \(summary.duration - (session.end - session.start), specifier: "%.2f") seconds")
+                }
             }
             if session.busy { ProgressView("Preparing…").controlSize(.small) }
             HStack {

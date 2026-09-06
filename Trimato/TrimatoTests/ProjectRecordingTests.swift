@@ -7,6 +7,130 @@ import SwiftUI
 @MainActor
 @Suite(.serialized)
 struct ProjectRecordingTests {
+    @Test func projectReplacementWaitsForCloseAndRespectsCancellation() {
+        let gate = ProjectReplacementGate()
+        let project = ProjectController(document: ProjectDocument())
+        var finishClose: ((Bool) -> Void)?
+        project.installCloseProjectAction { finishClose = $0 }
+        var result: Bool?
+        gate.prepare(project: project, hasOpenDocuments: true) { result = $0 }
+        #expect(result == nil)
+        var secondRequest: Bool?
+        gate.prepare(project: project, hasOpenDocuments: true) { secondRequest = $0 }
+        #expect(secondRequest == false)
+        finishClose?(false)
+        #expect(result == false)
+        result = nil
+        gate.prepare(project: project, hasOpenDocuments: true) { result = $0 }
+        #expect(result == nil)
+        finishClose?(true)
+        #expect(result == true)
+        gate.prepare(project: nil, hasOpenDocuments: true) { result = $0 }
+        #expect(result == false)
+        gate.prepare(project: nil, hasOpenDocuments: false) { result = $0 }
+        #expect(result == true)
+    }
+
+    @Test func openingProjectsReplacesTheDocumentAndReusesAnAlreadyOpenProject() async throws {
+        #expect(NSDocumentController.shared.documents.isEmpty)
+        guard NSDocumentController.shared.documents.isEmpty else { return }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = try ProjectDocument.writeNewProject(TrimatoProject(name: "First"), toFolderAt: folder.appendingPathComponent("First"))
+        let second = try ProjectDocument.writeNewProject(TrimatoProject(name: "Second"), toFolderAt: folder.appendingPathComponent("Second"))
+        defer {
+            for document in NSDocumentController.shared.documents where [first, second].contains(document.fileURL) {
+                document.close()
+            }
+        }
+        for url in [first, first, second] {
+            await withCheckedContinuation { continuation in
+                SingleProjectCoordinator.shared.openDocument(at: url) { continuation.resume() }
+            }
+            try await Task.sleep(for: .milliseconds(250))
+            #expect(NSDocumentController.shared.documents.count == 1)
+            #expect(NSDocumentController.shared.documents.first?.fileURL == url)
+            let controller = try #require(ExternalMediaOpenCoordinator.shared.activeProjectController)
+            controller.updateProjectSettings(name: "Saved by shortcut", format: controller.project.format, targetDuration: controller.project.targetDuration)
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                timestamp: 0, windowNumber: 0, context: nil, characters: "s", charactersIgnoringModifiers: "s",
+                isARepeat: false, keyCode: 1))
+            #expect(ProjectSaveKeyboard.handle(event, controller: controller) == nil)
+            for _ in 0..<20 {
+                let saved = try ProjectDocument.decodeProject(from: FileWrapper(url: url))
+                if saved.name == "Saved by shortcut" { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            let saved = try ProjectDocument.decodeProject(from: FileWrapper(url: url))
+            #expect(saved.name == "Saved by shortcut")
+
+        }
+
+        // Exercise the delegate entry point used for external URL opens as well.
+        NSApp.delegate?.application?(NSApp, open: [first])
+        for _ in 0..<20 {
+            if NSDocumentController.shared.documents.first?.fileURL == first { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(NSDocumentController.shared.documents.count == 1)
+        #expect(NSDocumentController.shared.documents.first?.fileURL == first)
+    }
+
+    @Test func longerTakeRemainsUnchangedWithoutAnExplicitFitChoice() async throws {
+        let url = URL(fileURLWithPath: "/unused-test-take.wav")
+        for duration in [2.0001, 8.0] {
+            let result = try await RecordingTakeProcessor.prepare(url: url, duration: duration, available: 2, speedUp: false, trim: false)
+            #expect(result.url == url)
+            #expect(result.duration == duration)
+        }
+    }
+
+    @Test func saveShortcutDoesNotDependOnPaneFocus() throws {
+        for (flags, expected) in [(NSEvent.ModifierFlags.command, Optional(false)),
+                                  ([.command, .shift], Optional(true)),
+                                  ([.command, .option], nil), ([.control, .option], nil)] {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                timestamp: 0, windowNumber: 0, context: nil, characters: "s", charactersIgnoringModifiers: "s",
+                isARepeat: false, keyCode: 1))
+            #expect(ProjectSaveKeyboard.saveAsCommand(event) == expected)
+        }
+    }
+
+    @Test func describerFieldsHaveNativeLabelsAndNoPlaceholders() async throws {
+        let controller = ProjectController(document: ProjectDocument())
+        let session = ProjectRecordingSession(controller: controller, purpose: .audioDescription)
+        let host = NSHostingView(rootView: ProjectRecordingView(session: session))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 800),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.close(); session.close() }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(250))
+        func attribute(_ item: NSObject, _ key: String) -> Any? {
+            item.responds(to: NSSelectorFromString(key)) ? item.value(forKey: key) : nil
+        }
+        func descendants(_ item: NSObject) -> [NSObject] {
+            [item] + ((attribute(item, "accessibilityChildren") as? [NSObject]) ?? []).flatMap(descendants)
+        }
+        let elements = descendants(host)
+        for name in ["Clip name", "In, seconds", "Out, seconds", "Show audio reduction, dB", "Fade time, seconds", "Description text"] {
+            let label = try #require(elements.first {
+                attribute($0, "accessibilityRole") as? String == "AXStaticText" &&
+                attribute($0, "accessibilityValue") as? String == name
+            })
+            let targets = try #require(attribute(label, "accessibilityServesAsTitleForUIElements") as? [NSObject])
+            #expect(targets.count == 1)
+            let target = try #require(targets.first)
+            let field = try #require(descendants(target).first {
+                ["AXTextField", "AXTextArea"].contains(attribute($0, "accessibilityRole") as? String ?? "")
+            }, "Missing native field for visible label: \(name)")
+            #expect((attribute(field, "accessibilityPlaceholderValue") as? String ?? "").isEmpty)
+        }
+    }
+
     func asset(_ purpose: RecordingPurpose, duration: Double = 2) -> MediaAssetRecord {
         let length = ProjectTime(seconds: duration)
         var asset = MediaAssetRecord(name: purpose.title, originalPath: "/recording.wav", duration: length,

@@ -62,10 +62,11 @@ struct EditorWorkspaceView: View {
                 projectWindowSaveCoordinator.onLastProjectWindowWillClose {
                     openWindow(id: "project-launcher")
                 }
-                controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] in
-                    clipEditorWindows?.requestCloseAll { didClose in
-                        guard didClose else { return }
-                        projectWindowSaveCoordinator?.requestClose { _ in }
+                controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] completion in
+                    guard let clipEditorWindows, let projectWindowSaveCoordinator else { completion(false); return }
+                    clipEditorWindows.requestCloseAll { didClose in
+                        guard didClose else { completion(false); return }
+                        projectWindowSaveCoordinator.requestClose(completion: completion)
                     }
                 }
                 controller.installCaptionEditorActions(

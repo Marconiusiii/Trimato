@@ -82,7 +82,7 @@ final class ProjectController: ObservableObject {
     private weak var projectUndoManager: UndoManager?
     private weak var projectPlayer: ProjectPlayerViewModel?
     private var projectWithPreparedTransitionPreview: TrimatoProject?
-    private var closeProjectAction: (() -> Void)?
+    private var closeProjectAction: ((@escaping (Bool) -> Void) -> Void)?
     private var projectInfoTarget: ProjectInfoTarget = .selection(.project)
     private var editorAccessibilityFocusProvider: (() -> Bool)?
     private var editorDirectClipIDs: [UUID: UUID] = [:]
@@ -395,12 +395,13 @@ final class ProjectController: ObservableObject {
         }
     }
 
-    func installCloseProjectAction(_ action: @escaping () -> Void) {
+    func installCloseProjectAction(_ action: @escaping (@escaping (Bool) -> Void) -> Void) {
         closeProjectAction = action
     }
 
-    func closeProject() {
-        closeProjectAction?()
+    func closeProject(completion: @escaping (Bool) -> Void = { _ in }) {
+        guard let closeProjectAction else { completion(false); return }
+        closeProjectAction(completion)
     }
 
     var canExportProject: Bool {

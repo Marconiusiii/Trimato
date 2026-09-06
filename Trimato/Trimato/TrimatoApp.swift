@@ -227,7 +227,7 @@ struct TrimatoApp: App {
         }
         .defaultSize(width: 940, height: 760)
         .commandsReplaced {
-            StandaloneClipFileCommands()
+            ProjectFileCommands()
         }
 
         Window("About Trimato", id: "about") {
@@ -321,11 +321,23 @@ private struct ClipPlacementCommands: Commands {
 }
 
 private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate {
+    private let documents = SingleProjectCoordinator.shared
+    private var projectCommandMonitor: Any?
+
     func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.pathExtension.lowercased() == "trimato" {
+            documents.openDocument(at: url)
+        }
         ExternalMediaOpenCoordinator.shared.receive(urls)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        documents.refreshRecentProjects()
+        projectCommandMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            MainActor.assumeIsolated {
+                ProjectSaveKeyboard.handle(event, controller: ExternalMediaOpenCoordinator.shared.activeProjectController)
+            }
+        }
         guard !Self.isRunningTests else { return }
         Task { @MainActor in
             await AudioInputManager.requestPermissionIfNeeded()
@@ -340,7 +352,9 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
 }
 
 private struct ProjectFileCommands: Commands {
+    @ObservedObject private var projectOpening = SingleProjectCoordinator.shared
     @FocusedValue(\.closeSettings) private var closeSettings
+    @FocusedObject private var standaloneContext: StandaloneClipCommandContext?
     @Environment(\.openWindow) private var openWindow
     @FocusedObject private var projectController: ProjectController?
     @ObservedObject private var clipCommands = ClipEditorCommandRouter.shared
@@ -354,10 +368,21 @@ private struct ProjectFileCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Project") {
-                ProjectLauncherNavigation.shared.showProjectCreation()
-                openWindow(id: "project-launcher")
+                ProjectLauncherNavigation.shared.showProjectCreation {
+                    openWindow(id: "project-launcher")
+                }
             }
             .keyboardShortcut("n", modifiers: .command)
+            Button("Open Project…") { SingleProjectCoordinator.shared.chooseProject() }
+                .keyboardShortcut("o", modifiers: .command)
+            Menu("Open Recent") {
+                ForEach(projectOpening.recentURLs, id: \.self) { url in
+                    Button(url.deletingPathExtension().lastPathComponent) {
+                        SingleProjectCoordinator.shared.openDocument(at: url)
+                    }
+                }
+            }
+
         }
         CommandGroup(replacing: .saveItem) {
             Button(closeSettings != nil ? "Close Settings" : controller?.recordingSession.map { "Close \($0.purpose.toolTitle)" } ?? (controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : "Close Clip Editor")) {
@@ -368,11 +393,12 @@ private struct ProjectFileCommands: Commands {
                 } else if controller?.isCaptionEditorOpen == true {
                     controller?.closeCaptionEditor()
                 } else {
-                    clipPlacement?.hostWindow?.performClose(nil)
+                    if let standaloneContext { standaloneContext.close() }
+                    else { clipPlacement?.hostWindow?.performClose(nil) }
                 }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(controller?.recordingSession == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true)
+            .disabled(controller?.recordingSession == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true && standaloneContext == nil)
             Divider()
             Button("Save") { controller?.saveProjectDocument() }
                 .keyboardShortcut("s", modifiers: .command)
@@ -389,22 +415,6 @@ private struct ProjectFileCommands: Commands {
             Button("Import Files\u{2026}") { controller?.importFiles() }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(controller == nil || controller?.isImporting == true)
-        }
-    }
-}
-
-private struct StandaloneClipFileCommands: Commands {
-    @FocusedValue(\.closeSettings) private var closeSettings
-    @FocusedObject private var commandContext: StandaloneClipCommandContext?
-
-    var body: some Commands {
-        CommandGroup(replacing: .saveItem) {
-            Button(closeSettings != nil ? "Close Settings" : "Close Clip Editor") {
-                if let closeSettings { closeSettings() }
-                else { commandContext?.close() }
-            }
-            .keyboardShortcut("w", modifiers: .command)
-            .disabled(closeSettings == nil && commandContext == nil)
         }
     }
 }

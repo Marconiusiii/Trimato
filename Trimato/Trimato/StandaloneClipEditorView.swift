@@ -195,8 +195,11 @@ struct StandaloneClipEditorView: View {
     private func finishProjectPresentation() {
         guard !commandContext.isCreatingProject, let project = pendingProject else { return }
         pendingProject = nil
-        newDocument { ProjectDocument(project: project, isExplicitlySaved: false) }
-        dismissWindow(value: request)
+        SingleProjectCoordinator.prepareForReplacement { allowed in
+            guard allowed else { return }
+            newDocument { ProjectDocument(project: project, isExplicitlySaved: false) }
+            dismissWindow(value: request)
+        }
     }
 
     private var editorName: String {

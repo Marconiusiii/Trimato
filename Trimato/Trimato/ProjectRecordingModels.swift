@@ -117,9 +117,7 @@ enum RecordingTakeProcessor {
         guard let available else { return (url, duration) }
         guard available.isFinite, available > 0 else { throw AudioCaptureError.message("Set the Out point after the In point.") }
         guard duration > available else { return (url, duration) }
-        guard speedUp || trim else {
-            throw AudioCaptureError.message("This take extends beyond the Out point. Choose Speed up to fit or Trim at Out, or record another take.")
-        }
+        guard speedUp || trim else { return (url, duration) }
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-take-\(UUID()).wav")
         var arguments = ["-hide_banner", "-nostdin", "-y", "-i", url.path]
         if speedUp {

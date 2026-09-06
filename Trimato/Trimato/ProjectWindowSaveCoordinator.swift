@@ -287,3 +287,24 @@ final class ProjectWindowAttachmentView: NSView {
         }
     }
 }
+
+
+/// Project save commands remain available even when a native pane is first responder
+/// or a utility scene has removed its document menu commands.
+@MainActor
+enum ProjectSaveKeyboard {
+    static func handle(_ event: NSEvent, controller: ProjectController?) -> NSEvent? {
+        guard let controller, let saveAs = saveAsCommand(event) else { return event }
+        if saveAs { controller.saveProjectDocumentAs() }
+        else { controller.saveProjectDocument() }
+        return nil
+    }
+
+    static func saveAsCommand(_ event: NSEvent) -> Bool? {
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .control, .option])
+        guard event.type == .keyDown,
+              event.charactersIgnoringModifiers?.lowercased() == "s",
+              modifiers == .command || modifiers == [.command, .shift] else { return nil }
+        return modifiers.contains(.shift)
+    }
+}

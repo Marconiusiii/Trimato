@@ -4,10 +4,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ProjectLauncherView: View {
-    @Environment(\.openDocument) private var openDocument
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
+    @ObservedObject private var projectOpening = SingleProjectCoordinator.shared
     @ObservedObject private var navigation = ProjectLauncherNavigation.shared
     @StateObject private var recentProjects = RecentProjectStore()
     @State private var presentedError: ProjectLauncherError?
@@ -31,10 +31,11 @@ struct ProjectLauncherView: View {
         .onReceive(NotificationCenter.default.publisher(for: .trimatoProjectDidOpen)) { _ in
             closeLauncher()
         }
-        .applicationMessage(presentedError.map {
+        .applicationMessage(projectOpening.presentedError ?? presentedError.map {
             ApplicationMessageDescriptor(title: $0.title, message: $0.message)
         }) {
             presentedError = nil
+            projectOpening.dismissError()
         }
     }
 
@@ -150,18 +151,7 @@ struct ProjectLauncherView: View {
     }
 
     private func openProject(at url: URL) {
-        Task { @MainActor in
-            do {
-                try await openDocument(at: url)
-                recentProjects.refresh()
-            } catch {
-                recentProjects.refresh()
-                presentedError = ProjectLauncherError(
-                    title: "Project Could Not Be Opened",
-                    message: error.localizedDescription
-                )
-            }
-        }
+        projectOpening.openDocument(at: url) { recentProjects.refresh() }
     }
 
     private func closeLauncher() {
@@ -302,8 +292,13 @@ final class ProjectLauncherNavigation: ObservableObject {
 
     @Published private(set) var isCreatingProject = false
 
-    func showProjectCreation() {
-        isCreatingProject = true
+    func showProjectCreation(completion: @escaping () -> Void = {}) {
+        SingleProjectCoordinator.prepareForReplacement { [weak self] allowed in
+            if allowed {
+                self?.isCreatingProject = true
+                completion()
+            }
+        }
     }
 
     func showWelcome() {
