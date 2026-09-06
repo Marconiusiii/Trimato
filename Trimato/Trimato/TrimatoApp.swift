@@ -220,6 +220,11 @@ struct TrimatoApp: App {
             }
         }
 
+        WindowGroup("Recording", id: "recording", for: UUID.self) { $id in
+            if let id { RecordingWindowContent(id: id) }
+        }
+        .windowResizability(.contentSize)
+
         WindowGroup("Clip Editor", for: ExternalMediaOpenRequest.self) { $request in
             if let request {
                 StandaloneClipEditorView(request: request)
@@ -323,12 +328,26 @@ private struct ClipPlacementCommands: Commands {
 private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate {
     private let documents = SingleProjectCoordinator.shared
     private var projectCommandMonitor: Any?
+    private var quitPending = false
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where url.pathExtension.lowercased() == "trimato" {
             documents.openDocument(at: url)
         }
         ExternalMediaOpenCoordinator.shared.receive(urls)
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let project = ExternalMediaOpenCoordinator.shared.activeProjectController else { return .terminateNow }
+        guard !quitPending else { return .terminateLater }
+        quitPending = true
+        Task { @MainActor [weak self] in
+            project.closeProjectForQuit { closed in
+                self?.quitPending = false
+                sender.reply(toApplicationShouldTerminate: closed)
+            }
+        }
+        return .terminateLater
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -353,6 +372,7 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
 
 private struct ProjectFileCommands: Commands {
     @ObservedObject private var projectOpening = SingleProjectCoordinator.shared
+    @FocusedValue(\.closeRecording) private var closeRecording
     @FocusedValue(\.closeSettings) private var closeSettings
     @FocusedObject private var standaloneContext: StandaloneClipCommandContext?
     @Environment(\.openWindow) private var openWindow
@@ -385,20 +405,21 @@ private struct ProjectFileCommands: Commands {
 
         }
         CommandGroup(replacing: .saveItem) {
-            Button(closeSettings != nil ? "Close Settings" : controller?.recordingSession.map { "Close \($0.purpose.toolTitle)" } ?? (controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : "Close Clip Editor")) {
+            Button(closeSettings != nil ? "Close Settings" : (closeRecording != nil ? controller?.recordingSession.map { "Close \($0.purpose.toolTitle)" } : nil) ?? (controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project"))) {
                 if let closeSettings {
                     closeSettings()
-                } else if controller?.recordingSession != nil {
-                    controller?.dismissRecording()
+                } else if let closeRecording {
+                    closeRecording()
                 } else if controller?.isCaptionEditorOpen == true {
                     controller?.closeCaptionEditor()
                 } else {
                     if let standaloneContext { standaloneContext.close() }
-                    else { clipPlacement?.hostWindow?.performClose(nil) }
+                    else if let window = clipPlacement?.hostWindow, clipPlacement?.isKeyWindow == true { window.performClose(nil) }
+                    else { controller?.closeProject() }
                 }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(controller?.recordingSession == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true && standaloneContext == nil)
+            .disabled(closeRecording == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil)
             Divider()
             Button("Save") { controller?.saveProjectDocument() }
                 .keyboardShortcut("s", modifiers: .command)

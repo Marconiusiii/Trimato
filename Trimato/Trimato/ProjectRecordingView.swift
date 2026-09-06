@@ -277,6 +277,8 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
 struct ProjectRecordingView: View {
     @ObservedObject var session: ProjectRecordingSession
     @ObservedObject private var capture: AudioCaptureSession
+    @Environment(\.controlActiveState) private var windowActivity
+    @State private var didSetInitialFocus = false
     private enum Field: Hashable { case name, transcript }
     @FocusState private var keyboardFocus: Field?
     @AccessibilityFocusState private var textFocus: Field?
@@ -370,13 +372,16 @@ struct ProjectRecordingView: View {
             else if state == .idle || state == .finishing { session.player.pause() }
         }
         .defaultFocus($keyboardFocus, .name)
-        .onAppear {
-            keyboardFocus = .name
-            textFocus = .name
+        .onChange(of: windowActivity, initial: true) { _, activity in
+            guard activity == .key, !didSetInitialFocus else { return }
+            didSetInitialFocus = true
+            Task { @MainActor in
+                await Task.yield()
+                keyboardFocus = .name
+                textFocus = .name
+            }
         }
         .task {
-            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
-            if textFocus == nil { textFocus = .name }
             if session.controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {
                 session.preview(mixed: false, autoplay: false)
             }

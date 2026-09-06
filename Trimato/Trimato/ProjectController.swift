@@ -78,7 +78,7 @@ final class ProjectController: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var accessedURLs: [URL] = []
     private var exportTask: Task<Void, Never>?
-    private weak var projectSaveCoordinator: ProjectWindowSaveCoordinator?
+    private(set) weak var projectSaveCoordinator: ProjectWindowSaveCoordinator?
     private weak var projectUndoManager: UndoManager?
     private weak var projectPlayer: ProjectPlayerViewModel?
     private var projectWithPreparedTransitionPreview: TrimatoProject?
@@ -124,11 +124,15 @@ final class ProjectController: ObservableObject {
     }
 
     func dismissRecording() {
-        recordingSession?.close()
+        let session = recordingSession
+        session?.close()
         recordingSession = nil
+        if let session { RecordingWindowRegistry.shared.close(id: session.id) }
     }
 
     func recordingWindowDidDismiss() {
+        guard projectSaveCoordinator?.attachedWindow?.isVisible != false else { return }
+        projectSaveCoordinator?.attachedWindow?.makeKeyAndOrderFront(nil)
         if let id = recordingOriginCueID, project.captionCue(id: id) != nil {
             activeTimelineTrackID = project.descriptionTranscriptTrack?.id
             selectedCaptionCueID = id
@@ -183,7 +187,7 @@ final class ProjectController: ObservableObject {
         }
         catch {
             guard (error as NSError).code == CocoaError.fileWriteNoPermission.rawValue,
-                  let window = projectSaveCoordinator?.attachedWindow else { throw error }
+                  let window = NSApp.keyWindow ?? projectSaveCoordinator?.attachedWindow else { throw error }
             let panel = NSOpenPanel()
             panel.title = "Allow Project Recording Storage"
             panel.message = "Choose the project folder to store recordings alongside the Trimato project."
@@ -402,6 +406,14 @@ final class ProjectController: ObservableObject {
     func closeProject(completion: @escaping (Bool) -> Void = { _ in }) {
         guard let closeProjectAction else { completion(false); return }
         closeProjectAction(completion)
+    }
+
+    func closeProjectForQuit(completion: @escaping (Bool) -> Void) {
+        projectSaveCoordinator?.setTerminationRequested(true)
+        closeProject { [weak self] closed in
+            if !closed { self?.projectSaveCoordinator?.setTerminationRequested(false) }
+            completion(closed)
+        }
     }
 
     var canExportProject: Bool {

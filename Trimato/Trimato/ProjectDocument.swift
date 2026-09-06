@@ -108,8 +108,12 @@ final class ProjectDocument: ReferenceFileDocument {
     }
 
     func markCurrentProjectAsExplicitlySaved() {
-        explicitlySavedProject = project
-        setHasUnsavedChanges(false)
+        markProjectAsExplicitlySaved(project)
+    }
+
+    func markProjectAsExplicitlySaved(_ savedProject: TrimatoProject) {
+        explicitlySavedProject = savedProject
+        setHasUnsavedChanges(project != savedProject)
     }
 
     @discardableResult

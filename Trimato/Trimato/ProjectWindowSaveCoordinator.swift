@@ -13,6 +13,15 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private let projectDocument: ProjectDocument
     private weak var window: NSWindow?
     private weak var nativeDocument: NSDocument?
+    private var savingSnapshot: TrimatoProject?
+    private var closeDelegate: ProjectWindowCloseDelegate?
+    private var windowCloseRequested: (() -> Void)?
+    @Published var isConfirmingClose = false
+    @Published private(set) var isResolvingClose = false
+    private var closeDecision: ProjectCloseDecision?
+    private var executingCloseDecision = false
+    private var closeWaitsForSave = false
+    private weak var confirmationOrigin: NSWindow?
     private var pendingSaveCompletion: ((Bool) -> Void)?
     private var pendingCloseCompletion: ((Bool) -> Void)?
     private var windowBecameKeyObserver: NSObjectProtocol?
@@ -66,6 +75,13 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
             if nativeDocument == nil {
                 nativeDocument = NSDocumentController.shared.document(for: window)
             }
+            if window.delegate !== closeDelegate {
+                let delegate = ProjectWindowCloseDelegate(original: window.delegate) { [weak self] in
+                    self?.windowCloseRequested?()
+                }
+                closeDelegate = delegate
+                window.delegate = delegate
+            }
             return
         }
         if let windowBecameKeyObserver {
@@ -77,6 +93,11 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         self.window = window
         window.isRestorable = false
         nativeDocument = NSDocumentController.shared.document(for: window)
+        let delegate = ProjectWindowCloseDelegate(original: window.delegate) { [weak self] in
+            self?.windowCloseRequested?()
+        }
+        closeDelegate = delegate
+        window.delegate = delegate
         windowAttachmentRevision += 1
         if let undoManager = nativeDocument?.undoManager ?? window.undoManager {
             undoManagerHandler?(undoManager)
@@ -117,17 +138,93 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         lastProjectWindowWillCloseHandler = handler
     }
 
+    func onWindowCloseRequested(_ action: @escaping () -> Void) {
+        windowCloseRequested = action
+    }
+
+    func setTerminationRequested(_ value: Bool) { isApplicationTerminating = value }
+
+    var projectName: String { projectDocument.project.name }
+
     func requestClose(completion: @escaping (Bool) -> Void) {
-        guard pendingCloseCompletion == nil, let nativeDocument else {
+        guard pendingCloseCompletion == nil, nativeDocument != nil else {
             completion(false)
             return
         }
         pendingCloseCompletion = completion
-        nativeDocument.canClose(
-            withDelegate: self,
-            shouldClose: #selector(document(_:shouldClose:contextInfo:)),
-            contextInfo: nil
-        )
+        if pendingSaveCompletion != nil { closeWaitsForSave = true; return }
+        beginCloseReview()
+    }
+
+    private func beginCloseReview() {
+        if hasUnsavedChanges {
+            confirmationOrigin = NSApp.keyWindow
+            window?.makeKeyAndOrderFront(nil)
+            isConfirmingClose = true
+        } else {
+            finishClosing()
+        }
+    }
+
+    func chooseCloseDecision(_ decision: ProjectCloseDecision) {
+        guard pendingCloseCompletion != nil, !isResolvingClose else { return }
+        closeDecision = decision
+        isResolvingClose = true
+        isConfirmingClose = false
+    }
+
+    // Called after the confirmation sheet has left, before presenting a save panel.
+    func closeConfirmationDismissed() {
+        guard pendingCloseCompletion != nil, !executingCloseDecision else { return }
+        executingCloseDecision = true
+        let decision = closeDecision ?? .cancel
+        closeDecision = nil
+        switch decision {
+        case .cancel:
+            completeClose(false)
+        case .save:
+            save { [weak self] saved in
+                guard let self else { return }
+                if saved && !self.hasUnsavedChanges { self.finishClosing() }
+                else { self.completeClose(false) }
+            }
+        case .discard:
+            let discarded = projectDocument.restoreExplicitlySavedProject()
+            guard nativeDocument?.fileURL != nil else {
+                finishClosing()
+                return
+            }
+            // Autosave may already have written the edits. Persist the explicit-save
+            // baseline before closing so Don't Save really discards those edits.
+            nativeDocument?.updateChangeCount(.changeDone)
+            save { [weak self] saved in
+                guard let self else { return }
+                if saved && !self.hasUnsavedChanges { self.finishClosing() }
+                else {
+                    if !saved { self.projectDocument.reinstateDiscardedProject(discarded) }
+                    self.completeClose(false)
+                }
+            }
+        }
+    }
+
+    private func finishClosing() {
+        guard let nativeDocument else { completeClose(false); return }
+        nativeDocument.updateChangeCount(.changeCleared)
+        nativeDocument.close()
+        restoreLauncherAfterProjectClosed()
+        completeClose(true)
+    }
+
+    private func completeClose(_ closed: Bool) {
+        let completion = pendingCloseCompletion
+        pendingCloseCompletion = nil
+        isResolvingClose = false
+        executingCloseDecision = false
+        closeDecision = nil
+        if !closed, confirmationOrigin?.isVisible == true { confirmationOrigin?.makeKeyAndOrderFront(nil) }
+        confirmationOrigin = nil
+        completion?(closed)
     }
 
     func save(completion: @escaping (Bool) -> Void) {
@@ -137,11 +234,19 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
             return
         }
         pendingSaveCompletion = completion
-        nativeDocument.save(
-            withDelegate: self,
-            didSave: #selector(document(_:didSave:contextInfo:)),
-            contextInfo: nil
-        )
+        savingSnapshot = projectDocument.project
+        if hasUnsavedChanges && !nativeDocument.isDocumentEdited { nativeDocument.updateChangeCount(.changeDone) }
+        if let url = nativeDocument.fileURL, let type = nativeDocument.fileType {
+            nativeDocument.save(to: url, ofType: type, for: .saveOperation) { [weak self] error in
+                MainActor.assumeIsolated { self?.completeSave(error == nil, error: error) }
+            }
+        } else {
+            nativeDocument.save(
+                withDelegate: self,
+                didSave: #selector(document(_:didSave:contextInfo:)),
+                contextInfo: nil
+            )
+        }
     }
 
     func saveAs(completion: @escaping (Bool) -> Void) {
@@ -151,6 +256,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
             return
         }
         pendingSaveCompletion = completion
+        savingSnapshot = projectDocument.project
         nativeDocument.runModalSavePanel(
             for: .saveAsOperation,
             delegate: self,
@@ -164,32 +270,30 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         didSave successfully: Bool,
         contextInfo: UnsafeMutableRawPointer?
     ) {
-        let completion = pendingSaveCompletion
-        pendingSaveCompletion = nil
-        if successfully { projectDocument.markCurrentProjectAsExplicitlySaved() }
-        completion?(successfully)
+        completeSave(successfully)
     }
 
-    @objc private func document(
-        _ document: NSDocument,
-        shouldClose: Bool,
-        contextInfo: UnsafeMutableRawPointer?
-    ) {
-        let completion = pendingCloseCompletion
-        pendingCloseCompletion = nil
-        guard shouldClose else {
-            completion?(false)
-            return
+    private func completeSave(_ successfully: Bool, error: Error? = nil) {
+        let completion = pendingSaveCompletion
+        pendingSaveCompletion = nil
+        if successfully, let savingSnapshot { projectDocument.markProjectAsExplicitlySaved(savingSnapshot) }
+        savingSnapshot = nil
+        if !successfully {
+            presentedError = ProjectPresentedError(title: "Project Could Not Be Saved",
+                message: error?.localizedDescription ?? "The save did not complete. The project remains open with its changes.")
         }
-        document.close()
-        restoreLauncherAfterProjectClosed()
-        completion?(true)
+        completion?(successfully)
+        if closeWaitsForSave {
+            closeWaitsForSave = false
+            if successfully { beginCloseReview() }
+            else { completeClose(false) }
+        }
     }
 
     private func presentSaveUnavailableError() {
         presentedError = ProjectPresentedError(
             title: "Project Could Not Be Saved",
-            message: "Trimato could not access the native project document. The project will remain open so your changes are not lost."
+            message: "The save did not complete. The project remains open with its changes."
         )
     }
 
@@ -306,5 +410,30 @@ enum ProjectSaveKeyboard {
               event.charactersIgnoringModifiers?.lowercased() == "s",
               modifiers == .command || modifiers == [.command, .shift] else { return nil }
         return modifiers.contains(.shift)
+    }
+}
+
+
+@MainActor
+private final class ProjectWindowCloseDelegate: NSObject, NSWindowDelegate {
+    private weak var original: (any NSWindowDelegate)?
+    private let requestClose: () -> Void
+
+    init(original: (any NSWindowDelegate)?, requestClose: @escaping () -> Void) {
+        self.original = original
+        self.requestClose = requestClose
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        Task { @MainActor [weak self] in self?.requestClose() }
+        return false
+    }
+
+    override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || original?.responds(to: selector) == true
+    }
+
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+        original?.responds(to: selector) == true ? original : super.forwardingTarget(for: selector)
     }
 }

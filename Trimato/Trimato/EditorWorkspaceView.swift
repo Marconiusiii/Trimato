@@ -33,6 +33,7 @@ struct EditorWorkspaceView: View {
 
     var body: some View {
         progressEditor
+            .disabled(projectWindowSaveCoordinator.isResolvingClose)
             .background(EditorTheme.workspace)
             .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
             .preferredColorScheme(.dark)
@@ -62,6 +63,9 @@ struct EditorWorkspaceView: View {
                 projectWindowSaveCoordinator.onLastProjectWindowWillClose {
                     openWindow(id: "project-launcher")
                 }
+                projectWindowSaveCoordinator.onWindowCloseRequested { [weak controller] in
+                    controller?.closeProject()
+                }
                 controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] completion in
                     guard let clipEditorWindows, let projectWindowSaveCoordinator else { completion(false); return }
                     clipEditorWindows.requestCloseAll { didClose in
@@ -75,10 +79,16 @@ struct EditorWorkspaceView: View {
                 )
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
-            .sheet(item: $controller.recordingSession, onDismiss: {
-                controller.recordingWindowDidDismiss()
-            }) { session in
-                ProjectRecordingView(session: session)
+            .onChange(of: controller.recordingSession?.id) { _, id in
+                if let id, let session = controller.recordingSession {
+                    RecordingWindowRegistry.shared.session = session
+                    openWindow(id: "recording", value: id)
+                }
+            }
+            .sheet(isPresented: $projectWindowSaveCoordinator.isConfirmingClose, onDismiss: {
+                projectWindowSaveCoordinator.closeConfirmationDismissed()
+            }) {
+                ProjectCloseConfirmation(coordinator: projectWindowSaveCoordinator)
             }
             .onChange(of: controller.generatorRequestID) { _, id in
                 if let id {
@@ -96,6 +106,7 @@ struct EditorWorkspaceView: View {
                 if let report { presentCaptionFinalizationReport(report) }
             }
             .onDisappear {
+                controller.dismissRecording()
                 ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
             }
             .sheet(isPresented: Binding(

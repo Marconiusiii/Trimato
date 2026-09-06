@@ -113,7 +113,7 @@ struct ProjectRecordingTests {
             #expect(ProjectSaveKeyboard.handle(event, controller: controller) == nil)
             for _ in 0..<20 {
                 let saved = try ProjectDocument.decodeProject(from: FileWrapper(url: url))
-                if saved.name == "Saved by shortcut" { break }
+                if saved.name == "Saved by shortcut" && !controller.document.hasUnsavedChanges { break }
                 try await Task.sleep(for: .milliseconds(50))
             }
             let saved = try ProjectDocument.decodeProject(from: FileWrapper(url: url))
@@ -129,6 +129,166 @@ struct ProjectRecordingTests {
         }
         #expect(NSDocumentController.shared.documents.count == 1)
         #expect(NSDocumentController.shared.documents.first?.fileURL == first)
+    }
+
+    @Test func descriptionChangesRequireAnExplicitCloseDecisionEvenWhenNativeDocumentIsClean() async throws {
+        guard NSDocumentController.shared.documents.isEmpty else { Issue.record("Expected an isolated document test"); return }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let url = try ProjectDocument.writeNewProject(TrimatoProject(name: "Save baseline"), toFolderAt: folder)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        await withCheckedContinuation { continuation in
+            SingleProjectCoordinator.shared.openDocument(at: url) { continuation.resume() }
+        }
+        try await Task.sleep(for: .milliseconds(250))
+        let controller = try #require(ExternalMediaOpenCoordinator.shared.activeProjectController)
+        let coordinator = try #require(controller.projectSaveCoordinator)
+        let native = try #require(NSDocumentController.shared.document(for: url))
+        defer { native.close() }
+        controller.requestRecording(.audioDescription)
+        for _ in 0..<50 where RecordingWindowRegistry.shared.closeWindow == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let tool = try #require(NSApp.windows.first { $0.title == "Describer" && $0.isVisible })
+        #expect(tool.sheetParent == nil)
+        #expect(tool !== coordinator.attachedWindow)
+        tool.performClose(nil)
+        for _ in 0..<50 where controller.recordingSession != nil { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(controller.recordingSession == nil)
+
+        let cue = CaptionCue(start: .zero, end: ProjectTime(seconds: 2), text: "The door opens.")
+        try controller.addProjectRecording(asset: nil, at: .zero, cue: cue, ducking: DescriptionDucking())
+        try await Task.sleep(for: .milliseconds(100))
+        native.updateChangeCount(.changeCleared)
+        #expect(controller.document.hasUnsavedChanges)
+        var result: Bool?
+        coordinator.requestClose { result = $0 }
+        #expect(coordinator.isConfirmingClose)
+        #expect(result == nil)
+        coordinator.chooseCloseDecision(.cancel)
+        coordinator.closeConfirmationDismissed()
+        #expect(result == false)
+        #expect(controller.project.descriptionTranscriptTrack?.captionCues.first?.text == cue.text)
+        #expect(NSDocumentController.shared.document(for: url) === native)
+
+        // The native close button must enter the same confirmation path.
+        coordinator.attachedWindow?.performClose(nil)
+        for _ in 0..<50 where !coordinator.isConfirmingClose { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(coordinator.isConfirmingClose)
+        coordinator.chooseCloseDecision(.cancel)
+        coordinator.closeConfirmationDismissed()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(NSDocumentController.shared.document(for: url) === native)
+
+        let quitReply = NSApp.delegate?.applicationShouldTerminate?(NSApp)
+        #expect(quitReply == .terminateLater)
+        for _ in 0..<50 where !coordinator.isConfirmingClose { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(coordinator.isConfirmingClose)
+        coordinator.chooseCloseDecision(.cancel)
+        coordinator.closeConfirmationDismissed()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(NSDocumentController.shared.document(for: url) === native)
+
+        // Model an autosave without advancing Trimato's explicit-save baseline.
+        native.updateChangeCount(.changeDone)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            native.autosave(withImplicitCancellability: false) { error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            }
+        }
+        let autosaved = try ProjectDocument.decodeProject(from: FileWrapper(url: url))
+        #expect(autosaved.descriptionTranscriptTrack?.captionCues.first?.text == cue.text)
+        #expect(controller.document.hasUnsavedChanges)
+        result = nil
+        coordinator.requestClose { result = $0 }
+        coordinator.chooseCloseDecision(.discard)
+        coordinator.closeConfirmationDismissed()
+        for _ in 0..<100 where result == nil { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(result == true)
+        let disk = try ProjectDocument.decodeProject(from: FileWrapper(url: url))
+        #expect(disk.descriptionTranscriptTrack == nil)
+        #expect(NSDocumentController.shared.document(for: url) == nil)
+    }
+
+    @Test func quitDelegateDefersToTheProjectCloseDecision() async throws {
+        guard ExternalMediaOpenCoordinator.shared.activeProjectController == nil else { Issue.record("Expected no active project"); return }
+        let controller = ProjectController(document: ProjectDocument())
+        let routes = ExternalMediaOpenCoordinator.shared
+        routes.register(controller: controller, openClipEditor: { _ in })
+        routes.activate(controller: controller)
+        defer { routes.unregister(controller: controller) }
+        var asked = false
+        controller.installCloseProjectAction { completion in
+            asked = true
+            completion(false)
+        }
+        let reply = NSApp.delegate?.applicationShouldTerminate?(NSApp)
+        #expect(reply == .terminateLater)
+        for _ in 0..<20 where !asked { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(asked)
+    }
+
+    @Test func failedCloseSaveKeepsChangesAndCanBeRetried() throws {
+        let model = ProjectDocument(project: TrimatoProject(name: "Baseline"))
+        let controller = ProjectController(document: model)
+        try controller.addProjectRecording(asset: asset(.audioDescription), at: .zero,
+            cue: CaptionCue(start: .zero, end: ProjectTime(seconds: 1), text: "A light turns on."), ducking: DescriptionDucking())
+        let native = CloseSaveTestDocument()
+        native.fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("save-test-\(UUID()).trimato")
+        native.fileType = "com.marconius.trimato.project"
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        native.addWindowController(NSWindowController(window: window))
+        NSDocumentController.shared.addDocument(native)
+        defer { native.close() }
+        let coordinator = ProjectWindowSaveCoordinator(projectDocument: model)
+        coordinator.attach(to: window)
+        var result: Bool?
+        coordinator.requestClose { result = $0 }
+        #expect(coordinator.isConfirmingClose)
+        coordinator.chooseCloseDecision(.save)
+        coordinator.closeConfirmationDismissed()
+        #expect(result == false)
+        #expect(model.hasUnsavedChanges)
+        #expect(model.project.descriptionTranscriptTrack?.captionCues.count == 1)
+        #expect(model.project.media.contains { $0.recordingPurpose == .audioDescription })
+        #expect(coordinator.presentedError != nil)
+        #expect(NSDocumentController.shared.documents.contains(native))
+        result = nil
+        coordinator.requestClose { result = $0 }
+        coordinator.chooseCloseDecision(.discard)
+        coordinator.closeConfirmationDismissed()
+        #expect(result == false)
+        #expect(model.hasUnsavedChanges)
+        #expect(model.project.descriptionTranscriptTrack?.captionCues.count == 1)
+        #expect(model.project.media.contains { $0.recordingPurpose == .audioDescription })
+        native.failSave = false
+        result = nil
+        coordinator.requestClose { result = $0 }
+        coordinator.chooseCloseDecision(.save)
+        coordinator.closeConfirmationDismissed()
+        #expect(result == true)
+        #expect(!model.hasUnsavedChanges)
+        #expect(!NSDocumentController.shared.documents.contains(native))
+    }
+
+    @Test func recordingRegistryClosesTheToolAndReleasesTheSession() async {
+        let controller = ProjectController(document: ProjectDocument())
+        controller.requestRecording(.voiceOver)
+        guard let session = controller.recordingSession else { Issue.record("Missing session"); return }
+        let registry = RecordingWindowRegistry.shared
+        registry.session = session
+        var closeRequests = 0
+        controller.dismissRecording()
+        #expect(closeRequests == 0)
+        registry.installCloseAction(id: session.id) { closeRequests += 1 }
+        #expect(closeRequests == 1)
+        registry.finished(session)
+        #expect(registry.session == nil)
+        #expect(registry.closeWindow == nil)
+        #expect(controller.recordingSession == nil)
+        await Task.yield()
     }
 
     @Test func longerTakeRemainsUnchangedWithoutAnExplicitFitChoice() async throws {
@@ -475,5 +635,15 @@ private struct TestMicrophoneVolume: View {
     let changed: (Double) -> Void
     var body: some View {
         MicrophoneVolumeSlider(value: $value).onChange(of: value) { _, value in changed(value) }
+    }
+}
+
+
+@MainActor
+private final class CloseSaveTestDocument: NSDocument {
+    var failSave = true
+    override func save(to url: URL, ofType typeName: String, for saveOperation: NSDocument.SaveOperationType,
+                       completionHandler: @escaping (Error?) -> Void) {
+        completionHandler(failSave ? CocoaError(.fileWriteNoPermission) : nil)
     }
 }

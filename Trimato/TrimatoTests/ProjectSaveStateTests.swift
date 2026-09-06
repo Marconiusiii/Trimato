@@ -5,6 +5,17 @@ import Testing
 @testable import Trimato
 
 struct ProjectSaveStateTests {
+    @Test func saveCompletionDoesNotMarkLaterEditsAsSaved() {
+        let document = ProjectDocument(project: TrimatoProject(name: "Initial"))
+        document.project.name = "Saved snapshot"
+        let snapshot = document.project
+        document.project.name = "Edited while saving"
+        document.markProjectAsExplicitlySaved(snapshot)
+        #expect(document.hasUnsavedChanges)
+        document.restoreExplicitlySavedProject()
+        #expect(document.project.name == "Saved snapshot")
+    }
+
     @Test @MainActor func nativeFilePanelPresentationLeavesTheTriggeringViewUpdateFirst() async {
         var didPresent = false
 
