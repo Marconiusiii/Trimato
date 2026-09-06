@@ -257,7 +257,7 @@ struct GeneratorView: View {
         .padding(20)
         .frame(minWidth: 560, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .onChange(of: focusRequest.revision) { _, revision in
+        .onChange(of: focusRequest.revision, initial: true) { _, revision in
             guard revision > 0 else { return }
             Task { @MainActor in
                 await Task.yield()

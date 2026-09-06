@@ -153,8 +153,6 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
     func showModal() {
         guard let window, modalSession == nil else { return }
         modalSession = NSApp.beginModalSession(for: window)
-        advanceModalSession()
-        guard modalSession != nil else { return }
         let timer = Timer(
             timeInterval: 1.0 / 30.0,
             target: self,

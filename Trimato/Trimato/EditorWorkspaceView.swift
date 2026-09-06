@@ -14,7 +14,8 @@ struct EditorWorkspaceView: View {
     @State private var transitionTask: Task<Void, Never>?
     @State private var transitionOutcome = OperationProgressOutcome.completed
     @State private var transitionFinished = false
-    @State private var hasRequestedInitialProjectFocus = false
+    @State private var hasRequestedInitialImportFocus = false
+    @State private var initialImportFocusRequest = 0
     @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
@@ -56,7 +57,7 @@ struct EditorWorkspaceView: View {
                     Task { @MainActor in
                         await Task.yield()
                         guard projectPlayer?.isInitialPreparationPending == false else { return }
-                        requestInitialProjectFocus()
+                        requestInitialImportFocus()
                     }
                 }
                 projectWindowSaveCoordinator.onLastProjectWindowWillClose {
@@ -168,13 +169,13 @@ struct EditorWorkspaceView: View {
 
     private func initialPreparationDismissed() {
         guard projectPlayer.errorMessage == nil else { return }
-        requestInitialProjectFocus()
+        requestInitialImportFocus()
     }
 
-    private func requestInitialProjectFocus() {
-        guard !hasRequestedInitialProjectFocus else { return }
-        hasRequestedInitialProjectFocus = true
-        controller.requestProjectSourceFocus(to: .timeline(controller.project.id))
+    private func requestInitialImportFocus() {
+        guard !hasRequestedInitialImportFocus else { return }
+        hasRequestedInitialImportFocus = true
+        initialImportFocusRequest += 1
     }
 
     private var exportOperation: OperationProgress? {
@@ -202,7 +203,8 @@ struct EditorWorkspaceView: View {
                 ProjectBrowserView(
                     controller: controller,
                     openClipEditor: clipEditorWindows.open,
-                    workspacePaneLinks: workspacePaneLinks
+                    workspacePaneLinks: workspacePaneLinks,
+                    initialImportFocusRequest: initialImportFocusRequest
                 )
             }
                 .frame(minWidth: 210, idealWidth: 260, maxWidth: 360)

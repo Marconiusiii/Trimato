@@ -28,12 +28,6 @@ struct ProjectLauncherView: View {
         .onDisappear {
             navigation.showWelcome()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            recentProjects.refresh()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
-            recentProjects.refresh()
-        }
         .onReceive(NotificationCenter.default.publisher(for: .trimatoProjectDidOpen)) { _ in
             closeLauncher()
         }

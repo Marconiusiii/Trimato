@@ -36,6 +36,7 @@ struct ProjectBrowserView: View {
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
     let workspacePaneLinks: Namespace.ID
+    let initialImportFocusRequest: Int
     @State private var sourceSelection: ProjectSourceItemID?
     @State private var showingNewFolder = false
     @State private var folderName = ""
@@ -46,15 +47,20 @@ struct ProjectBrowserView: View {
     @State private var newTrackRequest: NewTrackFromSourceRequest?
     @State private var newTrackSourceFocusTarget: ProjectSourceItemID?
     @State private var newTrackTimelineFocusTarget: TimelineElementSelection?
+    @State private var handledInitialImportFocusRequest = 0
+    @FocusState private var importFilesHasKeyboardFocus: Bool
+    @AccessibilityFocusState(for: .voiceOver) private var importFilesHasVoiceOverFocus: Bool
 
     init(
         controller: ProjectController,
         openClipEditor: @escaping (EditorSelection) -> Void,
-        workspacePaneLinks: Namespace.ID
+        workspacePaneLinks: Namespace.ID,
+        initialImportFocusRequest: Int
     ) {
         self.controller = controller
         self.openClipEditor = openClipEditor
         self.workspacePaneLinks = workspacePaneLinks
+        self.initialImportFocusRequest = initialImportFocusRequest
         _sourceSelection = State(initialValue: .timeline(controller.project.id))
     }
 
@@ -71,14 +77,9 @@ struct ProjectBrowserView: View {
 
             Divider()
 
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    sourceImportControls
-                    Spacer()
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    sourceImportControls
-                }
+            HStack(spacing: 8) {
+                sourceImportControls
+                Spacer()
             }
             .padding(8)
             .background(.bar)
@@ -157,12 +158,27 @@ struct ProjectBrowserView: View {
                 confirm: confirmAssetDeletion
             )
         }
+        .onChange(of: initialImportFocusRequest, initial: true) {
+            focusImportFilesIfRequested()
+        }
     }
 
     @ViewBuilder
     private var sourceImportControls: some View {
         Button("Import Files\u{2026}") { controller.importFiles() }
+            .focused($importFilesHasKeyboardFocus)
+            .accessibilityFocused($importFilesHasVoiceOverFocus)
         Button("New Folder") { showingNewFolder = true }
+    }
+
+    private func focusImportFilesIfRequested() {
+        guard initialImportFocusRequest > handledInitialImportFocusRequest else { return }
+        handledInitialImportFocusRequest = initialImportFocusRequest
+        Task { @MainActor in
+            await Task.yield()
+            importFilesHasKeyboardFocus = true
+            importFilesHasVoiceOverFocus = true
+        }
     }
 
     private var hasSourceActions: Bool {

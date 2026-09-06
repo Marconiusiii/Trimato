@@ -77,16 +77,6 @@ struct UIArchitectureTests {
         #expect(modalSource.contains("NSApp.endModalSession(modalSession)"))
     }
 
-    @Test func projectSourceFocusDoesNotIndexAccessibilityRowsOrRunInline() throws {
-        let source = try String(
-            contentsOf: sourceDirectory.appendingPathComponent("ProjectSourceOutlineView.swift"),
-            encoding: .utf8
-        )
-        #expect(!source.contains("accessibilityRows()"))
-        #expect(source.contains("accessibilitySelectedRows()?.first"))
-        #expect(source.contains("Task { @MainActor [weak self] in"))
-    }
-
     @Test func generatorHasOneEditorScopedKeyboardRoute() throws {
         let appSource = try String(
             contentsOf: sourceDirectory.appendingPathComponent("TrimatoApp.swift"),

@@ -313,36 +313,22 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
             let row = nodes[id].map(outlineView.row(forItem:)) ?? -1
             guard row >= 0 else { return false }
             outlineView.scrollRowToVisible(row)
-            guard let selectedRow = outlineView.accessibilitySelectedRows()?.first else { return false }
 
-            let focusedElement: Any
+            let focusedElement: NSView
             if case .asset = id,
                let button = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? ProjectSourceAssetButton {
                 guard button.acceptsFirstResponder,
                       window.makeFirstResponder(button), window.firstResponder === button else { return false }
-                focusedElement = NSAccessibility.unignoredDescendant(of: button) ?? button
+                focusedElement = button
             } else {
                 guard outlineView.acceptsFirstResponder,
                       window.makeFirstResponder(outlineView), window.firstResponder === outlineView else { return false }
-                focusedElement = selectedRow
+                focusedElement = outlineView
             }
-            NSApp.setAccessibilityApplicationFocusedUIElement(focusedElement)
             NSAccessibility.post(element: outlineView, notification: .selectedRowsChanged)
+            NSApp.setAccessibilityApplicationFocusedUIElement(focusedElement)
             NSAccessibility.post(element: focusedElement, notification: .focusedUIElementChanged)
-            return accessibilityFocusMatches(focusedElement)
-        }
-
-        private func accessibilityFocusMatches(_ expected: Any) -> Bool {
-            guard let actual = NSApp.accessibilityFocusedUIElement as? NSObject,
-                  let expected = expected as? NSObject else { return false }
-            if actual === expected { return true }
-            let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
-            guard actual.responds(to: identifierSelector), expected.responds(to: identifierSelector),
-                  let actualIdentifier = actual.value(forKey: "accessibilityIdentifier") as? String,
-                  let expectedIdentifier = expected.value(forKey: "accessibilityIdentifier") as? String else {
-                return false
-            }
-            return actualIdentifier == expectedIdentifier
+            return true
         }
 
         private func expandAncestors(of id: ProjectSourceItemID) {
