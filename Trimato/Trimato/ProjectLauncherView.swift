@@ -145,7 +145,7 @@ struct ProjectLauncherView: View {
         panel.canChooseFiles = true
         panel.beginSheetModal(for: parentWindow) { response in
             guard response == .OK, let url = panel.url else { return }
-            openWindow(value: url)
+            openWindow(value: ExternalMediaOpenRequest(url: url))
         }
     }
 
