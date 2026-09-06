@@ -30,7 +30,6 @@ nonisolated enum TextGeneratorRenderer {
         let outputScale = height / GeneratorDefinition.textTypographyReferenceHeight
         let fontSizePoints = definition.textFontSizePoints
         let fontSize = fontSizePoints * outputScale
-        let lineSpacing = definition.textLineSpacingPoints * outputScale
         let safe = CGRect(x: width * settings.safeMargin / 100, y: height * settings.safeMargin / 100,
                           width: width * (1 - settings.safeMargin / 50), height: height * (1 - settings.safeMargin / 50))
         let decorationPadding = max(settings.panelEnabled ? fontSize * 0.3 : 0,
@@ -43,8 +42,7 @@ nonisolated enum TextGeneratorRenderer {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = switch settings.alignment { case .left: .left; case .center: .center; case .right: .right }
         paragraph.lineBreakMode = .byWordWrapping
-        paragraph.lineSpacing = lineSpacing
-        paragraph.paragraphSpacing = lineSpacing
+        paragraph.lineHeightMultiple = definition.textLineHeightMultiple
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font(settings.font, weight: settings.weight, size: fontSize),
             .foregroundColor: nsColor(settings.color), .paragraphStyle: paragraph

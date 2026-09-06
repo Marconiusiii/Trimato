@@ -106,7 +106,7 @@ nonisolated struct TextGeneratorSettings: Codable, Hashable, Sendable {
     var font: TextFontFamily = .sans
     var weight: TextFontWeight = .semibold
     // Relative sizing makes the saved style scale with the project frame.
-    var sizePercent = 6.0
+    var sizePercent = 65.0 / 1080.0 * 100.0
     var alignment: TextAlignmentChoice = .center
     var position: TextPosition = .center
     var color = TextGeneratorColor()
@@ -121,7 +121,9 @@ nonisolated struct TextGeneratorSettings: Codable, Hashable, Sendable {
     var maximumWidth = 90.0
     var horizontalOffset = 0.0
     var verticalOffset = 0.0
+    // Retained so projects created before line-height multipliers continue to decode.
     var lineSpacing = 15.0
+    var lineHeightMultiple: Double? = 1.0
 
     mutating func apply(_ template: TextTemplate) {
         // Reset style only. Keep both text fields even when the new preset hides the second.
@@ -134,14 +136,14 @@ nonisolated struct TextGeneratorSettings: Codable, Hashable, Sendable {
         case .centerTitle, .titleAndSubtitle: break
         case .lowerCenter, .lowerLeft, .lowerRight, .nameAndRole:
             background = .transparent
-            sizePercent = 4.5
+            sizePercent = 49.0 / 1080.0 * 100.0
             position = .bottomCenter
             outlineEnabled = true
             if template == .lowerLeft || template == .nameAndRole { position = .bottomLeft; alignment = .left }
             if template == .lowerRight { position = .bottomRight; alignment = .right }
         case .caption, .subtitle:
             background = .transparent
-            sizePercent = 4.2
+            sizePercent = 45.0 / 1080.0 * 100.0
             position = .bottomCenter
             maximumWidth = 85
             weight = .medium
@@ -160,11 +162,17 @@ nonisolated struct TextGeneratorSettings: Codable, Hashable, Sendable {
         let values: [(Double, ClosedRange<Double>, String)] = [
             (sizePercent, 1...25, "Text size"), (safeMargin, 0...20, "Safe margin"),
             (maximumWidth, 10...100, "Maximum text width"), (panelOpacity, 0...100, "Panel opacity"),
-            (horizontalOffset, -50...50, "Horizontal offset"), (verticalOffset, -50...50, "Vertical offset"),
-            (lineSpacing, 0...100, "Line spacing")
+            (horizontalOffset, -50...50, "Horizontal offset"), (verticalOffset, -50...50, "Vertical offset")
         ]
         for (value, range, name) in values where !value.isFinite || !range.contains(value) {
             throw MediaSourceError.unreadable("\(name) must be between \(range.lowerBound) and \(range.upperBound) percent.")
+        }
+        if let lineHeightMultiple {
+            guard lineHeightMultiple.isFinite, (0.5...3).contains(lineHeightMultiple) else {
+                throw MediaSourceError.unreadable("Line spacing must be between 0.5 and 3.")
+            }
+        } else if !lineSpacing.isFinite || !(0...100).contains(lineSpacing) {
+            throw MediaSourceError.unreadable("Line spacing must be between 0 and 100 percent.")
         }
         for ink in [color, outlineEnabled ? outlineColor : color, panelEnabled ? panelColor : color] {
             guard ink.rgb != nil else { throw MediaSourceError.unreadable("Enter a six-digit hexadecimal color, such as FFFFFF for white.") }

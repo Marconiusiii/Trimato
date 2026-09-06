@@ -552,11 +552,14 @@ final class ProjectPlayerViewModel: ObservableObject {
             replacedPlayerItem = true
             try await waitUntilReadyToPlay(committedItem)
             progress(0.95)
+            let frameTolerance = ProjectTime(
+                seconds: 1 / max(project.format.frameRate ?? 30, 1)
+            ).cmTime
             try await seekForTransitionPreview(
                 player: player,
                 to: boundedInitialTime.cmTime,
-                toleranceBefore: .zero,
-                toleranceAfter: .zero
+                toleranceBefore: frameTolerance,
+                toleranceAfter: frameTolerance
             )
             try Task.checkCancellation()
             guard preparationID == requestID else { throw CancellationError() }
@@ -625,6 +628,11 @@ final class ProjectPlayerViewModel: ObservableObject {
         toleranceBefore: CMTime,
         toleranceAfter: CMTime
     ) async throws {
+        guard let item = player.currentItem else {
+            throw ProjectTimelineError.transitionNotAvailable(
+                "The transition preview could not be prepared for playback."
+            )
+        }
         let waiter = ProjectPreviewOperationWaiter()
         player.seek(
             to: time,
@@ -637,7 +645,12 @@ final class ProjectPlayerViewModel: ObservableObject {
                 waiter.fail(CancellationError())
             }
         }
-        try await waitForTransitionPreviewOperation(waiter, operation: "positioning the project playhead")
+        do {
+            try await waitForTransitionPreviewOperation(waiter, operation: "positioning the project playhead")
+        } catch {
+            item.cancelPendingSeeks()
+            throw error
+        }
     }
 
     private func waitForTransitionPreviewOperation(

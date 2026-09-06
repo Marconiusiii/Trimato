@@ -3,7 +3,7 @@ import SwiftUI
 struct TextGeneratorControls: View {
     @Binding var definition: GeneratorDefinition
     @State private var expandedSection: Section?
-    @State private var fitReport: String?
+    @State private var fitReport: ApplicationMessageDescriptor?
 
     private enum Section { case typography, appearance, layout }
 
@@ -42,20 +42,20 @@ struct TextGeneratorControls: View {
                 layoutControls
             }
             Button("Check Text Fit") {
-                do { fitReport = try TextGeneratorRenderer.layout(definition).report }
-                catch { fitReport = error.localizedDescription }
-            }
-            if let fitReport {
-                LabeledContent("Text Fit") {
-                    Text(fitReport)
-                        .textSelection(.enabled)
-                }
-                Button("Dismiss Text Fit") { self.fitReport = nil }
+                let report: String
+                do { report = try TextGeneratorRenderer.layout(definition).report }
+                catch { report = error.localizedDescription }
+                fitReport = ApplicationMessageDescriptor(
+                    title: "Text Fit Result",
+                    message: report,
+                    initialFocus: .message
+                )
             }
             Button("Reset Style") {
                 definition.textSettings.apply(definition.textSettings.template)
             }
         }
+        .applicationMessage(fitReport) { fitReport = nil }
     }
 
     private var typographyControls: some View {
@@ -68,15 +68,15 @@ struct TextGeneratorControls: View {
                 ForEach(TextFontWeight.allCases) { Text($0.title).tag($0) }
             }
 
-            TextField("Font Size in Points", value: $definition.textFontSizePoints,
-                      format: .number.precision(.fractionLength(0...2)))
+            TextField("Font Size in Points", value: $definition.textFontSizeWholePoints,
+                      format: .number)
             Picker("Text Alignment", selection: settings.alignment) {
                 ForEach(TextAlignmentChoice.allCases) { Text($0.title).tag($0) }
             }
 
-            TextField("Additional Line Spacing in Points", value: $definition.textLineSpacingPoints,
+            TextField("Line Spacing", value: $definition.textLineHeightMultiple,
                       format: .number.precision(.fractionLength(0...2)))
-                .help("Extra space between lines. Zero adds no extra space.")
+                .help("A multiplier of 1 uses the font's natural line spacing.")
         }
     }
 
@@ -148,16 +148,17 @@ nonisolated extension GeneratorDefinition {
 
     var textFontSizePoints: Double {
         get { Self.textTypographyReferenceHeight * textSettings.sizePercent / 100 }
-        set {
-            let spacing = textLineSpacingPoints
-            textSettings.sizePercent = newValue / Self.textTypographyReferenceHeight * 100
-            if newValue > 0, newValue.isFinite { textLineSpacingPoints = spacing }
-        }
+        set { textSettings.sizePercent = newValue / Self.textTypographyReferenceHeight * 100 }
     }
 
-    var textLineSpacingPoints: Double {
-        get { textFontSizePoints * textSettings.lineSpacing / 100 }
-        set { textSettings.lineSpacing = newValue / textFontSizePoints * 100 }
+    var textFontSizeWholePoints: Int {
+        get { Int(textFontSizePoints.rounded()) }
+        set { textFontSizePoints = Double(newValue) }
+    }
+
+    var textLineHeightMultiple: Double {
+        get { textSettings.lineHeightMultiple ?? 1 + textSettings.lineSpacing / 100 }
+        set { textSettings.lineHeightMultiple = newValue }
     }
 
     var textTypographyError: String? {
@@ -167,8 +168,8 @@ nonisolated extension GeneratorDefinition {
         if !textFontSizePoints.isFinite || !(minimum...maximum).contains(textFontSizePoints) {
             return "Font Size must be between \(minimum.formatted()) and \(maximum.formatted()) points."
         }
-        if !textLineSpacingPoints.isFinite || !(0...textFontSizePoints).contains(textLineSpacingPoints) {
-            return "Additional Line Spacing must be between 0 and \(textFontSizePoints.formatted()) points."
+        if !textLineHeightMultiple.isFinite || !(0.5...3).contains(textLineHeightMultiple) {
+            return "Line Spacing must be between 0.5 and 3."
         }
         return nil
     }

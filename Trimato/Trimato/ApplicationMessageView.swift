@@ -2,9 +2,15 @@ import AppKit
 import Combine
 import SwiftUI
 
+nonisolated enum ApplicationMessageInitialFocus: Equatable, Sendable {
+    case button
+    case message
+}
+
 nonisolated struct ApplicationMessageDescriptor: Equatable, Sendable {
     let title: String
     let message: String
+    var initialFocus = ApplicationMessageInitialFocus.button
 }
 
 @MainActor
@@ -106,6 +112,7 @@ struct ApplicationMessageView: View {
     @ObservedObject var focusRequest: NativeModalFocusRequest
     let done: () -> Void
     @AccessibilityFocusState private var okFocused: Bool
+    @AccessibilityFocusState private var messageFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -114,6 +121,7 @@ struct ApplicationMessageView: View {
                 .accessibilityAddTraits(.isHeader)
             Text(descriptor.message)
                 .textSelection(.enabled)
+                .accessibilityFocused($messageFocused)
             HStack {
                 Spacer()
                 NativeDefaultButton(title: "OK", action: done)
@@ -127,7 +135,11 @@ struct ApplicationMessageView: View {
             guard revision > 0 else { return }
             Task { @MainActor in
                 await Task.yield()
-                okFocused = true
+                if descriptor.initialFocus == .message {
+                    messageFocused = true
+                } else {
+                    okFocused = true
+                }
             }
         }
     }

@@ -121,7 +121,7 @@ struct ProjectLauncherView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func chooseProject() {
+    private func chooseProject(from parentWindow: NSWindow) {
         let panel = NSOpenPanel()
         panel.title = "Open Trimato Project"
         panel.prompt = "Open"
@@ -129,11 +129,18 @@ struct ProjectLauncherView: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        openProject(at: url)
+        panel.beginSheetModal(for: parentWindow) { response in
+            let url = response == .OK ? panel.url : nil
+            panel.orderOut(nil)
+            guard let url else { return }
+            Task { @MainActor in
+                await Task.yield()
+                openProject(at: url)
+            }
+        }
     }
 
-    private func chooseClip() {
+    private func chooseClip(from parentWindow: NSWindow) {
         let panel = NSOpenPanel()
         panel.title = "Trim a Clip"
         panel.prompt = "Open"
@@ -141,8 +148,15 @@ struct ProjectLauncherView: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        openWindow(value: url)
+        panel.beginSheetModal(for: parentWindow) { response in
+            let url = response == .OK ? panel.url : nil
+            panel.orderOut(nil)
+            guard let url else { return }
+            Task { @MainActor in
+                await Task.yield()
+                openWindow(value: url)
+            }
+        }
     }
 
     private func openProject(at url: URL) {
@@ -168,8 +182,8 @@ struct ProjectLauncherView: View {
 
 private struct ProjectLauncherNativeActions: NSViewRepresentable {
     let newProject: () -> Void
-    let trimClip: () -> Void
-    let openProject: () -> Void
+    let trimClip: (NSWindow) -> Void
+    let openProject: (NSWindow) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -201,14 +215,14 @@ private struct ProjectLauncherNativeActions: NSViewRepresentable {
     final class Coordinator: NSObject {
         weak var stack: ActionStack?
         private var newProject: (() -> Void)?
-        private var trimClip: (() -> Void)?
-        private var openProject: (() -> Void)?
+        private var trimClip: ((NSWindow) -> Void)?
+        private var openProject: ((NSWindow) -> Void)?
         private var windowObserver: NSObjectProtocol?
 
         func configureActions(
             newProject: @escaping () -> Void,
-            trimClip: @escaping () -> Void,
-            openProject: @escaping () -> Void
+            trimClip: @escaping (NSWindow) -> Void,
+            openProject: @escaping (NSWindow) -> Void
         ) {
             self.newProject = newProject
             self.trimClip = trimClip
@@ -239,8 +253,14 @@ private struct ProjectLauncherNativeActions: NSViewRepresentable {
         }
 
         @objc func newProjectPressed() { newProject?() }
-        @objc func trimClipPressed() { trimClip?() }
-        @objc func openProjectPressed() { openProject?() }
+        @objc func trimClipPressed() {
+            guard let window = stack?.window else { return }
+            trimClip?(window)
+        }
+        @objc func openProjectPressed() {
+            guard let window = stack?.window else { return }
+            openProject?(window)
+        }
     }
 
     final class ActionStack: NSStackView {
