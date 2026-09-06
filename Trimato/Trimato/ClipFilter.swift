@@ -120,6 +120,7 @@ nonisolated struct ClipFilter: Codable, Hashable, Identifiable, Sendable {
     static func legacyTone(_ settings: AudioClipSettings) -> ClipFilter? {
         var tone = settings
         tone.gainDecibels = 0
+        tone.voice = nil
         guard !tone.isNeutral else { return nil }
         var filter = ClipFilter(kind: .tone)
         filter.values = ["low": settings.lowGainDecibels, "mid": settings.midGainDecibels, "high": settings.highGainDecibels, "highpass": settings.highPassFrequency, "lowpass": settings.lowPassFrequency]

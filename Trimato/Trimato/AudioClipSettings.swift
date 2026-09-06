@@ -3,6 +3,8 @@ import Foundation
 nonisolated struct AudioClipSettings: Codable, Equatable, Hashable, Sendable {
     static let neutral = AudioClipSettings()
 
+    var voice: VoiceAdjustment?
+
     var gainDecibels = 0.0
     var lowGainDecibels = 0.0
     var midGainDecibels = 0.0
@@ -13,7 +15,8 @@ nonisolated struct AudioClipSettings: Codable, Equatable, Hashable, Sendable {
     var lowPassFrequency = 16_000.0
 
     var isNeutral: Bool {
-        gainDecibels == 0 &&
+        voice?.isActive != true &&
+            gainDecibels == 0 &&
             lowGainDecibels == 0 &&
             midGainDecibels == 0 &&
             highGainDecibels == 0 &&

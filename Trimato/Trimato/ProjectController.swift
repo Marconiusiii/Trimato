@@ -148,10 +148,17 @@ final class ProjectController: ObservableObject {
         mutateProject(actionName: "Adjust Audio Ducking") { $0.descriptionDucking = settings }
     }
 
-    func addProjectRecording(asset: MediaAssetRecord?, at time: ProjectTime, cue: CaptionCue?, ducking: DescriptionDucking) throws {
+    func addProjectRecording(asset: MediaAssetRecord?, at time: ProjectTime, cue: CaptionCue?, ducking: DescriptionDucking, voice: VoiceAdjustment? = nil) throws {
         var addedID: UUID?
         try mutateProjectThrowing(actionName: asset?.recordingPurpose == .voiceOver ? "Add Voice Over" : "Save Description") { project in
-            if let asset { addedID = project.putRecording(asset, at: time) }
+            if let asset {
+                addedID = project.putRecording(asset, at: time)
+                if let addedID, let voice {
+                    var audio = AudioClipSettings.neutral
+                    audio.voice = voice
+                    try project.setClipEffects(id: addedID, audio: audio, filters: nil)
+                }
+            }
             if let cue { try project.putDescription(cue) }
             if asset?.recordingPurpose != .voiceOver { project.descriptionDucking = ducking }
         }
@@ -2340,6 +2347,34 @@ enum PlacementAction: CaseIterable, Identifiable {
         case .replaceRemainder: "Clip inserted and overwritten"
         case .cutawaySourceAudio: "Clip inserted on top with source audio"
         case .cutawayPrimaryAudio: "Clip inserted on top over primary audio"
+        }
+    }
+}
+
+extension ProjectController {
+    /// Prepare every affected recording before committing a single undoable change.
+    func applyVoiceToTrack(_ trackID: UUID, settings: VoiceAdjustment) async throws {
+        try settings.validate()
+        let snapshot = project
+        guard let track = snapshot.track(id: trackID), track.kind == .audio else { throw ProjectTimelineError.clipNotFound }
+        let clips = track.clips.filter { snapshot.asset(id: $0.assetID)?.recordingPurpose.isNarration == true }
+        guard !clips.isEmpty else { throw AudioCaptureError.message("This track has no recorded narration.") }
+        for clip in clips {
+            guard let record = snapshot.asset(id: clip.assetID), let url = resolveURL(for: record) else {
+                throw ProjectCompositionError.missingMedia(clip.displayName)
+            }
+            var audio = clip.audioSettings
+            audio.voice = settings
+            let output = try await ClipFilterRenderer.render(source: url, filters: clip.filters, audio: true,
+                duration: record.duration.seconds, segments: clip.segments, audioSettings: audio)
+            try? FileManager.default.removeItem(at: output)
+            try Task.checkCancellation()
+        }
+        guard project == snapshot else {
+            throw AudioCaptureError.message("The project changed while voice adjustments were being prepared. Try applying them again.")
+        }
+        try mutateProjectThrowing(actionName: "Adjust Track Voice") {
+            try $0.setTrackVoice(trackID, settings: settings)
         }
     }
 }

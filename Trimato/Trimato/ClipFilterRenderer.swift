@@ -5,15 +5,26 @@ import Foundation
 enum ClipFilterRenderer {
     static func render(source: URL, filters: [ClipFilter], audio: Bool, duration: Double,
                        segments: [SourceSegment]? = nil, audioSettings: AudioClipSettings? = nil,
+                       highPrecision: Bool = false,
+                       voiceSegments: [SourceSegment]? = nil,
                        progress: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> URL {
+        if audio, let voice = audioSettings?.voice, voice.isActive {
+            var originalSettings = audioSettings
+            originalSettings?.voice = nil
+            let processed = try await render(source: source, filters: filters, audio: true, duration: duration,
+                                             audioSettings: originalSettings, highPrecision: true, progress: progress)
+            defer { try? FileManager.default.removeItem(at: processed) }
+            return try await VoiceAudioProcessor.render(source: processed, settings: voice,
+                segments: segments ?? voiceSegments, trimOutput: segments != nil)
+        }
         for filter in filters { try filter.validate() }
         let active = ClipFilterKind.allCases.compactMap { kind in filters.first { $0.kind == kind && $0.enabled && $0.kind.isAudio == audio } }
         if let segments, !active.isEmpty {
             // Process the same source and history as the project renderer, then select the edited ranges.
-            let processed = try await render(source: source, filters: filters, audio: audio, duration: duration, progress: progress)
+            let processed = try await render(source: source, filters: filters, audio: audio, duration: duration, highPrecision: highPrecision, progress: progress)
             defer { try? FileManager.default.removeItem(at: processed) }
             return try await render(source: processed, filters: [], audio: audio, duration: duration,
-                                    segments: segments, audioSettings: audioSettings, progress: progress)
+                                    segments: segments, audioSettings: audioSettings, highPrecision: highPrecision, progress: progress)
         }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TrimatoClipFilters", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -49,7 +60,7 @@ enum ClipFilterRenderer {
         } else {
             arguments += ["-map", audio ? "0:a:0" : "0:v:0", audio ? "-af" : "-vf", graph.isEmpty ? (audio ? "anull" : "null") : graph]
         }
-        if audio { arguments += ["-vn", "-c:a", "pcm_s16le", "-ar", "48000"] }
+        if audio { arguments += ["-vn", "-c:a", highPrecision ? "pcm_f32le" : "pcm_s16le", "-ar", "48000"] }
         else { arguments += ["-an", "-c:v", "prores_ks", "-profile:v", report.hasAlpha ? "4" : "1",
                              "-pix_fmt", report.hasAlpha ? "yuva444p10le" : "yuv422p10le"] }
         if !audio, report.hasAlpha { arguments += ["-alpha_mode", "premultiplied"] }
@@ -77,10 +88,13 @@ enum ClipFilterRenderer {
                 for clipIndex in prepared.tracks[trackIndex].clips.indices {
                     let clip = prepared.tracks[trackIndex].clips[clipIndex]
                     let audio = prepared.tracks[trackIndex].kind == .audio
-                    guard clip.filters.contains(where: { $0.enabled && $0.kind.isAudio == audio }) else { continue }
+                    let hasVoice = audio && clip.audioSettings.voice?.isActive == true
+                    guard hasVoice || clip.filters.contains(where: { $0.enabled && $0.kind.isAudio == audio }) else { continue }
                     guard var record = prepared.asset(id: clip.assetID), let source = resolved[clip.assetID] else { throw ProjectCompositionError.missingMedia(clip.displayName) }
-                    let output = try await render(source: source, filters: clip.filters, audio: audio, duration: record.duration.seconds)
+                    let output = try await render(source: source, filters: clip.filters, audio: audio, duration: record.duration.seconds,
+                        audioSettings: hasVoice ? clip.audioSettings : nil, voiceSegments: clip.segments)
                     temporary.append(output)
+                    if hasVoice { prepared.tracks[trackIndex].clips[clipIndex].audioSettings = .neutral }
                     record.id = UUID()
                     record.generator = nil
                     record.playbackMode = .nativePassthrough
@@ -89,7 +103,10 @@ enum ClipFilterRenderer {
                     prepared.media.append(record)
                     resolved[record.id] = output
                     prepared.tracks[trackIndex].clips[clipIndex].assetID = record.id
-                    if let index = prepared.primaryTimeline.firstIndex(where: { $0.id == clip.id }) { prepared.primaryTimeline[index].assetID = record.id }
+                    if let index = prepared.primaryTimeline.firstIndex(where: { $0.id == clip.id }) {
+                        prepared.primaryTimeline[index].assetID = record.id
+                        if hasVoice { prepared.primaryTimeline[index].audioSettings = .neutral }
+                    }
                     if let index = prepared.cutaways.firstIndex(where: { $0.id == clip.id }) { prepared.cutaways[index].assetID = record.id }
                 }
             }

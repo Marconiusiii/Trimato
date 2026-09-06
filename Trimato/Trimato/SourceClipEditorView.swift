@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 nonisolated enum AudioClipPreviewPlan {
     static func requiresRender(for settings: AudioClipSettings?) -> Bool {
@@ -30,6 +31,7 @@ struct SourceClipEditorView: View {
     @State private var showsPreviewError = false
     @State private var addingFilter = false
     @State private var pendingFilter: ClipFilter?
+    @StateObject private var voiceWork = VoiceAdjustmentWork()
     @State private var selectedTab = "Markers"
     @State private var newTrackKind: NewTrackSourceKind?
 
@@ -55,12 +57,30 @@ struct SourceClipEditorView: View {
                         AudioClipControlsView(commandContext: commandContext)
                             .padding(8).tabItem { Text("Audio") }.tag("Audio")
                     }
+                    if commandContext.narrationTrack != nil {
+                        VStack(alignment: .leading, spacing: 8) {
+                            VoiceAdjustmentControls(settings: voiceBinding, controller: controller, work: voiceWork,
+                                track: commandContext.narrationTrack, validateTake: commandContext.validateVoice,
+                                applyTrack: commandContext.applyVoiceToTrack,
+                                beforePlayback: { viewModel.player.pause() })
+                            Button(voiceWork.playing ? "Stop playback" : "Play with show") {
+                                if voiceWork.playing { voiceWork.cancel(); return }
+                                viewModel.player.pause()
+                                voiceWork.run {
+                                    let url = try await commandContext.voiceMixedPreview()
+                                    do { try voiceWork.play(url) }
+                                    catch { try? FileManager.default.removeItem(at: url); throw error }
+                                }
+                            }.disabled(voiceWork.busy || !commandContext.effectsReady)
+                        }
+                        .padding(8).tabItem { Text("Voice") }.tag("Voice")
+                    }
                     if commandContext.isTimelineEntry {
                         ClipFiltersView(context: commandContext)
                             .padding(8).tabItem { Text("Filters") }.tag("Filters")
                     }
                 }
-                .frame(height: 170)
+                .frame(height: selectedTab == "Voice" ? 335 : 170)
                 .padding(.horizontal, 20)
                 .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
 
@@ -86,6 +106,12 @@ struct SourceClipEditorView: View {
                         Text(sourcePreparationError).padding(.horizontal, 20)
                     }
                     Button("Retry Clip Preparation", action: loadIfNeeded).padding(.horizontal, 20)
+                }
+                if voiceWork.busy {
+                    HStack {
+                        ProgressView("Preparing voice adjustments")
+                        Button("Cancel preparation") { voiceWork.cancel() }
+                    }.padding(.horizontal, 20)
                 }
                 previewStatus.padding(.horizontal, 20)
 
@@ -115,6 +141,11 @@ struct SourceClipEditorView: View {
                 addingFilter = false
             } cancel: { addingFilter = false }
         }
+        .applicationMessage(voiceWork.message) { voiceWork.message = nil }
+        .onChange(of: voiceWork.busy) { _, busy in commandContext.voiceWorkBusy = busy }
+        .onChange(of: selectedTab) { voiceWork.cancel() }
+        .onChange(of: commandContext.audioSettings) { voiceWork.player.pause() }
+        .onDisappear { voiceWork.cancel(); commandContext.voiceWorkBusy = false }
         .onAppear {
             if let cacheKey = currentAsset.proxyCacheKey {
                 let owner = cacheOwnerID
@@ -394,6 +425,22 @@ struct SourceClipEditorView: View {
         commandContext.dismissTrackPlacement()
     }
 
+    private var voiceBinding: Binding<VoiceAdjustment> {
+        Binding(get: {
+            if let voice = commandContext.audioSettings?.voice { return voice }
+            var voice = VoiceAdjustment()
+            if let range = controller.captionDraftRange {
+                voice.referenceStart = range.start.seconds
+                voice.referenceEnd = range.end.seconds
+            } else { voice.referenceEnd = min(5, controller.project.duration.seconds) }
+            return voice
+        }, set: { value in
+            var audio = commandContext.audioSettings ?? .neutral
+            audio.voice = value
+            commandContext.audioSettings = audio
+        })
+    }
+
     @ViewBuilder
     private var previewStatus: some View {
         switch preview.state {
@@ -602,7 +649,7 @@ private struct AudioClipControlsView: View {
                 }
                 Button("Apply") { commandContext.audioSettings = draft }
                     .disabled(draft == commandContext.audioSettings)
-                Button("Reset Gain") { draft = .neutral }
+                Button("Reset Gain") { draft.gainDecibels = 0 }
             }
             .padding(.top, 4)
         } label: {

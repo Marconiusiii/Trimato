@@ -178,14 +178,17 @@ struct MicrophoneVolumeSlider: View {
 final class SettingsSliderKeyboard: ObservableObject {
     static let identifier = "trimato.settings.microphone-volume"
     private var monitor: Any?
+    private let targetIdentifier: String
+    init(identifier: String = SettingsSliderKeyboard.identifier) { targetIdentifier = identifier }
     func start() {
         guard monitor == nil else { return }
+        let identifier = targetIdentifier
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            Self.handle(event, focused: NSApp.accessibilityFocusedUIElement as? NSObject)
+            Self.handle(event, focused: NSApp.accessibilityFocusedUIElement as? NSObject, identifier: identifier)
         }
     }
 
-    static func handle(_ event: NSEvent, focused: NSObject?) -> NSEvent? {
+    static func handle(_ event: NSEvent, focused: NSObject?, identifier: String = SettingsSliderKeyboard.identifier) -> NSEvent? {
         guard event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
               event.keyCode == 126 || event.keyCode == 125 else { return event }
         var candidate = focused

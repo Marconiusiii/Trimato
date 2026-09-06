@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import SwiftUI
 
@@ -123,6 +124,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     @Published var audioSettings: AudioClipSettings?
     @Published var filters: [ClipFilter] = []
     @Published var effectsReady = true
+    @Published var voiceWorkBusy = false
     private var baselineFilters: [ClipFilter] = []
     var closeDecisionHandler: ((ClipEditorCloseDecision) -> Void)?
     private var pendingCloseDecision: ClipEditorCloseDecision?
@@ -158,6 +160,7 @@ final class ClipPlacementCommandContext: ObservableObject {
             if !filters.contains(where: { $0.kind == .tone }) { filters.append(tone) }
             var gainOnly = AudioClipSettings()
             gainOnly.gainDecibels = settings.gainDecibels
+            gainOnly.voice = settings.voice
             audioSettings = gainOnly
             baselineAudioSettings = gainOnly
         }
@@ -165,7 +168,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     var canPlace: Bool {
-        isKeyWindow && effectsReady && !segments.isEmpty && hostWindow?.attachedSheet == nil && NSApp.modalWindow == nil
+        isKeyWindow && effectsReady && !voiceWorkBusy && !segments.isEmpty && hostWindow?.attachedSheet == nil && NSApp.modalWindow == nil
     }
 
     var isTimelineEntry: Bool {
@@ -180,7 +183,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     var canUpdate: Bool {
-        isKeyWindow && effectsReady && hasUncommittedChanges && !segments.isEmpty && hostWindow?.attachedSheet == nil && NSApp.modalWindow == nil
+        isKeyWindow && effectsReady && !voiceWorkBusy && hasUncommittedChanges && !segments.isEmpty && hostWindow?.attachedSheet == nil && NSApp.modalWindow == nil
     }
 
     func refreshCommittedEffects() {
@@ -201,6 +204,7 @@ final class ClipPlacementCommandContext: ObservableObject {
             }
             var gain = AudioClipSettings()
             gain.gainDecibels = clip.audioSettings.gainDecibels
+            gain.voice = clip.audioSettings.voice
             if audioSettings != gain { audioSettings = gain }
             baselineAudioSettings = gain
         }
@@ -336,6 +340,49 @@ final class ClipPlacementCommandContext: ObservableObject {
             )
             return false
         }
+    }
+
+    var narrationTrack: TimelineTrack? {
+        guard case .timelineClip(let id) = editSelection,
+              controller.asset(for: editSelection)?.recordingPurpose.isNarration == true else { return nil }
+        return controller.project.tracks.first { $0.kind == .audio && $0.clips.contains { $0.id == id } }
+    }
+
+    func validateVoice(_ voice: VoiceAdjustment) async throws {
+        guard let asset = controller.asset(for: editSelection), let url = controller.resolveURL(for: asset) else {
+            throw AudioCaptureError.message("Relink this recording before adjusting its voice.")
+        }
+        var audio = audioSettings ?? .neutral
+        audio.voice = voice
+        let output = try await ClipFilterRenderer.render(source: url, filters: filters, audio: true,
+            duration: asset.duration.seconds, segments: segments, audioSettings: audio)
+        try? FileManager.default.removeItem(at: output)
+        try Task.checkCancellation()
+    }
+
+    func applyVoiceToTrack(_ voice: VoiceAdjustment) async throws {
+        guard let track = narrationTrack else { throw ProjectTimelineError.clipNotFound }
+        try await controller.applyVoiceToTrack(track.id, settings: voice)
+        baselineAudioSettings?.voice = voice
+        audioSettings?.voice = voice
+    }
+
+    func voiceMixedPreview() async throws -> URL {
+        guard case .timelineClip(let id) = editSelection else { throw ProjectTimelineError.clipNotFound }
+        var project = controller.project
+        try project.updateTrackClip(id: id, segments: segments)
+        try project.setClipEffects(id: id, audio: audioSettings, filters: filters)
+        guard let clip = project.timelineClip(id: id) else { throw ProjectTimelineError.clipNotFound }
+        let result = try await ProjectCompositionBuilder.build(project: project, mediaURLs: controller.resolvedMediaURLs())
+        defer { for url in result.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-voice-mix-\(UUID()).wav")
+        do {
+            try await AudioOnlyExporter.export(asset: result.composition, audioMix: result.audioMix,
+                timeRange: CMTimeRange(start: clip.visibleTimelineStart.cmTime, duration: clip.visibleDuration.cmTime),
+                format: .wav24, to: url, progress: { _ in })
+            try Task.checkCancellation()
+            return url
+        } catch { try? FileManager.default.removeItem(at: url); throw error }
     }
 
     func resetAudioSettings() {
