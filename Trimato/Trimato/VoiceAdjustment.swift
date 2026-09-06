@@ -7,10 +7,16 @@ nonisolated struct VoiceAdjustment: Codable, Hashable, Sendable {
     var referenceEnd = 5.0
     var evenOut = false
     var level = 0.0
+    // Optional preserves decoding of projects saved before this control existed.
+    var smoothingAmount: Double?
+    var effectiveSmoothingAmount: Double { smoothingAmount ?? 50 }
 
     var isActive: Bool { targetLoudness != nil || evenOut || level != 0 }
 
     func validate() throws {
+        guard effectiveSmoothingAmount.isFinite, (0...100).contains(effectiveSmoothingAmount) else {
+            throw AudioCaptureError.message("Use a smoothing amount between 0 and 100 percent.")
+        }
         guard level.isFinite, (-12...12).contains(level),
               targetLoudness.map({ $0.isFinite && (-60 ... -5).contains($0) }) ?? true else {
             throw AudioCaptureError.message("Use a voice level between −12 and 12 dB and a usable dialogue reference.")
@@ -63,7 +69,10 @@ enum VoiceAudioProcessor {
         defer { if let intermediate { try? FileManager.default.removeItem(at: intermediate) } }
         var input = source
         if settings.evenOut {
-            input = try await process(source: source, graph: "[0:a:0]acompressor=threshold=0.125893:ratio=2:attack=20:release=250:makeup=1[out]")
+            let originalLevel = try await measure(source, segments: segments)
+            let preparationGain = -23 - originalLevel
+            let ratio = 1 + effectiveRatio(settings.effectiveSmoothingAmount)
+            input = try await process(source: source, graph: "[0:a:0]volume=\(preparationGain)dB,acompressor=threshold=0.063096:ratio=\(ratio):attack=20:release=250:makeup=1,volume=\(-preparationGain)dB[out]")
             intermediate = input
         }
         var gain = settings.level
@@ -82,6 +91,8 @@ enum VoiceAudioProcessor {
         defer { try? FileManager.default.removeItem(at: output) }
         return try await process(source: output, graph: selectionGraph(segments) + "anull[out]")
     }
+
+    static func effectiveRatio(_ amount: Double) -> Double { min(max(amount, 0), 100) * 0.04 }
 
     private static func process(source: URL, graph: String) async throws -> URL {
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-voice-\(UUID()).wav")

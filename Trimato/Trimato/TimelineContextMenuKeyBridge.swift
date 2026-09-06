@@ -183,16 +183,17 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
                 return handleMouse(event, in: window)
             }
             return handleKey(event, voiceOver: NSWorkspace.shared.isVoiceOverEnabled,
-                             editingText: (window.firstResponder as? NSTextView)?.isEditable == true)
+                             editingText: (window.firstResponder as? NSTextView)?.isEditable == true,
+                             currentAccessibilityFocus: focusedTimelineElement())
         }
 
-        func handleKey(_ event: NSEvent, voiceOver: Bool, editingText: Bool) -> NSEvent? {
+        func handleKey(_ event: NSEvent, voiceOver: Bool, editingText: Bool, currentAccessibilityFocus: TimelineElementSelection? = nil) -> NSEvent? {
             guard let bridge else { return event }
             if event.type == .keyUp { return consumedKeys.remove(event.keyCode) != nil ? nil : event }
             let target = mouseSource ?? TimelineKeyAction.target(
                 voiceOver: voiceOver,
                 accessibilityFocus: voiceOver
-                    ? (focusedTimelineElement() ?? bridge.accessibilitySelection)
+                    ? currentAccessibilityFocus
                     : bridge.accessibilitySelection,
                 keyboardFocus: bridge.keyboardSelection,
                 editingText: editingText

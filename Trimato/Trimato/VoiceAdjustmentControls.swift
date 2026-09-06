@@ -37,10 +37,10 @@ final class VoiceAdjustmentWork: ObservableObject {
         }
     }
 
-    func play(_ url: URL) throws {
+    func play(_ url: URL, asset: AVAsset? = nil) throws {
         try Task.checkCancellation()
         files.append(url)
-        player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        player.replaceCurrentItem(with: asset.map { AVPlayerItem(asset: $0) } ?? AVPlayerItem(url: url))
         player.play()
     }
 
@@ -89,7 +89,7 @@ struct VoiceAdjustmentControls: View {
                         catch { try? FileManager.default.removeItem(at: url); throw error }
                     }
                 }
-                Button("Match voice to show") {
+                Button("Match voice loudness to show") {
                     beforePlayback()
                     let original = settings
                     let project = controller.project
@@ -111,7 +111,7 @@ struct VoiceAdjustmentControls: View {
                     .disabled(settings.targetLoudness == nil)
             }
             Text(settings.targetLoudness == nil ? "Voice is not matched." : "Voice matching enabled.")
-            Toggle("Even out voice", isOn: $settings.evenOut).toggleStyle(.switch)
+            VoiceSmoothingControls(settings: $settings)
             Slider(value: $settings.level, in: -12...12, step: 0.5) { Text("Voice level") }
                 .accessibilityValue(AudioClipControlSpecification.spokenDecibels(settings.level))
                 .accessibilityIdentifier("trimato.voice.level")
@@ -134,5 +134,18 @@ struct VoiceAdjustmentControls: View {
         .disabled(work.busy)
         .onAppear { work.startKeyboard() }
         .onDisappear { work.stopKeyboard(); work.cancel() }
+    }
+}
+
+struct VoiceSmoothingControls: View {
+    @Binding var settings: VoiceAdjustment
+    var body: some View {
+        Toggle("Even out voice", isOn: $settings.evenOut).toggleStyle(.switch)
+        if settings.evenOut {
+            LabeledContent("Smoothing amount (%)") {
+                TextField("", value: Binding(get: { settings.effectiveSmoothingAmount },
+                    set: { settings.smoothingAmount = $0 }), format: .number).labelsHidden()
+            }
+        }
     }
 }

@@ -30,6 +30,9 @@ struct SourceClipEditorView: View {
     @State private var showsPreviewProgress = false
     @State private var showsPreviewError = false
     @State private var addingFilter = false
+    @State private var pendingVoice: VoiceAdjustment?
+    @FocusState private var addFilterKeyboardFocused: Bool
+    @AccessibilityFocusState private var addFilterVoiceOverFocused: Bool
     @State private var pendingFilter: ClipFilter?
     @StateObject private var voiceWork = VoiceAdjustmentWork()
     @State private var selectedTab = "Markers"
@@ -76,7 +79,7 @@ struct SourceClipEditorView: View {
                         .padding(8).tabItem { Text("Voice") }.tag("Voice")
                     }
                     if commandContext.isTimelineEntry {
-                        ClipFiltersView(context: commandContext)
+                        ClipFiltersView(context: commandContext, beforePlayback: { viewModel.player.pause(); voiceWork.cancel() })
                             .padding(8).tabItem { Text("Filters") }.tag("Filters")
                     }
                 }
@@ -87,6 +90,8 @@ struct SourceClipEditorView: View {
                 if commandContext.isTimelineEntry {
                     HStack {
                         Button("Add Filter…") { addingFilter = true }
+                            .focused($addFilterKeyboardFocused)
+                            .accessibilityFocused($addFilterVoiceOverFocused)
                         if currentAsset.generator != nil {
                             Button("Edit Generator…") {
                                 controller.requestGenerator(editing: editSelection)
@@ -136,7 +141,10 @@ struct SourceClipEditorView: View {
         ) : nil, outcome: previewOutcome)
         .sheet(isPresented: $addingFilter, onDismiss: finishAddingFilter) {
             AddClipFilterView(audio: commandContext.audioSettings != nil,
-                              existing: commandContext.filters.map(\.kind)) { filter in
+                              existing: commandContext.filters.map(\.kind),
+                              voiceContext: commandContext,
+                              addVoice: { voice in pendingVoice = voice; addingFilter = false },
+                              beforePlayback: { viewModel.player.pause(); voiceWork.cancel() }) { filter in
                 pendingFilter = filter
                 addingFilter = false
             } cancel: { addingFilter = false }
@@ -245,10 +253,22 @@ struct SourceClipEditorView: View {
     }
 
     private func finishAddingFilter() {
+        if let pendingVoice {
+            var audio = commandContext.audioSettings ?? .neutral
+            audio.voice = pendingVoice
+            commandContext.audioSettings = audio
+            self.pendingVoice = nil
+            selectedTab = "Filters"
+        }
         if let pendingFilter {
             commandContext.filters.append(pendingFilter)
             self.pendingFilter = nil
             selectedTab = "Filters"
+        }
+        Task { @MainActor in
+            await Task.yield()
+            addFilterKeyboardFocused = true
+            addFilterVoiceOverFocused = true
         }
     }
 

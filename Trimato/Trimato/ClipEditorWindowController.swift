@@ -367,11 +367,11 @@ final class ClipPlacementCommandContext: ObservableObject {
         audioSettings?.voice = voice
     }
 
-    func voiceMixedPreview() async throws -> URL {
+    func voiceMixedPreview(filters proposedFilters: [ClipFilter]? = nil, audio proposedAudio: AudioClipSettings? = nil) async throws -> URL {
         guard case .timelineClip(let id) = editSelection else { throw ProjectTimelineError.clipNotFound }
         var project = controller.project
         try project.updateTrackClip(id: id, segments: segments)
-        try project.setClipEffects(id: id, audio: audioSettings, filters: filters)
+        try project.setClipEffects(id: id, audio: proposedAudio ?? audioSettings, filters: proposedFilters ?? filters)
         guard let clip = project.timelineClip(id: id) else { throw ProjectTimelineError.clipNotFound }
         let result = try await ProjectCompositionBuilder.build(project: project, mediaURLs: controller.resolvedMediaURLs())
         defer { for url in result.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }

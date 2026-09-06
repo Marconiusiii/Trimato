@@ -33,6 +33,48 @@ struct VoiceAdjustmentTests {
         SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: start), duration: ProjectTime(seconds: duration)))
     }
 
+    @Test func smoothingReducesLevelDifferencesForQuietAndLoudTakes() async throws {
+        for amplitude: Float in [0.02, 0.2] {
+            let source = try fixture(amplitude: amplitude / 4, secondAmplitude: amplitude)
+            defer { try? FileManager.default.removeItem(at: source) }
+            let quiet = [segment(0.5, 1)], loud = [segment(2.8, 1)]
+            let originalDifference = try await VoiceAudioProcessor.measure(source, segments: loud) - VoiceAudioProcessor.measure(source, segments: quiet)
+            var previous = originalDifference
+            for amount in [0.0, 50.0, 100.0] {
+                let output = try await VoiceAudioProcessor.render(source: source,
+                    settings: VoiceAdjustment(evenOut: true, smoothingAmount: amount), segments: nil, trimOutput: false)
+                defer { try? FileManager.default.removeItem(at: output) }
+                let difference = try await VoiceAudioProcessor.measure(output, segments: loud) - VoiceAudioProcessor.measure(output, segments: quiet)
+                if amount == 0 { #expect(abs(difference - originalDifference) < 0.3) }
+                else { #expect(difference < previous - 0.3) }
+                previous = difference
+            }
+        }
+    }
+
+    @Test func draftPreviewDoesNotChangeEditorOrProject() async throws {
+        let source = try fixture()
+        defer { try? FileManager.default.removeItem(at: source) }
+        var project = TrimatoProject()
+        let record = asset(source)
+        let id = project.putRecording(record, at: .zero)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(controller: controller, editSelection: .timelineClip(id), segments: [segment(0, 4)])
+        let originalProject = controller.project
+        let originalAudio = context.audioSettings
+        let voice = VoiceAdjustment(targetLoudness: -25, evenOut: true)
+        let view = FilterAuditionView(context: context, work: VoiceAdjustmentWork(), candidate: nil, voice: voice, voiceMatching: true, beforePlayback: {})
+        let (filters, audio) = view.settings(enabled: true)
+        let (_, bypass) = view.settings(enabled: false)
+        #expect(bypass?.voice?.targetLoudness == nil)
+        #expect(bypass?.voice?.evenOut == true)
+        let url = try await context.voiceMixedPreview(filters: filters, audio: audio)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(abs(try await VoiceAudioProcessor.measure(url) - (-25)) < 0.5)
+        #expect(context.audioSettings == originalAudio)
+        #expect(controller.project == originalProject)
+    }
+
     @Test func olderAudioSettingsDecodeAndVoiceSettingsRoundTrip() throws {
         let data = try JSONEncoder().encode(AudioClipSettings.neutral)
         let decoded = try JSONDecoder().decode(AudioClipSettings.self, from: data)
