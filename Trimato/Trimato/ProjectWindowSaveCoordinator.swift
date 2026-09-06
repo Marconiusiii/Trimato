@@ -22,7 +22,10 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private var windowBecameKeyHandler: (() -> Void)?
     private var undoManagerHandler: ((UndoManager) -> Void)?
     private var lastProjectWindowWillCloseHandler: (() -> Void)?
+    private var isFinishingProjectWindowClose = false
+    private var didRestoreLauncherAfterClose = false
     private var isApplicationTerminating = false
+    @Published private(set) var windowAttachmentRevision = 0
     @Published var presentedError: ProjectPresentedError?
 
     init(projectDocument: ProjectDocument) {
@@ -71,7 +74,9 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
             NotificationCenter.default.removeObserver(windowWillCloseObserver)
         }
         self.window = window
+        window.isRestorable = false
         nativeDocument = NSDocumentController.shared.document(for: window)
+        windowAttachmentRevision += 1
         if let undoManager = nativeDocument?.undoManager ?? window.undoManager {
             undoManagerHandler?(undoManager)
         }
@@ -175,8 +180,9 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
             completion?(false)
             return
         }
-        completion?(true)
         document.close()
+        restoreLauncherAfterProjectClosed()
+        completion?(true)
     }
 
     private func presentSaveUnavailableError() {
@@ -211,14 +217,27 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     }
 
     private func projectWindowWillClose() {
-        guard let nativeDocument else { return }
-        let otherProjectDocumentCount = NSDocumentController.shared.documents.reduce(into: 0) { count, document in
-            if document !== nativeDocument { count += 1 }
+        guard !isFinishingProjectWindowClose else { return }
+        isFinishingProjectWindowClose = true
+
+        // NSWindow.willCloseNotification arrives before NSDocument.close()
+        // removes the document from NSDocumentController. Continue on the next
+        // main-actor turn so the launcher cannot race the closing document.
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.restoreLauncherAfterProjectClosed()
         }
+    }
+
+    private func restoreLauncherAfterProjectClosed() {
+        guard !didRestoreLauncherAfterClose, let nativeDocument else { return }
+        let openDocuments = NSDocumentController.shared.documents
+        guard !openDocuments.contains(where: { $0 === nativeDocument }) else { return }
         if Self.shouldRestoreLauncher(
             isApplicationTerminating: isApplicationTerminating,
-            otherProjectDocumentCount: otherProjectDocumentCount
+            otherProjectDocumentCount: openDocuments.count
         ) {
+            didRestoreLauncherAfterClose = true
             lastProjectWindowWillCloseHandler?()
         }
     }

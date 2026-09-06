@@ -61,6 +61,8 @@ private struct OperationProgressSnapshot: Equatable {
     let announceCompletion: Bool
     let outcome: OperationProgressOutcome
     let completionPending: Bool
+    let returnWindowNumber: Int?
+    let waitsForReturnWindow: Bool
 }
 
 extension View {
@@ -68,12 +70,16 @@ extension View {
         _ operation: OperationProgress?,
         outcome: OperationProgressOutcome = .completed,
         completionPending: Bool = false,
+        returnWindow: NSWindow? = nil,
+        waitsForReturnWindow: Bool = false,
         dismissed: @escaping () -> Void = {}
     ) -> some View {
         modifier(OperationProgressPresenter(
             operation: operation,
             outcome: outcome,
             completionPending: completionPending,
+            returnWindow: returnWindow,
+            waitsForReturnWindow: waitsForReturnWindow,
             dismissed: dismissed
         ))
     }
@@ -83,6 +89,8 @@ private struct OperationProgressPresenter: ViewModifier {
     let operation: OperationProgress?
     let outcome: OperationProgressOutcome
     let completionPending: Bool
+    let returnWindow: NSWindow?
+    let waitsForReturnWindow: Bool
     let dismissed: () -> Void
 
     @State private var sessionID: UUID?
@@ -95,7 +103,9 @@ private struct OperationProgressPresenter: ViewModifier {
             canCancel: operation?.cancel != nil,
             announceCompletion: operation?.announceCompletion ?? true,
             outcome: outcome,
-            completionPending: completionPending
+            completionPending: completionPending,
+            returnWindowNumber: returnWindow?.windowNumber,
+            waitsForReturnWindow: waitsForReturnWindow
         )
     }
 
@@ -107,10 +117,14 @@ private struct OperationProgressPresenter: ViewModifier {
 
     private func synchronize() {
         if let operation {
+            guard !waitsForReturnWindow || returnWindow != nil else { return }
             if let sessionID,
                OperationProgressWindowCoordinator.shared.update(operation, id: sessionID) {
             } else {
-                let sessionID = OperationProgressWindowCoordinator.shared.present(operation)
+                let sessionID = OperationProgressWindowCoordinator.shared.present(
+                    operation,
+                    returnWindow: returnWindow
+                )
                 self.sessionID = sessionID
             }
             return
@@ -213,10 +227,10 @@ final class OperationProgressWindowCoordinator {
     private var sessions: [UUID: OperationProgressWindowSession] = [:]
     private var windows: [UUID: NativeModalWindowController] = [:]
 
-    func present(_ operation: OperationProgress) -> UUID {
+    func present(_ operation: OperationProgress, returnWindow explicitReturnWindow: NSWindow? = nil) -> UUID {
         let session = OperationProgressWindowSession(operation: operation)
         let id = session.id
-        let returnWindow = NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
+        let returnWindow = explicitReturnWindow ?? NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
         let focusRequest = NativeModalFocusRequest()
         let controller = NativeModalWindowController(
             title: operation.title,

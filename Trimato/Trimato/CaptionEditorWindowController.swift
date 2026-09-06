@@ -232,7 +232,7 @@ struct CaptionEditorView: View {
         .padding(20)
         .frame(minWidth: 520, minHeight: 350)
         .navigationTitle(session.title)
-        .onChange(of: focusRequest.revision) { _, revision in
+        .onChange(of: focusRequest.revision, initial: true) { _, revision in
             guard revision > 0 else { return }
             Task { @MainActor in
                 await Task.yield()

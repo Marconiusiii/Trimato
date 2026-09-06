@@ -130,13 +130,8 @@ struct ProjectLauncherView: View {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.beginSheetModal(for: parentWindow) { response in
-            let url = response == .OK ? panel.url : nil
-            panel.orderOut(nil)
-            guard let url else { return }
-            Task { @MainActor in
-                await Task.yield()
-                openProject(at: url)
-            }
+            guard response == .OK, let url = panel.url else { return }
+            openProject(at: url)
         }
     }
 
@@ -149,13 +144,8 @@ struct ProjectLauncherView: View {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.beginSheetModal(for: parentWindow) { response in
-            let url = response == .OK ? panel.url : nil
-            panel.orderOut(nil)
-            guard let url else { return }
-            Task { @MainActor in
-                await Task.yield()
-                openWindow(value: url)
-            }
+            guard response == .OK, let url = panel.url else { return }
+            openWindow(value: url)
         }
     }
 
@@ -164,7 +154,6 @@ struct ProjectLauncherView: View {
             do {
                 try await openDocument(at: url)
                 recentProjects.refresh()
-                closeLauncher()
             } catch {
                 recentProjects.refresh()
                 presentedError = ProjectLauncherError(
@@ -295,6 +284,7 @@ private struct ProjectLauncherNativeActions: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let owner else { return }
+            window?.isRestorable = false
             newProjectButton.target = owner
             newProjectButton.action = #selector(Coordinator.newProjectPressed)
             (arrangedSubviews[1] as? NSButton)?.target = owner

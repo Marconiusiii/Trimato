@@ -138,6 +138,7 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
         window.identifier = identifier
         window.contentViewController = hostingController
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
         window.isExcludedFromWindowsMenu = true
         window.collectionBehavior.insert(.transient)
         window.center()
@@ -227,6 +228,10 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
 
     private func restoreReturnWindow() {
         guard let returnWindow else {
+            returned()
+            return
+        }
+        guard returnWindow.isVisible else {
             returned()
             return
         }

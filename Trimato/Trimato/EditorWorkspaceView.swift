@@ -149,12 +149,27 @@ struct EditorWorkspaceView: View {
             .operationProgress(
                 initialPreparationOperation,
                 outcome: projectPlayer.errorMessage == nil ? .completed : .failed,
+                returnWindow: projectWindowSaveCoordinator.attachedWindow,
+                waitsForReturnWindow: true,
                 dismissed: initialPreparationDismissed
             )
-            .operationProgress(exportOperation, outcome: controller.presentedError == nil ? .completed : .failed)
-            .operationProgress(importOperation, outcome: controller.presentedError == nil ? .completed : .failed)
+            .operationProgress(
+                exportOperation,
+                outcome: controller.presentedError == nil ? .completed : .failed,
+                returnWindow: projectWindowSaveCoordinator.attachedWindow,
+                waitsForReturnWindow: true
+            )
+            .operationProgress(
+                importOperation,
+                outcome: controller.presentedError == nil ? .completed : .failed,
+                returnWindow: projectWindowSaveCoordinator.attachedWindow,
+                waitsForReturnWindow: true
+            )
             .operationProgress(transitionOperation, outcome: transitionOutcome,
-                               completionPending: transitionTask != nil, dismissed: restoreTransitionFocus)
+                               completionPending: transitionTask != nil,
+                               returnWindow: projectWindowSaveCoordinator.attachedWindow,
+                               waitsForReturnWindow: true,
+                               dismissed: restoreTransitionFocus)
     }
 
     private var initialPreparationOperation: OperationProgress? {
