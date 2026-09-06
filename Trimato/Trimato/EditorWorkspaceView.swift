@@ -74,6 +74,11 @@ struct EditorWorkspaceView: View {
                 )
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
+            .sheet(item: $controller.recordingSession, onDismiss: {
+                controller.recordingWindowDidDismiss()
+            }) { session in
+                ProjectRecordingView(session: session)
+            }
             .onChange(of: controller.generatorRequestID) { _, id in
                 if let id {
                     GeneratorWindowRegistry.shared.present(

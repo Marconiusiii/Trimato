@@ -303,6 +303,7 @@ struct TimelineCollectionItemModel: Equatable {
     let accessibilityHint: String
     let isSelected: Bool
     let isTransition: Bool
+    var isDescription = false
 }
 
 struct TimelineCollectionActions {
@@ -498,12 +499,13 @@ struct TimelineClipsCollection: NSViewRepresentable {
                 add("Edit Transition…", to: menu) { [weak self] in self?.actions?.activate(selection) }
                 add("Delete Transition", to: menu) { [weak self] in self?.actions?.delete(selection) }
             case .caption(let id):
-                add("Move Playhead to Caption", to: menu) { [weak self] in
+                let noun = models.first(where: { $0.selection == selection })?.isDescription == true ? "Description" : "Caption"
+                add("Move Playhead to \(noun)", to: menu) { [weak self] in
                     self?.actions?.movePlayheadToCaption(id)
                 }
                 menu.addItem(.separator())
-                add("Edit Caption…", to: menu) { [weak self] in self?.actions?.activate(selection) }
-                add("Delete Caption", to: menu) { [weak self] in self?.actions?.delete(selection) }
+                add("Edit \(noun)…", to: menu) { [weak self] in self?.actions?.activate(selection) }
+                add("Delete \(noun)", to: menu) { [weak self] in self?.actions?.delete(selection) }
             }
             return menu
         }

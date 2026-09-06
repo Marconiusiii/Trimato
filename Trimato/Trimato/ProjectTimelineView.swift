@@ -204,7 +204,8 @@ struct ProjectTimelineView: View {
         TimelineClipsCollection(
             items: timelineCollectionItems,
             accessibilityLabel: timelineListAccessibilityLabel,
-            emptyTitle: controller.activeTimelineTrack?.kind == .captions
+            emptyTitle: controller.activeTimelineTrack?.recordingPurpose == .descriptionTranscript
+                ? "No descriptions on this track" : controller.activeTimelineTrack?.kind == .captions
                 ? "No captions on this track"
                 : "No clips on this track",
             focusRequest: controller.timelineFocusRestoreRequest,
@@ -295,9 +296,10 @@ struct ProjectTimelineView: View {
                     title: cue.displayName,
                     subtitle: nil,
                     accessibilityValue: "",
-                    accessibilityHint: "Enter edits the caption.",
+                    accessibilityHint: cue.isDescription ? "Enter opens Describer." : "Enter edits the caption.",
                     isSelected: controller.selectedCaptionCueID == cue.id,
-                    isTransition: false
+                    isTransition: false,
+                    isDescription: cue.isDescription
                 )
             }
         }
@@ -337,10 +339,10 @@ struct ProjectTimelineView: View {
                 deleteTimelineTransition(transition.id)
             }
         } else if let cue = controller.selectedCaptionCue {
-            Button("Move Playhead to Caption") { controller.movePlayheadToCaption(id: cue.id) }
+            Button(cue.isDescription ? "Move Playhead to Description" : "Move Playhead to Caption") { controller.movePlayheadToCaption(id: cue.id) }
             Divider()
-            Button("Edit Caption…") { openCaptionEditor(cue) }
-            Button("Delete Caption", role: .destructive) { deleteCaptionCue(cue.id) }
+            Button(cue.isDescription ? "Edit Description…" : "Edit Caption…") { openCaptionEditor(cue) }
+            Button(cue.isDescription ? "Delete Description" : "Delete Caption", role: .destructive) { deleteCaptionCue(cue.id) }
         }
     }
 

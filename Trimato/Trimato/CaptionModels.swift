@@ -31,6 +31,7 @@ nonisolated struct CaptionCue: Codable, Equatable, Hashable, Identifiable, Senda
     var identifier: String?
     var webVTTSettings: String?
     var isDraft = false
+    var isDescription = false
 
     init(
         id: UUID = UUID(),
@@ -58,7 +59,7 @@ nonisolated struct CaptionCue: Codable, Equatable, Hashable, Identifiable, Senda
             .trimmingCharacters(in: .whitespaces) ?? "Untitled caption"
     }
 
-    var displayName: String { "Caption: \(firstLine)" }
+    var displayName: String { "\(isDescription ? "Description" : "Caption"): \(firstLine)" }
 
     func validated() throws -> Self {
         guard start >= .zero else {
@@ -74,7 +75,7 @@ nonisolated struct CaptionCue: Codable, Equatable, Hashable, Identifiable, Senda
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, start, end, text, identifier, webVTTSettings, isDraft
+        case id, start, end, text, identifier, webVTTSettings, isDraft, isDescription
     }
 
     init(from decoder: Decoder) throws {
@@ -86,6 +87,7 @@ nonisolated struct CaptionCue: Codable, Equatable, Hashable, Identifiable, Senda
         identifier = try values.decodeIfPresent(String.self, forKey: .identifier)
         webVTTSettings = try values.decodeIfPresent(String.self, forKey: .webVTTSettings)
         isDraft = try values.decodeIfPresent(Bool.self, forKey: .isDraft) ?? false
+        isDescription = try values.decodeIfPresent(Bool.self, forKey: .isDescription) ?? false
     }
 }
 
@@ -147,7 +149,7 @@ nonisolated extension TrimatoProject {
 
     mutating func replaceCaptionCues(_ cues: [CaptionCue]) throws {
         let validated = try cues.map { try $0.validated() }
-        guard let index = tracks.firstIndex(where: { $0.kind == .captions }) else {
+        guard let index = tracks.firstIndex(where: { $0.kind == .captions && $0.recordingPurpose != .descriptionTranscript }) else {
             throw CaptionFileError.invalidCue("The caption track is no longer in the project.")
         }
         tracks[index].captionCues = validated

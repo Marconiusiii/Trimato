@@ -164,6 +164,95 @@ struct AudioCaptureLifecycleTests {
         #expect(closed)
     }
 
+    @Test func settingsToolbarIsNamedWithoutNamingPanelContents() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "SettingsAccessibilityTest")
+        let host = NSHostingView(rootView: TrimatoSettingsView())
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(200))
+
+        func attribute(_ element: NSObject, _ name: String) -> Any? {
+            let selector = NSSelectorFromString(name)
+            guard element.responds(to: selector) else { return nil }
+            return element.perform(selector)?.takeUnretainedValue()
+        }
+        func elements(_ element: NSObject) -> [NSObject] {
+            let children = attribute(element, "accessibilityChildren") as? [NSObject] ?? []
+            return [element] + children.flatMap(elements)
+        }
+        SettingsToolbarAccessibility.update()
+        let exposed = elements(host)
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        let frame = try #require(host.superview)
+        let toolbar = try #require(views(frame).first { $0.accessibilityRole() == .toolbar })
+        #expect(toolbar.accessibilityLabel() == "Settings")
+        #expect(!exposed.contains {
+            attribute($0, "accessibilityLabel") as? String == "Settings"
+        }, "Settings must name the toolbar, not a panel content group")
+        #expect(exposed.contains {
+            attribute($0, "accessibilityRole") as? String == "AXHeading"
+                && attribute($0, "accessibilityLabel") as? String == "Export notifications"
+        })
+        #expect(!exposed.contains {
+            attribute($0, "accessibilityValue") as? String == "Permission"
+        })
+    }
+
+    @Test func audioControlsExposeTheirOwnLabelsWithoutSeparateLabelStops() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: AudioRecordingSettingsView())
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(200))
+
+        func attribute(_ element: NSObject, _ name: String) -> Any? {
+            let selector = NSSelectorFromString(name)
+            guard element.responds(to: selector) else { return nil }
+            return element.perform(selector)?.takeUnretainedValue()
+        }
+        func elements(_ element: NSObject) -> [NSObject] {
+            let children = attribute(element, "accessibilityChildren") as? [NSObject] ?? []
+            return [element] + children.flatMap(elements)
+        }
+        let exposed = elements(host)
+        for title in ["Recording", "Playback", "Recording test"] {
+            #expect(exposed.contains {
+                attribute($0, "accessibilityRole") as? String == "AXHeading"
+                    && attribute($0, "accessibilityLabel") as? String == title
+            }, "Expected native heading for \(title)")
+        }
+        let labels = ["Microphone", "Microphone channel", "Recording quality", "Playback device"]
+        for label in labels {
+            let controls = exposed.filter {
+                attribute($0, "accessibilityRole") as? String == "AXPopUpButton"
+                    && attribute($0, "accessibilityLabel") as? String == label
+            }
+            #expect(controls.count == 1, "Expected one native Picker named \(label)")
+        }
+        let volumeSlider = try #require(exposed.first {
+            attribute($0, "accessibilityRole") as? String == "AXSlider"
+                && attribute($0, "accessibilityLabel") as? String == "Microphone volume"
+        })
+        #expect(attribute(volumeSlider, "accessibilityValue") is NSNumber)
+        #expect(volumeSlider.responds(to: NSSelectorFromString("accessibilityPerformIncrement")))
+        #expect(volumeSlider.responds(to: NSSelectorFromString("accessibilityPerformDecrement")))
+        for label in labels + ["Microphone volume"] {
+            #expect(!exposed.contains {
+                attribute($0, "accessibilityRole") as? String == "AXStaticText"
+                    && attribute($0, "accessibilityValue") as? String == label
+            }, "Control label must not be a separate VoiceOver stop: \(label)")
+        }
+    }
+
     @Test func settingsAudioPaneHasNoScrollOrCollectionView() {
         let host = NSHostingView(rootView: AudioRecordingSettingsView())
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)

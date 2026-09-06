@@ -114,6 +114,7 @@ struct ExportSaveSelection {
     let format: ExportFormat
     let url: URL
     let captionDelivery: CaptionDelivery
+    var exportDescriptions = false
 }
 
 nonisolated enum CaptionDelivery: String, CaseIterable, Identifiable, Sendable {
@@ -154,13 +155,16 @@ final class ExportFormatSelectionModel: ObservableObject {
     }
     @Published var captionDelivery: CaptionDelivery
     let hasCaptions: Bool
+    let hasDescriptions: Bool
+    @Published var exportDescriptions = true
 
     fileprivate var formatChanged: ((ExportFormat) -> Void)?
 
-    init(selectedFormat: ExportFormat, hasCaptions: Bool) {
+    init(selectedFormat: ExportFormat, hasCaptions: Bool, hasDescriptions: Bool = false) {
         self.selectedFormat = selectedFormat
         self.captionDelivery = selectedFormat.isAudioOnly ? .webVTT : .burnedIn
         self.hasCaptions = hasCaptions
+        self.hasDescriptions = hasDescriptions
     }
 }
 
@@ -185,6 +189,9 @@ private struct ExportFormatAccessoryView: View {
                 }
                 .frame(width: 330)
             }
+            if model.hasDescriptions {
+                Toggle("Export description transcript (WebVTT)", isOn: $model.exportDescriptions)
+            }
         }
         .padding(.vertical, 2)
     }
@@ -204,6 +211,7 @@ final class ExportSavePanel {
         baseName: String,
         formats: [ExportFormat],
         hasCaptions: Bool = false,
+        hasDescriptions: Bool = false,
         originalExtension: String? = nil,
         originalContentType: UTType? = nil
     ) {
@@ -211,7 +219,7 @@ final class ExportSavePanel {
         self.formats = formats
         self.originalExtension = originalExtension
         self.originalContentType = originalContentType
-        self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0], hasCaptions: hasCaptions)
+        self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0], hasCaptions: hasCaptions, hasDescriptions: hasDescriptions)
 
         panel.title = title
         panel.prompt = "Export"
@@ -223,7 +231,7 @@ final class ExportSavePanel {
             model: formatModel,
             formats: formats
         ))
-        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: hasCaptions ? 74 : 36)
+        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 74 : 36) + (hasDescriptions ? 32 : 0))
         panel.accessoryView = accessory
 
         panel.nameFieldStringValue = formats[0].filename(
@@ -242,7 +250,8 @@ final class ExportSavePanel {
         return ExportSaveSelection(
             format: selectedFormat,
             url: url,
-            captionDelivery: formatModel.hasCaptions ? formatModel.captionDelivery : .none
+            captionDelivery: formatModel.hasCaptions ? formatModel.captionDelivery : .none,
+            exportDescriptions: formatModel.hasDescriptions && formatModel.exportDescriptions
         )
     }
 
@@ -316,8 +325,8 @@ final class CaptionExportSavePanel {
     private let panel = NSSavePanel()
     private let formatPicker = NSPopUpButton()
 
-    init(baseName: String) {
-        panel.title = "Export Captions"
+    init(baseName: String, title: String = "Export Captions") {
+        panel.title = title
         panel.prompt = "Export"
         panel.nameFieldLabel = "Export As:"
         panel.nameFieldStringValue = "\(baseName).vtt"

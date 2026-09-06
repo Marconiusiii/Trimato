@@ -123,6 +123,8 @@ enum FFmpegTimelineEffectRenderer {
         trailingClip: TimelineClip,
         type: AudioTransitionType,
         duration: ProjectTime,
+        muteLeading: Bool = false,
+        muteTrailing: Bool = false,
         progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         guard let leadingEnd = leadingClip.segments.last?.sourceRange.end,
@@ -142,7 +144,7 @@ enum FFmpegTimelineEffectRenderer {
             leading: leadingReport.audioStream,
             trailing: trailingReport.audioStream
         )
-        let graph: String
+        var graph: String
         if type == .fadeOutIn {
             graph = audioFadeOutInGraph(
                 leadingStart: max(leadingEnd.seconds - half, 0),
@@ -163,6 +165,8 @@ enum FFmpegTimelineEffectRenderer {
                 curve: .linear
             )
         }
+        if muteLeading { graph = graph.replacingOccurrences(of: "[a0];", with: ",volume=0[a0];") }
+        if muteTrailing { graph = graph.replacingOccurrences(of: "[a1];", with: ",volume=0[a1];") }
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TrimatoTimelineEffects", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

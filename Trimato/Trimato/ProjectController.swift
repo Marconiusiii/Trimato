@@ -37,6 +37,8 @@ final class ProjectController: ObservableObject {
     @Published var selectedCaptionCueID: UUID?
     @Published private(set) var isCaptionEditorOpen = false
     @Published var timelineHasKeyboardFocus = false
+    @Published var recordingSession: ProjectRecordingSession?
+    private var recordingOriginCueID: UUID?
     @Published var generatorRequestID: UUID?
     @Published var transitionRequest: TransitionRequest?
     @Published private(set) var transitionRequestReturnsToEditor = false
@@ -112,6 +114,110 @@ final class ProjectController: ObservableObject {
         let session = GeneratorSession(controller: self, editing: editing)
         GeneratorWindowRegistry.shared.sessions[session.id] = session
         generatorRequestID = session.id
+    }
+
+    func requestRecording(_ purpose: RecordingPurpose, cue: CaptionCue? = nil) {
+        guard recordingSession == nil, !isExporting, !isImporting else { return }
+        projectPlayer?.player.pause()
+        recordingOriginCueID = cue?.id
+        recordingSession = ProjectRecordingSession(controller: self, purpose: purpose, cue: cue)
+    }
+
+    func dismissRecording() {
+        recordingSession?.close()
+        recordingSession = nil
+    }
+
+    func recordingWindowDidDismiss() {
+        if let id = recordingOriginCueID, project.captionCue(id: id) != nil {
+            activeTimelineTrackID = project.descriptionTranscriptTrack?.id
+            selectedCaptionCueID = id
+            selection = .project
+            requestTimelineFocusRestore(to: .caption(id))
+        } else { requestEditorFocusRestore() }
+        recordingOriginCueID = nil
+    }
+
+    func updateDescriptionDucking(_ settings: DescriptionDucking) {
+        guard settings.decibels.isFinite, (-60...0).contains(settings.decibels),
+              settings.fadeSeconds.isFinite, (0.01...5).contains(settings.fadeSeconds) else { return }
+        mutateProject(actionName: "Adjust Description Audio Reduction") { $0.descriptionDucking = settings }
+    }
+
+    func addProjectRecording(asset: MediaAssetRecord?, at time: ProjectTime, cue: CaptionCue?, ducking: DescriptionDucking) throws {
+        var addedID: UUID?
+        try mutateProjectThrowing(actionName: asset?.recordingPurpose == .voiceOver ? "Add Voice Over" : "Save Description") { project in
+            if let asset { addedID = project.putRecording(asset, at: time) }
+            if let cue { try project.putDescription(cue) }
+            if asset?.recordingPurpose != .voiceOver { project.descriptionDucking = ducking }
+        }
+        if let addedID, let track = project.tracks.first(where: { $0.clips.contains { $0.id == addedID } }) {
+            activeTimelineTrackID = track.id
+            selection = .timelineClip(addedID)
+        } else if let cue {
+            activeTimelineTrackID = project.descriptionTranscriptTrack?.id
+            selectedCaptionCueID = cue.id
+        }
+    }
+
+    func recordingsDirectory() async throws -> URL {
+        guard let projectURL = projectSaveCoordinator?.projectURL else {
+            throw AudioCaptureError.message("Save the project before adding a recording.")
+        }
+        let parent = projectURL.deletingLastPathComponent()
+        let folder = parent.appendingPathComponent("Recordings", isDirectory: true)
+        if let bookmark = project.recordingsFolderBookmark {
+            var stale = false
+            if let granted = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI],
+                                      relativeTo: nil, bookmarkDataIsStale: &stale),
+               granted.standardizedFileURL == parent.standardizedFileURL,
+               !accessedURLs.contains(granted), granted.startAccessingSecurityScopedResource() {
+                accessedURLs.append(granted)
+            }
+        }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let probe = folder.appendingPathComponent(".trimato-write-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: probe) }
+            try Data().write(to: probe, options: .atomic)
+        }
+        catch {
+            guard (error as NSError).code == CocoaError.fileWriteNoPermission.rawValue,
+                  let window = projectSaveCoordinator?.attachedWindow else { throw error }
+            let panel = NSOpenPanel()
+            panel.title = "Allow Project Recording Storage"
+            panel.message = "Choose the project folder to store recordings alongside the Trimato project."
+            panel.directoryURL = parent
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            guard await panel.beginSheetModal(for: window.attachedSheet ?? window) == .OK, let selected = panel.url else { throw CancellationError() }
+            guard selected.standardizedFileURL == parent.standardizedFileURL else {
+                throw AudioCaptureError.message("Choose the folder containing this Trimato project.")
+            }
+            if selected.startAccessingSecurityScopedResource() { accessedURLs.append(selected) }
+            if let bookmark = try? selected.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
+                document.project.recordingsFolderBookmark = bookmark
+            }
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        return folder
+    }
+
+    func exportDescriptions() {
+        guard let cues = project.descriptionTranscriptTrack?.captionCues, !cues.isEmpty,
+              let window = projectSaveCoordinator?.attachedWindow else { return }
+        let panel = CaptionExportSavePanel(baseName: "\(project.name) descriptions", title: "Export Description Transcript")
+        Task { @MainActor [weak self] in
+            guard let self, let (url, format) = await panel.selection(parentWindow: window) else { return }
+            defer { url.stopAccessingSecurityScopedResource() }
+            do {
+                let cues = CaptionFileCodec.cues(cues, within: projectPlayer?.exportRange)
+                let data = try format.captionFileFormat.map { try CaptionFileCodec.encode(cues, format: $0) }
+                    ?? CaptionFileCodec.encodePlainText(cues, projectTitle: project.name)
+                try data.write(to: url, options: .atomic)
+            } catch { presentedError = ProjectPresentedError(title: "Description Export", message: error.localizedDescription) }
+        }
     }
 
     var captionDraftRange: ProjectTimeRange? {
@@ -390,7 +496,8 @@ final class ProjectController: ObservableObject {
             title: "Export Project",
             baseName: project.name,
             formats: formats,
-            hasCaptions: project.captionTrack?.captionCues.isEmpty == false
+            hasCaptions: project.captionTrack?.captionCues.isEmpty == false,
+            hasDescriptions: project.descriptionTranscriptTrack?.captionCues.isEmpty == false
         )
         isPresentingExportPanel = true
         Task { @MainActor [weak self] in
@@ -403,7 +510,8 @@ final class ProjectController: ObservableObject {
                 outputURL: selection.url,
                 exportRange: exportRange,
                 mediaURLs: urls,
-                captionDelivery: selection.captionDelivery
+                captionDelivery: selection.captionDelivery,
+                exportDescriptions: selection.exportDescriptions
             )
         }
     }
@@ -413,7 +521,8 @@ final class ProjectController: ObservableObject {
         outputURL: URL,
         exportRange: ProjectTimeRange?,
         mediaURLs: [UUID: URL],
-        captionDelivery: CaptionDelivery
+        captionDelivery: CaptionDelivery,
+        exportDescriptions: Bool
     ) {
         if captionDelivery != .none,
            project.captionTrack?.captionCues.contains(where: \.isDraft) == true {
@@ -429,7 +538,7 @@ final class ProjectController: ObservableObject {
         announce("Export started")
         var projectSnapshot = project
         if captionDelivery != .burnedIn {
-            for index in projectSnapshot.tracks.indices where projectSnapshot.tracks[index].kind == .captions {
+            for index in projectSnapshot.tracks.indices where projectSnapshot.tracks[index].kind == .captions && projectSnapshot.tracks[index].recordingPurpose != .descriptionTranscript {
                 projectSnapshot.tracks[index].captionCues = []
             }
         }
@@ -453,6 +562,12 @@ final class ProjectController: ObservableObject {
                     let data = try CaptionFileCodec.encode(sidecarCues, format: sidecarFormat)
                     let sidecarURL = outputURL.deletingPathExtension().appendingPathExtension(sidecarFormat.fileExtension)
                     try RelatedExportFileWriter.write(data, to: sidecarURL, relatedTo: outputURL)
+                }
+                if exportDescriptions {
+                    let cues = CaptionFileCodec.cues(projectSnapshot.descriptionTranscriptTrack?.captionCues ?? [], within: exportRange)
+                    let data = try CaptionFileCodec.encode(cues, format: .webVTT)
+                    let sidecar = outputURL.deletingPathExtension().appendingPathExtension("descriptions.vtt")
+                    try RelatedExportFileWriter.write(data, to: sidecar, relatedTo: outputURL)
                 }
                 isExporting = false
                 exportProgress = nil
@@ -1396,6 +1511,12 @@ final class ProjectController: ObservableObject {
 
     func resolveURL(for asset: MediaAssetRecord) -> URL? {
         if let generator = asset.generator { return try? GeneratorRenderer.cacheURL(for: generator) }
+        if let relative = asset.recordingRelativePath,
+           !relative.hasPrefix("/"), !relative.split(separator: "/").contains(".."),
+           let parent = projectSaveCoordinator?.projectURL?.deletingLastPathComponent() {
+            let url = parent.appendingPathComponent(relative)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
         guard let url = ProjectImportCoordinator.resolveURL(for: asset) else { return nil }
         if !accessedURLs.contains(url), url.startAccessingSecurityScopedResource() {
             accessedURLs.append(url)

@@ -82,7 +82,10 @@ struct MediaCacheSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            GroupBox("Playback proxy storage") {
+            Text("Playback proxy storage")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
                     LabeledContent("Storage used", value: formattedSize)
                     LabeledContent("Proxy files", value: formattedFileCount)
@@ -100,7 +103,10 @@ struct MediaCacheSettingsView: View {
                 }
             }
 
-            GroupBox("Manage playback proxies") {
+            Text("Manage playback proxies")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
                     Button("Clear proxies not used recently…") {
                         confirmation = .unused

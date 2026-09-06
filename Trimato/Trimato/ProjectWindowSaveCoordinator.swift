@@ -59,6 +59,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
 
     var hasUnsavedChanges: Bool { projectDocument.hasUnsavedChanges }
     var attachedWindow: NSWindow? { window }
+    var projectURL: URL? { nativeDocument?.fileURL }
 
     func attach(to window: NSWindow) {
         if self.window === window {

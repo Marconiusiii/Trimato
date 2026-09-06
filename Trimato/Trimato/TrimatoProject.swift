@@ -91,6 +91,8 @@ nonisolated struct MediaAssetRecord: Codable, Hashable, Identifiable, Sendable {
     var proxyCacheKey: UUID? = nil
     var sourceFingerprint: SourceMediaFingerprint? = nil
     var generator: GeneratorDefinition? = nil
+    var recordingPurpose: RecordingPurpose? = nil
+    var recordingRelativePath: String? = nil
 
     var editedDuration: ProjectTime {
         sourceEdit.reduce(.zero) { $0 + $1.duration }
@@ -271,7 +273,7 @@ nonisolated struct TimelineCutaway: Codable, Hashable, Identifiable, Sendable {
 }
 
 nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 4
+    static let currentSchemaVersion = 5
 
     var schemaVersion = currentSchemaVersion
     var id = UUID()
@@ -284,6 +286,8 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
     var cutaways: [TimelineCutaway] = []
     var tracks: [TimelineTrack] = []
     var transitions: [TimelineTransition] = []
+    var descriptionDucking = DescriptionDucking()
+    var recordingsFolderBookmark: Data?
 
     init(name: String = "Untitled Project") {
         self.name = name
@@ -291,7 +295,7 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, id, name, format, targetDuration, folders, media
-        case primaryTimeline, cutaways, tracks, transitions
+        case primaryTimeline, cutaways, tracks, transitions, descriptionDucking, recordingsFolderBookmark
     }
 
     init(from decoder: Decoder) throws {
@@ -310,6 +314,8 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
         cutaways = try container.decodeIfPresent([TimelineCutaway].self, forKey: .cutaways) ?? []
         tracks = try container.decodeIfPresent([TimelineTrack].self, forKey: .tracks) ?? []
         transitions = try container.decodeIfPresent([TimelineTransition].self, forKey: .transitions) ?? []
+        descriptionDucking = try container.decodeIfPresent(DescriptionDucking.self, forKey: .descriptionDucking) ?? DescriptionDucking()
+        recordingsFolderBookmark = try container.decodeIfPresent(Data.self, forKey: .recordingsFolderBookmark)
         if tracks.isEmpty {
             tracks = Self.migratedTracks(
                 primaryTimeline: &primaryTimeline,
@@ -343,6 +349,8 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
         try container.encode(cutaways, forKey: .cutaways)
         try container.encode(tracks, forKey: .tracks)
         try container.encode(transitions, forKey: .transitions)
+        try container.encode(descriptionDucking, forKey: .descriptionDucking)
+        try container.encodeIfPresent(recordingsFolderBookmark, forKey: .recordingsFolderBookmark)
     }
 
     var duration: ProjectTime {
@@ -368,7 +376,7 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
     }
 
     var captionTrack: TimelineTrack? {
-        tracks.first { $0.kind == .captions }
+        tracks.first { $0.kind == .captions && $0.recordingPurpose != .descriptionTranscript }
     }
 
     func captionCue(id: UUID) -> CaptionCue? {

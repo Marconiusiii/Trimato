@@ -29,7 +29,7 @@ import Testing
         let reopened = try JSONDecoder().decode(TrimatoProject.self, from: data)
         #expect(reopened.captionTrack?.name == "Captions")
         #expect(reopened.captionCue(id: cue.id) == cue)
-        #expect(reopened.schemaVersion == 4)
+        #expect(reopened.schemaVersion == TrimatoProject.currentSchemaVersion)
     }
 
     @Test func olderSavedCaptionsDecodeAsFinalized() throws {

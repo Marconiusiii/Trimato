@@ -38,8 +38,54 @@ struct TrimatoSettingsView: View {
             MediaCacheSettingsView()
                 .tabItem { Label("Storage", systemImage: "internaldrive") }
         }
+        .accessibilityIdentifier(SettingsToolbarAccessibility.contentIdentifier)
         .frame(width: 600, height: 600)
         .focusedSceneValue(\.closeSettings, SettingsCloseAction(capture: capture))
+        .task {
+            await Task.yield()
+            SettingsToolbarAccessibility.update()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            SettingsToolbarAccessibility.update()
+        }
+    }
+}
+
+/// SwiftUI applies TabView accessibility labels to the content, not its window toolbar.
+/// Identify the owning window without adding a view or replacing its native toolbar.
+@MainActor
+enum SettingsToolbarAccessibility {
+    static let contentIdentifier = "trimato.settings.content"
+
+    static func update() {
+        for window in NSApp.windows {
+            guard let content = window.contentView,
+                  containsSettingsContent(content),
+                  let frame = content.superview else { continue }
+            labelToolbar(in: frame)
+        }
+    }
+
+    private static func containsSettingsContent(_ element: NSObject) -> Bool {
+        let identifier = NSSelectorFromString("accessibilityIdentifier")
+        if element.responds(to: identifier),
+           element.perform(identifier)?.takeUnretainedValue() as? String == contentIdentifier {
+            return true
+        }
+        let children = NSSelectorFromString("accessibilityChildren")
+        guard element.responds(to: children),
+              let descendants = element.perform(children)?.takeUnretainedValue() as? [NSObject] else {
+            return false
+        }
+        return descendants.contains(where: containsSettingsContent)
+    }
+
+    private static func labelToolbar(in view: NSView) {
+        if view.accessibilityRole() == .toolbar {
+            view.setAccessibilityLabel("Settings")
+            return
+        }
+        for child in view.subviews { labelToolbar(in: child) }
     }
 }
 
@@ -48,9 +94,13 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            GroupBox("Export notifications") {
+            Text("Export notifications")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
-                    LabeledContent("Permission", value: notificationModel.state.statusText)
+                    LabeledContent("Export notification access", value: notificationModel.state.statusText)
+                        .accessibilityElement(children: .combine)
                     Text(notificationModel.state.explanation)
                         .foregroundStyle(.secondary)
 
@@ -82,7 +132,10 @@ private struct AccessibilitySettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            GroupBox("VoiceOver") {
+            Text("VoiceOver")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     Picker("Timecode Feedback", selection: $timecodeFeedback) {
                         ForEach(TimecodeFeedback.allCases) { option in

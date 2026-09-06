@@ -178,9 +178,9 @@ enum ProjectCompositionBuilder {
         var primaryVideo: AVMutableCompositionTrack?
         var cutawayVideo: AVMutableCompositionTrack?
         var additionalVideoTracks: [(track: AVMutableCompositionTrack, transforms: [(ProjectTimeRange, CGAffineTransform)], source: TimelineTrack?)] = []
-        var additionalAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
+        var additionalAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack, isDescription: Bool)] = []
         var transitionVideoTracks: [(track: AVMutableCompositionTrack, range: ProjectTimeRange, sourceID: UUID)] = []
-        var transitionAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack)] = []
+        var transitionAudioTracks: [(track: AVMutableCompositionTrack, source: TimelineTrack, isDescription: Bool)] = []
 
         let renderSize: CGSize? = {
             guard let width = project.format.width, let height = project.format.height,
@@ -252,7 +252,20 @@ enum ProjectCompositionBuilder {
             }
         }
 
-        for timelineTrack in project.tracks {
+        // Separate description audio only when a user has moved it onto a mixed track.
+        // This keeps its voice outside the show's ducking envelope without adding tracks
+        // for ordinary clips.
+        let compositionSources = project.tracks.flatMap { track -> [TimelineTrack] in
+            guard track.kind == .audio else { return [track] }
+            let descriptions = track.clips.filter { project.asset(id: $0.assetID)?.recordingPurpose == .audioDescription }
+            guard !descriptions.isEmpty, descriptions.count < track.clips.count else { return [track] }
+            var show = track
+            show.clips.removeAll { project.asset(id: $0.assetID)?.recordingPurpose == .audioDescription }
+            var description = track
+            description.clips = descriptions
+            return [show, description]
+        }
+        for timelineTrack in compositionSources {
             if timelineTrack.kind == .video {
                 guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
                 guard let compositionTrack = composition.addMutableTrack(
@@ -398,7 +411,8 @@ enum ProjectCompositionBuilder {
                         destination = destination + segment.duration
                     }
                 }
-                additionalAudioTracks.append((compositionTrack, timelineTrack))
+                additionalAudioTracks.append((compositionTrack, timelineTrack,
+                    timelineTrack.clips.allSatisfy { project.asset(id: $0.assetID)?.recordingPurpose == .audioDescription }))
             }
         }
 
@@ -413,6 +427,12 @@ enum ProjectCompositionBuilder {
                   let trailing = track.clips.first(where: { $0.id == trailingID }),
                   let leadingURL = mediaURLs[leading.assetID],
                   let trailingURL = mediaURLs[trailing.assetID] else { continue }
+            let leadingDescription = project.asset(id: leading.assetID)?.recordingPurpose == .audioDescription
+            let trailingDescription = project.asset(id: trailing.assetID)?.recordingPurpose == .audioDescription
+            let passes = leadingDescription == trailingDescription
+                ? [(false, false, leadingDescription)]
+                : [(false, true, leadingDescription), (true, false, trailingDescription)]
+            for (muteLeading, muteTrailing, isDescription) in passes {
             let renderedURL: URL
             do {
                 renderedURL = try await FFmpegTimelineEffectRenderer.renderAudioTransition(
@@ -423,6 +443,7 @@ enum ProjectCompositionBuilder {
                     trailingClip: trailing,
                     type: type,
                     duration: transition.duration,
+                    muteLeading: muteLeading, muteTrailing: muteTrailing,
                     progress: progressReporter?.beginJob()
                 )
                 progressReporter?.completeJob()
@@ -449,8 +470,9 @@ enum ProjectCompositionBuilder {
             try transitionTrack.insertTimeRange(sourceRange, of: source, at: start.cmTime)
             transitionAudioTracks.append((
                 transitionTrack,
-                track
+                track, isDescription
             ))
+            }
         }
 
         if let renderSize, let width = project.format.width, let height = project.format.height {
@@ -566,19 +588,26 @@ enum ProjectCompositionBuilder {
                 applyBaseAudioEnvelope(
                     duration: project.duration,
                     transitions: project.transitions.filter { $0.trackID == item.source.id },
-                    on: item.source,
+                    on: project.track(id: item.source.id) ?? item.source,
                     mutedRanges: item.source.isMuted
                         ? [ProjectTimeRange(start: .zero, duration: project.duration)]
                         : (item.source.role == .primaryAudio ? sourceAudioCutaways.map {
                             ProjectTimeRange(start: $0.start, duration: $0.duration)
                         } : []),
-                    parameters: input
+                    parameters: input,
+                    ducking: project.descriptionDucking,
+                    duckedRanges: item.isDescription ? [] : project.descriptionDucking.ranges(in: project)
                 )
                 parameters.append(input)
             }
             for item in transitionAudioTracks {
                 let input = AVMutableAudioMixInputParameters(track: item.track)
-                input.setVolume(item.source.isMuted ? 0 : 1, at: .zero)
+                applyBaseAudioEnvelope(
+                    duration: project.duration, transitions: [], on: item.source,
+                    mutedRanges: item.source.isMuted ? [ProjectTimeRange(start: .zero, duration: project.duration)] : [],
+                    parameters: input, ducking: project.descriptionDucking,
+                    duckedRanges: item.isDescription ? [] : project.descriptionDucking.ranges(in: project)
+                )
                 parameters.append(input)
             }
             let mix = AVMutableAudioMix()
@@ -860,7 +889,9 @@ enum ProjectCompositionBuilder {
         transitions: [TimelineTransition],
         on track: TimelineTrack,
         mutedRanges: [ProjectTimeRange],
-        parameters: AVMutableAudioMixInputParameters
+        parameters: AVMutableAudioMixInputParameters,
+        ducking: DescriptionDucking = DescriptionDucking(),
+        duckedRanges: [ProjectTimeRange] = []
     ) {
         guard duration.isPositive else { return }
         let fadeRules = audioFadeRules(transitions, on: track)
@@ -869,6 +900,7 @@ enum ProjectCompositionBuilder {
         var boundaries = [ProjectTime.zero, duration]
         boundaries.append(contentsOf: fadeRules.flatMap { [$0.range.start, $0.range.end] })
         boundaries.append(contentsOf: allMutes.flatMap { [$0.start, $0.end] })
+        boundaries.append(contentsOf: ducking.boundaries(for: duckedRanges))
         boundaries = Array(Set(boundaries.filter { $0 >= .zero && $0 <= duration })).sorted()
 
         for (start, end) in zip(boundaries, boundaries.dropFirst()) where end > start {
@@ -877,8 +909,8 @@ enum ProjectCompositionBuilder {
             let activeFadeRules = fadeRules.filter {
                 start >= $0.range.start && end <= $0.range.end
             }
-            let startVolume = isMuted ? 0 : fadeVolume(at: start, rules: activeFadeRules)
-            let endVolume = isMuted ? 0 : fadeVolume(at: end, rules: activeFadeRules)
+            let startVolume = isMuted ? 0 : fadeVolume(at: start, rules: activeFadeRules) * ducking.volume(at: start, ranges: duckedRanges)
+            let endVolume = isMuted ? 0 : fadeVolume(at: end, rules: activeFadeRules) * ducking.volume(at: end, ranges: duckedRanges)
             parameters.setVolumeRamp(
                 fromStartVolume: startVolume,
                 toEndVolume: endVolume,

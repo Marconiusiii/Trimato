@@ -251,8 +251,10 @@ final class AudioCaptureSession: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published var message: ApplicationMessageDescriptor?
     static var suppressesAnnouncements = false
+    private static weak var activeSession: AudioCaptureSession?
     var isBusy: Bool { state != .idle }
     var isRecordingRequested: Bool { state == .preparing || state == .recording }
+    var maximumDuration: Double? = 60
     private let routes: AudioOutputManager
     private let backend: any AudioCaptureBackend
     private let cue = RecordingCuePlayer()
@@ -304,7 +306,7 @@ final class AudioCaptureSession: ObservableObject {
 
     func record(input: AudioInputManager) {
         guard !isRecordingRequested else { return }
-        guard input.permission == .authorized else { fail("Allow microphone access before recording a test."); return }
+        guard input.permission == .authorized else { fail("Allow microphone access before recording."); return }
         guard let device = input.resolvedDevice, input.channel >= 0, input.channel < device.inputChannels else { fail("Choose an available microphone and input channel."); return }
         guard let output = routes.resolvedDevice else { fail("Choose an available audio playback output."); return }
         record(request: AudioCaptureRequest(inputDeviceID: device.deviceID, inputUID: device.id, outputDeviceID: output.deviceID, outputUID: output.id, channel: input.channel, bitDepth: input.bitDepth))
@@ -312,7 +314,12 @@ final class AudioCaptureSession: ObservableObject {
 
     func record(request: AudioCaptureRequest) {
         guard !isRecordingRequested else { return }
+        guard Self.activeSession == nil || Self.activeSession === self else {
+            fail("Stop the other recording before starting a new take.")
+            return
+        }
         if state == .finishing { stop(playCue: false) }
+        Self.activeSession = self
         player.pause()
         message = nil
         sessionID = UUID()
@@ -377,8 +384,8 @@ final class AudioCaptureSession: ObservableObject {
         let (summary, error) = backend.progress()
         if summary.frames != lastFrameCount { lastFrameCount = summary.frames; lastBufferTime = Date() }
         if let error { interrupted(error) }
-        else if Date().timeIntervalSince(lastBufferTime) > 5 { interrupted("The microphone stopped providing audio. Check the input device and record another test.") }
-        else if summary.duration >= 60 { stop() }
+        else if Date().timeIntervalSince(lastBufferTime) > 5 { interrupted("The microphone stopped providing audio. Check the input device and record another take.") }
+        else if let maximumDuration, summary.duration >= maximumDuration { stop() }
     }
 
     func stop(playCue: Bool = true) {
@@ -397,7 +404,10 @@ final class AudioCaptureSession: ObservableObject {
             summary = result.summary
         }
         state = .idle
-        Self.suppressesAnnouncements = false
+        if Self.activeSession === self {
+            Self.activeSession = nil
+            Self.suppressesAnnouncements = false
+        }
         if playCue, wasRecording, let output = routes.resolvedDevice {
             state = .finishing
             task = Task { [weak self] in

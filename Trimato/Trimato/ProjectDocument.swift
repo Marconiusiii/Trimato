@@ -93,7 +93,10 @@ final class ProjectDocument: ReferenceFileDocument {
             .appendingPathComponent(folderName, isDirectory: true)
             .appendingPathExtension(UTType.trimatoProject.preferredFilenameExtension ?? "trimato")
         let package = try packageWrapper(for: savedProject)
-        let folder = FileWrapper(directoryWithFileWrappers: [packageURL.lastPathComponent: package])
+        let folder = FileWrapper(directoryWithFileWrappers: [
+            packageURL.lastPathComponent: package,
+            "Recordings": FileWrapper(directoryWithFileWrappers: [:])
+        ])
         try folder.write(to: folderURL, options: .atomic, originalContentsURL: nil)
         return packageURL
     }

@@ -58,7 +58,11 @@ final class AudioInputManager: ObservableObject {
 
     func setGain(_ value: Float) throws {
         guard let device = resolvedDevice else { throw AudioCaptureError.message("The selected microphone is unavailable.") }
-        try AudioHardware.setGain(value, id: device.deviceID, channel: channel)
-        refreshGain()
+        let requestedGain = min(1, max(0, value))
+        try AudioHardware.setGain(requestedGain, id: device.deviceID, channel: channel)
+        // Devices may quantize gain more coarsely than a native slider increment.
+        // Keep successful requests so repeated adjustments can cross those steps.
+        // A route change or app activation refreshes the hardware readback.
+        hardwareGain = requestedGain
     }
 }

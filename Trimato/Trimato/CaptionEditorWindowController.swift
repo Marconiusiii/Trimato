@@ -30,6 +30,10 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
     }
 
     func open(cue: CaptionCue) {
+        if controller?.project.descriptionTranscriptTrack?.captionCues.contains(where: { $0.id == cue.id }) == true {
+            controller?.requestRecording(.audioDescription, cue: cue)
+            return
+        }
         open(
             cue: cue,
             range: ProjectTimeRange(start: cue.start, duration: cue.duration),

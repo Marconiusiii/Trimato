@@ -169,6 +169,14 @@ struct TrimatoApp: App {
                     .keyboardShortcut("t", modifiers: .command)
                     .disabled(projectCommandController?.project.tracks.contains(where: { !$0.clips.isEmpty }) != true)
                 Divider()
+                Button("Describer…") { projectCommandController?.requestRecording(.audioDescription) }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+                    .disabled(projectCommandController == nil)
+                Button("Voicer…") { projectCommandController?.requestRecording(.voiceOver) }
+                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                    .disabled(projectCommandController == nil)
+                Button("Export Description Transcript…") { projectCommandController?.exportDescriptions() }
+                    .disabled(projectCommandController?.project.descriptionTranscriptTrack?.captionCues.isEmpty != false)
                 Menu("Captions") {
                     Button("New Caption…") { projectCommandController?.requestCaptionEditor() }
                         .keyboardShortcut("c", modifiers: [.command, .shift])
@@ -352,9 +360,11 @@ private struct ProjectFileCommands: Commands {
             .keyboardShortcut("n", modifiers: .command)
         }
         CommandGroup(replacing: .saveItem) {
-            Button(closeSettings != nil ? "Close Settings" : controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : "Close Clip Editor") {
+            Button(closeSettings != nil ? "Close Settings" : controller?.recordingSession.map { "Close \($0.purpose.toolTitle)" } ?? (controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : "Close Clip Editor")) {
                 if let closeSettings {
                     closeSettings()
+                } else if controller?.recordingSession != nil {
+                    controller?.dismissRecording()
                 } else if controller?.isCaptionEditorOpen == true {
                     controller?.closeCaptionEditor()
                 } else {
@@ -362,7 +372,7 @@ private struct ProjectFileCommands: Commands {
                 }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true)
+            .disabled(controller?.recordingSession == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true)
             Divider()
             Button("Save") { controller?.saveProjectDocument() }
                 .keyboardShortcut("s", modifiers: .command)

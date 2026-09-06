@@ -29,6 +29,7 @@ nonisolated struct TimelineTrack: Codable, Equatable, Hashable, Identifiable, Se
     var clips: [TimelineClip] = []
     var captionCues: [CaptionCue] = []
     var isMuted = false
+    var recordingPurpose: RecordingPurpose? = nil
 
     var sortedClips: [TimelineClip] {
         clips.sorted {
@@ -59,7 +60,7 @@ nonisolated enum TimelineElementSelection: Hashable, Sendable {
 // Decode older projects without requiring the newly saved mute setting.
 nonisolated extension TimelineTrack {
     private enum CodingKeys: String, CodingKey {
-        case id, name, kind, role, clips, captionCues, isMuted
+        case id, name, kind, role, clips, captionCues, isMuted, recordingPurpose
     }
 
     init(from decoder: Decoder) throws {
@@ -71,6 +72,7 @@ nonisolated extension TimelineTrack {
         clips = try values.decode([TimelineClip].self, forKey: .clips)
         captionCues = try values.decodeIfPresent([CaptionCue].self, forKey: .captionCues) ?? []
         isMuted = try values.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        recordingPurpose = try values.decodeIfPresent(RecordingPurpose.self, forKey: .recordingPurpose)
     }
 }
 
