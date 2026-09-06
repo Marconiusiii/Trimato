@@ -13,7 +13,6 @@ struct EditorWorkspaceView: View {
     @State private var pendingTransitions: [TimelineTransition]?
     @State private var transitionTask: Task<Void, Never>?
     @State private var transitionOutcome = OperationProgressOutcome.completed
-    @State private var transitionFinished = false
     @State private var hasRequestedInitialImportFocus = false
     @State private var initialImportFocusRequest = 0
     @Namespace private var workspacePaneLinks
@@ -155,7 +154,7 @@ struct EditorWorkspaceView: View {
             .operationProgress(exportOperation, outcome: controller.presentedError == nil ? .completed : .failed)
             .operationProgress(importOperation, outcome: controller.presentedError == nil ? .completed : .failed)
             .operationProgress(transitionOperation, outcome: transitionOutcome,
-                               completionPending: transitionFinished, dismissed: restoreTransitionFocus)
+                               completionPending: transitionTask != nil, dismissed: restoreTransitionFocus)
     }
 
     private var initialPreparationOperation: OperationProgress? {
@@ -305,7 +304,6 @@ struct EditorWorkspaceView: View {
         pendingTransitions = nil
         let returnsToEditor = restoresEditorFocusAfterTransitionSheet
         transitionOutcome = .completed
-        transitionFinished = false
         transitionTask = Task { @MainActor in
             do {
                 try await controller.applyTransitions(transitions, selectAddedTransition: !returnsToEditor)
@@ -320,13 +318,11 @@ struct EditorWorkspaceView: View {
                                                                  message: error.localizedDescription)
             }
             transitionTask = nil
-            transitionFinished = true
         }
     }
 
     private func restoreTransitionFocus() {
         guard transitionTask == nil else { return }
-        transitionFinished = false
         if controller.presentedError != nil {
             restoresEditorFocusAfterTransitionSheet = false
             timelineFocusAfterTransitionSheet = nil

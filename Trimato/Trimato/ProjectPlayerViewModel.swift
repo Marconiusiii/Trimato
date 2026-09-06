@@ -552,14 +552,11 @@ final class ProjectPlayerViewModel: ObservableObject {
             replacedPlayerItem = true
             try await waitUntilReadyToPlay(committedItem)
             progress(0.95)
-            let frameTolerance = ProjectTime(
-                seconds: 1 / max(project.format.frameRate ?? 30, 1)
-            ).cmTime
             try await seekForTransitionPreview(
                 player: player,
                 to: boundedInitialTime.cmTime,
-                toleranceBefore: frameTolerance,
-                toleranceAfter: frameTolerance
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
             )
             try Task.checkCancellation()
             guard preparationID == requestID else { throw CancellationError() }
