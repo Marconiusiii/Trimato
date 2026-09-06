@@ -164,6 +164,7 @@ private final class MicrophoneCaptureBackend: AudioCaptureBackend {
     var isReady: Bool { engine?.isRunning == true && writer?.hasReceivedAudio == true }
 
     func prepare(_ request: AudioCaptureRequest) throws {
+        _ = finish()
         self.request = request
         let engine = AVAudioEngine()
         self.engine = engine
@@ -192,11 +193,15 @@ private final class MicrophoneCaptureBackend: AudioCaptureBackend {
     func settle() throws {
         guard let engine, let request else { throw AudioCaptureError.message("The microphone is not prepared.") }
         if engine.isRunning, writer != nil { return }
-        // A startup configuration change can stop the engine and invalidate its tap format.
-        // Re-read the format and rebuild only this unsaved preparation, on the same engine.
-        discardWriter()
+        // Discard a stopped preparation engine: its client format may belong to the
+        // previous device. No retained recording has begun during this phase.
+        if writer != nil {
+            try prepare(request)
+            try settle()
+            return
+        }
         let node = engine.inputNode
-        let format = node.outputFormat(forBus: 0)
+        let format = node.inputFormat(forBus: 0)
         guard request.channel >= 0, format.channelCount > request.channel, format.sampleRate > 0 else {
             throw AudioCaptureError.message("The selected input channel is unavailable.")
         }
@@ -204,6 +209,8 @@ private final class MicrophoneCaptureBackend: AudioCaptureBackend {
         candidateURL = url
         let writer = try AudioCaptureWriter(url: url, sampleRate: format.sampleRate, channel: request.channel, bitDepth: request.bitDepth)
         self.writer = writer
+        // Apply the hardware input format to the unconnected tap bus. The output
+        // bus can still report the previous device's client rate after a route change.
         node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in writer.receive(buffer) }
         hasTap = true
         try engine.start()
@@ -232,14 +239,7 @@ private final class MicrophoneCaptureBackend: AudioCaptureBackend {
         return AudioCaptureResult(error: result?.1)
     }
 
-    private func discardWriter() {
-        _ = writer?.finish()
-        if hasTap { engine?.inputNode.removeTap(onBus: 0) }
-        hasTap = false
-        writer = nil
-        if let candidateURL { try? FileManager.default.removeItem(at: candidateURL) }
-        candidateURL = nil
-    }
+
 }
 
 @MainActor
@@ -306,8 +306,14 @@ final class AudioCaptureSession: ObservableObject {
 
     func record(input: AudioInputManager) {
         guard !isRecordingRequested else { return }
+        routes.refresh()
+        input.refresh()
         guard input.permission == .authorized else { fail("Allow microphone access before recording."); return }
-        guard let device = input.resolvedDevice, input.channel >= 0, input.channel < device.inputChannels else { fail("Choose an available microphone and input channel."); return }
+        guard let device = input.resolvedDevice else {
+            fail(input.selectedUID.isEmpty ? "No system default microphone is available." : "The selected microphone is no longer available. Choose System Default or another microphone in Settings.")
+            return
+        }
+        guard input.channel >= 0, input.channel < device.inputChannels else { fail("Choose an available input channel in Settings."); return }
         guard let output = routes.resolvedDevice else { fail("Choose an available audio playback output."); return }
         record(request: AudioCaptureRequest(inputDeviceID: device.deviceID, inputUID: device.id, outputDeviceID: output.deviceID, outputUID: output.id, channel: input.channel, bitDepth: input.bitDepth))
     }

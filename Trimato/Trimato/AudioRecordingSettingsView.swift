@@ -5,7 +5,7 @@ import SwiftUI
 
 struct AudioRecordingSettingsView: View {
     @StateObject private var sliderKeyboard = SettingsSliderKeyboard()
-    @StateObject private var input = AudioInputManager()
+    @StateObject private var input = AudioInputManager.shared
     @ObservedObject private var capture: AudioCaptureSession
     @ObservedObject private var output = AudioOutputManager.shared
     @AccessibilityFocusState private var pickerFocus: PickerTarget?

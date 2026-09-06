@@ -141,7 +141,7 @@ final class ProjectController: ObservableObject {
     func updateDescriptionDucking(_ settings: DescriptionDucking) {
         guard settings.decibels.isFinite, (-60...0).contains(settings.decibels),
               settings.fadeSeconds.isFinite, (0.01...5).contains(settings.fadeSeconds) else { return }
-        mutateProject(actionName: "Adjust Description Audio Reduction") { $0.descriptionDucking = settings }
+        mutateProject(actionName: "Adjust Audio Ducking") { $0.descriptionDucking = settings }
     }
 
     func addProjectRecording(asset: MediaAssetRecord?, at time: ProjectTime, cue: CaptionCue?, ducking: DescriptionDucking) throws {

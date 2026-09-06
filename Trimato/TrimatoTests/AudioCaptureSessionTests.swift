@@ -76,6 +76,26 @@ struct AudioCaptureLifecycleTests {
         #expect(session.message == nil)
     }
 
+    @Test func failedPreparationCanBeRetriedWithTheNewDevice() async throws {
+        let backend = TestCaptureBackend()
+        backend.failNextSettle = true
+        let session = makeSession(backend)
+        defer { session.close() }
+        session.record(request: request)
+        for _ in 0..<100 where session.state == .preparing {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(session.state == .idle)
+        #expect(session.message != nil)
+        let replacement = AudioCaptureRequest(inputDeviceID: 30, inputUID: "built-in", outputDeviceID: 40,
+                                             outputUID: "default-output", channel: 0, bitDepth: 24)
+        session.record(request: replacement)
+        try await waitUntilRecording(session)
+        #expect(backend.lastInputUID == "built-in")
+        #expect(backend.prepareCount == 2)
+        #expect(backend.finishCount >= 1)
+    }
+
     @Test func selectingAnInputCanReconfigureDuringPreparationWithoutCancelingRecording() async throws {
         let backend = TestCaptureBackend()
         backend.notifyDuringPreparation = true
@@ -270,16 +290,23 @@ private final class TestCaptureBackend: AudioCaptureBackend {
     var isReady = false
     var configurationChanged: (() -> Void)?
     var notifyDuringPreparation = false
+    var failNextSettle = false
+    var lastInputUID: String?
     var prepareCount = 0
     var settleCount = 0
     var beginCount = 0
     var finishCount = 0
     func prepare(_ request: AudioCaptureRequest) throws {
         prepareCount += 1
+        lastInputUID = request.inputUID
         if notifyDuringPreparation { configurationChanged?() }
     }
     func settle() throws {
         settleCount += 1
+        if failNextSettle {
+            failNextSettle = false
+            throw AudioCaptureError.message("The microphone changed during preparation.")
+        }
         isReady = true
     }
     func begin() { beginCount += 1 }

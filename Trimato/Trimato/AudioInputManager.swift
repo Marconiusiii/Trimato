@@ -4,10 +4,13 @@ import CoreAudio
 
 @MainActor
 final class AudioInputManager: ObservableObject {
+    static let shared = AudioInputManager()
+    private var reloadingPreferences = false
+    private var preferencesObservation: AnyCancellable?
     @Published private(set) var permission = AVCaptureDevice.authorizationStatus(for: .audio)
-    @Published var selectedUID: String { didSet { defaults.set(selectedUID, forKey: AppPreferenceKey.audioInputDevice); channel = 0; refresh() } }
-    @Published var channel: Int { didSet { defaults.set(channel, forKey: AppPreferenceKey.audioInputChannel); refreshGain() } }
-    @Published var bitDepth: Int { didSet { defaults.set(bitDepth, forKey: AppPreferenceKey.audioRecordingBitDepth) } }
+    @Published var selectedUID: String { didSet { guard !reloadingPreferences else { return }; defaults.set(selectedUID, forKey: AppPreferenceKey.audioInputDevice); channel = 0; refresh() } }
+    @Published var channel: Int { didSet { guard !reloadingPreferences else { return }; defaults.set(channel, forKey: AppPreferenceKey.audioInputChannel); refreshGain() } }
+    @Published var bitDepth: Int { didSet { guard !reloadingPreferences else { return }; defaults.set(bitDepth, forKey: AppPreferenceKey.audioRecordingBitDepth) } }
     @Published private(set) var hardwareGain: Float?
     private let defaults: UserDefaults
     private var observation: AnyCancellable?
@@ -34,6 +37,8 @@ final class AudioInputManager: ObservableObject {
         channel = max(0, defaults.integer(forKey: AppPreferenceKey.audioInputChannel))
         bitDepth = AppPreferences.audioRecordingBitDepth(in: defaults)
         observation = routes.$revision.sink { [weak self] _ in self?.refresh() }
+        preferencesObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification, object: defaults)
+            .receive(on: RunLoop.main).sink { [weak self] _ in self?.refresh() }
         refresh()
     }
 
@@ -46,6 +51,15 @@ final class AudioInputManager: ObservableObject {
     func requestPermission() async { await Self.requestPermissionIfNeeded(); refresh() }
 
     func refresh() {
+        reloadingPreferences = true
+        let uid = defaults.string(forKey: AppPreferenceKey.audioInputDevice) ?? ""
+        let savedChannel = max(0, defaults.integer(forKey: AppPreferenceKey.audioInputChannel))
+        let depth = AppPreferences.audioRecordingBitDepth(in: defaults)
+        if selectedUID != uid { selectedUID = uid }
+        if channel != savedChannel { channel = savedChannel }
+        if bitDepth != depth { bitDepth = depth }
+        reloadingPreferences = false
+        if let device = resolvedDevice, channel >= device.inputChannels { channel = 0 }
         let current = AVCaptureDevice.authorizationStatus(for: .audio)
         if permission != current { permission = current }
         refreshGain()

@@ -399,17 +399,25 @@ struct TimelineClipsCollection: NSViewRepresentable {
             if previousFocusRequest != source.focusRequest, source.focusRequest > 0 {
                 previousFocusRequest = source.focusRequest
                 if let target = source.focusTarget {
-                    pendingFocusTarget = target
-                    select(target)
+                    let request = source.focusRequest
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.previousFocusRequest == request else { return }
+                        self.pendingFocusTarget = target
+                        self.select(target)
+                    }
                 }
             } else {
                 previousFocusRequest = source.focusRequest
             }
             if previousListFocusRequest != source.listFocusRequest, source.listFocusRequest > 0 {
                 previousListFocusRequest = source.listFocusRequest
-                pendingFocusTarget = nil
-                collectionView?.deselectAll(nil)
-                scrollView?.window?.makeFirstResponder(collectionView)
+                let request = source.listFocusRequest
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.previousListFocusRequest == request else { return }
+                    self.pendingFocusTarget = nil
+                    self.collectionView?.deselectAll(nil)
+                    self.scrollView?.window?.makeFirstResponder(self.collectionView)
+                }
             } else {
                 previousListFocusRequest = source.listFocusRequest
             }
@@ -447,8 +455,11 @@ struct TimelineClipsCollection: NSViewRepresentable {
                   models.indices.contains(indexPath.item),
                   models[indexPath.item].selection == target,
                   let timelineItem = item as? TimelineCollectionItem else { return }
-            pendingFocusTarget = nil
-            collectionView.window?.makeFirstResponder(timelineItem.button)
+            DispatchQueue.main.async { [weak self, weak timelineItem] in
+                guard let self, self.pendingFocusTarget == target, let timelineItem else { return }
+                self.pendingFocusTarget = nil
+                timelineItem.view.window?.makeFirstResponder(timelineItem.button)
+            }
         }
 
         private func configure(_ item: TimelineCollectionItem, with model: TimelineCollectionItemModel) {
@@ -464,7 +475,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
             let path = IndexPath(item: index, section: 0)
             collectionView.selectItems(at: [path], scrollPosition: .centeredHorizontally)
             collectionView.scrollToItems(at: [path], scrollPosition: .centeredHorizontally)
-            collectionView.layoutSubtreeIfNeeded()
+            // A missing offscreen item receives focus in willDisplay. Never force
+            // nested layout from selection while SwiftUI may be rendering the host.
             if let button = (collectionView.item(at: path) as? TimelineCollectionItem)?.button {
                 pendingFocusTarget = nil
                 collectionView.window?.makeFirstResponder(button)

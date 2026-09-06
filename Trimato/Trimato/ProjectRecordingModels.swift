@@ -13,12 +13,28 @@ nonisolated enum RecordingPurpose: String, Codable, Sendable {
     var toolTitle: String { self == .voiceOver ? "Voicer" : "Describer" }
 }
 
-nonisolated struct DescriptionDucking: Codable, Equatable, Sendable {
+nonisolated struct DescriptionDucking: Codable, Hashable, Sendable {
+    var enabled = true
     var decibels = -5.0
     var fadeSeconds = 0.25
-    var volume: Float { Float(pow(10, min(0, max(-60, decibels)) / 20)) }
+    var volume: Float { enabled ? Float(pow(10, min(0, max(-60, decibels)) / 20)) : 1 }
+
+    init(enabled: Bool = true, decibels: Double = -5, fadeSeconds: Double = 0.25) {
+        self.enabled = enabled
+        self.decibels = decibels
+        self.fadeSeconds = fadeSeconds
+    }
+
+    private enum CodingKeys: String, CodingKey { case enabled, decibels, fadeSeconds }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        decibels = try values.decodeIfPresent(Double.self, forKey: .decibels) ?? -5
+        fadeSeconds = try values.decodeIfPresent(Double.self, forKey: .fadeSeconds) ?? 0.25
+    }
 
     func ranges(in project: TrimatoProject) -> [ProjectTimeRange] {
+        guard enabled else { return [] }
         var result: [ProjectTimeRange] = project.tracks.filter { $0.kind == .audio && !$0.isMuted }.flatMap { track in
             track.clips.compactMap { clip in
                 guard project.asset(id: clip.assetID)?.recordingPurpose == .audioDescription,

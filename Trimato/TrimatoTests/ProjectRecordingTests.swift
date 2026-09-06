@@ -7,6 +7,60 @@ import SwiftUI
 @MainActor
 @Suite(.serialized)
 struct ProjectRecordingTests {
+    @Test func recordingTimecodeFormatsAndParsesHumanReadableTimes() throws {
+        let format = RecordingTimeFormat()
+        #expect(format.format(2.234435) == "00:00:02.234")
+        #expect(format.format(59.9999) == "00:01:00.000")
+        #expect(try format.parseStrategy.parse("01:02:03.456") == 3723.456)
+        #expect(try format.parseStrategy.parse("2.25") == 2.25)
+        #expect(try format.parseStrategy.parse("02:03.5") == 123.5)
+        for invalid in ["", "-2", "NaN", "1:60", "1::2", "1.5:02", "infinity"] {
+            #expect(throws: (any Error).self) { try format.parseStrategy.parse(invalid) }
+        }
+    }
+
+    @Test func duckingSwitchPersistsAndAutomaticallyUpdatesTheProject() async throws {
+        let legacy = try JSONDecoder().decode(DescriptionDucking.self, from: Data(#"{"decibels":-5,"fadeSeconds":0.25}"#.utf8))
+        #expect(legacy.enabled)
+        let controller = ProjectController(document: ProjectDocument())
+        let session = ProjectRecordingSession(controller: controller, purpose: .audioDescription)
+        defer { session.close() }
+        session.ducking.enabled = false
+        session.ducking.decibels = -9
+        await session.applyDucking()
+        #expect(controller.project.descriptionDucking == session.ducking)
+        let decoded = try JSONDecoder().decode(DescriptionDucking.self, from: JSONEncoder().encode(session.ducking))
+        #expect(!decoded.enabled)
+        #expect(decoded.decibels == -9)
+        #expect(decoded.volume == 1)
+        var project = TrimatoProject()
+        project.putRecording(asset(.audioDescription), at: .zero)
+        #expect(decoded.ranges(in: project).isEmpty)
+        session.ducking.enabled = true
+        await session.applyDucking()
+        #expect(controller.project.descriptionDucking.enabled)
+        #expect(controller.project.descriptionDucking.decibels == -9)
+    }
+
+    @Test func openRecorderReloadsTheInputSelectionChangedInSettings() throws {
+        let name = "Trimato-input-recovery-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("disconnected-headset", forKey: AppPreferenceKey.audioInputDevice)
+        let routes = AudioOutputManager(defaults: defaults, observeHardware: false)
+        let recording = AudioInputManager(defaults: defaults, routes: routes)
+        let settings = AudioInputManager(defaults: defaults, routes: routes)
+        #expect(recording.selectedUID == "disconnected-headset")
+        settings.selectedUID = ""
+        settings.channel = 0
+        settings.bitDepth = 16
+        recording.refresh()
+        #expect(recording.selectedUID.isEmpty)
+        #expect(recording.channel == 0)
+        #expect(recording.bitDepth == 16)
+        #expect(defaults.string(forKey: AppPreferenceKey.audioInputDevice) == "")
+    }
+
     @Test func projectReplacementWaitsForCloseAndRespectsCancellation() {
         let gate = ProjectReplacementGate()
         let project = ProjectController(document: ProjectDocument())
@@ -116,7 +170,7 @@ struct ProjectRecordingTests {
             [item] + ((attribute(item, "accessibilityChildren") as? [NSObject]) ?? []).flatMap(descendants)
         }
         let elements = descendants(host)
-        for name in ["Clip name", "In, seconds", "Out, seconds", "Show audio reduction, dB", "Fade time, seconds", "Description text"] {
+        for name in ["Clip name", "In", "Out", "Audio Ducking Amount", "Fade time, seconds", "Description text"] {
             let label = try #require(elements.first {
                 attribute($0, "accessibilityRole") as? String == "AXStaticText" &&
                 attribute($0, "accessibilityValue") as? String == name
@@ -129,6 +183,9 @@ struct ProjectRecordingTests {
             }, "Missing native field for visible label: \(name)")
             #expect((attribute(field, "accessibilityPlaceholderValue") as? String ?? "").isEmpty)
         }
+        session.ducking.enabled = false
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(!descendants(host).contains { attribute($0, "accessibilityValue") as? String == "Audio Ducking Amount" })
     }
 
     func asset(_ purpose: RecordingPurpose, duration: Double = 2) -> MediaAssetRecord {

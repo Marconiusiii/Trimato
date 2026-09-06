@@ -9,7 +9,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     let purpose: RecordingPurpose
     weak var controller: ProjectController?
     let capture = AudioCaptureSession()
-    let input = AudioInputManager()
+    let input = AudioInputManager.shared
     let player = AVPlayer()
     private let takePlayer = AVPlayer()
     @Published var start: Double
@@ -34,6 +34,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     private var temporaryURLs: [URL] = []
     private var showPreview: (project: TrimatoProject, result: ProjectCompositionResult)?
     private var closed = false
+    private var previewIncludesTake = false
 
     var saveTitle: String { editingCueID == nil ? "Add to Project" : "Save Description" }
     var isDescriber: Bool { purpose == .audioDescription }
@@ -83,10 +84,11 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         capture.setTestPlayback(false)
     }
 
-    func preview(mixed: Bool, autoplay: Bool = true, recording: Bool = false, limitToRange: Bool = true) {
-        if playing && autoplay { stopPlayback(); return }
+    func preview(mixed: Bool, autoplay: Bool = true, recording: Bool = false, limitToRange: Bool = true, seekTime: Double? = nil) {
+        if player.rate != 0 && autoplay && seekTime == nil { stopPlayback(); return }
         guard !busy, !capture.isBusy, let controller else { return }
         stopPlayback()
+        previewIncludesTake = mixed
         player.replaceCurrentItem(with: nil)
         clearPreviewFiles()
         busy = true
@@ -128,13 +130,33 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
                 item.audioTimePitchAlgorithm = .spectral
                 if isDescriber && limitToRange && !mixed && !recording && end > start { item.forwardPlaybackEndTime = ProjectTime(seconds: end).cmTime }
                 player.replaceCurrentItem(with: item)
-                await player.seek(to: ProjectTime(seconds: start).cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                await player.seek(to: ProjectTime(seconds: seekTime ?? start).cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
                 try Task.checkCancellation()
                 if autoplay { player.play() }
                 if recording { capture.setRecording(true, input: input) }
             } catch is CancellationError { }
             catch { fail(error.localizedDescription) }
         }
+    }
+
+    func applyDucking() async {
+        guard isDescriber else { return }
+        do {
+            // Commit complete edits, outside presentation/layout and capture preparation.
+            try await Task.sleep(for: .milliseconds(200))
+            while busy || capture.isBusy {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            try Task.checkCancellation()
+            guard !closed, let controller, controller.project.descriptionDucking != ducking else { return }
+            controller.updateDescriptionDucking(ducking)
+            guard player.currentItem != nil else { return }
+            let resume = playing
+            let time = position
+            stopPlayback()
+            preview(mixed: previewIncludesTake, autoplay: resume, limitToRange: false, seekTime: time)
+        } catch is CancellationError { }
+        catch { fail(error.localizedDescription) }
     }
 
     func playTake() {
@@ -274,11 +296,11 @@ struct ProjectRecordingView: View {
                     .labelsHidden()
             }
             HStack {
-                LabeledContent(session.isDescriber ? "In, seconds" : "Insert at, seconds") {
-                    TextField("", value: $session.start, format: .number).labelsHidden()
+                LabeledContent(session.isDescriber ? "In" : "Insert at") {
+                    TextField("", value: $session.start, format: RecordingTimeFormat()).labelsHidden()
                 }
                 if session.isDescriber {
-                    LabeledContent("Out, seconds") { TextField("", value: $session.end, format: .number).labelsHidden() }
+                    LabeledContent("Out") { TextField("", value: $session.end, format: RecordingTimeFormat()).labelsHidden() }
                 }
             }
             .disabled(capture.isBusy || session.busy)
@@ -299,17 +321,20 @@ struct ProjectRecordingView: View {
                         .onChange(of: session.trimLongTake) { _, value in if value { session.fitLongTake = false } }
                 }
                 .disabled(session.busy || capture.isBusy)
-                HStack {
-                    LabeledContent("Show audio reduction, dB") {
-                        TextField("", value: $session.ducking.decibels, format: .number).labelsHidden()
+                Toggle("Audio Ducking", isOn: $session.ducking.enabled)
+                    .toggleStyle(.switch)
+                    .disabled(session.busy || capture.isBusy)
+                if session.ducking.enabled {
+                    LabeledContent("Audio Ducking Amount") {
+                        TextField("", value: $session.ducking.decibels, format: .number.precision(.fractionLength(0...1))).labelsHidden()
+                        Text("dB").accessibilityHidden(true)
                     }
+                    .disabled(session.busy || capture.isBusy)
                     LabeledContent("Fade time, seconds") {
-                        TextField("", value: $session.ducking.fadeSeconds, format: .number).labelsHidden()
+                        TextField("", value: $session.ducking.fadeSeconds, format: .number.precision(.fractionLength(0...2))).labelsHidden()
                     }
+                    .disabled(session.busy || capture.isBusy)
                 }
-                .disabled(session.busy)
-                Button("Apply audio reduction") { session.controller?.updateDescriptionDucking(session.ducking) }
-                    .disabled(capture.isBusy || session.busy)
             }
             HStack {
                 Toggle("Record", isOn: Binding(get: { capture.isRecordingRequested || session.preparingRecording }, set: { session.toggleRecording($0) }))
@@ -344,13 +369,19 @@ struct ProjectRecordingView: View {
             if state == .recording { session.player.play() }
             else if state == .idle || state == .finishing { session.player.pause() }
         }
+        .defaultFocus($keyboardFocus, .name)
         .onAppear {
+            keyboardFocus = .name
+            textFocus = .name
+        }
+        .task {
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+            if textFocus == nil { textFocus = .name }
             if session.controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {
                 session.preview(mixed: false, autoplay: false)
             }
-            keyboardFocus = session.isDescriber ? .transcript : .name
-            textFocus = session.isDescriber ? .transcript : .name
         }
+        .task(id: session.ducking) { await session.applyDucking() }
         .onDisappear { session.close() }
         .applicationMessage(session.message ?? capture.message) { session.message = nil; capture.message = nil }
     }
