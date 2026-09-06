@@ -332,6 +332,7 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
 }
 
 private struct ProjectFileCommands: Commands {
+    @FocusedValue(\.closeSettings) private var closeSettings
     @Environment(\.openWindow) private var openWindow
     @FocusedObject private var projectController: ProjectController?
     @ObservedObject private var clipCommands = ClipEditorCommandRouter.shared
@@ -351,15 +352,17 @@ private struct ProjectFileCommands: Commands {
             .keyboardShortcut("n", modifiers: .command)
         }
         CommandGroup(replacing: .saveItem) {
-            Button(controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : "Close Clip Editor") {
-                if controller?.isCaptionEditorOpen == true {
+            Button(closeSettings != nil ? "Close Settings" : controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : "Close Clip Editor") {
+                if let closeSettings {
+                    closeSettings()
+                } else if controller?.isCaptionEditorOpen == true {
                     controller?.closeCaptionEditor()
                 } else {
                     clipPlacement?.hostWindow?.performClose(nil)
                 }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true)
+            .disabled(closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true)
             Divider()
             Button("Save") { controller?.saveProjectDocument() }
                 .keyboardShortcut("s", modifiers: .command)
@@ -381,15 +384,17 @@ private struct ProjectFileCommands: Commands {
 }
 
 private struct StandaloneClipFileCommands: Commands {
+    @FocusedValue(\.closeSettings) private var closeSettings
     @FocusedObject private var commandContext: StandaloneClipCommandContext?
 
     var body: some Commands {
         CommandGroup(replacing: .saveItem) {
-            Button("Close Clip Editor") {
-                commandContext?.close()
+            Button(closeSettings != nil ? "Close Settings" : "Close Clip Editor") {
+                if let closeSettings { closeSettings() }
+                else { commandContext?.close() }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(commandContext == nil)
+            .disabled(closeSettings == nil && commandContext == nil)
         }
     }
 }

@@ -46,7 +46,8 @@ final class AudioInputManager: ObservableObject {
     func requestPermission() async { await Self.requestPermissionIfNeeded(); refresh() }
 
     func refresh() {
-        permission = AVCaptureDevice.authorizationStatus(for: .audio)
+        let current = AVCaptureDevice.authorizationStatus(for: .audio)
+        if permission != current { permission = current }
         refreshGain()
     }
 

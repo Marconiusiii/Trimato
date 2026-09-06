@@ -1,12 +1,35 @@
+import AppKit
 import SwiftUI
 
+struct SettingsCloseAction {
+    let capture: AudioCaptureSession
+    var closeWindow: () -> Void = { NSApp.keyWindow?.performClose(nil) }
+
+    func callAsFunction() {
+        capture.close()
+        closeWindow()
+    }
+}
+
+private struct SettingsCloseActionKey: FocusedValueKey {
+    typealias Value = SettingsCloseAction
+}
+
+extension FocusedValues {
+    var closeSettings: SettingsCloseAction? {
+        get { self[SettingsCloseActionKey.self] }
+        set { self[SettingsCloseActionKey.self] = newValue }
+    }
+}
+
 struct TrimatoSettingsView: View {
+    @StateObject private var capture = AudioCaptureSession()
     var body: some View {
         TabView {
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gearshape") }
 
-            AudioRecordingSettingsView()
+            AudioRecordingSettingsView(capture: capture)
                 .tabItem { Label("Audio", systemImage: "waveform") }
 
             AccessibilitySettingsView()
@@ -16,6 +39,7 @@ struct TrimatoSettingsView: View {
                 .tabItem { Label("Storage", systemImage: "internaldrive") }
         }
         .frame(width: 600, height: 600)
+        .focusedSceneValue(\.closeSettings, SettingsCloseAction(capture: capture))
     }
 }
 
