@@ -2,7 +2,7 @@ import Foundation
 import UniformTypeIdentifiers
 
 extension UTType {
-    nonisolated static let subRipCaption = UTType(importedAs: "application/x-subrip", conformingTo: .plainText)
+    nonisolated static let subRipCaption = UTType(importedAs: "com.marconius.trimato.subrip-caption", conformingTo: .plainText)
     nonisolated static let webVTTCaption = UTType(importedAs: "org.w3.webvtt", conformingTo: .plainText)
 }
 
