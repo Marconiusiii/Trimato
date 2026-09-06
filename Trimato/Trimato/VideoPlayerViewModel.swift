@@ -799,6 +799,7 @@ final class VideoPlayerViewModel: ObservableObject {
         exportErrorMessage = nil
         announce("Export started")
         exportTask = Task { @MainActor in
+            defer { outputURL.stopAccessingSecurityScopedResource() }
             do {
                 switch mediaSource.mode {
                 case .nativePassthrough:

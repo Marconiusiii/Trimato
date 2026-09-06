@@ -414,6 +414,7 @@ final class ProjectController: ObservableObject {
     ) {
         if captionDelivery != .none,
            project.captionTrack?.captionCues.contains(where: \.isDraft) == true {
+            outputURL.stopAccessingSecurityScopedResource()
             presentedError = ProjectPresentedError(
                 title: "Finalize Captions Before Exporting",
                 message: "Choose Timeline > Finalize Captions, then export the project."
@@ -434,6 +435,7 @@ final class ProjectController: ObservableObject {
             within: exportRange
         )
         exportTask = Task { @MainActor in
+            defer { outputURL.stopAccessingSecurityScopedResource() }
             do {
                 try await ProjectExporter.export(
                     project: projectSnapshot,
@@ -447,7 +449,7 @@ final class ProjectController: ObservableObject {
                 if let sidecarFormat = captionDelivery.sidecarFormat {
                     let data = try CaptionFileCodec.encode(sidecarCues, format: sidecarFormat)
                     let sidecarURL = outputURL.deletingPathExtension().appendingPathExtension(sidecarFormat.fileExtension)
-                    try data.write(to: sidecarURL, options: .atomic)
+                    try RelatedExportFileWriter.write(data, to: sidecarURL, relatedTo: outputURL)
                 }
                 isExporting = false
                 exportProgress = nil
@@ -490,6 +492,7 @@ final class ProjectController: ObservableObject {
         let panel = CaptionExportSavePanel(baseName: project.name)
         Task { @MainActor [weak self] in
             guard let self, let (url, format) = await panel.selection(parentWindow: parentWindow) else { return }
+            defer { url.stopAccessingSecurityScopedResource() }
             do {
                 let range = self.projectPlayer?.exportRange
                 let exportedCues = CaptionFileCodec.cues(cues, within: range)

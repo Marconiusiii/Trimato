@@ -238,7 +238,6 @@ final class ExportSavePanel {
 
     func selection(parentWindow: NSWindow) async -> ExportSaveSelection? {
         let response = await panel.beginSheetModal(for: parentWindow)
-        panel.orderOut(nil)
         guard response == .OK, let url = panel.url else { return nil }
         return ExportSaveSelection(
             format: selectedFormat,
@@ -343,7 +342,6 @@ final class CaptionExportSavePanel {
 
     func selection(parentWindow: NSWindow) async -> (URL, Format)? {
         let response = await panel.beginSheetModal(for: parentWindow)
-        panel.orderOut(nil)
         guard response == .OK, let url = panel.url else { return nil }
         return (url, selectedFormat)
     }
