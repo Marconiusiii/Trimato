@@ -4,6 +4,17 @@ import Testing
 
 @Suite("App preferences", .serialized)
 struct AppPreferencesTests {
+    @Test func recordingQualityDefaultsTo24BitAndRejectsInvalidPreferences() throws {
+        let name = "AudioQualityTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        #expect(AppPreferences.audioRecordingBitDepth(in: defaults) == 24)
+        defaults.set(8, forKey: AppPreferenceKey.audioRecordingBitDepth)
+        #expect(AppPreferences.audioRecordingBitDepth(in: defaults) == 24)
+        defaults.set(16, forKey: AppPreferenceKey.audioRecordingBitDepth)
+        #expect(AppPreferences.audioRecordingBitDepth(in: defaults) == 16)
+    }
+
     @Test func timecodeChoicesStayInTheSettingsOrder() {
         #expect(TimecodeFeedback.allCases == [.live, .onDemand, .off])
         #expect(TimecodeVerbosity.allCases == [.default, .short, .frames])

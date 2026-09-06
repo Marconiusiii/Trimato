@@ -207,6 +207,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     init(awaitingInitialPreparation: Bool = false) {
         isInitialPreparationPending = awaitingInitialPreparation
         preparationProgress = awaitingInitialPreparation ? 0 : nil
+        AudioOutputManager.shared.register(player)
         player.automaticallyWaitsToMinimizeStalling = false
         rateObserver = player.publisher(for: \.rate)
             .receive(on: RunLoop.main)
@@ -528,6 +529,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             let duration = project.duration
             let boundedInitialTime = min(max(initialTime, .zero), duration)
             let stagedPlayer = AVPlayer(playerItem: stagedItem)
+            AudioOutputManager.shared.register(stagedPlayer)
             stagingPlayer = stagedPlayer
             stagedPlayer.automaticallyWaitsToMinimizeStalling = false
             try await waitUntilReadyToPlay(stagedItem)
@@ -1101,6 +1103,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func announce(_ message: String) {
+        guard !AudioCaptureSession.suppressesAnnouncements else { return }
         let element: Any = NSApp.mainWindow?.contentView ?? NSApp!
         NSAccessibility.post(
             element: element,

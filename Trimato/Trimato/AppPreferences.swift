@@ -1,6 +1,10 @@
 import Foundation
 
 nonisolated enum AppPreferenceKey {
+    static let audioInputDevice = "audioInputDevice"
+    static let audioOutputDevice = "audioOutputDevice"
+    static let audioInputChannel = "audioInputChannel"
+    static let audioRecordingBitDepth = "audioRecordingBitDepth"
     static let timecodeFeedback = "timecodeFeedback"
     static let timecodeVerbosity = "timecodeVerbosity"
 }
@@ -38,6 +42,10 @@ nonisolated enum TimecodeVerbosity: String, CaseIterable, Identifiable, Sendable
 }
 
 nonisolated enum AppPreferences {
+    static func audioRecordingBitDepth(in defaults: UserDefaults = .standard) -> Int {
+        defaults.integer(forKey: AppPreferenceKey.audioRecordingBitDepth) == 16 ? 16 : 24
+    }
+
     static var timecodeFeedback: TimecodeFeedback {
         timecodeFeedback(in: .standard)
     }

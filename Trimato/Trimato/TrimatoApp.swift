@@ -320,6 +320,7 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !Self.isRunningTests else { return }
         Task { @MainActor in
+            await AudioInputManager.requestPermissionIfNeeded()
             await ExportNotificationCenter.requestAuthorizationIfNeeded()
         }
     }

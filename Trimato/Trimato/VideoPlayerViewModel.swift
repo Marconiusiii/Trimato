@@ -189,6 +189,7 @@ final class VideoPlayerViewModel: ObservableObject {
     init() {
         // Disable stall-avoidance so play() starts outputting audio immediately after a seek —
         // essential for short audio preview windows during frame stepping.
+        AudioOutputManager.shared.register(player)
         player.automaticallyWaitsToMinimizeStalling = false
         setupTimeObserver()
         setupRateObserver()
@@ -1222,6 +1223,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func announce(_ message: String) {
+        guard !AudioCaptureSession.suppressesAnnouncements else { return }
         let element: Any = NSApp.mainWindow?.contentView ?? NSApp!
         NSAccessibility.post(
             element: element,

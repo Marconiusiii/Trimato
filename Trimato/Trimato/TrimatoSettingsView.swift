@@ -6,6 +6,9 @@ struct TrimatoSettingsView: View {
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gearshape") }
 
+            AudioRecordingSettingsView()
+                .tabItem { Label("Audio", systemImage: "waveform") }
+
             AccessibilitySettingsView()
                 .tabItem { Label("Accessibility", systemImage: "accessibility") }
 
