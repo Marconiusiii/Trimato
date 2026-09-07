@@ -183,6 +183,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var stepEndTask: Task<Void, Never>?
     private var arrowHolding = false
     // JKL state: 0=paused, +N=forward at jklSpeeds[N-1], -N=backward at jklSpeeds[N-1]
+    private var pendingPlaybackStart: UUID?
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8, 16]
 
@@ -528,6 +529,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func closeMedia() {
+        pendingPlaybackStart = nil
         loadID = nil
         loadTask?.cancel()
         loadTask = nil
@@ -590,8 +592,34 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func togglePlayPause() {
         cancelScrub()
-        if isPlaying { jklIndex = 0; player.pause() }
-        else          { jklIndex = 1; player.rate = 1.0 }
+        if player.rate != 0 || pendingPlaybackStart != nil {
+            pendingPlaybackStart = nil
+            jklIndex = 0
+            player.currentItem?.cancelPendingSeeks()
+            player.pause()
+            return
+        }
+        guard let item = player.currentItem else { return }
+        let start = max(0, inMarker?.seconds ?? 0)
+        let end = min(duration, outMarker?.seconds ?? duration)
+        guard end > start else { return }
+        item.forwardPlaybackEndTime = CMTime(seconds: end, preferredTimescale: 60000)
+        jklIndex = 1
+        let position = player.currentTime().seconds
+        if Self.shouldRestartPlayback(position: position, end: end) || position < start {
+            let request = UUID()
+            pendingPlaybackStart = request
+            player.seek(to: CMTime(seconds: start, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak item] finished in
+                guard let self, self.pendingPlaybackStart == request else { return }
+                self.pendingPlaybackStart = nil
+                guard finished, self.player.currentItem === item, self.jklIndex == 1 else { return }
+                self.player.rate = 1
+            }
+        } else { player.rate = 1 }
+    }
+
+    nonisolated static func shouldRestartPlayback(position: Double, end: Double) -> Bool {
+        position.isFinite && end.isFinite && end > 0 && position >= end - 0.002
     }
 
     func stepForward() {

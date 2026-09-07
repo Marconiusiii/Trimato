@@ -36,6 +36,11 @@ enum ClipFilterRenderer {
         if audio, let settings = audioSettings, let gain = FFmpegTimelineEffectRenderer.audioFilter(for: settings) {
             graph = [graph, gain].filter { !$0.isEmpty }.joined(separator: ",")
         }
+        // Echo and room decay stay inside the existing clip duration in both
+        // preview and project rendering; they never shift later clips.
+        if audio, active.contains(where: { $0.kind == .reverb || $0.kind == .echo }) {
+            graph += ",atrim=duration=\(report.duration)"
+        }
         var arguments = ["-hide_banner", "-nostdin", "-y"]
         if report.hasAlpha, report.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
         arguments += ["-i", source.path]

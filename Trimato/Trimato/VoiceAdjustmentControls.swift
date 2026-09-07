@@ -44,6 +44,19 @@ final class VoiceAdjustmentWork: ObservableObject {
         player.play()
     }
 
+    func play(_ url: URL, asset: AVAsset? = nil, position: Double) async throws {
+        try Task.checkCancellation()
+        files.append(url)
+        let item = asset.map { AVPlayerItem(asset: $0) } ?? AVPlayerItem(url: url)
+        player.replaceCurrentItem(with: item)
+        let end = try await item.asset.load(.duration).seconds
+        let destination = position.isFinite && position < end ? max(0, position) : 0
+        await player.seek(to: CMTime(seconds: destination, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
+        try Task.checkCancellation()
+        guard player.currentItem === item else { throw CancellationError() }
+        player.play()
+    }
+
     func cancel() {
         generation = UUID()
         task?.cancel()
@@ -142,10 +155,8 @@ struct VoiceSmoothingControls: View {
     var body: some View {
         Toggle("Even out voice", isOn: $settings.evenOut).toggleStyle(.switch)
         if settings.evenOut {
-            LabeledContent("Smoothing amount (%)") {
-                TextField("", value: Binding(get: { settings.effectiveSmoothingAmount },
-                    set: { settings.smoothingAmount = $0 }), format: .number).labelsHidden()
-            }
+            AudioValueSlider(label: "Smoothing amount", value: Binding(get: { settings.effectiveSmoothingAmount },
+                set: { settings.smoothingAmount = $0 }), range: 0...100, step: 1, unit: "percent", identifier: "trimato.voice.smoothing")
         }
     }
 }

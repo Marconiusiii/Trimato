@@ -87,6 +87,11 @@ struct SourceClipEditorView: View {
                 .padding(.horizontal, 20)
                 .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
 
+                if commandContext.audioSettings != nil {
+                    MainEqualizerControls(context: commandContext)
+                        .padding(.horizontal, 20)
+                        .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
+                }
                 if commandContext.isTimelineEntry {
                     HStack {
                         Button("Add Filter…") { addingFilter = true }
@@ -196,8 +201,7 @@ struct SourceClipEditorView: View {
         }
         .onChange(of: viewModel.audioPreviewSegments) { scheduleAudioPreview(for: commandContext.audioSettings) }
         .onChange(of: commandContext.audioSettings) { _, settings in
-            scheduleAudioPreview(for: settings,
-                                 userInitiated: !commandContext.isTimelineEntry || commandContext.hasUncommittedChanges)
+            scheduleAudioPreview(for: settings, userInitiated: false)
         }
         .sheet(isPresented: Binding(
             get: { commandContext.trackPlacementAction != nil },
@@ -652,68 +656,93 @@ private extension PlacementAction {
 }
 
 private struct AudioClipControlsView: View {
-    @State private var draft = AudioClipSettings.neutral
     @ObservedObject var commandContext: ClipPlacementCommandContext
-
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 16) {
-                    audioSlider(
-                        "Gain",
-                        value: binding(\.gainDecibels),
-                        range: AudioClipControlSpecification.gainRange,
-                        step: AudioClipControlSpecification.decibelStep,
-                        identifier: "gain"
-                    )
+        VStack(alignment: .leading, spacing: 10) {
+            AudioValueSlider(label: "Gain", value: Binding(
+                get: { commandContext.audioSettings?.gainDecibels ?? 0 },
+                set: { commandContext.audioSettings?.gainDecibels = $0 }),
+                range: AudioClipControlSpecification.gainRange, step: AudioClipControlSpecification.decibelStep,
+                unit: "dB", identifier: ClipEditorAccessibilityIdentifier.audioSlider("gain"))
+            Button("Reset gain") { commandContext.audioSettings?.gainDecibels = 0 }
+        }
+    }
+}
+
+nonisolated enum EqualizerPreset: String, CaseIterable {
+    case flat = "Flat", warmer = "Warmer voice", clearer = "Clearer speech", lessBass = "Less bass"
+    func apply(to audio: inout AudioClipSettings) {
+        let values: (Double, Double, Double)
+        switch self {
+        case .flat: values = (0, 0, 0)
+        case .warmer: values = (3, 0, -2)
+        case .clearer: values = (-2, 3, 2)
+        case .lessBass: values = (-6, 0, 0)
+        }
+        audio.lowGainDecibels = values.0
+        audio.midGainDecibels = values.1
+        audio.highGainDecibels = values.2
+    }
+}
+
+struct MainEqualizerControls: View {
+    @ObservedObject var context: ClipPlacementCommandContext
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Equalizer").font(.headline).accessibilityAddTraits(.isHeader)
+                Menu("EQ presets") {
+                    ForEach(EqualizerPreset.allCases, id: \.self) { preset in
+                        Button(preset.rawValue) {
+                            guard var audio = context.audioSettings else { return }
+                            preset.apply(to: &audio)
+                            context.audioSettings = audio
+                        }
+                    }
                 }
-                Button("Apply") { commandContext.audioSettings = draft }
-                    .disabled(draft == commandContext.audioSettings)
-                Button("Reset Gain") { draft.gainDecibels = 0 }
             }
-            .padding(.top, 4)
-        } label: {
-            Text("Audio").accessibilityHidden(true)
+            HStack {
+            AudioValueSlider(label: "Bass", value: binding(\.lowGainDecibels), range: -12...12, step: 0.5, unit: "dB", identifier: "trimato.eq.bass")
+            AudioValueSlider(label: "Midrange", value: binding(\.midGainDecibels), range: -12...12, step: 0.5, unit: "dB", identifier: "trimato.eq.mid")
+            AudioValueSlider(label: "Treble", value: binding(\.highGainDecibels), range: -12...12, step: 0.5, unit: "dB", identifier: "trimato.eq.treble")
+            }
+            Toggle("Reduce low rumble", isOn: binding(\.highPassEnabled)).toggleStyle(.switch)
+            if context.audioSettings?.highPassEnabled == true {
+                AudioValueSlider(label: "Rumble cutoff", value: binding(\.highPassFrequency), range: 20...2000, step: 10, unit: "Hz", identifier: "trimato.eq.rumble")
+            }
+            Toggle("Reduce high-frequency hiss", isOn: binding(\.lowPassEnabled)).toggleStyle(.switch)
+            if context.audioSettings?.lowPassEnabled == true {
+                AudioValueSlider(label: "Hiss cutoff", value: binding(\.lowPassFrequency), range: 1000...20000, step: 100, unit: "Hz", identifier: "trimato.eq.hiss")
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Audio")
-        .accessibilityIdentifier("trimato.clip-editor.audio-filters")
-        .onAppear { draft = commandContext.audioSettings ?? .neutral }
-        .onChange(of: commandContext.audioSettings) { draft = commandContext.audioSettings ?? .neutral }
     }
+    private func binding<T>(_ key: WritableKeyPath<AudioClipSettings, T>) -> Binding<T> {
+        Binding(get: { (context.audioSettings ?? .neutral)[keyPath: key] }, set: { context.audioSettings?[keyPath: key] = $0 })
+    }
+}
 
-    private func audioSlider(
-        _ label: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        step: Double,
-        identifier: String
-    ) -> some View {
-        HStack(spacing: 6) {
-            Slider(value: value, in: range, step: step) {
-                Text(label)
-            }
-            .accessibilityValue(AudioClipControlSpecification.spokenDecibels(value.wrappedValue))
-            .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.audioSlider(identifier))
-
-            Text(AudioClipControlSpecification.visibleDecibels(value.wrappedValue))
-                .monospacedDigit()
-                .frame(minWidth: 44, alignment: .trailing)
-                .accessibilityHidden(true)
+/// A native slider with a bounded tick count and native VoiceOver arrow actions.
+struct AudioValueSlider: View {
+    let label: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let unit: String
+    let identifier: String
+    @StateObject private var keyboard: SettingsSliderKeyboard
+    init(label: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double, unit: String, identifier: String) {
+        self.label = label; _value = value; self.range = range; self.step = step; self.unit = unit; self.identifier = identifier
+        _keyboard = StateObject(wrappedValue: SettingsSliderKeyboard(identifier: identifier))
+    }
+    var body: some View {
+        HStack {
+        Slider(value: $value, in: range, step: max(step, (range.upperBound - range.lowerBound) / 200)) { Text(label) }
+            .accessibilityValue(String(format: "%.1f %@", value, unit))
+            .accessibilityIdentifier(identifier)
+            .onAppear { keyboard.start() }
+            .onDisappear { keyboard.stop() }
+        Text(String(format: "%.1f %@", value, unit)).monospacedDigit().accessibilityHidden(true)
         }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func binding<T>(_ keyPath: WritableKeyPath<AudioClipSettings, T>) -> Binding<T> {
-        Binding(
-            get: { draft[keyPath: keyPath] },
-            set: { value in
-                var settings = draft
-                settings[keyPath: keyPath] = value
-                draft = settings
-            }
-        )
     }
 }
 

@@ -156,15 +156,23 @@ final class ClipPlacementCommandContext: ObservableObject {
         default: clipID = nil
         }
         filters = clipID.flatMap { controller.project.timelineClip(id: $0)?.filters } ?? []
-        if let settings = audioSettings, let tone = ClipFilter.legacyTone(settings) {
-            if !filters.contains(where: { $0.kind == .tone }) { filters.append(tone) }
-            var gainOnly = AudioClipSettings()
-            gainOnly.gainDecibels = settings.gainDecibels
-            gainOnly.voice = settings.voice
-            audioSettings = gainOnly
-            baselineAudioSettings = gainOnly
+        if let audioSettings {
+            let normalized = Self.mainEqualizer(audio: audioSettings, filters: filters)
+            self.audioSettings = normalized.0
+            baselineAudioSettings = normalized.0
+            filters = normalized.1
         }
         baselineFilters = filters
+    }
+
+    // Move the former Tone filter into the main EQ only when no existing EQ would be overwritten.
+    static func mainEqualizer(audio: AudioClipSettings, filters: [ClipFilter]) -> (AudioClipSettings, [ClipFilter]) {
+        guard ClipFilter.legacyTone(audio) == nil,
+              let tone = filters.first(where: { $0.kind == .tone && $0.enabled }) else { return (audio, filters) }
+        var settings = tone.toneSettings
+        settings.gainDecibels = audio.gainDecibels
+        settings.voice = audio.voice
+        return (settings, filters.filter { $0.id != tone.id })
     }
 
     var canPlace: Bool {
@@ -196,17 +204,10 @@ final class ClipPlacementCommandContext: ObservableObject {
         guard let clip = controller.project.timelineClip(id: id) else { return }
         var refreshed = clip.filters
         if audioSettings != nil {
-            if let tone = ClipFilter.legacyTone(clip.audioSettings), !refreshed.contains(where: { $0.kind == .tone }) {
-                // Keep identity when refreshing an unchanged legacy Tone setting.
-                var migrated = tone
-                migrated.id = filters.first(where: { $0.kind == .tone })?.id ?? tone.id
-                refreshed.append(migrated)
-            }
-            var gain = AudioClipSettings()
-            gain.gainDecibels = clip.audioSettings.gainDecibels
-            gain.voice = clip.audioSettings.voice
-            if audioSettings != gain { audioSettings = gain }
-            baselineAudioSettings = gain
+            let normalized = Self.mainEqualizer(audio: clip.audioSettings, filters: refreshed)
+            if audioSettings != normalized.0 { audioSettings = normalized.0 }
+            baselineAudioSettings = normalized.0
+            refreshed = normalized.1
         }
         if filters != refreshed { filters = refreshed }
         baselineFilters = refreshed

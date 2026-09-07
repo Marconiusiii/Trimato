@@ -150,7 +150,7 @@ nonisolated enum AddFilterChoice: Hashable, Identifiable {
         }
     }
     static func available(audio: Bool, existing: [ClipFilterKind], voice: VoiceAdjustment?) -> [Self] {
-        var choices = ClipFilterKind.allCases.filter { $0.isAudio == audio && !existing.contains($0) }.map(Self.filter)
+        var choices = ClipFilterKind.allCases.filter { $0.isAudio == audio && $0 != .tone && !existing.contains($0) }.map(Self.filter)
         if audio, let voice {
             if voice.targetLoudness == nil { choices.append(.voiceMatching) }
             if !voice.evenOut { choices.append(.voiceSmoothing) }
@@ -333,15 +333,21 @@ struct ClipFilterParameters: View {
     @State private var rotationFocusRequest = UUID()
 
     var body: some View {
-        ForEach(filter.kind.parameters) { parameter in
-            // Continuous native sliders avoid constructing a tick for every hertz or pixel.
-            // The numeric field retains precise entry across the entire parameter range.
-            Slider(value: valueBinding(parameter, snap: true), in: parameter.range) {
-                Text(parameter.label)
+        if filter.kind == .reverb {
+            Menu("Room: \(["Small room", "Medium room", "Large room"][min(max(Int(filter.value("room")), 0), 2)])") {
+                ForEach(Array(["Small room", "Medium room", "Large room"].enumerated()), id: \.offset) { index, name in
+                    Button(name) { filter.values["room"] = Double(index) }
+                }
             }
-            LabeledContent(parameter.label) {
-                TextField("", value: valueBinding(parameter), format: .number.precision(.fractionLength(0...3)))
-                    .labelsHidden()
+        }
+        ForEach(filter.kind.parameters.filter { parameter in
+            parameter.id != "room" && (parameter.id != "highpass" || filter.highPassEnabled) && (parameter.id != "lowpass" || filter.lowPassEnabled)
+        }) { parameter in
+            if filter.kind.isAudio {
+                AudioValueSlider(label: parameter.label, value: valueBinding(parameter), range: parameter.range,
+                    step: parameter.step, unit: unit(parameter), identifier: "trimato.filter.\(parameter.id)")
+            } else {
+                Slider(value: valueBinding(parameter, snap: true), in: parameter.range) { Text(parameter.label) }
             }
         }
         if filter.kind == .tone {
@@ -373,6 +379,15 @@ struct ClipFilterParameters: View {
         }
     }
 
+    private func unit(_ parameter: FilterParameter) -> String {
+        if parameter.id == "delay" { return "milliseconds" }
+        if ["highpass", "lowpass"].contains(parameter.id) { return "Hz" }
+        if parameter.id == "target" { return "LUFS" }
+        if parameter.id == "ratio" { return "" }
+        if parameter.id == "amount", [.reverb, .softenS, .echo].contains(filter.kind) { return "percent" }
+        return "dB"
+    }
+
     private func valueBinding(_ parameter: FilterParameter, snap: Bool = false) -> Binding<Double> {
         Binding(get: { filter.value(parameter.id) }, set: { value in
             guard value.isFinite else { return }
@@ -391,6 +406,8 @@ struct FilterAuditionView: View {
     let voiceMatching: Bool
     let beforePlayback: () -> Void
     @State private var comparison = ""
+    @State private var bypass = false
+    @State private var withShow = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -398,25 +415,22 @@ struct FilterAuditionView: View {
             if context.audioSettings == nil {
                 VideoPlayer(player: work.player).frame(height: 160)
             }
-            HStack {
-                Button("Play without this filter") { play(enabled: false, mixed: false) }
-                Button("Play with this filter") { play(enabled: true, mixed: false) }
-                    .disabled(voiceMatching && voice?.targetLoudness == nil)
-            }.disabled(work.busy)
-            if voice != nil {
-                HStack {
-                    Button("Play with show, without this filter") { play(enabled: false, mixed: true) }
-                    Button("Play with show, with this filter") { play(enabled: true, mixed: true) }
-                        .disabled(voiceMatching && voice?.targetLoudness == nil)
-                }.disabled(work.busy)
+            Toggle("Bypass filter", isOn: $bypass).toggleStyle(.switch)
+            if context.audioSettings != nil {
+                Toggle("Play with show", isOn: $withShow).toggleStyle(.switch)
             }
+            Button(work.busy || work.playing ? "Stop preview" : "Play preview") {
+                if work.busy || work.playing { work.cancel() }
+                else { play(enabled: !bypass, mixed: withShow) }
+            }
+            .disabled(!bypass && voiceMatching && voice?.targetLoudness == nil && !work.busy && !work.playing)
             if work.busy { ProgressView("Preparing preview") }
-            Button(work.busy ? "Cancel preview" : "Stop preview") { work.cancel() }
-                .disabled(!work.busy && !work.playing)
             if !comparison.isEmpty { Text(comparison) }
         }
-        .onChange(of: candidate) { work.cancel(); comparison = "" }
-        .onChange(of: voice) { work.cancel(); comparison = "" }
+        .onChange(of: candidate) { updatePreview() }
+        .onChange(of: voice) { updatePreview() }
+        .onChange(of: bypass) { updatePreview() }
+        .onChange(of: withShow) { updatePreview() }
         .onDisappear { work.cancel() }
     }
 
@@ -437,13 +451,20 @@ struct FilterAuditionView: View {
         return (filters, audio)
     }
 
-    private func play(enabled: Bool, mixed: Bool) {
+    private func updatePreview() {
+        comparison = ""
+        let position = max(0, work.player.currentTime().seconds)
+        if work.playing { play(enabled: !bypass, mixed: withShow, position: position) }
+        else { work.cancel() }
+    }
+
+    private func play(enabled: Bool, mixed: Bool, position: Double = 0) {
         beforePlayback()
         let (filters, audio) = settings(enabled: enabled)
         work.run {
             if mixed {
                 let url = try await context.voiceMixedPreview(filters: filters, audio: audio)
-                do { try work.play(url) }
+                do { try await work.play(url, position: position) }
                 catch { try? FileManager.default.removeItem(at: url); throw error }
                 return
             }
@@ -465,7 +486,7 @@ struct FilterAuditionView: View {
                         let after = try await VoiceAudioProcessor.measure(url)
                         comparison = String(format: "Loudness change: %+.1f dB. Show reference: %.1f LUFS.", after - before, target)
                     }
-                    try work.play(url)
+                    try await work.play(url, position: position)
                 } else {
                     let edited = try await EditedCompositionBuilder.build(asset: AVURLAsset(url: source),
                         sourceRanges: context.segments.map { CMTimeRange(start: $0.sourceRange.start.cmTime, duration: $0.duration.cmTime) })
@@ -476,7 +497,7 @@ struct FilterAuditionView: View {
                         try destination.insertTimeRange(CMTimeRange(start: .zero, duration: try await filtered.load(.duration)), of: track, at: .zero)
                         destination.preferredTransform = try await track.load(.preferredTransform)
                     }
-                    try work.play(url, asset: edited)
+                    try await work.play(url, asset: edited, position: position)
                 }
             } catch { try? FileManager.default.removeItem(at: url); throw error }
         }

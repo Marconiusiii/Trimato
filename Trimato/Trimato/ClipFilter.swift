@@ -10,9 +10,9 @@ nonisolated struct FilterParameter: Identifiable, Sendable {
 
 nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case brightnessContrast, colorAdjustment, blackAndWhite, sharpen, videoNoise, cropOrientation
-    case tone, backgroundNoise, evenVolume, matchLoudness
+    case tone, backgroundNoise, evenVolume, matchLoudness, reverb, echo, softenS, limitPeaks
     var id: Self { self }
-    var isAudio: Bool { [.tone, .backgroundNoise, .evenVolume, .matchLoudness].contains(self) }
+    var isAudio: Bool { [.tone, .backgroundNoise, .evenVolume, .matchLoudness, .reverb, .echo, .softenS, .limitPeaks].contains(self) }
     var title: String {
         switch self {
         case .brightnessContrast: "Brightness and Contrast"
@@ -21,10 +21,14 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .sharpen: "Sharpen"
         case .videoNoise: "Reduce Video Noise"
         case .cropOrientation: "Crop and Orientation"
-        case .tone: "Tone"
+        case .tone: "Equalizer"
         case .backgroundNoise: "Reduce Background Noise"
         case .evenVolume: "Even Out Volume"
         case .matchLoudness: "Match Loudness"
+        case .reverb: "Reverb"
+        case .echo: "Echo"
+        case .softenS: "Soften harsh S sounds"
+        case .limitPeaks: "Limit loud peaks"
         }
     }
     var description: String {
@@ -39,6 +43,10 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .backgroundNoise: "Reduce steady background noise. Strong reduction can affect speech."
         case .evenVolume: "Compress louder passages and limit peaks to reduce changes in volume."
         case .matchLoudness: "Adjust the whole clip toward a target perceived loudness, measured in LUFS."
+        case .reverb: "Add the sound of a room. The effect ends at the clip’s Out point."
+        case .echo: "Add a delayed repeat. The effect ends at the clip’s Out point."
+        case .softenS: "Reduce sharp S and sh sounds in speech."
+        case .limitPeaks: "Keep sudden loud peaks below the selected level."
         }
     }
     var parameters: [FilterParameter] {
@@ -49,10 +57,14 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .sharpen: [p("amount", "Sharpness", 0...2, 0.5)]
         case .videoNoise: [p("amount", "Noise Reduction", 1...10, 2)]
         case .cropOrientation: [p("left", "Crop Left in Pixels", 0...8190, 0, 1), p("right", "Crop Right in Pixels", 0...8190, 0, 1), p("top", "Crop Top in Pixels", 0...8190, 0, 1), p("bottom", "Crop Bottom in Pixels", 0...8190, 0, 1)]
-        case .tone: [p("low", "Low EQ in Decibels", -12...12, 0, 1), p("mid", "Mid EQ in Decibels", -12...12, 0, 1), p("high", "High EQ in Decibels", -12...12, 0, 1), p("highpass", "High Pass Frequency in Hertz", 20...2000, 80, 1), p("lowpass", "Low Pass Frequency in Hertz", 1000...20000, 16000, 1)]
-        case .backgroundNoise: [p("amount", "Noise Reduction in Decibels", 0.01...30, 12)]
-        case .evenVolume: [p("threshold", "Compression Threshold in Decibels", -40...0, -18, 1), p("ratio", "Compression Ratio", 1...10, 3)]
-        case .matchLoudness: [p("target", "Target Loudness in LUFS", -30 ... -10, -16, 1), p("peak", "True Peak Limit in Decibels", -9 ... -1, -1, 0.1)]
+        case .tone: [p("low", "Bass", -12...12, 0, 1), p("mid", "Midrange", -12...12, 0, 1), p("high", "Treble", -12...12, 0, 1), p("highpass", "Rumble cutoff", 20...2000, 80, 1), p("lowpass", "Hiss cutoff", 1000...20000, 16000, 1)]
+        case .reverb: [p("amount", "Amount", 0...100, 25, 1), p("room", "Room", 0...2, 1, 1)]
+        case .echo: [p("delay", "Delay", 50...1000, 250, 10), p("amount", "Strength", 0...80, 30, 1)]
+        case .softenS: [p("amount", "Amount", 0...100, 50, 1)]
+        case .limitPeaks: [p("ceiling", "Peak ceiling", -18 ... -1, -3, 0.5)]
+        case .backgroundNoise: [p("amount", "Noise reduction", 0.01...30, 12)]
+        case .evenVolume: [p("threshold", "Start smoothing above", -40...0, -18, 1), p("ratio", "Smoothing strength", 1...10, 3)]
+        case .matchLoudness: [p("target", "Playback loudness", -30 ... -10, -16, 1), p("peak", "Peak ceiling", -9 ... -1, -1, 0.1)]
         }
     }
     private func p(_ id: String, _ label: String, _ range: ClosedRange<Double>, _ initial: Double, _ step: Double = 0.1) -> FilterParameter {
@@ -93,8 +105,23 @@ nonisolated struct ClipFilter: Codable, Hashable, Identifiable, Sendable {
         case .backgroundNoise: "afftdn=nr=\(value("amount"))"
         case .evenVolume: "acompressor=threshold=\(pow(10, value("threshold") / 20)):ratio=\(value("ratio")):attack=20:release=250,alimiter=limit=0.891251:level=false"
         case .matchLoudness: "loudnorm=I=\(value("target")):TP=\(value("peak")):LRA=11"
+        case .reverb: reverbGraph
+        case .echo: value("amount") == 0 ? "anull" : "aecho=1:1:\(value("delay")):\(value("amount") / 100)"
+        case .softenS: "deesser=i=\(value("amount") / 100):m=0.8:f=0.5"
+        case .limitPeaks: "aresample=192000,alimiter=limit=\(pow(10, value("ceiling") / 20)):level=false:latency=true,aresample=48000"
         }
     }
+    var reverbDecay: Double { [0.35, 0.8, 1.6][min(max(Int(value("room")), 0), 2)] }
+    private var reverbGraph: String {
+        guard value("amount") > 0 else { return "anull" }
+        let key = "r" + id.uuidString.replacingOccurrences(of: "-", with: "")
+        // A deterministic broadband impulse response gives a diffuse room decay,
+        // rather than labeling a handful of discrete echoes as reverb.
+        let noise = "2*(sin(n*12.9898)*43758.5453-floor(sin(n*12.9898)*43758.5453))-1"
+        let impulse = "if(lt(t,0.012),0,(\(noise))*exp(-6.907755*t/\(reverbDecay)))"
+        return "asplit=2[\(key)d][\(key)w];aevalsrc='\(impulse)':s=48000:d=\(reverbDecay)[\(key)i];[\(key)w][\(key)i]afir=dry=1:wet=1:irfmt=mono:minp=64:maxp=512[\(key)r];[\(key)d][\(key)r]amix=inputs=2:duration=first:normalize=0:weights='1 \(value("amount") / 100)'"
+    }
+
     private var orientationGraph: String {
         var parts: [String] = []
         let left = Int(value("left")), right = Int(value("right")), top = Int(value("top")), bottom = Int(value("bottom"))

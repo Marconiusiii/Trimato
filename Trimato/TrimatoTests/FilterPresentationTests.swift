@@ -26,6 +26,11 @@ struct FilterPresentationTests {
             control.performClick(nil)
             return
         }
+        if let control = button as? NSControl {
+            try #require(control.isEnabled)
+            control.performClick(nil)
+            return
+        }
         let selector = NSSelectorFromString("accessibilityPerformPress")
         try #require(button.responds(to: selector))
         typealias Action = @convention(c) (AnyObject, Selector) -> Bool
@@ -48,7 +53,7 @@ struct FilterPresentationTests {
         throw CocoaError(.coderInvalidValue)
     }
 
-    @Test(arguments: ClipFilterKind.allCases)
+    @Test(arguments: ClipFilterKind.allCases.filter { $0 != .tone })
     func everyAudioAndVideoFilterPresentsAndReopens(kind: ClipFilterKind) async throws {
         let harness = FilterSheetHarnessState()
         let window = host(FilterSheetHarness(state: harness, kind: kind))
@@ -62,15 +67,9 @@ struct FilterPresentationTests {
         try await Task.sleep(for: .milliseconds(100))
         let content = try #require(presented.contentView)
         let controls = elements(content)
-        #expect(controls.filter { attribute($0, "accessibilityRole") as? String == "AXSlider" }.count == kind.parameters.count)
-        for parameter in kind.parameters {
-            let labels = controls.filter { attribute($0, "accessibilityValue") as? String == parameter.label }
-            let fields = labels.flatMap { label in
-                (attribute(label, "accessibilityServesAsTitleForUIElements") as? [NSObject] ?? []).flatMap(elements)
-            }
-            let field = try #require(fields.first { attribute($0, "accessibilityRole") as? String == "AXTextField" })
-            #expect((attribute(field, "accessibilityPlaceholderValue") as? String ?? "").isEmpty)
-        }
+        let visibleParameters = kind.parameters.filter { !["room", "highpass", "lowpass"].contains($0.id) }
+        #expect(controls.filter { attribute($0, "accessibilityRole") as? String == "AXSlider" }.count == visibleParameters.count)
+        #expect(!controls.contains { attribute($0, "accessibilityRole") as? String == "AXTextField" })
         try press(namedButton("Cancel", in: content))
         for _ in 0..<100 where window.attachedSheet != nil { try await Task.sleep(for: .milliseconds(20)) }
         #expect(harness.added == nil)
@@ -91,7 +90,7 @@ struct FilterPresentationTests {
         window.contentView?.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(100))
         #expect(Date().timeIntervalSince(started) < 5)
-        #expect(elements(try #require(window.contentView)).filter { attribute($0, "accessibilityRole") as? String == "AXSlider" }.count == kind.parameters.count)
+        #expect(elements(try #require(window.contentView)).filter { attribute($0, "accessibilityRole") as? String == "AXSlider" }.count == kind.parameters.filter { !["room", "highpass", "lowpass"].contains($0.id) }.count)
     }
 
     @Test func voiceChoicesUseRecordingMetadataAndDoNotDuplicateActiveSettings() {
@@ -174,22 +173,43 @@ struct FilterPresentationTests {
         let controller = ProjectController(document: ProjectDocument(project: project))
         let context = ClipPlacementCommandContext(controller: controller, editSelection: .timelineClip(id), segments: configured.sourceEdit)
         let work = VoiceAdjustmentWork()
+        var candidate = ClipFilter(kind: video ? .brightnessContrast : .tone)
+        candidate.values["mid"] = 12
         let window = host(FilterAuditionView(context: context, work: work,
-            candidate: ClipFilter(kind: video ? .brightnessContrast : .tone), voice: nil, voiceMatching: false, beforePlayback: {}))
+            candidate: candidate, voice: nil, voiceMatching: false, beforePlayback: {}))
         defer { work.cancel(); window.close() }
         try await Task.sleep(for: .milliseconds(150))
         let content = try #require(window.contentView)
-        for title in ["Play without this filter", "Play with this filter"] {
-            try press(namedButton(title, in: content))
+        var powers: [Double] = []
+        for index in 0..<2 {
+            try press(namedButton("Play preview", in: content))
             for _ in 0..<500 where work.busy { try await Task.sleep(for: .milliseconds(20)) }
             #expect(!work.busy)
             #expect(work.message == nil)
             let item = try #require(work.player.currentItem)
             #expect(try await item.asset.loadTracks(withMediaType: .audio).count == 1)
             if video { #expect(try await item.asset.loadTracks(withMediaType: .video).count == 1) }
+            else {
+                let rendered = try #require(item.asset as? AVURLAsset)
+                let measurement = AudioEditorRevisionTests()
+                powers.append(measurement.power(try await measurement.samples(rendered.url), start: 0.2, end: 0.8))
+            }
             try press(namedButton("Stop preview", in: content))
             #expect(work.player.currentItem == nil)
+            try await Task.sleep(for: .milliseconds(100))
+            if index == 0 {
+                let all = elements(content)
+                let labels = all.filter { attribute($0, "accessibilityValue") as? String == "Bypass filter" }
+                let titledControls = labels.flatMap { (attribute($0, "accessibilityServesAsTitleForUIElements") as? [NSObject]) ?? [] }.flatMap(elements)
+                let direct = all.filter { attribute($0, "accessibilityTitle") as? String == "Bypass filter" || attribute($0, "accessibilityLabel") as? String == "Bypass filter" }
+                let bypass = try #require((titledControls + direct).first {
+                    $0.responds(to: NSSelectorFromString("accessibilityPerformPress"))
+                })
+                try press(bypass)
+                try await Task.sleep(for: .milliseconds(100))
+            }
         }
+        if !video { #expect(powers[0] > powers[1] * 1.2) }
         #expect(context.filters.isEmpty)
         #expect(!controller.document.hasUnsavedChanges)
     }
