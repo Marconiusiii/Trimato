@@ -21,18 +21,8 @@ struct ClipFiltersView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            List(selection: $selection) {
-                ForEach(context.filters) { filter in
-                    Text("\(filter.kind.title), \(filter.enabled ? "Enabled" : "Disabled")")
-                        .tag(AppliedFilterSelection.filter(filter.id))
-                }
-                if context.audioSettings?.voice?.targetLoudness != nil {
-                    Text("Match voice loudness to Primary Audio, Enabled").tag(AppliedFilterSelection.voiceMatching)
-                }
-                if context.audioSettings?.voice?.evenOut == true {
-                    Text("Even out voice, Enabled").tag(AppliedFilterSelection.voiceSmoothing)
-                }
-            }
+            AppliedFilterList(rows: displayedFilters, selection: $selection)
+                .equatable()
             .accessibilityLabel("Applied Filters")
             .focused($keyboardFocus, equals: .list)
             .accessibilityFocused($voiceOverFocus, equals: .list)
@@ -69,6 +59,19 @@ struct ClipFiltersView: View {
         }
     }
 
+    private var displayedFilters: [AppliedFilterRow] {
+        var rows = context.filters.map {
+            AppliedFilterRow(id: .filter($0.id), title: "\($0.kind.title), \($0.enabled ? "Enabled" : "Disabled")")
+        }
+        if context.audioSettings?.voice?.targetLoudness != nil {
+            rows.append(AppliedFilterRow(id: .voiceMatching, title: "Match voice loudness to Primary Audio, Enabled"))
+        }
+        if context.audioSettings?.voice?.evenOut == true {
+            rows.append(AppliedFilterRow(id: .voiceSmoothing, title: "Even out voice, Enabled"))
+        }
+        return rows
+    }
+
     private func finishEditingFilter() {
         if let pending, let index = context.filters.firstIndex(where: { $0.id == pending.id }) {
             context.filters[index] = pending
@@ -94,6 +97,29 @@ struct ClipFiltersView: View {
             await Task.yield()
             keyboardFocus = selection == nil ? .list : .edit
             voiceOverFocus = keyboardFocus
+        }
+    }
+}
+
+private struct AppliedFilterRow: Equatable, Identifiable {
+    let id: AppliedFilterSelection
+    let title: String
+}
+
+/// Keep unrelated editor and render updates out of the native collection.
+private struct AppliedFilterList: View, Equatable {
+    let rows: [AppliedFilterRow]
+    @Binding var selection: AppliedFilterSelection?
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.rows == rhs.rows && lhs.selection == rhs.selection
+    }
+
+    var body: some View {
+        List(selection: $selection) {
+            ForEach(rows) { row in
+                Text(row.title).tag(row.id)
+            }
         }
     }
 }
@@ -173,7 +199,6 @@ struct AddClipFilterView: View {
     @StateObject private var voiceWork = VoiceAdjustmentWork()
     @FocusState private var pickerKeyboardFocused: Bool
     @AccessibilityFocusState private var pickerVoiceOverFocused: Bool
-    @State private var focusRequest = UUID()
 
     init(
         audio: Bool,
@@ -268,20 +293,8 @@ struct AddClipFilterView: View {
             if case .filter(let kind) = choice { draft = ClipFilter(kind: kind) }
             if choice == .voiceMatching || choice == .voiceSmoothing { voiceDraft = initialVoice }
             if choice == .voiceSmoothing { voiceDraft.evenOut = true }
-            // Keep the Picker identity and restore its local focus after native menu dismissal.
-            let request = UUID()
-            focusRequest = request
-            pickerVoiceOverFocused = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                guard focusRequest == request else { return }
-                pickerVoiceOverFocused = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-                guard focusRequest == request else { return }
-                pickerVoiceOverFocused = true
-            }
         }
-        .onDisappear { focusRequest = UUID(); voiceWork.cancel() }
+        .onDisappear { voiceWork.cancel() }
     }
 }
 
@@ -328,8 +341,6 @@ struct EditClipFilterView: View {
 /// Shared native controls for audio and video, in both Add and Edit Filter.
 struct ClipFilterParameters: View {
     @Binding var filter: ClipFilter
-    @AccessibilityFocusState private var rotationFocused: Bool
-    @State private var rotationFocusRequest = UUID()
 
     var body: some View {
         if filter.kind == .reverb {
@@ -358,21 +369,6 @@ struct ClipFilterParameters: View {
                 ForEach([0, 90, 180, 270], id: \.self) { Text("\($0) degrees").tag($0) }
             }
             .pickerStyle(.menu)
-            .accessibilityFocused($rotationFocused)
-            .onChange(of: filter.rotation) {
-                let request = UUID()
-                rotationFocusRequest = request
-                rotationFocused = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    guard rotationFocusRequest == request, filter.kind == .cropOrientation else { return }
-                    rotationFocused = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-                    guard rotationFocusRequest == request, filter.kind == .cropOrientation else { return }
-                    rotationFocused = true
-                }
-            }
-            .onDisappear { rotationFocusRequest = UUID() }
             Toggle("Flip Horizontally", isOn: $filter.flipHorizontal)
             Toggle("Flip Vertically", isOn: $filter.flipVertical)
         }
@@ -423,8 +419,8 @@ struct FilterAuditionView: View {
                 else { play(enabled: !bypass, mixed: withShow) }
             }
             .disabled(!bypass && voiceMatching && voice?.targetLoudness == nil && !work.busy && !work.playing)
-            if work.busy { ProgressView("Preparing preview") }
-            if !comparison.isEmpty { Text(comparison) }
+            Text(work.busy ? "Preparing preview…" : work.playing ? "Playing preview." : "Preview ready.")
+            Text(comparison)
         }
         .onChange(of: candidate) { updatePreview() }
         .onChange(of: voice) { updatePreview() }
