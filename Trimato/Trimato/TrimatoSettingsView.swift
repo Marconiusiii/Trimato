@@ -90,10 +90,41 @@ enum SettingsToolbarAccessibility {
 }
 
 private struct GeneralSettingsView: View {
+    @AppStorage(AppPreferenceKey.autoSaveEnabled) private var autoSaveEnabled = false
+    @AppStorage(AppPreferenceKey.autoSaveMinutes)
+    private var autoSaveMinutes = AppPreferences.defaultAutoSaveMinutes
+
+    private static let minutesFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.allowsFloats = false
+        formatter.minimum = NSNumber(value: AppPreferences.autoSaveMinutesRange.lowerBound)
+        formatter.maximum = NSNumber(value: AppPreferences.autoSaveMinutesRange.upperBound)
+        return formatter
+    }()
+
     @StateObject private var notificationModel = ExportNotificationSettingsModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            Text("Saving")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Auto-Save", isOn: $autoSaveEnabled)
+                    if autoSaveEnabled {
+                        LabeledContent("Minutes between saves") {
+                            TextField("Minutes between saves", value: $autoSaveMinutes,
+                                      formatter: Self.minutesFormatter)
+                                .labelsHidden()
+                                .frame(width: 80)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             Text("Export notifications")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)

@@ -11,6 +11,9 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     }
 
     private let projectDocument: ProjectDocument
+    private let preferences: UserDefaults
+    private var autoSavePreferencesSubscription: AnyCancellable?
+    private var autoSaveTimerSubscription: AnyCancellable?
     private weak var window: NSWindow?
     private weak var nativeDocument: NSDocument?
     private var savingSnapshot: TrimatoProject?
@@ -41,9 +44,21 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     @Published private(set) var windowAttachmentRevision = 0
     @Published var presentedError: ProjectPresentedError?
 
-    init(projectDocument: ProjectDocument) {
+    init(projectDocument: ProjectDocument, preferences: UserDefaults = .standard) {
         self.projectDocument = projectDocument
+        self.preferences = preferences
         super.init()
+        autoSavePreferencesSubscription = NotificationCenter.default.publisher(
+            for: UserDefaults.didChangeNotification, object: preferences
+        )
+        .map { _ in () }
+        .prepend(())
+        .receive(on: RunLoop.main)
+        .map { AppPreferences.autoSaveInterval(in: preferences) }
+        .removeDuplicates()
+        .sink { [weak self] interval in
+            self?.scheduleAutoSave(every: interval)
+        }
         applicationWillTerminateObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: NSApp,
@@ -281,6 +296,28 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         completion?(closed)
     }
 
+    private func scheduleAutoSave(every interval: TimeInterval) {
+        autoSaveTimerSubscription = nil
+        guard interval > 0, !isFinishingProjectWindowClose else { return }
+        autoSaveTimerSubscription = Timer.publish(every: interval, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in self?.autoSaveIfNeeded() }
+    }
+
+    /// Save committed project changes without opening a save panel or applying editor drafts.
+    func autoSaveIfNeeded() {
+        guard AppPreferences.autoSaveInterval(in: preferences) > 0,
+              hasUnsavedChanges,
+              nativeDocument?.fileURL != nil,
+              nativeDocument?.fileType != nil,
+              pendingSaveCompletion == nil,
+              pendingCloseCompletion == nil,
+              !isApplicationTerminating,
+              !isFinishingProjectWindowClose,
+              presentedError == nil else { return }
+        save { _ in }
+    }
+
     func save(completion: @escaping (Bool) -> Void) {
         guard pendingSaveCompletion == nil, let nativeDocument else {
             completion(false)
@@ -378,6 +415,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private func projectWindowWillClose() {
         guard !isFinishingProjectWindowClose else { return }
         isFinishingProjectWindowClose = true
+        autoSaveTimerSubscription = nil
 
         // NSWindow.willCloseNotification arrives before NSDocument.close()
         // removes the document from NSDocumentController. Continue on the next

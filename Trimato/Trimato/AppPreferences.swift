@@ -1,6 +1,8 @@
 import Foundation
 
 nonisolated enum AppPreferenceKey {
+    static let autoSaveEnabled = "autoSaveEnabled"
+    static let autoSaveMinutes = "autoSaveMinutes"
     static let audioInputDevice = "audioInputDevice"
     static let audioOutputDevice = "audioOutputDevice"
     static let audioInputChannel = "audioInputChannel"
@@ -42,6 +44,19 @@ nonisolated enum TimecodeVerbosity: String, CaseIterable, Identifiable, Sendable
 }
 
 nonisolated enum AppPreferences {
+    static let defaultAutoSaveMinutes = 5
+    static let autoSaveMinutesRange = 1...120
+
+    static func autoSaveMinutes(in defaults: UserDefaults = .standard) -> Int {
+        let minutes = defaults.integer(forKey: AppPreferenceKey.autoSaveMinutes)
+        return autoSaveMinutesRange.contains(minutes) ? minutes : defaultAutoSaveMinutes
+    }
+
+    static func autoSaveInterval(in defaults: UserDefaults = .standard) -> TimeInterval {
+        defaults.bool(forKey: AppPreferenceKey.autoSaveEnabled)
+            ? TimeInterval(autoSaveMinutes(in: defaults) * 60) : 0
+    }
+
     static func audioRecordingBitDepth(in defaults: UserDefaults = .standard) -> Int {
         defaults.integer(forKey: AppPreferenceKey.audioRecordingBitDepth) == 16 ? 16 : 24
     }

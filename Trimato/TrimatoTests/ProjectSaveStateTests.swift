@@ -320,3 +320,100 @@ struct ProjectSaveStateTests {
         #expect(controller.project.transitions.isEmpty)
     }
 }
+
+@Suite("Project Auto-Save", .serialized)
+@MainActor
+struct ProjectAutoSaveTests {
+    @Test func automaticSavePreservesLaterEditsAndSkipsOverlappingSaves() throws {
+        try withDocument { model, native, coordinator, defaults in
+            model.project.name = "First change"
+            coordinator.autoSaveIfNeeded()
+            #expect(native.saves == 1)
+            model.project.name = "Later change"
+            coordinator.autoSaveIfNeeded()
+            #expect(native.saves == 1)
+            native.finishSave?(nil)
+            #expect(model.hasUnsavedChanges)
+            coordinator.autoSaveIfNeeded()
+            #expect(native.saves == 2)
+            native.finishSave?(nil)
+            #expect(!model.hasUnsavedChanges)
+            coordinator.autoSaveIfNeeded()
+            #expect(native.saves == 2)
+            model.project.name = "Disabled"
+            defaults.set(false, forKey: AppPreferenceKey.autoSaveEnabled)
+            coordinator.autoSaveIfNeeded()
+            #expect(native.saves == 2)
+        }
+    }
+
+    @Test func failedSaveKeepsChangesAndAvoidsRepeatedErrors() throws {
+        try withDocument { model, native, coordinator, _ in
+            model.project.name = "Keep this"
+            coordinator.autoSaveIfNeeded()
+            native.finishSave?(CocoaError(.fileWriteNoPermission))
+            #expect(model.hasUnsavedChanges)
+            #expect(coordinator.presentedError != nil)
+            coordinator.autoSaveIfNeeded()
+            #expect(native.saves == 1)
+            coordinator.presentedError = nil
+            coordinator.autoSaveIfNeeded()
+            #expect(native.saves == 2)
+            native.finishSave?(nil)
+            #expect(!model.hasUnsavedChanges)
+        }
+    }
+
+    @Test func automaticSaveDoesNotOpenPanelsOrSaveDuringCloseReview() throws {
+        try withDocument { model, native, coordinator, _ in
+            model.project.name = "Unsaved"
+            let url = native.fileURL
+            native.fileURL = nil
+            coordinator.autoSaveIfNeeded()
+            #expect(native.saves == 0)
+            native.fileURL = url
+            coordinator.requestClose { _ in }
+            #expect(coordinator.isConfirmingClose)
+            coordinator.autoSaveIfNeeded()
+            #expect(native.saves == 0)
+            coordinator.chooseCloseDecision(.cancel)
+            coordinator.closeConfirmationDismissed()
+        }
+    }
+
+    private func withDocument(
+        _ body: (ProjectDocument, AutoSaveTestDocument, ProjectWindowSaveCoordinator, UserDefaults) throws -> Void
+    ) throws {
+        let name = "ProjectAutoSaveTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defaults.set(true, forKey: AppPreferenceKey.autoSaveEnabled)
+        let model = ProjectDocument(project: TrimatoProject(name: "Saved"))
+        let native = AutoSaveTestDocument()
+        native.fileURL = URL(fileURLWithPath: "/tmp/auto-save-test.trimato")
+        native.fileType = "com.marconius.trimato.project"
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        native.addWindowController(NSWindowController(window: window))
+        NSDocumentController.shared.addDocument(native)
+        let coordinator = ProjectWindowSaveCoordinator(projectDocument: model, preferences: defaults)
+        coordinator.attach(to: window)
+        defer {
+            native.close()
+            window.close()
+            defaults.removePersistentDomain(forName: name)
+        }
+        try body(model, native, coordinator, defaults)
+    }
+}
+
+@MainActor
+private final class AutoSaveTestDocument: NSDocument {
+    var saves = 0
+    var finishSave: ((Error?) -> Void)?
+    override func save(to url: URL, ofType typeName: String, for saveOperation: NSDocument.SaveOperationType,
+                       completionHandler: @escaping (Error?) -> Void) {
+        saves += 1
+        finishSave = completionHandler
+    }
+}

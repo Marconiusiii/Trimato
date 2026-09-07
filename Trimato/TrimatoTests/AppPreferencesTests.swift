@@ -4,6 +4,23 @@ import Testing
 
 @Suite("App preferences", .serialized)
 struct AppPreferencesTests {
+    @Test func autoSaveIsOptInAndUsesValidWholeMinuteIntervals() throws {
+        let name = "AutoSavePreferencesTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        #expect(AppPreferences.autoSaveInterval(in: defaults) == 0)
+        defaults.set(true, forKey: AppPreferenceKey.autoSaveEnabled)
+        #expect(AppPreferences.autoSaveInterval(in: defaults) == 300)
+        for invalid in [0, -1, 121, Int.max] {
+            defaults.set(invalid, forKey: AppPreferenceKey.autoSaveMinutes)
+            #expect(AppPreferences.autoSaveInterval(in: defaults) == 300)
+        }
+        defaults.set(2, forKey: AppPreferenceKey.autoSaveMinutes)
+        #expect(AppPreferences.autoSaveInterval(in: defaults) == 120)
+        defaults.set(false, forKey: AppPreferenceKey.autoSaveEnabled)
+        #expect(AppPreferences.autoSaveInterval(in: defaults) == 0)
+    }
+
     @Test func recordingQualityDefaultsTo24BitAndRejectsInvalidPreferences() throws {
         let name = "AudioQualityTests.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: name))
