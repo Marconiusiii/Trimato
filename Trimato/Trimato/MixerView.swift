@@ -243,10 +243,9 @@ private struct MixerPlaybackView: View {
         MacEditorPane("Project Playback") {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Project Playback").font(.headline).accessibilityAddTraits(.isHeader)
-                Slider(value: Binding(get: { player.playbackFraction }, set: { player.seek(toFraction: $0) }),
-                       in: 0...1, step: player.playbackFractionStep) { Text("Project playhead") }
+                MixerPlayheadSlider(value: Binding(get: { player.playbackFraction }, set: { player.seek(toFraction: $0) }),
+                                    step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel)
                     .tint(EditorTheme.playhead)
-                    .accessibilityValue(player.accessibilityTimecodeLabel)
                     .disabled(!player.canControlPlayback)
                 HStack {
                     Button(player.isPlaying ? "Pause" : "Play") { player.togglePlayback() }

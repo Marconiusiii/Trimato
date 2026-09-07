@@ -41,6 +41,11 @@ struct MixerTrackCollection: NSViewRepresentable {
     }
     func updateNSView(_ view: NSScrollView, context: Context) { context.coordinator.update(self) }
 
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> NSSize? {
+        // Track count affects scrolling, never the size requested by the window.
+        NSSize(width: proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 580, height: 100)
+    }
+
     final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
         weak var collection: MixerCollectionView?
         var source: MixerTrackCollection?
