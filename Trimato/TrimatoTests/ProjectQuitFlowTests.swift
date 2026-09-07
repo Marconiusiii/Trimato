@@ -6,6 +6,90 @@ import Testing
 @Suite("Coordinated project quitting", .serialized)
 @MainActor
 struct ProjectQuitFlowTests {
+    @Test func cancellingDiscardRestoresUnsavedChangesAfterTheWriteCompletes() async throws {
+        let (model, native, coordinator, window) = makeDocument()
+        defer { native.close(); window.close(); QuitReviewState.shared.coordinator = nil }
+        native.deferSave = true
+        model.project.name = "Keep these unsaved changes"
+        var result: Bool?
+        coordinator.requestQuit(edits: ProjectQuitEdits()) { result = $0 }
+        coordinator.chooseCloseDecision(.discard)
+        coordinator.closeConfirmationDismissed()
+        try #require(native.saveCompletion != nil)
+        coordinator.cancelQuitReview()
+        native.saveCompletion?(nil)
+        #expect(result == false)
+        #expect(model.hasUnsavedChanges)
+        #expect(model.project.name == "Keep these unsaved changes")
+    }
+
+    @Test func cancellingDuringDocumentWriteWaitsForCompletionAndKeepsProjectOpen() async throws {
+        let (model, native, coordinator, window) = makeDocument()
+        defer { native.close(); window.close(); QuitReviewState.shared.coordinator = nil }
+        native.deferSave = true
+        model.project.name = "Preserved save"
+        var result: Bool?
+        coordinator.requestQuit(edits: ProjectQuitEdits()) { result = $0 }
+        coordinator.chooseCloseDecision(.save)
+        coordinator.closeConfirmationDismissed()
+        for _ in 0..<100 where native.saveCompletion == nil { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(native.saveCompletion != nil)
+        coordinator.cancelQuitReview()
+        #expect(result == nil, "Do not resume editing while a document write is still running")
+        native.saveCompletion?(nil)
+        #expect(result == false)
+        #expect(!model.hasUnsavedChanges)
+        #expect(NSDocumentController.shared.documents.contains { $0 === native })
+    }
+
+    @Test func cancellingPreparationStopsQuitAndKeepsUnappliedDrafts() async throws {
+        let (_, native, coordinator, window) = makeDocument()
+        defer { native.close(); window.close(); QuitReviewState.shared.coordinator = nil }
+        let edits = ProjectQuitEdits()
+        var started = false
+        var applied = false
+        edits.register(UUID(), entry: .init(priority: 0, hasChanges: { true }, validate: {}, apply: {
+            started = true
+            try await Task.sleep(for: .seconds(30))
+            applied = true
+        }))
+        var result: Bool?
+        coordinator.requestQuit(edits: edits) { result = $0 }
+        coordinator.chooseCloseDecision(.save)
+        coordinator.closeConfirmationDismissed()
+        for _ in 0..<100 where !started { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(started)
+        coordinator.cancelQuitReview()
+        for _ in 0..<100 where result == nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(result == false)
+        #expect(!applied)
+        #expect(native.saves == 0)
+        #expect(edits.hasChanges)
+        #expect(!coordinator.isApplicationTerminating)
+    }
+
+    @Test func partialDraftFailureRetainsOnlyUnappliedWorkForRetry() async throws {
+        let edits = ProjectQuitEdits()
+        var firstApplications = 0
+        var secondApplications = 0
+        var shouldFail = true
+        edits.register(UUID(), entry: .init(priority: 0, hasChanges: { true }, validate: {}, apply: {
+            firstApplications += 1
+        }))
+        edits.register(UUID(), entry: .init(priority: 1, hasChanges: { true }, validate: {}, apply: {
+            if shouldFail { throw QuitDraftError(message: "Preparation failed") }
+            secondApplications += 1
+        }))
+        do { try await edits.apply(); Issue.record("Expected failure") } catch { }
+        #expect(firstApplications == 1)
+        #expect(edits.hasChanges)
+        shouldFail = false
+        try await edits.apply()
+        #expect(firstApplications == 1)
+        #expect(secondApplications == 1)
+        #expect(!edits.hasChanges)
+    }
+
     @Test func validatesAllDraftsBeforeApplyingAny() async {
         let edits = ProjectQuitEdits()
         var applied = 0
@@ -300,9 +384,12 @@ struct ProjectQuitFlowTests {
 private final class QuitTestDocument: NSDocument {
     var saves = 0
     var failSave = false
+    var deferSave = false
+    var saveCompletion: ((Error?) -> Void)?
     override func save(to url: URL, ofType typeName: String, for saveOperation: NSDocument.SaveOperationType,
                        completionHandler: @escaping (Error?) -> Void) {
         saves += 1
+        if deferSave { saveCompletion = completionHandler; return }
         completionHandler(failSave ? CocoaError(.fileWriteNoPermission) : nil)
     }
 }

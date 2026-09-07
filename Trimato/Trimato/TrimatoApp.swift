@@ -359,9 +359,12 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
     func applicationDidFinishLaunching(_ notification: Notification) {
         documents.refreshRecentProjects()
         projectCommandMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            MainActor.assumeIsolated {
-                ProjectSaveKeyboard.handle(event, controller: ExternalMediaOpenCoordinator.shared.activeProjectController)
+            // AppKit invokes local event monitors synchronously on the main thread.
+            // Keep the non-Sendable event inside this callback.
+            let handled = MainActor.assumeIsolated {
+                ProjectSaveKeyboard.handle(event, controller: ExternalMediaOpenCoordinator.shared.activeProjectController) == nil
             }
+            return handled ? nil : event
         }
         guard !Self.isRunningTests else { return }
         Task { @MainActor in

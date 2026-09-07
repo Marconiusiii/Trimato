@@ -38,6 +38,7 @@
         <li>Quit Without Saving discards pending editor changes and project changes since the last manual save or Auto-Save, then quits.</li>
         <li>Cancel returns to editing. Escape or closing the quit window also cancels quitting.</li>
     </ul>
+    <p>Cancel also stops quitting while changes are being prepared. If a project write has already started, Trimato finishes that write before returning to editing. Editors close as their changes are applied. If quitting is cancelled or saving fails, changes already applied remain in the project, and unapplied editors remain available.</p>
     <p>Correct any reported invalid settings before trying Save and Quit again. Stop an active recording before saving its take. A source clip must be added to a track before its audio settings can be saved. A new Generator draft uses Insert and Split at its captured playhead and selected destination track.</p>
     <p>Closing an individual timeline clip editor with Command-W still offers Update Clip, Close without Updating, or Cancel when that editor has unapplied changes.</p>
 

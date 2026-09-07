@@ -296,7 +296,7 @@ struct GeneratorView: View {
         .frame(minWidth: 560, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .pendingQuitDraft(session.quitDraft, pending: session.editing == nil || session.hasPendingQuitEdits, validate: { _ = try session.validatedQuitDefinition() },
-            apply: { try await session.saveForQuit() })
+            apply: { try await session.saveForQuit(); close() })
         .onChange(of: focusRequest.revision, initial: true) { _, revision in
             guard revision > 0 else { return }
             Task { @MainActor in

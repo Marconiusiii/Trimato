@@ -16,10 +16,11 @@ struct ProjectCloseConfirmation: View {
                 Text(error).textSelection(.enabled)
             }
             if coordinator.isResolvingClose && coordinator.isApplicationTerminating {
-                Text("Saving changes…")
+                Text(coordinator.quitCancellationRequested ? "Cancelling quit…" : "Saving changes…")
             }
             HStack {
                 Button(coordinator.isApplicationTerminating ? "Quit Without Saving" : "Don’t Save") { coordinator.chooseCloseDecision(.discard) }
+                    .disabled(coordinator.isResolvingClose)
                 Spacer()
                 Button("Cancel") { coordinator.chooseCloseDecision(.cancel) }
                     .keyboardShortcut(.cancelAction)
@@ -27,6 +28,7 @@ struct ProjectCloseConfirmation: View {
                     .accessibilityFocused($cancelVoiceOverFocused)
                 Button(coordinator.isApplicationTerminating ? "Save and Quit" : "Save") { coordinator.chooseCloseDecision(.save) }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(coordinator.isResolvingClose)
             }
         }
         .padding(20)

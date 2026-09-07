@@ -23,8 +23,44 @@ final class TrimatoUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() throws {
-        // UI validation is performed deliberately during a supervised test session.
+    func testGeneralSettingsAndCommandW() throws {
+        let app = XCUIApplication()
+        app.launch()
+        app.typeKey(",", modifierFlags: .command)
+        let generalButton = app.buttons["General"]
+        let generalTab = app.radioButtons["General"]
+        if generalButton.waitForExistence(timeout: 3) { generalButton.click() }
+        else if generalTab.exists { generalTab.click() }
+        let autoSave = app.checkBoxes["Auto-Save"]
+        XCTAssertTrue(autoSave.waitForExistence(timeout: 5), app.debugDescription)
+        let wasEnabled = autoSave.value as? String == "1"
+        defer {
+            if autoSave.exists, (autoSave.value as? String == "1") != wasEnabled {
+                autoSave.click()
+            }
+        }
+        if !wasEnabled { autoSave.click() }
+
+        let minutes = app.textFields["Minutes between saves"]
+        XCTAssertTrue(minutes.waitForExistence(timeout: 3))
+        XCTAssertTrue(minutes.isEnabled)
+        if !wasEnabled { autoSave.click() }
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertFalse(autoSave.waitForExistence(timeout: 1))
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 2))
+    }
+
+    @MainActor
+    func testIdleResourceBaseline() throws {
+        let app = XCUIApplication()
+        app.launch()
+        Thread.sleep(forTimeInterval: 2)
+        let options = XCTMeasureOptions()
+        options.iterationCount = 5
+        measure(metrics: [XCTCPUMetric(application: app), XCTMemoryMetric(application: app)],
+                options: options) {
+            Thread.sleep(forTimeInterval: 2)
+        }
     }
 
     @MainActor

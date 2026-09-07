@@ -296,7 +296,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let filename = String((cleanName.isEmpty ? purpose.title : cleanName).prefix(80))
                 let url = folder.appendingPathComponent("\(filename) \(UUID().uuidString).wav")
-                try FileManager.default.copyItem(at: source, to: url)
+                try await RecordingFileStorage.copy(from: source, to: url)
                 savedURL = url
                 var record = recordingAsset(url: url, duration: duration)
                 record.bookmarkData = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -311,7 +311,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
             try Task.checkCancellation()
             try controller.addProjectRecording(asset: asset, at: ProjectTime(seconds: start), cue: cue, ducking: ducking, voice: voice)
         } catch {
-            if let savedURL { try? FileManager.default.removeItem(at: savedURL) }
+            if let savedURL { await RecordingFileStorage.remove(savedURL) }
             throw error
         }
     }
@@ -488,8 +488,47 @@ struct ProjectRecordingView: View {
         .onChange(of: selectedTab) { voiceWork.cancel(); if !capture.isBusy { session.stopPlayback() } }
         .onChange(of: session.voice) { session.stopPlayback() }
         .pendingQuitDraft(session.quitDraft, pending: session.hasPendingQuitEdits,
-            validate: { try session.validateForQuit() }, apply: { try await session.saveForQuit() })
+            validate: { try session.validateForQuit() }, apply: { try await session.saveForQuit(); session.controller?.dismissRecording() })
         .onDisappear { voiceWork.cancel(); session.close() }
         .applicationMessage(voiceWork.message ?? session.message ?? capture.message) { voiceWork.message = nil; session.message = nil; capture.message = nil }
+    }
+}
+
+/// Disk operations must not block keyboard, playback, or quit cancellation handling.
+nonisolated enum RecordingFileStorage {
+    static func copy(from source: URL, to destination: URL) async throws {
+        let work = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            let staging = destination.deletingLastPathComponent()
+                .appendingPathComponent(".trimato-recording-\(UUID()).tmp")
+            defer { try? FileManager.default.removeItem(at: staging) }
+            try FileManager.default.copyItem(at: source, to: staging)
+            try Task.checkCancellation()
+            // Move only a complete recording into place; never overwrite an existing file.
+            try FileManager.default.moveItem(at: staging, to: destination)
+            if Task.isCancelled {
+                try? FileManager.default.removeItem(at: destination)
+                throw CancellationError()
+            }
+        }
+        try await withTaskCancellationHandler {
+            try await work.value
+        } onCancel: { work.cancel() }
+    }
+
+    static func prepareDirectory(_ folder: URL) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let probe = folder.appendingPathComponent(".trimato-write-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: probe) }
+            try Data().write(to: probe, options: .atomic)
+        }.value
+        try Task.checkCancellation()
+    }
+
+    static func remove(_ url: URL) async {
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: url)
+        }.value
     }
 }

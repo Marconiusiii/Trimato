@@ -68,6 +68,7 @@ struct QuickTransitionView: View {
                     throw QuitDraftError(message: "The transition project is no longer open.")
                 }
                 try controller.addTransitions(quitTransitions())
+                finished()
             })
     }
 

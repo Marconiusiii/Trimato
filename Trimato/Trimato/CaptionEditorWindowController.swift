@@ -245,7 +245,7 @@ struct CaptionEditorView: View {
         .frame(minWidth: 520, minHeight: 350)
         .pendingQuitDraft(session.text, pending: session.hasPendingQuitEdits,
             validate: { if !session.canSave { throw QuitDraftError(message: "Enter caption text before saving.") } },
-            apply: { try session.saveForQuit() })
+            apply: { try session.saveForQuit(); session.cancel() })
         .navigationTitle(session.title)
         .onChange(of: focusRequest.revision, initial: true) { _, revision in
             guard revision > 0 else { return }

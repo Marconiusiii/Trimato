@@ -19,8 +19,12 @@ final class ProjectQuitEdits {
     func apply() async throws {
         let ordered = entries.sorted { $0.value.priority < $1.value.priority }
         // Validate every draft before changing the project.
-        for (_, entry) in ordered where entry.hasChanges() { try entry.validate() }
+        for (_, entry) in ordered where entry.hasChanges() {
+            try Task.checkCancellation()
+            try entry.validate()
+        }
         for (id, entry) in ordered where entry.hasChanges() {
+            try Task.checkCancellation()
             try entry.validate()
             try await entry.apply()
             // A successful draft must not be applied twice if the save panel is cancelled.
@@ -96,7 +100,6 @@ private struct QuitReviewContent: View {
     @ObservedObject var coordinator: ProjectWindowSaveCoordinator
     var body: some View {
         ProjectCloseConfirmation(coordinator: coordinator)
-            .disabled(coordinator.isResolvingClose)
             .onChange(of: coordinator.isConfirmingClose) { _, showing in
                 if !showing { coordinator.closeConfirmationDismissed() }
             }

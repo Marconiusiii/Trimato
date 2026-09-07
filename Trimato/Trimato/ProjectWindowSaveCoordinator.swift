@@ -41,6 +41,8 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private var didRestoreLauncherAfterClose = false
     @Published private(set) var isApplicationTerminating = false
     private var quitEdits: ProjectQuitEdits?
+    private var quitPreparation: Task<Void, Never>?
+    @Published private(set) var quitCancellationRequested = false
     @Published private(set) var windowAttachmentRevision = 0
     @Published var presentedError: ProjectPresentedError?
 
@@ -182,7 +184,12 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     }
 
     func cancelQuitReview() {
-        guard pendingCloseCompletion != nil, !isResolvingClose else { return }
+        guard pendingCloseCompletion != nil else { return }
+        if isResolvingClose {
+            quitCancellationRequested = true
+            quitPreparation?.cancel()
+            return
+        }
         chooseCloseDecision(.cancel)
         closeConfirmationDismissed()
     }
@@ -210,6 +217,10 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     }
 
     func chooseCloseDecision(_ decision: ProjectCloseDecision) {
+        if decision == .cancel, isApplicationTerminating, isResolvingClose {
+            cancelQuitReview()
+            return
+        }
         guard pendingCloseCompletion != nil, !isResolvingClose else { return }
         closeDecision = decision
         isResolvingClose = true
@@ -230,11 +241,15 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
             completeClose(false)
         case .save:
             if let quitEdits {
-                Task { @MainActor in
+                quitPreparation = Task { @MainActor in
                     do {
                         try await quitEdits.apply()
+                        try Task.checkCancellation()
                         self.saveAfterCloseReview()
+                    } catch is CancellationError {
+                        self.completeClose(false)
                     } catch {
+                        if self.quitCancellationRequested { self.completeClose(false); return }
                         self.quitError = error.localizedDescription
                         self.isResolvingClose = false
                         self.executingCloseDecision = false
@@ -253,9 +268,9 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
             nativeDocument?.updateChangeCount(.changeDone)
             save { [weak self] saved in
                 guard let self else { return }
-                if saved && !self.hasUnsavedChanges { self.finishClosing() }
+                if saved && !self.hasUnsavedChanges && !self.quitCancellationRequested { self.finishClosing() }
                 else {
-                    if !saved { self.projectDocument.reinstateDiscardedProject(discarded) }
+                    if !saved || self.quitCancellationRequested { self.projectDocument.reinstateDiscardedProject(discarded) }
                     self.completeClose(false)
                 }
             }
@@ -265,7 +280,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private func saveAfterCloseReview() {
         save { [weak self] saved in
             guard let self else { return }
-            if saved && !self.hasUnsavedChanges { self.finishClosing() }
+            if saved && !self.hasUnsavedChanges && !self.quitCancellationRequested { self.finishClosing() }
             else { self.completeClose(false) }
         }
     }
@@ -288,6 +303,8 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         if !closed, confirmationOrigin?.isVisible == true { confirmationOrigin?.makeKeyAndOrderFront(nil) }
         confirmationOrigin = nil
         quitEdits = nil
+        quitPreparation = nil
+        quitCancellationRequested = false
         if QuitReviewState.shared.coordinator === self { QuitReviewState.shared.coordinator = nil }
         if !closed {
             isApplicationTerminating = false

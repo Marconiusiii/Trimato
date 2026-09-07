@@ -150,7 +150,7 @@ struct MicrophoneVolumeSlider: View {
 /// VoiceOver focus need not be the window's keyboard first responder.
 @MainActor
 final class SettingsSliderKeyboard: ObservableObject {
-    static let identifier = "trimato.settings.microphone-volume"
+    nonisolated static let identifier = "trimato.settings.microphone-volume"
     private var monitor: Any?
     private let targetIdentifier: String
     init(identifier: String = SettingsSliderKeyboard.identifier) { targetIdentifier = identifier }

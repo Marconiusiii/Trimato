@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum FFmpegTool: String {
     case ffmpeg
@@ -29,14 +30,12 @@ nonisolated final class FFmpegProcessBox: @unchecked Sendable {
     private var process: Process?
     private var cancellationRequested = false
 
-    func store(_ process: Process) {
+    func launch(_ process: Process) throws {
         lock.lock()
+        defer { lock.unlock() }
+        guard !cancellationRequested else { throw CancellationError() }
+        try process.run()
         self.process = process
-        let shouldTerminate = cancellationRequested
-        lock.unlock()
-        if shouldTerminate {
-            process.terminate()
-        }
     }
 
     func cancel() {
@@ -147,6 +146,9 @@ private actor FFmpegExecutionGate {
 }
 
 struct FFmpegRunner {
+    nonisolated private static let signposter = OSSignposter(
+        subsystem: "com.marconius.trimato", category: "Media processing"
+    )
     nonisolated struct Result: Sendable {
         let standardOutput: Data
         let standardError: String
@@ -169,7 +171,16 @@ struct FFmpegRunner {
         expectedDuration: Double? = nil,
         outputLine: (@Sendable (String) -> Void)? = nil
     ) async throws -> Result {
-        try await FFmpegExecutionGate.shared.acquire()
+        let queued = signposter.beginInterval("Media queue wait", id: signposter.makeSignpostID())
+        do {
+            try await FFmpegExecutionGate.shared.acquire()
+        } catch {
+            signposter.endInterval("Media queue wait", queued)
+            throw error
+        }
+        signposter.endInterval("Media queue wait", queued)
+        let processing = signposter.beginInterval("Media processing", id: signposter.makeSignpostID())
+        defer { signposter.endInterval("Media processing", processing) }
         do {
             try Task.checkCancellation()
             let result = try await runProcess(
@@ -208,7 +219,6 @@ struct FFmpegRunner {
                 process.arguments = arguments
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
-                box.store(process)
                 let collector = FFmpegOutputCollector(
                     duration: expectedDuration,
                     progress: progress,
@@ -219,8 +229,13 @@ struct FFmpegRunner {
                 }
 
                 do {
-                    try process.run()
+                    try box.launch(process)
                 } catch {
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    try? stdoutPipe.fileHandleForReading.close()
+                    try? stdoutPipe.fileHandleForWriting.close()
+                    try? stderrPipe.fileHandleForReading.close()
+                    try? stderrPipe.fileHandleForWriting.close()
                     continuation.resume(throwing: error)
                     return
                 }

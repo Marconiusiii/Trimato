@@ -575,7 +575,9 @@ final class ClipEditorWindowController: NSWindowController, NSWindowDelegate {
         // An editing sheet must resolve its own draft before a normal editor close.
         guard window.attachedSheet == nil else { completion(false); return }
         pendingCloseCompletion = completion
-        window.performClose(nil)
+        // This is a coordinated close request, not a synthetic close-button action.
+        // performClose can be ignored while AppKit is transitioning modal windows.
+        if windowShouldClose(window) { window.close() }
     }
 
     func windowDidBecomeKey(_ notification: Notification) {

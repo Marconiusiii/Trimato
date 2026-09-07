@@ -187,10 +187,7 @@ final class ProjectController: ObservableObject {
             }
         }
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let probe = folder.appendingPathComponent(".trimato-write-\(UUID())")
-            defer { try? FileManager.default.removeItem(at: probe) }
-            try Data().write(to: probe, options: .atomic)
+            try await RecordingFileStorage.prepareDirectory(folder)
         }
         catch {
             guard (error as NSError).code == CocoaError.fileWriteNoPermission.rawValue,
@@ -210,7 +207,7 @@ final class ProjectController: ObservableObject {
             if let bookmark = try? selected.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
                 document.project.recordingsFolderBookmark = bookmark
             }
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try await RecordingFileStorage.prepareDirectory(folder)
         }
         return folder
     }

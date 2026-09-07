@@ -81,7 +81,7 @@ struct HelpBookTests {
             encoding: .utf8
         )
 
-        #expect(timeline.contains("Timeline &gt; Finalize Captions"))
+        #expect(timeline.contains("Timeline &gt; Captions &gt; Finalize Captions"))
         #expect(timeline.contains("no more than two lines"))
         #expect(timeline.contains("extend the marked Out point when more reading time is available"))
         #expect(exporting.contains("Caption files cannot be exported while drafts remain."))

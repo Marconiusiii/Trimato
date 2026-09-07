@@ -163,6 +163,7 @@ struct EditRecordedVoiceFilterView: View {
             validate: { try voice.validate() }, apply: {
                 work.cancel()
                 context.audioSettings?.voice = voice
+                cancel()
             })
         .onDisappear { work.cancel() }
     }
@@ -306,6 +307,7 @@ struct AddClipFilterView: View {
                     context.filters.removeAll { $0.id == draft.id }
                     context.filters.append(draft)
                 } else { context.audioSettings?.voice = voiceDraft }
+                cancel()
             })
         .task {
             await Task.yield()
@@ -366,6 +368,7 @@ struct EditClipFilterView: View {
             }
             previewWork.cancel()
             context.filters[index] = filter
+            cancel()
         })
         .onDisappear { previewWork.cancel() }
     }

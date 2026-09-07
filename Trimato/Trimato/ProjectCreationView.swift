@@ -343,6 +343,7 @@ struct ProjectCreationView: View {
                     throw QuitDraftError(message: "The project settings are no longer available.")
                 }
                 controller.updateProjectSettings(name: quitValues.name, format: quitValues.format, targetDuration: quitValues.targetDuration)
+                cancel?()
             })
         .onAppear {
             submitHandlerReady?(submit)

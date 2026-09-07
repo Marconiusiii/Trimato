@@ -417,3 +417,35 @@ private final class AutoSaveTestDocument: NSDocument {
         finishSave = completionHandler
     }
 }
+
+
+@Suite("Recording storage")
+struct RecordingStorageTests {
+    @Test func preservesExistingDestinationAndCleansStagingFiles() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await RecordingFileStorage.prepareDirectory(folder)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let source = folder.appendingPathComponent("take.wav")
+        let destination = folder.appendingPathComponent("saved.wav")
+        try Data("take".utf8).write(to: source)
+        try Data("existing".utf8).write(to: destination)
+        do {
+            try await RecordingFileStorage.copy(from: source, to: destination)
+            Issue.record("Existing destination was overwritten")
+        } catch { }
+        #expect(try Data(contentsOf: destination) == Data("existing".utf8))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == ["saved.wav", "take.wav"])
+        let newURL = folder.appendingPathComponent("new.wav")
+        try await RecordingFileStorage.copy(from: source, to: newURL)
+        #expect(try Data(contentsOf: newURL) == Data(contentsOf: source))
+    }
+
+    @Test func cancelledProcessDoesNotLaunch() throws {
+        let box = FFmpegProcessBox()
+        box.cancel()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        #expect(throws: CancellationError.self) { try box.launch(process) }
+        #expect(!process.isRunning)
+    }
+}
