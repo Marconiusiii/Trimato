@@ -240,7 +240,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!viewModel.hasMedia)
-                    .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
+                    .accessibilityLabel(viewModel.waitingForClipPreview ? "Cancel pending playback" : viewModel.isPlaying ? "Pause" : "Play")
 
                     Button { viewModel.seekForward() } label: {
                         Image(systemName: "goforward.10").font(.title2)

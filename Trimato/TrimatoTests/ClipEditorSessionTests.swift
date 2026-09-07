@@ -233,8 +233,7 @@ struct ClipEditorSessionTests {
         router.activate(second)
         router.deactivate(first)
         second.effectsReady = false
-        #expect(!router.isAvailable(.append))
-        router.perform(.append)
+        #expect(router.isAvailable(.append))
         #expect(second.controller.project.primaryTimeline.isEmpty)
         second.effectsReady = true
         #expect(router.isAvailable(.append))

@@ -66,7 +66,7 @@ struct SourceClipEditorView: View {
                                 track: commandContext.narrationTrack, validateTake: commandContext.validateVoice,
                                 applyTrack: commandContext.applyVoiceToTrack,
                                 beforePlayback: { viewModel.player.pause() })
-                            Button(voiceWork.playing ? "Stop playback" : "Play with show") {
+                            Button(voiceWork.playing ? "Stop playback" : "Play with Primary Audio") {
                                 if voiceWork.playing { voiceWork.cancel(); return }
                                 viewModel.player.pause()
                                 voiceWork.run {
@@ -74,7 +74,7 @@ struct SourceClipEditorView: View {
                                     do { try voiceWork.play(url) }
                                     catch { try? FileManager.default.removeItem(at: url); throw error }
                                 }
-                            }.disabled(voiceWork.busy || !commandContext.effectsReady)
+                            }.disabled(voiceWork.busy)
                         }
                         .padding(8).tabItem { Text("Voice") }.tag("Voice")
                     }
@@ -169,7 +169,11 @@ struct SourceClipEditorView: View {
             viewModel.scopeKeyboardCommands { [weak commandContext] in
                 commandContext?.isKeyWindow == true
             }
+            viewModel.preparePlayback = { ensureLatestPlayback() }
             loadIfNeeded()
+        }
+        .onChange(of: preview.state) { _, state in
+            if state == .cancelled || preview.errorMessage != nil { viewModel.waitingForClipPreview = false }
         }
         .onChange(of: controller.project) { commandContext.refreshCommittedEffects() }
         .onChange(of: currentAsset.id) {
@@ -190,6 +194,7 @@ struct SourceClipEditorView: View {
         }
         .onChange(of: viewModel.hasMedia) {
             guard viewModel.hasMedia else { return }
+            viewModel.preparePlayback = { ensureLatestPlayback() }
             scheduleAudioPreview(for: commandContext.audioSettings, debounce: false)
         }
         .onChange(of: viewModel.isPreparingWaveform) {
@@ -283,6 +288,11 @@ struct SourceClipEditorView: View {
 
     @ViewBuilder
     private var placementControls: some View {
+        if commandContext.segments.isEmpty {
+            Text("Choose a valid In and Out range to add or update this clip.")
+        } else if commandContext.isTimelineEntry && !commandContext.hasUncommittedChanges {
+            Text("No clip changes to update.")
+        }
         HStack {
             if commandContext.isTimelineEntry {
                 Button("Update Clip") { commandContext.performUpdate() }
@@ -471,7 +481,10 @@ struct SourceClipEditorView: View {
         case .ready:
             EmptyView()
         case .preparing:
-            EmptyView()
+            HStack {
+                ProgressView("Preparing updated preview", value: preview.progress)
+                Button("Cancel preparation") { viewModel.waitingForClipPreview = false; preview.cancel() }
+            }
         case .cancelled, .failed:
             VStack(alignment: .leading, spacing: 8) {
                 Text(preview.state == .cancelled ? "Clip preview preparation cancelled." : "Clip preview could not be updated.")
@@ -512,6 +525,17 @@ struct SourceClipEditorView: View {
         scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true, userInitiated: true)
     }
 
+    private func ensureLatestPlayback() -> Bool {
+        guard let source = controller.resolveURL(for: currentAsset), !viewModel.audioPreviewSegments.isEmpty else { return false }
+        let desired = ClipPreviewCoordinator.Request(source: source, filters: commandContext.filters,
+            audio: commandContext.audioSettings != nil, segments: viewModel.audioPreviewSegments, audioSettings: commandContext.audioSettings)
+        if preview.state == .ready && preview.lastSuccessfulRequest == desired { return true }
+        if preview.state != .preparing || previewRequest != desired {
+            scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true)
+        }
+        return preview.state == .ready && preview.lastSuccessfulRequest == desired
+    }
+
     private func scheduleAudioPreview(
         for settings: AudioClipSettings?,
         debounce: Bool = true,
@@ -537,11 +561,14 @@ struct SourceClipEditorView: View {
         // Loading an existing clip and rebuilding after a source edit are
         // automatic. Only an explicit effects change or recovery opens progress.
         guard force || previewRequest != request else { return }
+        let resume = viewModel.player.rate != 0 || viewModel.waitingForClipPreview
+        viewModel.player.pause()
+        viewModel.waitingForClipPreview = resume
         previewRequest = request
         showsPreviewProgress = userInitiated
         preview.update(request, debounce: debounce, force: force, readiness: { ready in
             commandContext.effectsReady = ready
-            viewModel.clipEffectsReady = ready
+            viewModel.completePreviewPreparation(ready: ready)
         }, restoreOriginal: {
             viewModel.restoreUnprocessedAudioPreview()
         }, commit: { asset, url, audio in

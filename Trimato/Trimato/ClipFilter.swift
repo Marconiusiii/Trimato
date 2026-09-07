@@ -119,7 +119,7 @@ nonisolated struct ClipFilter: Codable, Hashable, Identifiable, Sendable {
         // rather than labeling a handful of discrete echoes as reverb.
         let noise = "2*(sin(n*12.9898)*43758.5453-floor(sin(n*12.9898)*43758.5453))-1"
         let impulse = "if(lt(t,0.012),0,(\(noise))*exp(-6.907755*t/\(reverbDecay)))"
-        return "asplit=2[\(key)d][\(key)w];aevalsrc='\(impulse)':s=48000:d=\(reverbDecay)[\(key)i];[\(key)w][\(key)i]afir=dry=1:wet=1:irfmt=mono:minp=64:maxp=512[\(key)r];[\(key)d][\(key)r]amix=inputs=2:duration=first:normalize=0:weights='1 \(value("amount") / 100)'"
+        return "asplit=2[\(key)d][\(key)w];aevalsrc='\(impulse)':s=48000:d=\(reverbDecay)[\(key)i];[\(key)w][\(key)i]afir=dry=1:wet=1:irnorm=2:irgain=1:irfmt=mono:minp=64:maxp=512[\(key)r];[\(key)d][\(key)r]amix=inputs=2:duration=first:normalize=0:weights='1 \(value("amount") / 100)'"
     }
 
     private var orientationGraph: String {

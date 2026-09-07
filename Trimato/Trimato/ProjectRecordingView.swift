@@ -382,7 +382,7 @@ struct ProjectRecordingView: View {
                             .disabled(session.busy && !session.preparingRecording)
                         Button(session.takePlaying ? "Stop take" : "Play take") { session.playTake() }
                             .disabled(capture.testURL == nil || capture.isBusy || session.busy)
-                        Button("Play with show") { session.preview(mixed: true) }
+                        Button("Play with Primary Audio") { session.preview(mixed: true) }
                             .disabled(capture.testURL == nil || capture.isBusy || session.busy)
                         Button("Delete take") { session.stopPlayback(); capture.deleteTest() }
                             .disabled(capture.testURL == nil || capture.isBusy || session.busy)
@@ -404,7 +404,7 @@ struct ProjectRecordingView: View {
                             }, beforePlayback: session.stopPlayback)
                         HStack {
                             Button(session.takePlaying ? "Stop take" : "Play take") { voiceWork.cancel(); session.playTake() }
-                            Button("Play with show") { voiceWork.cancel(); session.preview(mixed: true) }
+                            Button("Play with Primary Audio") { voiceWork.cancel(); session.preview(mixed: true) }
                         }.disabled(capture.testURL == nil || session.busy || voiceWork.busy)
                         Spacer(minLength: 0)
                     }

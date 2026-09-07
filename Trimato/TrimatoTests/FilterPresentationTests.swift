@@ -132,7 +132,7 @@ struct FilterPresentationTests {
         try await Task.sleep(for: .milliseconds(150))
         let content = try #require(presented.contentView)
         if matching {
-            try press(namedButton("Match voice loudness to show", in: content))
+            try press(namedButton("Match voice loudness to Primary Audio", in: content))
             for _ in 0..<500 {
                 if let cell = try? namedButton("Add", in: content) as? NSButtonCell,
                    (cell.controlView as? NSButton)?.isEnabled == true { break }
@@ -228,6 +228,7 @@ struct FilterPresentationTests {
         let window = host(SourceClipEditorView(controller: controller, asset: record, editSelection: .timelineClip(id),
             initialSegments: record.sourceEdit, commandContext: context))
         context.hostWindow = window
+        context.audioSettings?.gainDecibels = 3
         defer { window.close() }
         try await Task.sleep(for: .seconds(2))
         let started = Date()
@@ -236,9 +237,17 @@ struct FilterPresentationTests {
         presented.contentView?.layoutSubtreeIfNeeded()
         #expect(Date().timeIntervalSince(started) < 5)
         try await Task.sleep(for: .milliseconds(200))
-        try press(namedButton("Cancel", in: try #require(presented.contentView)))
+        try press(namedButton("Play preview", in: try #require(presented.contentView)))
+        presented.makeKeyAndOrderFront(nil)
+        let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: presented.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        NSApp.sendEvent(escape)
         for _ in 0..<100 where window.attachedSheet != nil { try await Task.sleep(for: .milliseconds(20)) }
         #expect(window.attachedSheet == nil)
+        #expect(context.canPlace && context.canUpdate)
+        let updateControl = try namedButton("Update Clip", in: try #require(window.contentView))
+        let enabled = (attribute(updateControl, "isAccessibilityEnabled") as? Bool) ?? (attribute(updateControl, "accessibilityEnabled") as? Bool)
+        #expect(enabled == true)
         #expect(context.filters.isEmpty)
         #expect(!controller.document.hasUnsavedChanges)
     }

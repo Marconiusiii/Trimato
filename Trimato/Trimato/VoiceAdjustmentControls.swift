@@ -102,7 +102,7 @@ struct VoiceAdjustmentControls: View {
                         catch { try? FileManager.default.removeItem(at: url); throw error }
                     }
                 }
-                Button("Match voice loudness to show") {
+                Button("Match voice loudness to Primary Audio") {
                     beforePlayback()
                     let original = settings
                     let project = controller.project

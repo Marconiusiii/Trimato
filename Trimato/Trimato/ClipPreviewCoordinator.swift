@@ -118,7 +118,7 @@ final class ClipPreviewCoordinator: ObservableObject {
                     self.errorMessage = error.localizedDescription
                 }
                 // The draft no longer matches the audible/visible preview. Keep
-                // Update/Export unavailable until retry or an explicit revert.
+                // Export unavailable until retry or an explicit revert. Draft edits remain available.
                 readiness(false)
             }
         }

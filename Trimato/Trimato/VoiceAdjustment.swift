@@ -128,7 +128,7 @@ enum VoiceReferenceAudio {
     static func render(project: TrimatoProject, urls: [UUID: URL], start: Double, end: Double) async throws -> URL {
         guard start.isFinite, end.isFinite, start >= 0, end - start >= 0.4,
               end <= project.duration.seconds else {
-            throw AudioCaptureError.message("Choose a dialogue reference of at least 0.4 seconds within the show. Several seconds of clear dialogue give a more useful match.")
+            throw AudioCaptureError.message("Choose a dialogue reference of at least 0.4 seconds within Primary Audio. Several seconds of clear dialogue give a more useful match.")
         }
         let result = try await ProjectCompositionBuilder.build(project: showOnly(project), mediaURLs: urls)
         defer { for url in result.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }

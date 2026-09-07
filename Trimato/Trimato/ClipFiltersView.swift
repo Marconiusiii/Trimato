@@ -27,7 +27,7 @@ struct ClipFiltersView: View {
                         .tag(AppliedFilterSelection.filter(filter.id))
                 }
                 if context.audioSettings?.voice?.targetLoudness != nil {
-                    Text("Match voice loudness to show, Enabled").tag(AppliedFilterSelection.voiceMatching)
+                    Text("Match voice loudness to Primary Audio, Enabled").tag(AppliedFilterSelection.voiceMatching)
                 }
                 if context.audioSettings?.voice?.evenOut == true {
                     Text("Even out voice, Enabled").tag(AppliedFilterSelection.voiceSmoothing)
@@ -128,7 +128,7 @@ struct EditRecordedVoiceFilterView: View {
             }
             FilterAuditionView(context: context, work: work, candidate: nil, voice: voice,
                 voiceMatching: !smoothingOnly, beforePlayback: { work.cancel(); beforePlayback() })
-            NativeModalActions(primaryTitle: "Apply", primaryEnabled: !work.busy, cancel: cancel, primary: { apply(voice) })
+            NativeModalActions(primaryTitle: "Apply", primaryEnabled: true, cancel: cancel, primary: { work.cancel(); apply(voice) })
         }
         .padding(20).frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)
@@ -145,7 +145,7 @@ nonisolated enum AddFilterChoice: Hashable, Identifiable {
     var title: String {
         switch self {
         case .filter(let kind): kind.title
-        case .voiceMatching: "Match voice loudness to show"
+        case .voiceMatching: "Match voice loudness to Primary Audio"
         case .voiceSmoothing: "Even out voice"
         }
     }
@@ -219,7 +219,6 @@ struct AddClipFilterView: View {
                 .pickerStyle(.menu)
                 .focused($pickerKeyboardFocused)
                 .accessibilityFocused($pickerVoiceOverFocused)
-                .disabled(voiceWork.busy)
                 switch selection {
                 case .filter(let kind):
                     Text(kind.description)
@@ -240,15 +239,15 @@ struct AddClipFilterView: View {
                     voice: selection == .voiceMatching || selection == .voiceSmoothing ? voiceDraft : nil,
                     voiceMatching: selection == .voiceMatching,
                     beforePlayback: { voiceWork.cancel(); beforePlayback() })
-                    .disabled(voiceWork.busy)
-            }
+                }
             NativeModalActions(
                 primaryTitle: "Add",
-                primaryEnabled: !available.isEmpty && !voiceWork.busy &&
+                primaryEnabled: !available.isEmpty &&
                     (selection != .voiceMatching || voiceDraft.targetLoudness != nil) &&
                     (selection != .voiceSmoothing || voiceDraft.evenOut),
                 cancel: cancel,
                 primary: {
+                    voiceWork.cancel()
                     if case .filter = selection { add(draft) }
                     else { addVoice(voiceDraft) }
                 }
@@ -316,9 +315,9 @@ struct EditClipFilterView: View {
 
             NativeModalActions(
                 primaryTitle: "Apply",
-                primaryEnabled: !previewWork.busy,
+                primaryEnabled: true,
                 cancel: cancel,
-                primary: { apply(filter) }
+                primary: { previewWork.cancel(); apply(filter) }
             )
         }.padding(20).frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)
@@ -417,7 +416,7 @@ struct FilterAuditionView: View {
             }
             Toggle("Bypass filter", isOn: $bypass).toggleStyle(.switch)
             if context.audioSettings != nil {
-                Toggle("Play with show", isOn: $withShow).toggleStyle(.switch)
+                Toggle("Play with Primary Audio", isOn: $withShow).toggleStyle(.switch)
             }
             Button(work.busy || work.playing ? "Stop preview" : "Play preview") {
                 if work.busy || work.playing { work.cancel() }
@@ -484,7 +483,7 @@ struct FilterAuditionView: View {
                         defer { try? FileManager.default.removeItem(at: baseline) }
                         let before = try await VoiceAudioProcessor.measure(baseline)
                         let after = try await VoiceAudioProcessor.measure(url)
-                        comparison = String(format: "Loudness change: %+.1f dB. Show reference: %.1f LUFS.", after - before, target)
+                        comparison = String(format: "Loudness change: %+.1f dB. Primary Audio reference: %.1f LUFS.", after - before, target)
                     }
                     try await work.play(url, position: position)
                 } else {

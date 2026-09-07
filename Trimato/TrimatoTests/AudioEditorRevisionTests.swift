@@ -21,7 +21,7 @@ struct AudioEditorRevisionTests {
         let decoded = FileManager.default.temporaryDirectory.appendingPathComponent("audio-samples-\(UUID()).f32")
         defer { try? FileManager.default.removeItem(at: decoded) }
         _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: ["-v", "error", "-nostdin", "-y", "-i", url.path,
-            "-map", "0:a:0", "-ac", "1", "-ar", "48000", "-f", "f32le", decoded.path])
+            "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-ac", "1", "-ar", "48000", "-f", "f32le", decoded.path])
         let data = try Data(contentsOf: decoded)
         return data.withUnsafeBytes { bytes in
             stride(from: 0, to: bytes.count, by: 4).map { Float(bitPattern: UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: $0, as: UInt32.self))) }
@@ -132,6 +132,90 @@ struct AudioEditorRevisionTests {
         let reduced = try await ClipFilterRenderer.render(source: noise, filters: [ClipFilter(kind: .backgroundNoise)], audio: true, duration: 2, highPrecision: true)
         defer { try? FileManager.default.removeItem(at: reduced) }
         #expect(power(try await samples(reduced), start: 0.5, end: 1.5) < power(try await samples(noise), start: 0.5, end: 1.5) * 0.9)
+    }
+
+    @Test(arguments: ClipFilterKind.allCases.filter { $0.isAudio })
+    func everyAudioEffectAgreesBetweenClipPreviewAndFinalOutput(kind: ClipFilterKind) async throws {
+        let source = try fixture { t in
+            let h = sin(t * 48000 * 12.9898) * 43758.5453
+            return Float((t < 1 ? 0.035 : 0.12) * sin(2 * .pi * 800 * t) + 0.02 * (2 * (h - floor(h)) - 1))
+        }
+        defer { try? FileManager.default.removeItem(at: source) }
+        var filter = ClipFilter(kind: kind)
+        if kind == .tone { filter.values["mid"] = 6 }
+        var audio = AudioClipSettings.neutral
+        audio.lowGainDecibels = 3
+        let preview = try await ClipFilterRenderer.render(source: source, filters: [filter], audio: true,
+            duration: 2, segments: [segment(2)], audioSettings: audio)
+        defer { try? FileManager.default.removeItem(at: preview) }
+        var project = TrimatoProject()
+        let record = MediaAssetRecord(name: "Comparison", originalPath: source.path, duration: ProjectTime(seconds: 2), hasAudio: true, sourceEdit: [segment(2)])
+        let id = project.putRecording(record, at: .zero)
+        try project.setClipEffects(id: id, audio: audio, filters: [filter])
+        let result = try await ProjectCompositionBuilder.build(project: project, mediaURLs: [record.id: source], purpose: .finalExport)
+        defer { for url in result.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }
+        let export = FileManager.default.temporaryDirectory.appendingPathComponent("effect-export-\(UUID()).wav")
+        defer { try? FileManager.default.removeItem(at: export) }
+        try await AudioOnlyExporter.export(asset: result.composition, audioMix: result.audioMix,
+            timeRange: CMTimeRange(start: .zero, duration: CMTime(seconds: 2, preferredTimescale: 48000)),
+            format: .wav24, to: export, progress: { _ in })
+        let expected = try await samples(preview), actual = try await samples(export)
+        #expect(abs(actual.count - expected.count) < 100)
+        let count = min(actual.count, expected.count)
+        let error = (0..<count).reduce(0.0) { $0 + pow(Double(actual[$1] - expected[$1]), 2) } / Double(count)
+        #expect(error < 0.00001)
+    }
+
+    @Test func reverbAmountProducesUsefulReflectedLevel() async throws {
+        let source = try fixture { t in t < 1 ? Float(0.1 * sin(2 * .pi * 800 * t)) : 0 }
+        defer { try? FileManager.default.removeItem(at: source) }
+        var energies: [Double] = []
+        for amount in [25.0, 75.0] {
+            var effect = ClipFilter(kind: .reverb)
+            effect.values["amount"] = amount
+            effect.values["room"] = 2
+            let output = try await ClipFilterRenderer.render(source: source, filters: [effect], audio: true, duration: 2, highPrecision: true)
+            defer { try? FileManager.default.removeItem(at: output) }
+            let signal = try await samples(output)
+            energies.append(power(signal, start: 1.02, end: 1.2))
+        }
+        #expect(energies[0] > 0.000001)
+        #expect(energies[1] > energies[0] * 5)
+    }
+
+    @Test func draftActionsDoNotDependOnAuditionOrWindowFocus() {
+        var project = TrimatoProject()
+        let record = MediaAssetRecord(name: "Voice", originalPath: "/tmp/voice.wav", duration: ProjectTime(seconds: 2), hasAudio: true, sourceEdit: [segment(2)])
+        let id = project.putRecording(record, at: .zero)
+        let context = ClipPlacementCommandContext(controller: ProjectController(document: ProjectDocument(project: project)), editSelection: .timelineClip(id), segments: record.sourceEdit)
+        context.audioSettings?.gainDecibels = 3
+        context.effectsReady = false
+        context.voiceWorkBusy = true
+        context.setKeyWindow(false)
+        #expect(context.canPlace && context.canUpdate)
+    }
+
+    @Test func mainPlaybackWaitsForTheLatestPreviewInsteadOfPlayingOldAudio() async throws {
+        let source = try fixture { Float(0.02 * sin(2 * .pi * 440 * $0)) }
+        defer { try? FileManager.default.removeItem(at: source) }
+        let model = VideoPlayerViewModel()
+        defer { model.closeMedia() }
+        model.duration = 2
+        model.player.replaceCurrentItem(with: AVPlayerItem(url: source))
+        var ready = false
+        model.preparePlayback = { ready }
+        model.togglePlayPause()
+        #expect(model.waitingForClipPreview && model.player.rate == 0)
+        var audio = AudioClipSettings.neutral
+        audio.midGainDecibels = 9
+        let processed = try await ClipFilterRenderer.render(source: source, filters: [], audio: true, duration: 2, audioSettings: audio)
+        model.installFilteredPreview(asset: AVURLAsset(url: processed), url: processed, audio: true)
+        ready = true
+        model.completePreviewPreparation(ready: true)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(!model.waitingForClipPreview)
+        #expect((model.player.currentItem?.asset as? AVURLAsset)?.url == processed)
+        #expect(model.player.rate > 0)
     }
 
     @Test func nativeAudioSliderRespondsToVoiceOverArrows() async throws {

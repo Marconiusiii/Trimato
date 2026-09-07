@@ -529,6 +529,8 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func closeMedia() {
+        waitingForClipPreview = false
+        preparePlayback = nil
         pendingPlaybackStart = nil
         loadID = nil
         loadTask?.cancel()
@@ -592,6 +594,7 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func togglePlayPause() {
         cancelScrub()
+        if waitingForClipPreview { waitingForClipPreview = false; return }
         if player.rate != 0 || pendingPlaybackStart != nil {
             pendingPlaybackStart = nil
             jklIndex = 0
@@ -599,6 +602,7 @@ final class VideoPlayerViewModel: ObservableObject {
             player.pause()
             return
         }
+        if preparePlayback?() == false { waitingForClipPreview = true; return }
         guard let item = player.currentItem else { return }
         let start = max(0, inMarker?.seconds ?? 0)
         let end = min(duration, outMarker?.seconds ?? duration)
@@ -767,6 +771,17 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     @Published var clipEffectsReady = true
+    @Published var waitingForClipPreview = false
+    var preparePlayback: (() -> Bool)?
+
+    func completePreviewPreparation(ready: Bool) {
+        clipEffectsReady = ready
+        if ready && waitingForClipPreview {
+            waitingForClipPreview = false
+            togglePlayPause()
+        }
+    }
+
 
     func exportTrimmedClip() {
         guard clipEffectsReady else { announce("Wait for a valid clip preview before exporting"); return }

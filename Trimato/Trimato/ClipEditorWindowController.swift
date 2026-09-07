@@ -71,7 +71,7 @@ final class ClipEditorCommandRouter: ObservableObject {
     private var changes: AnyCancellable?
 
     func isAvailable(_ command: ClipEditorPlacementCommand) -> Bool {
-        guard let context = activeContext else { return false }
+        guard let context = activeContext, context.isKeyWindow, context.hostWindow?.attachedSheet == nil, NSApp.modalWindow == nil else { return false }
         if command == .update { return context.canUpdate }
         guard context.canPlace else { return false }
         if command == .insertOnTopWithAudio || command == .insertOnTopOverAudio {
@@ -176,7 +176,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     var canPlace: Bool {
-        isKeyWindow && effectsReady && !voiceWorkBusy && !segments.isEmpty && hostWindow?.attachedSheet == nil && NSApp.modalWindow == nil
+        !segments.isEmpty
     }
 
     var isTimelineEntry: Bool {
@@ -191,7 +191,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     var canUpdate: Bool {
-        isKeyWindow && effectsReady && !voiceWorkBusy && hasUncommittedChanges && !segments.isEmpty && hostWindow?.attachedSheet == nil && NSApp.modalWindow == nil
+        hasUncommittedChanges && !segments.isEmpty
     }
 
     func refreshCommittedEffects() {
@@ -555,6 +555,13 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         commandContext.setKeyWindow(true)
         ClipEditorCommandRouter.shared.activate(commandContext)
         ExternalMediaOpenCoordinator.shared.activate(controller: commandContext.controller)
+    }
+
+    func windowDidEndSheet(_ notification: Notification) {
+        // Refresh menu ownership after the native sheet has actually detached.
+        guard window?.isKeyWindow == true else { return }
+        commandContext.setKeyWindow(true)
+        ClipEditorCommandRouter.shared.activate(commandContext)
     }
 
     func windowDidResignKey(_ notification: Notification) {

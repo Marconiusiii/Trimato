@@ -275,7 +275,7 @@ struct VoiceAdjustmentTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderBack(nil)
+        window.makeKeyAndOrderFront(nil)
         defer { work.stopKeyboard(); work.cancel(); window.close() }
         host.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(200))
@@ -298,6 +298,7 @@ struct VoiceAdjustmentTests {
         let up = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 126))
         #expect(SettingsSliderKeyboard.handle(up, focused: slider, identifier: "trimato.voice.level") == nil)
+        try await Task.sleep(for: .milliseconds(150))
         #expect(settings.level > 0)
     }
 
