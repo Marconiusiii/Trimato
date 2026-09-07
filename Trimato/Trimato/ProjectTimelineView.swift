@@ -278,7 +278,8 @@ struct ProjectTimelineView: View {
                     accessibilityValue: clipAccessibilityValue(clip),
                     accessibilityHint: "Enter opens Clip Editor. Space toggles selection for moving.",
                     isSelected: controller.movingTimelineClipID == clip.id || controller.selection == .timelineClip(clip.id),
-                    isTransition: false
+                    isTransition: false,
+                    sourceMissing: controller.mediaFiles.missingIDs.contains(clip.assetID)
                 )
             case .transition(let transition):
                 return TimelineCollectionItemModel(

@@ -305,6 +305,7 @@ struct TimelineCollectionItemModel: Equatable {
     let isSelected: Bool
     let isTransition: Bool
     var isDescription = false
+    var sourceMissing = false
 }
 
 struct TimelineCollectionActions {
@@ -588,7 +589,9 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
         button.activate = activate
         button.focus = focus
         button.menuProvider = menu
-        button.setAccessibilityLabel(model.title)
+        button.image = model.sourceMissing ? NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil) : nil
+        button.imagePosition = model.sourceMissing ? .imageLeading : .noImage
+        button.setAccessibilityLabel(model.title + (model.sourceMissing ? ", Source Missing" : ""))
         button.setAccessibilityValue(model.accessibilityValue)
         button.setAccessibilityHelp(model.accessibilityHint)
         switch model.selection {
@@ -608,6 +611,7 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
     }
 
     func configureEmpty(title: String) {
+        button.image = nil
         button.title = title
         eventAnchor.element = nil
         button.isEnabled = false

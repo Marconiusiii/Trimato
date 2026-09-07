@@ -11,7 +11,7 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 ## Features
 
 - Create and save `.trimato` project packages with automatic or custom dimensions and frame rate.
-- Organize imported media in project folders without moving the original files in Finder.
+- Organize source clips in project folders, relink missing media, and optionally copy or move sources into a project-owned Clips folder. Imported files default to Keep in Place.
 - Activate Trim a Clip on the welcome screen to choose an audio or video file and open the standalone Clip Editor without creating a project first, then create a project from the current edit when ready.
 - Edit audio-only sources against a static waveform with a visible playhead, using the same playback, marker, trimming, timeline, and project tools as video.
 - Open a source clip, timeline clip, or cutaway in Trimato's focused clip editor.
@@ -381,3 +381,8 @@ Trimato bundles FFmpeg 8.1.2 and ffprobe for media inspection, proxy generation,
 Marco Salsiccia's original Trimato source code is available under the [MIT License.](LICENSE)
 
 Bundled third-party components remain subject to their respective licenses.
+
+
+## Background file-handling verification
+
+Run `swift test --scratch-path /tmp/trimato-media-tests` from the repository root to test the production file-transfer and file-reference code without launching Trimato or opening windows. The package covers missing-media recovery, project-folder relocation, safe copies and moves, filename collisions, duplicate references, cancellation, and import preferences. Xcode build-for-testing compiles the app integration without running its window-based tests.

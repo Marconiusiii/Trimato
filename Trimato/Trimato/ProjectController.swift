@@ -30,6 +30,8 @@ struct CaptionFinalizationReport: Identifiable, Equatable {
 @MainActor
 final class ProjectController: ObservableObject {
     let document: ProjectDocument
+    let mediaFiles = ProjectMediaFiles()
+    private var mediaLocationOverrides: [UUID: MediaAssetRecord] = [:]
 
     @Published var selection: EditorSelection = .project
     @Published var timelinePlayhead = ProjectTime.zero
@@ -50,6 +52,7 @@ final class ProjectController: ObservableObject {
     @Published private(set) var applyingTransitionName: String?
     @Published private(set) var applyingTransitionProgress: Double?
     @Published var isImporting = false
+    @Published private(set) var isRelinkingMedia = false
     @Published private(set) var canCancelImport = false
     @Published private(set) var importProgress: Double?
     @Published private(set) var importDetail: String?
@@ -59,6 +62,7 @@ final class ProjectController: ObservableObject {
 
     func cancelImport() {
         guard canCancelImport else { return }
+        mediaFiles.chooseImport(nil)
         importTask?.cancel()
     }
     @Published var isShowingProjectSettings = false
@@ -98,6 +102,9 @@ final class ProjectController: ObservableObject {
         document.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+        mediaFiles.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        mediaFiles.connect(self)
         updateCacheProtection(for: document.project)
         activeTimelineTrackID = Self.preferredTimelineTrackID(in: document.project)
     }
@@ -172,11 +179,15 @@ final class ProjectController: ObservableObject {
     }
 
     func recordingsDirectory() async throws -> URL {
+        try await projectMediaDirectory(named: "Recordings")
+    }
+
+    func projectMediaDirectory(named name: String) async throws -> URL {
         guard let projectURL = projectSaveCoordinator?.projectURL else {
             throw AudioCaptureError.message("Save the project before adding a recording.")
         }
         let parent = projectURL.deletingLastPathComponent()
-        let folder = parent.appendingPathComponent("Recordings", isDirectory: true)
+        let folder = parent.appendingPathComponent(name, isDirectory: true)
         if let bookmark = project.recordingsFolderBookmark {
             var stale = false
             if let granted = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI],
@@ -193,8 +204,8 @@ final class ProjectController: ObservableObject {
             guard (error as NSError).code == CocoaError.fileWriteNoPermission.rawValue,
                   let window = NSApp.keyWindow ?? projectSaveCoordinator?.attachedWindow else { throw error }
             let panel = NSOpenPanel()
-            panel.title = "Allow Project Recording Storage"
-            panel.message = "Choose the project folder to store recordings alongside the Trimato project."
+            panel.title = "Allow Project Media Storage"
+            panel.message = "Choose the project folder to store media alongside the Trimato project."
             panel.directoryURL = parent
             panel.canChooseFiles = false
             panel.canChooseDirectories = true
@@ -389,6 +400,11 @@ final class ProjectController: ObservableObject {
 
     func installSaveCoordinator(_ coordinator: ProjectWindowSaveCoordinator) {
         projectSaveCoordinator = coordinator
+        coordinator.autoSaveAllowed = { [weak self] in
+            guard let self else { return false }
+            return !self.mediaFiles.isBusy && !self.isImporting && !self.isRelinkingMedia
+        }
+        mediaFiles.refresh()
     }
 
     func installUndoManager(_ undoManager: UndoManager) {
@@ -408,6 +424,10 @@ final class ProjectController: ObservableObject {
     }
 
     func closeProject(completion: @escaping (Bool) -> Void = { _ in }) {
+        guard !mediaFiles.isBusy, !isImporting, !isRelinkingMedia else {
+            presentedError = .init(title: "Media Operation in Progress", message: "Finish or cancel the media operation before closing the project.")
+            completion(false); return
+        }
         guard QuitReviewState.shared.coordinator == nil else { completion(false); return }
         guard let closeProjectAction else { completion(false); return }
         closeProjectAction(completion)
@@ -416,6 +436,10 @@ final class ProjectController: ObservableObject {
     let quitEdits = ProjectQuitEdits()
 
     func closeProjectForQuit(completion: @escaping (Bool) -> Void) {
+        guard !mediaFiles.isBusy, !isImporting, !isRelinkingMedia else {
+            presentedError = .init(title: "Media Operation in Progress", message: "Finish or cancel the media operation before quitting.")
+            completion(false); return
+        }
         guard let coordinator = projectSaveCoordinator else {
             closeProject(completion: completion)
             return
@@ -443,7 +467,7 @@ final class ProjectController: ObservableObject {
     }
 
     func relinkSelectedAsset() {
-        guard let asset = selectedAsset,
+        guard let asset = selectedAsset, !mediaFiles.isBusy, !isImporting, !isExporting, !isRelinkingMedia,
               projectFilePanel == nil,
               NSApp.modalWindow == nil,
               let parentWindow = projectSaveCoordinator?.attachedWindow,
@@ -468,11 +492,19 @@ final class ProjectController: ObservableObject {
     }
 
     private func relink(_ asset: MediaAssetRecord, to url: URL) {
+        isRelinkingMedia = true
         Task { @MainActor in
+            defer { isRelinkingMedia = false }
             do {
                 var replacement = try await ProjectImportCoordinator.importAsset(at: url)
+                guard (!asset.hasVideo || replacement.hasVideo), (!asset.hasAudio || replacement.hasAudio),
+                      replacement.duration >= MediaFileAccess.requiredEnd(for: asset.id, in: project) else {
+                    throw QuitDraftError(message: "Choose media with the audio and video required by this source and enough duration for its existing edits.")
+                }
                 let previousProxyCacheKey = asset.proxyCacheKey
                 replacement.id = asset.id
+                replacement.recordingPurpose = asset.recordingPurpose
+                mediaLocationOverrides[asset.id] = nil
                 mutateProject(actionName: "Relink Media") { project in
                     guard let index = project.media.firstIndex(where: { $0.id == asset.id }) else { return }
                     replacement.name = project.media[index].name
@@ -482,6 +514,7 @@ final class ProjectController: ObservableObject {
                 if previousProxyCacheKey != replacement.proxyCacheKey {
                     try? await MediaCacheManager.shared.removeProxy(cacheKey: previousProxyCacheKey)
                 }
+                mediaFiles.refresh()
                 announce("Media relinked")
             } catch {
                 presentedError = ProjectPresentedError(
@@ -1529,14 +1562,34 @@ final class ProjectController: ObservableObject {
         }
     }
 
+    func installMediaLocations(_ locations: [UUID: URL], projectFolder: URL) {
+        var updated = document.project
+        for index in updated.media.indices {
+            guard let url = locations[updated.media[index].id] else { continue }
+            updated.media[index].originalPath = url.path
+            updated.media[index].bookmarkData = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+            updated.media[index].projectRelativePath = MediaFileReference.relativePath(for: url, in: projectFolder)
+            updated.media[index].recordingRelativePath = nil
+            mediaLocationOverrides[updated.media[index].id] = updated.media[index]
+        }
+        document.project = updated
+        timelineContentRevision += 1
+        mediaFiles.refresh()
+    }
+
     func resolveURL(for asset: MediaAssetRecord) -> URL? {
         if let generator = asset.generator { return try? GeneratorRenderer.cacheURL(for: generator) }
-        if let relative = asset.recordingRelativePath,
-           !relative.hasPrefix("/"), !relative.split(separator: "/").contains(".."),
-           let parent = projectSaveCoordinator?.projectURL?.deletingLastPathComponent() {
-            let url = parent.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: url.path) { return url }
+        if let bookmark = project.recordingsFolderBookmark {
+            var stale = false
+            if let granted = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI],
+                                      relativeTo: nil, bookmarkDataIsStale: &stale),
+               !accessedURLs.contains(granted), granted.startAccessingSecurityScopedResource() {
+                accessedURLs.append(granted)
+            }
         }
+        if let url = MediaFileReference.relativeURL(asset.projectRelativePath ?? asset.recordingRelativePath,
+            folder: projectSaveCoordinator?.projectURL?.deletingLastPathComponent()),
+           FileManager.default.isReadableFile(atPath: url.path) { return url }
         guard let url = ProjectImportCoordinator.resolveURL(for: asset) else { return nil }
         if !accessedURLs.contains(url), url.startAccessingSecurityScopedResource() {
             accessedURLs.append(url)
@@ -1548,13 +1601,34 @@ final class ProjectController: ObservableObject {
         for requestedAsset: MediaAssetRecord,
         progress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
     ) async throws -> MediaSource? {
-        guard var asset = project.asset(id: requestedAsset.id),
-              let originalURL = resolveURL(for: asset) else { return nil }
+        guard var asset = project.asset(id: requestedAsset.id) else { return nil }
         if let generator = asset.generator {
             let url = try await GeneratorRenderer.ensure(generator)
             return .native(url: url, asset: AVURLAsset(url: url), contentType: nil, mode: .nativePlaybackMP4Export, hasVideo: asset.hasVideo, hasAudio: asset.hasAudio)
         }
-        let currentFingerprint = try MediaCacheManager.sourceFingerprint(for: originalURL)
+        let reference = asset
+        let folder = projectSaveCoordinator?.projectURL?.deletingLastPathComponent()
+        let folderBookmark = project.recordingsFolderBookmark
+        let resolved = await Task.detached(priority: .userInitiated) {
+            MediaFileAccess.resolve(reference, folder: folder, folderBookmark: folderBookmark)
+        }.value
+        try Task.checkCancellation()
+        guard let originalURL = resolved else { mediaFiles.refresh(); return nil }
+        if !accessedURLs.contains(originalURL), originalURL.startAccessingSecurityScopedResource() {
+            accessedURLs.append(originalURL)
+        }
+        // Activate the project folder's saved grant for project-relative source URLs.
+        if let bookmark = folderBookmark {
+            var stale = false
+            if let granted = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
+                                      relativeTo: nil, bookmarkDataIsStale: &stale),
+               !accessedURLs.contains(granted), granted.startAccessingSecurityScopedResource() {
+                accessedURLs.append(granted)
+            }
+        }
+        let currentFingerprint = try await Task.detached(priority: .userInitiated) {
+            try MediaCacheManager.sourceFingerprint(for: originalURL)
+        }.value
         if asset.playbackMode == nil || asset.sourceFingerprint != currentFingerprint {
             let previousCacheKey = asset.proxyCacheKey
             let preparation = try await ProjectImportCoordinator.preparePlayback(
@@ -1619,7 +1693,7 @@ final class ProjectController: ObservableObject {
     }
 
     func importFiles(into folderID: UUID? = nil) {
-        guard !isImporting,
+        guard !isImporting, !mediaFiles.isBusy, !isRelinkingMedia,
               projectFilePanel == nil,
               NSApp.modalWindow == nil,
               let parentWindow = projectSaveCoordinator?.attachedWindow,
@@ -1662,11 +1736,11 @@ final class ProjectController: ObservableObject {
     }
 
     func importFiles(at urls: [URL], into folderID: UUID? = nil) {
-        guard !isImporting, !urls.isEmpty else { return }
+        guard !isImporting, !mediaFiles.isBusy, !isRelinkingMedia, !urls.isEmpty else { return }
         isImporting = true
         canCancelImport = true
         importProgress = nil
-        importDetail = "Finding files"
+        importDetail = nil
         importOutcome = .completed
         importTask = Task { @MainActor in
             defer {
@@ -1675,6 +1749,12 @@ final class ProjectController: ObservableObject {
                 canCancelImport = false
                 importTask = nil
             }
+            guard let handling = await mediaFiles.importHandling(), !Task.isCancelled else { return }
+            if handling == .move, projectSaveCoordinator?.projectURL == nil {
+                presentedError = .init(title: "Save Project First", message: "Save the project before moving imported media into its Clips folder.")
+                return
+            }
+            importDetail = "Finding files"
             struct ImportGroup {
                 var folderName: String?
                 var assets: [MediaAssetRecord]
@@ -1815,6 +1895,11 @@ final class ProjectController: ObservableObject {
                     }
                 }
             }
+            if handling == .move, !additions.isEmpty {
+                do { try await mediaFiles.transfer(ids: Set(additions.map(\.id)), move: true) }
+                catch { failures.append(("Move to Project", error.localizedDescription)) }
+            }
+            mediaFiles.refresh()
             if !additions.isEmpty, !importedCaptionCues.isEmpty {
                 announce("Imported \(additions.count) clip\(additions.count == 1 ? "" : "s") and \(importedCaptionCues.count) caption\(importedCaptionCues.count == 1 ? "" : "s")")
             } else if !additions.isEmpty {
@@ -1837,7 +1922,7 @@ final class ProjectController: ObservableObject {
     }
 
     func importExternalFile(at url: URL, completion: @escaping (UUID) -> Void) {
-        guard !isImporting else {
+        guard !isImporting, !mediaFiles.isBusy else {
             presentedError = ProjectPresentedError(
                 title: "Import Already in Progress",
                 message: "Wait for the current import to finish, then open the video again."
@@ -1856,10 +1941,17 @@ final class ProjectController: ObservableObject {
         isImporting = true
         Task { @MainActor in
             do {
+                guard let handling = await mediaFiles.importHandling() else { isImporting = false; return }
+                if handling == .move, projectSaveCoordinator?.projectURL == nil {
+                    throw QuitDraftError(message: "Save the project before moving imported media into its Clips folder.")
+                }
+                importDetail = "Importing media"
                 let asset = try await ProjectImportCoordinator.importAsset(at: url)
                 mutateProject(actionName: "Import Media") { project in
                     project.media.append(asset)
                 }
+                if handling == .move { try await mediaFiles.transfer(ids: [asset.id], move: true) }
+                mediaFiles.refresh()
                 isImporting = false
                 selection = .asset(asset.id)
                 announce("Clip imported")
@@ -2272,7 +2364,15 @@ final class ProjectController: ObservableObject {
     private func apply(_ project: TrimatoProject, undoingTo previous: TrimatoProject, actionName: String) {
         guard project != previous else { return }
         if movingTimelineClipID != nil { clearClipMovement() }
-        document.project = project
+        var located = project
+        for index in located.media.indices {
+            guard let location = mediaLocationOverrides[located.media[index].id] else { continue }
+            located.media[index].originalPath = location.originalPath
+            located.media[index].bookmarkData = location.bookmarkData
+            located.media[index].projectRelativePath = location.projectRelativePath
+            located.media[index].recordingRelativePath = location.recordingRelativePath
+        }
+        document.project = located
         timelineContentRevision += 1
         updateCacheProtection(for: project)
         if let undoManager = projectUndoManager {

@@ -90,6 +90,7 @@ enum SettingsToolbarAccessibility {
 }
 
 private struct GeneralSettingsView: View {
+    @AppStorage(AppPreferenceKey.importedFileHandling) private var importedFileHandling = ImportedFileHandling.keep
     @AppStorage(AppPreferenceKey.autoSaveEnabled) private var autoSaveEnabled = false
     @AppStorage(AppPreferenceKey.autoSaveMinutes)
     private var autoSaveMinutes = AppPreferences.defaultAutoSaveMinutes
@@ -124,6 +125,14 @@ private struct GeneralSettingsView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            Text("File handling")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Picker("Imported files", selection: $importedFileHandling) {
+                ForEach(ImportedFileHandling.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
 
             Text("Export notifications")
                 .font(.headline)

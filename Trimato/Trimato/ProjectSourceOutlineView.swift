@@ -176,6 +176,13 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
         func update(from source: ProjectSourceNativeOutline) {
             self.source = source
             guard let outlineView else { return }
+            for row in 0..<outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? ProjectSourceNode,
+                   case .asset(let id) = node.id,
+                   let button = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? ProjectSourceAssetButton {
+                    button.setSourceMissing(source.controller.mediaFiles.missingIDs.contains(id))
+                }
+            }
             if snapshot != source.hierarchy {
                 let priorIDs = Set(nodes.keys)
                 var activeIDs: Set<ProjectSourceItemID> = []
@@ -374,6 +381,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                 button.configure(
                     assetID: assetID,
                     title: node.name,
+                    missing: source?.controller.mediaFiles.missingIDs.contains(assetID) == true,
                     owner: self,
                     accessibilityIdentifier: accessibilityIdentifier(for: node.id)
                 )
@@ -507,11 +515,9 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                     let folderItem = NSMenuItem(title: "Move Clip", action: nil, keyEquivalent: "")
                     folderItem.submenu = folderMenu
                     menu.addItem(folderItem)
-                    if source.controller.resolveURL(for: asset) == nil {
-                        add("Relink Clip…", to: menu) {
-                            source.controller.selection = .asset(assetID)
-                            source.controller.relinkSelectedAsset()
-                        }
+                    add("Relink Media…", to: menu) {
+                        source.controller.selection = .asset(assetID)
+                        source.controller.relinkSelectedAsset()
                     }
                 }
                 menu.addItem(.separator())
@@ -699,6 +705,16 @@ private final class ProjectSourceAppKitOutlineView: NSOutlineView {
 }
 
 private final class ProjectSourceAssetButton: NSButton {
+    private var baseTitle = ""
+    private var sourceMissing = false
+    func setSourceMissing(_ missing: Bool) {
+        let label = baseTitle + (missing ? ", Source Missing" : "")
+        guard title != label || sourceMissing != missing else { return }
+        sourceMissing = missing
+        title = label
+        image = missing ? NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil) : nil
+        imagePosition = missing ? .imageLeading : .noImage
+    }
     private var assetID: UUID?
     private weak var owner: ProjectSourceNativeOutline.Coordinator?
 
@@ -719,11 +735,13 @@ private final class ProjectSourceAssetButton: NSButton {
     func configure(
         assetID: UUID,
         title: String,
+        missing: Bool,
         owner: ProjectSourceNativeOutline.Coordinator,
         accessibilityIdentifier: String
     ) {
         self.assetID = assetID
-        self.title = title
+        self.baseTitle = title
+        setSourceMissing(missing)
         self.owner = owner
         setAccessibilityLabel(nil)
         setAccessibilityIdentifier(accessibilityIdentifier)

@@ -39,9 +39,20 @@ struct SourceClipEditorView: View {
     @State private var newTrackKind: NewTrackSourceKind?
 
     var body: some View {
+        editorContent
+        .onChange(of: MediaFileReference(originalPath: currentAsset.originalPath, bookmarkData: currentAsset.bookmarkData,
+                                         projectRelativePath: currentAsset.projectRelativePath ?? currentAsset.recordingRelativePath)) { _, _ in
+            if asset.id == currentAsset.id { reloadLinkedSource() }
+        }
+        .onChange(of: controller.mediaFiles.missingIDs.contains(currentAsset.id)) { wasMissing, missing in
+            if wasMissing && !missing { reloadLinkedSource() }
+        }
+    }
+
+    private var editorContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if controller.resolveURL(for: currentAsset) == nil {
-                Text("This media file is offline. Relink it before editing.")
+            if controller.mediaFiles.missingIDs.contains(currentAsset.id) {
+                Text("Source Missing. Relink this media from Project Source before editing.")
                     .padding()
             } else {
                 ContentView(
@@ -115,7 +126,7 @@ struct SourceClipEditorView: View {
                     if let sourcePreparationError {
                         Text(sourcePreparationError).padding(.horizontal, 20)
                     }
-                    Button("Retry Clip Preparation", action: loadIfNeeded).padding(.horizontal, 20)
+                    Button("Retry Clip Preparation") { loadIfNeeded() }.padding(.horizontal, 20)
                 }
                 if voiceWork.busy {
                     VStack(alignment: .leading, spacing: 8) {
@@ -190,7 +201,7 @@ struct SourceClipEditorView: View {
             loadIfNeeded()
         }
         .onChange(of: viewModel.placementSourceSegments) { _, segments in
-            guard loadedAssetID == currentAsset.id else { return }
+            guard loadedAssetID == currentAsset.id, !preparingSource else { return }
             commandContext.setSegments(segments)
         }
         .onChange(of: viewModel.hasMedia) {
@@ -339,12 +350,22 @@ struct SourceClipEditorView: View {
             }.disabled(!commandContext.canPlace)
         }
     }
-    private func loadIfNeeded() {
-        guard loadedAssetID != currentAsset.id, let url = controller.resolveURL(for: currentAsset) else { return }
+    private func reloadLinkedSource() {
+        preparationTask?.cancel()
+        loadedAssetID = nil
+        preview.reset()
+        previewRequest = nil
+        viewModel.closeMedia()
+        loadIfNeeded(preserveDraft: true)
+    }
+
+    private func loadIfNeeded(preserveDraft: Bool = false) {
+        guard loadedAssetID != currentAsset.id else { return }
         loadedAssetID = currentAsset.id
-        commandContext.setSegments(controller.segments(for: editSelection) ?? initialSegments)
+        let segments = preserveDraft ? commandContext.segments : controller.segments(for: editSelection) ?? initialSegments
+        if !preserveDraft { commandContext.setSegments(segments) }
         let opening = ClipEditorOpeningConfiguration.make(
-            segments: controller.segments(for: editSelection) ?? initialSegments,
+            segments: segments,
             sourceDuration: currentAsset.duration
         )
         let requestID = UUID()
@@ -380,8 +401,12 @@ struct SourceClipEditorView: View {
                 }
                 try Task.checkCancellation()
                 guard preparationID == requestID else { return }
+                guard let source else {
+                    controller.mediaFiles.refresh()
+                    throw QuitDraftError(message: "Source Missing. Relink this media from Project Source.")
+                }
                 viewModel.load(
-                    url: url,
+                    url: source.originalURL,
                     sourceSegments: opening.playbackSegments,
                     preparedSource: source,
                     initialInMarker: opening.inMarker,

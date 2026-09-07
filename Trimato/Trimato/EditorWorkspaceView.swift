@@ -142,6 +142,9 @@ struct EditorWorkspaceView: View {
                     transitionSheet(for: request)
                 }
             }
+            .sheet(item: Binding(get: { controller.mediaFiles.prompt }, set: { _ in controller.mediaFiles.dismissPrompt() }), onDismiss: controller.mediaFiles.promptDismissed) { kind in
+                ProjectMediaFilesPrompt(model: controller.mediaFiles, kind: kind)
+            }
             .applicationMessage(controller.presentedError.map {
                 ApplicationMessageDescriptor(title: $0.title, message: $0.message)
             }) {
@@ -223,11 +226,11 @@ struct EditorWorkspaceView: View {
     }
 
     private var importOperation: OperationProgress? {
-        guard controller.isImporting else { return nil }
+        guard controller.isImporting, controller.importDetail != nil else { return nil }
         var operation = OperationProgress(
             title: "Importing Files",
-            progress: controller.importProgress,
-            detail: controller.importDetail
+            progress: controller.mediaFiles.progress ?? controller.importProgress,
+            detail: controller.mediaFiles.isBusy ? controller.mediaFiles.detail ?? controller.mediaFiles.operationTitle : controller.importDetail
         )
         if controller.canCancelImport { operation.cancel = { controller.cancelImport() } }
         return operation

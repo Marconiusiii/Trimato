@@ -1,6 +1,7 @@
 import Foundation
 
 nonisolated enum AppPreferenceKey {
+    static let importedFileHandling = "importedFileHandling"
     static let autoSaveEnabled = "autoSaveEnabled"
     static let autoSaveMinutes = "autoSaveMinutes"
     static let audioInputDevice = "audioInputDevice"

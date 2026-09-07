@@ -10,6 +10,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         case none
     }
 
+    var autoSaveAllowed: () -> Bool = { true }
     private let projectDocument: ProjectDocument
     private let preferences: UserDefaults
     private var autoSavePreferencesSubscription: AnyCancellable?
@@ -323,7 +324,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
 
     /// Save committed project changes without opening a save panel or applying editor drafts.
     func autoSaveIfNeeded() {
-        guard AppPreferences.autoSaveInterval(in: preferences) > 0,
+        guard autoSaveAllowed(), AppPreferences.autoSaveInterval(in: preferences) > 0,
               hasUnsavedChanges,
               nativeDocument?.fileURL != nil,
               nativeDocument?.fileType != nil,

@@ -241,8 +241,8 @@ struct ProjectBrowserView: View {
                         }
                     }
                 }
-                if let asset = controller.project.asset(id: id), asset.generator == nil, controller.resolveURL(for: asset) == nil {
-                    Button("Relink Clip\u{2026}") {
+                if let asset = controller.project.asset(id: id), asset.generator == nil {
+                    Button("Relink Media\u{2026}") {
                         controller.selection = .asset(id)
                         controller.relinkSelectedAsset()
                     }

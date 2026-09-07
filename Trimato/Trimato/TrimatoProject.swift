@@ -93,6 +93,7 @@ nonisolated struct MediaAssetRecord: Codable, Hashable, Identifiable, Sendable {
     var generator: GeneratorDefinition? = nil
     var recordingPurpose: RecordingPurpose? = nil
     var recordingRelativePath: String? = nil
+    var projectRelativePath: String? = nil
 
     var editedDuration: ProjectTime {
         sourceEdit.reduce(.zero) { $0 + $1.duration }

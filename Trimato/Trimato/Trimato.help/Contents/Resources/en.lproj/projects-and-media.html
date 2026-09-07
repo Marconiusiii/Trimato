@@ -62,8 +62,30 @@
     <p>If a populated project is changed to Automatic, Trimato resolves the format from its first primary timeline clip.</p>
 
     <h2>Understand non-destructive editing</h2>
-    <p>Trimato does not cut, rewrite, or move an imported source file. Trimming, deleting sections, splitting clips, and arranging the timeline save instructions that identify which source ranges to use and where to use them.</p>
+    <p>Editing does not cut or rewrite an imported source file. Trimming, deleting sections, splitting clips, and arranging the timeline save instructions that identify which source ranges to use and where to use them.</p>
     <p>The project package saves these editing instructions and a reference to each source file. It does not contain a copy of the original media. Keep original files available at their saved locations. If a file is moved, renamed, disconnected, or deleted, Trimato may report it as offline until it is relinked.</p>
+
+    <h2>Relink missing media</h2>
+    <p>Unavailable sources have an error badge and “Source Missing” in their label in Project Source and Timeline Clips. Their edits and timeline positions remain in the project. Trimato checks availability in the background and clears the missing state when the media returns.</p>
+    <ol>
+        <li>Open the source clip’s context menu in Project Source.</li>
+        <li>Choose Relink Media.</li>
+        <li>Select the replacement audio or video file in the Open panel.</li>
+    </ol>
+    <p>The replacement must contain the required audio and video and be long enough for the existing edits. Relinking updates every timeline use of that source.</p>
+
+    <h2>Consolidate project media</h2>
+    <ol>
+        <li>Save the project, then choose File &gt; Consolidate Clips.</li>
+        <li>If sources are missing, use their Relink buttons, then run Consolidate Clips again.</li>
+        <li>Choose Copy Clips to keep the originals, or Move Clips to remove them after verification and a successful project save.</li>
+    </ol>
+    <p>The Clips folder is created beside the .trimato document in the project folder. Consolidation includes imported media and referenced recordings. Generator caches are not copied. Existing destination files are not overwritten, and multiple references to the same source share one copy.</p>
+    <p>Cancel stops the operation at a safe point. If a transfer or save fails, originals are kept. If removing an original fails, the project continues to use its verified copy and the result identifies the original that remains. Keep the .trimato document and its Clips folder together when moving the project in Finder.</p>
+    <p>If Trimato requests folder access, select the folder containing the project. Moving source files can affect other projects that reference those originals.</p>
+
+    <h2>Choose how imports are stored</h2>
+    <p>Open Trimato &gt; Settings &gt; General. Under File handling, use Imported files to choose Keep in Place, Move to Project, or Ask Each Time. Keep in Place is the default. Ask Each Time asks once per import batch. Save the project before importing with Move to Project. This setting affects new media imports; use Consolidate Clips for media already in a project.</p>
 
     <h2>Understand playback compatibility</h2>
     <p>Trimato examines the media streams inside a file instead of deciding compatibility from the filename extension alone. Two files with the same extension can use different codecs.</p>

@@ -448,9 +448,11 @@ private struct ProjectFileCommands: Commands {
                 .disabled(controller == nil)
         }
         CommandGroup(after: .newItem) {
+            Button("Consolidate Clips…") { controller?.mediaFiles.showConsolidation() }
+                .disabled(controller == nil || controller?.isImporting == true || controller?.isExporting == true || controller?.isRelinkingMedia == true || controller?.mediaFiles.isBusy == true)
             Button("Import Files\u{2026}") { controller?.importFiles() }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
-                .disabled(controller == nil || controller?.isImporting == true)
+                .disabled(controller == nil || controller?.isImporting == true || controller?.mediaFiles.isBusy == true || controller?.isRelinkingMedia == true)
         }
     }
 }
