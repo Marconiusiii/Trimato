@@ -30,6 +30,7 @@ final class ClipPreviewCoordinator: ObservableObject {
     private(set) var lastSuccessfulRequest: Request?
     private var currentRequest: Request?
     private var requestID = UUID()
+    private let processingSound = ProcessingSound()
     private var task: Task<Void, Never>?
     private let render: Render
     private let prepare: Prepare
@@ -62,6 +63,7 @@ final class ClipPreviewCoordinator: ObservableObject {
         _ request: Request,
         debounce: Bool = true,
         force: Bool = false,
+        soundFeedback: Bool = false,
         readiness: @escaping @MainActor (Bool) -> Void,
         restoreOriginal: @MainActor () -> Void,
         commit: @escaping @MainActor (AVAsset, URL, Bool) -> Void
@@ -81,6 +83,7 @@ final class ClipPreviewCoordinator: ObservableObject {
 
         let id = requestID
         state = .preparing
+        if soundFeedback { processingSound.start() }
         progress = 0
         readiness(false)
         task = Task { @MainActor [weak self] in
@@ -101,6 +104,7 @@ final class ClipPreviewCoordinator: ObservableObject {
                 // Preparation suspends. Check again before touching the live player.
                 try Task.checkCancellation()
                 guard self.requestID == id else { return }
+                processingSound.stopBeforePlayback()
                 commit(asset, url, request.audio)
                 output = nil
                 self.lastSuccessfulRequest = request
@@ -110,6 +114,7 @@ final class ClipPreviewCoordinator: ObservableObject {
                 readiness(true)
             } catch {
                 guard self.requestID == id else { return }
+                processingSound.stop()
                 self.task = nil
                 if error is CancellationError {
                     self.state = .cancelled
@@ -140,6 +145,7 @@ final class ClipPreviewCoordinator: ObservableObject {
     }
 
     private func invalidate() {
+        processingSound.stop()
         requestID = UUID()
         task?.cancel()
         task = nil

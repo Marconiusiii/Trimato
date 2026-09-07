@@ -39,7 +39,7 @@ struct TrimatoSettingsView: View {
                 .tabItem { Label("Storage", systemImage: "internaldrive") }
         }
         .accessibilityIdentifier(SettingsToolbarAccessibility.contentIdentifier)
-        .frame(width: 600, height: 600)
+        .frame(width: 600, height: 680)
         .focusedSceneValue(\.closeSettings, SettingsCloseAction(capture: capture))
         .task {
             await Task.yield()
@@ -90,6 +90,8 @@ enum SettingsToolbarAccessibility {
 }
 
 private struct GeneralSettingsView: View {
+    @AppStorage(AppPreferenceKey.processingSounds) private var processingSounds = true
+    @AppStorage(AppPreferenceKey.exportCompletionSound) private var exportCompletionSound = true
     @AppStorage(AppPreferenceKey.appearance) private var appearance = AppAppearance.system
     @AppStorage(AppPreferenceKey.importedFileHandling) private var importedFileHandling = ImportedFileHandling.keep
     @AppStorage(AppPreferenceKey.autoSaveEnabled) private var autoSaveEnabled = false
@@ -108,7 +110,7 @@ private struct GeneralSettingsView: View {
     @StateObject private var notificationModel = ExportNotificationSettingsModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 12) {
             Picker("Appearance", selection: $appearance) {
                 ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
             }
@@ -139,6 +141,10 @@ private struct GeneralSettingsView: View {
                 ForEach(ImportedFileHandling.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
+
+            Text("Sounds").font(.headline).accessibilityAddTraits(.isHeader)
+            Toggle("Processing sounds", isOn: $processingSounds)
+            Toggle("Export completion sound", isOn: $exportCompletionSound)
 
             Text("Export notifications")
                 .font(.headline)

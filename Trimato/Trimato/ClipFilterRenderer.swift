@@ -32,14 +32,15 @@ enum ClipFilterRenderer {
         try ProjectRenderMediaManager.requireAvailableSpace(in: directory, duration: report.duration,
                                                            width: report.videoStream?.width, height: report.videoStream?.height, hasVideo: !audio)
         let output = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
-        var graph = active.map(\.graph).joined(separator: ",")
+        let graph = (audio ? ["aresample=48000"] : []) + active.map(\.graph)
+        var graphText = graph.joined(separator: ",")
         if audio, let settings = audioSettings, let gain = FFmpegTimelineEffectRenderer.audioFilter(for: settings) {
-            graph = [graph, gain].filter { !$0.isEmpty }.joined(separator: ",")
+            graphText = [graphText, gain].filter { !$0.isEmpty }.joined(separator: ",")
         }
         // Echo and room decay stay inside the existing clip duration in both
         // preview and project rendering; they never shift later clips.
         if audio, active.contains(where: { $0.kind == .reverb || $0.kind == .echo }) {
-            graph += ",atrim=duration=\(report.duration)"
+            graphText += ",atrim=duration=\(report.duration)"
         }
         var arguments = ["-hide_banner", "-nostdin", "-y"]
         if report.hasAlpha, report.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
@@ -52,7 +53,7 @@ enum ClipFilterRenderer {
                 "[0:\(prefix):0]\(trim)=start=\(segment.sourceRange.start.seconds):end=\(segment.sourceRange.end.seconds),\(pts)=PTS-STARTPTS[s\(index)]"
             }
             let inputs = segments.indices.map { "[s\($0)]" }.joined()
-            let effects = graph.isEmpty ? (audio ? "anull" : "null") : graph
+            let effects = graphText.isEmpty ? (audio ? "anull" : "null") : graphText
             chains.append("\(inputs)concat=n=\(segments.count):v=\(audio ? 0 : 1):a=\(audio ? 1 : 0),\(effects)[out]")
             arguments += ["-filter_complex", chains.joined(separator: ";"), "-map", "[out]"]
         } else if !audio, report.hasAlpha, !active.isEmpty {
@@ -60,10 +61,10 @@ enum ClipFilterRenderer {
             // on a separate branch, applying the same geometry before joining it again.
             let geometry = active.filter { $0.kind == .cropOrientation }.map(\.graph).joined(separator: ",")
             let mask = geometry.isEmpty ? "alphaextract" : "alphaextract,\(geometry)"
-            let chains = "[0:v:0]format=yuva444p:alpha_modes=straight,split[picture][mask];[picture]format=yuv444p,\(graph)[color];[mask]\(mask)[alpha];[color][alpha]alphamerge[out]"
+            let chains = "[0:v:0]format=yuva444p:alpha_modes=straight,split[picture][mask];[picture]format=yuv444p,\(graphText)[color];[mask]\(mask)[alpha];[color][alpha]alphamerge[out]"
             arguments += ["-filter_complex", chains, "-map", "[out]"]
         } else {
-            arguments += ["-map", audio ? "0:a:0" : "0:v:0", audio ? "-af" : "-vf", graph.isEmpty ? (audio ? "anull" : "null") : graph]
+            arguments += ["-map", audio ? "0:a:0" : "0:v:0", audio ? "-af" : "-vf", graphText.isEmpty ? (audio ? "anull" : "null") : graphText]
         }
         if audio { arguments += ["-vn", "-c:a", highPrecision ? "pcm_f32le" : "pcm_s16le", "-ar", "48000"] }
         else { arguments += ["-an", "-c:v", "prores_ks", "-profile:v", report.hasAlpha ? "4" : "1",

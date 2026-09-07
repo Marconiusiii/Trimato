@@ -20,7 +20,10 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     @Published var fitLongTake = false
     @Published var trimLongTake = false
     @Published var ducking: DescriptionDucking
-    @Published var busy = false
+    private let processingSound = ProcessingSound()
+    @Published var busy = false {
+        didSet { if !busy { processingSound.stop() } }
+    }
     @Published var saving = false
     @Published var preparingRecording = false
     @Published var message: ApplicationMessageDescriptor?
@@ -70,6 +73,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
 
     func toggleRecording(_ enabled: Bool) {
         if !enabled, preparingRecording {
+            processingSound.stop()
             operation?.cancel()
             preparingRecording = false
             return
@@ -91,14 +95,21 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         capture.setTestPlayback(false)
     }
 
-    func preview(mixed: Bool, autoplay: Bool = true, recording: Bool = false, limitToRange: Bool = true, seekTime: Double? = nil) {
+    func preview(mixed: Bool, autoplay: Bool = true, recording: Bool = false, seekTime: Double? = nil, soundFeedback: Bool = true) {
         if player.rate != 0 && autoplay && seekTime == nil { stopPlayback(); return }
         guard !busy, !capture.isBusy, let controller else { return }
         stopPlayback()
+        guard validRange else { fail("Set a valid In and Out point before playback."); return }
+        let playbackRange = RecordingPreviewRange(start: start, end: end, bounded: isDescriber)
+        let requestedStart = playbackRange.start
+        let requestedPosition = playbackRange.position(resuming: seekTime)
+        let requestedDucking = ducking
+        let requestedVoice = voice
         previewIncludesTake = mixed
         player.replaceCurrentItem(with: nil)
         clearPreviewFiles()
         busy = true
+        if soundFeedback { processingSound.start() }
         operation = Task { [weak self] in
             guard let self else { return }
             defer { busy = false; preparingRecording = false }
@@ -106,16 +117,16 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
             defer { for url in pendingMedia { try? FileManager.default.removeItem(at: url) } }
             do {
                 var project = controller.project
-                if isDescriber { project.descriptionDucking = ducking }
+                if isDescriber { project.descriptionDucking = requestedDucking }
                 var urls = controller.resolvedMediaURLs()
                 if mixed, capture.testURL != nil {
                     let (url, duration) = try await preparedTake()
                     let asset = recordingAsset(url: url, duration: duration)
-                    let clipID = project.putRecording(asset, at: ProjectTime(seconds: start))
+                    let clipID = project.putRecording(asset, at: ProjectTime(seconds: requestedStart))
                     var audio = AudioClipSettings.neutral
-                    audio.voice = voice
+                    audio.voice = requestedVoice
                     try project.setClipEffects(id: clipID, audio: audio, filters: nil)
-                    project.descriptionDucking = ducking
+                    project.descriptionDucking = requestedDucking
                     urls[asset.id] = url
                 }
                 let result: ProjectCompositionResult
@@ -138,10 +149,12 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
                 item.videoComposition = result.videoComposition
                 item.audioMix = result.audioMix
                 item.audioTimePitchAlgorithm = .spectral
-                if isDescriber && limitToRange && !mixed && !recording && end > start { item.forwardPlaybackEndTime = ProjectTime(seconds: end).cmTime }
+                if let end = playbackRange.end { item.forwardPlaybackEndTime = ProjectTime(seconds: end).cmTime }
                 player.replaceCurrentItem(with: item)
-                await player.seek(to: ProjectTime(seconds: seekTime ?? start).cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                let sought = await player.seek(to: ProjectTime(seconds: requestedPosition).cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                guard sought, player.currentItem === item else { throw CancellationError() }
                 try Task.checkCancellation()
+                processingSound.stopBeforePlayback()
                 if autoplay { player.play() }
                 if recording { capture.setRecording(true, input: input) }
             } catch is CancellationError { }
@@ -164,7 +177,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
             let resume = playing
             let time = position
             stopPlayback()
-            preview(mixed: previewIncludesTake, autoplay: resume, limitToRange: false, seekTime: time)
+            preview(mixed: previewIncludesTake, autoplay: resume, seekTime: time)
         } catch is CancellationError { }
         catch { fail(error.localizedDescription) }
     }
@@ -174,6 +187,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         if takePlaying { stopPlayback(); return }
         stopPlayback()
         busy = true
+        processingSound.start()
         operation = Task { [weak self] in
             guard let self else { return }
             defer { busy = false }
@@ -181,6 +195,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
                 let url = try await processedTake(voice)
                 try Task.checkCancellation()
                 takePlayer.replaceCurrentItem(with: AVPlayerItem(url: url))
+                processingSound.stopBeforePlayback()
                 takePlayer.play()
             } catch is CancellationError { }
             catch { fail(error.localizedDescription) }
@@ -260,6 +275,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         do { try validateForQuit() } catch { fail(error.localizedDescription); return }
         busy = true
         saving = true
+        processingSound.start()
         operation = Task { [weak self] in
             guard let self else { return }
             do {
@@ -280,6 +296,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         stopPlayback()
         busy = true
         saving = true
+        processingSound.start()
         defer { busy = false; saving = false }
         var savedURL: URL?
         do {
@@ -318,6 +335,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
 
     func close() {
         guard !closed else { return }
+        processingSound.stop()
         closed = true
         operation?.cancel()
         player.pause()
@@ -480,8 +498,8 @@ struct ProjectRecordingView: View {
             }
         }
         .task {
-            if session.controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {
-                session.preview(mixed: false, autoplay: false)
+            if session.validRange, session.controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {
+                session.preview(mixed: false, autoplay: false, soundFeedback: false)
             }
         }
         .task(id: session.ducking) { await session.applyDucking() }

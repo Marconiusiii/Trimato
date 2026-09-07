@@ -11,6 +11,7 @@ final class VoiceAdjustmentWork: ObservableObject {
     private let sliderKeyboard = SettingsSliderKeyboard(identifier: "trimato.voice.level")
     func startKeyboard() { sliderKeyboard.start() }
     func stopKeyboard() { sliderKeyboard.stop() }
+    private let processingSound = ProcessingSound()
     private var task: Task<Void, Never>?
     private var files: [URL] = []
     private var rateObserver: AnyCancellable?
@@ -24,10 +25,11 @@ final class VoiceAdjustmentWork: ObservableObject {
     func run(_ action: @escaping @MainActor () async throws -> Void) {
         cancel()
         busy = true
+        processingSound.start()
         let id = generation
         task = Task { [weak self] in
             guard let self else { return }
-            defer { if generation == id { busy = false; task = nil } }
+            defer { if generation == id { processingSound.stop(); busy = false; task = nil } }
             do { try await action() }
             catch is CancellationError { }
             catch {
@@ -41,6 +43,7 @@ final class VoiceAdjustmentWork: ObservableObject {
         try Task.checkCancellation()
         files.append(url)
         player.replaceCurrentItem(with: asset.map { AVPlayerItem(asset: $0) } ?? AVPlayerItem(url: url))
+        processingSound.stopBeforePlayback()
         player.play()
     }
 
@@ -54,10 +57,12 @@ final class VoiceAdjustmentWork: ObservableObject {
         await player.seek(to: CMTime(seconds: destination, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
         try Task.checkCancellation()
         guard player.currentItem === item else { throw CancellationError() }
+        processingSound.stopBeforePlayback()
         player.play()
     }
 
     func cancel() {
+        processingSound.stop()
         generation = UUID()
         task?.cancel()
         task = nil

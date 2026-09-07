@@ -101,12 +101,12 @@ struct MixerView: View {
             Text("Mixer").font(.title2).accessibilityAddTraits(.isHeader)
             MixerPlaybackControls(player: player, play: session.togglePlayback)
             Divider()
+            Text("Track controls").font(.headline).accessibilityAddTraits(.isHeader)
             Picker("Audio track", selection: $session.selectedID) {
                 ForEach(session.tracks) { Text($0.name).tag(Optional($0.id)) }
             }
             .accessibilityIdentifier("trimato.mixer.track")
             .disabled(session.tracks.isEmpty)
-            Text("Track controls").font(.headline).accessibilityAddTraits(.isHeader)
             Group {
                 AudioValueSlider(label: "Volume", value: value(\.volumeDB), range: -60...12, step: 0.5,
                     unit: "dB", identifier: "trimato.mixer.volume", spokenValue: MixerValue.decibels,
@@ -171,6 +171,8 @@ private struct MixerPlaybackControls: View {
                 Button("Go to End", action: player.goToEnd)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Playback")
         .disabled(!player.canControlPlayback)
     }
 }

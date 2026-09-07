@@ -166,6 +166,7 @@ private final class MicrophoneCaptureBackend: AudioCaptureBackend {
     func prepare(_ request: AudioCaptureRequest) throws {
         _ = finish()
         self.request = request
+        AudioCaptureFormat.prepare(device: request.inputDeviceID)
         let engine = AVAudioEngine()
         self.engine = engine
         generation = UUID()
@@ -201,6 +202,13 @@ private final class MicrophoneCaptureBackend: AudioCaptureBackend {
             return
         }
         let node = engine.inputNode
+        guard let unit = node.audioUnit else { throw AudioCaptureError.message("The microphone could not be opened.") }
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, &size) == noErr,
+              device == request.inputDeviceID else {
+            throw AudioCaptureError.message("The selected microphone disconnected. Choose an available input in Settings.")
+        }
         let format = node.inputFormat(forBus: 0)
         guard request.channel >= 0, format.channelCount > request.channel, format.sampleRate > 0 else {
             throw AudioCaptureError.message("The selected input channel is unavailable.")
@@ -245,7 +253,10 @@ private final class MicrophoneCaptureBackend: AudioCaptureBackend {
 @MainActor
 final class AudioCaptureSession: ObservableObject {
     enum State: Equatable { case idle, preparing, recording, finishing }
-    @Published private(set) var state = State.idle
+    private let soundCaptureID = UUID()
+    @Published private(set) var state = State.idle {
+        didSet { InterfaceSounds.shared.capture(soundCaptureID, active: state != .idle) }
+    }
     @Published private(set) var summary: AudioRecordingSummary?
     @Published private(set) var testURL: URL?
     @Published private(set) var isPlaying = false

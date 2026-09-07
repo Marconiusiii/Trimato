@@ -626,6 +626,7 @@ final class ProjectController: ObservableObject {
                 }
                 isExporting = false
                 exportProgress = nil
+                InterfaceSounds.shared.exportCompleted()
                 ExportNotificationCenter.postExportCompleted(filename: outputURL.lastPathComponent)
                 announce("Export complete")
             } catch is CancellationError {

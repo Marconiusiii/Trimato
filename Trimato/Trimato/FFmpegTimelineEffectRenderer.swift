@@ -19,6 +19,7 @@ enum FFmpegTimelineEffectRenderer {
         }
         let inputs = usable.indices.map { "[s\($0)]" }.joined()
         var final = "\(inputs)concat=n=\(usable.count):v=0:a=1"
+        final += ",aresample=48000"
         if let effects = audioFilter(for: settings) { final += ",\(effects)" }
         if stereo { final += ",aformat=sample_fmts=fltp:channel_layouts=stereo" }
         final += "[outa]"
@@ -27,7 +28,7 @@ enum FFmpegTimelineEffectRenderer {
             "-hide_banner", "-nostdin", "-y", "-i", sourceURL.path,
             "-filter_complex", chains.joined(separator: ";"),
             "-map", "[outa]", "-vn", "-sn", "-dn",
-            "-ac", "2", "-c:a", "pcm_f32le", "-progress", "pipe:1", "-nostats", outputURL.path,
+            "-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le", "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {
             _ = try await FFmpegRunner.run(
@@ -134,18 +135,7 @@ enum FFmpegTimelineEffectRenderer {
             throw ProjectTimelineError.transitionNotAvailable("The transition media is no longer available.")
         }
         let half = duration.seconds / 2
-        let referenceReport = try await FFmpegMediaProbe.inspect(url: projectReferenceURL ?? leadingURL)
-        let leadingReport = projectReferenceURL == leadingURL
-            ? referenceReport
-            : try await FFmpegMediaProbe.inspect(url: leadingURL)
-        let trailingReport = projectReferenceURL == trailingURL
-            ? referenceReport
-            : try await FFmpegMediaProbe.inspect(url: trailingURL)
-        let audioFormat = AudioTransitionFormat(
-            reference: referenceReport.audioStream,
-            leading: leadingReport.audioStream,
-            trailing: trailingReport.audioStream
-        )
+        let audioFormat = AudioTransitionFormat(sampleRate: 48000, channelLayout: "stereo")
         var graph: String
         if type == .fadeOutIn {
             graph = audioFadeOutInGraph(
@@ -177,7 +167,7 @@ enum FFmpegTimelineEffectRenderer {
             "-hide_banner", "-nostdin", "-y",
             "-i", leadingURL.path, "-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outa]", "-vn", "-sn", "-dn",
-            "-ac", "2", "-c:a", "pcm_f32le", "-t", number(duration.seconds),
+            "-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le", "-t", number(duration.seconds),
             "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {

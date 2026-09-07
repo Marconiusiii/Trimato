@@ -182,9 +182,16 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
             if event.type == .leftMouseDown || event.type == .leftMouseDragged || event.type == .leftMouseUp {
                 return handleMouse(event, in: window)
             }
+            if event.type == .keyDown, NSWorkspace.shared.isVoiceOverEnabled,
+               NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags),
+               let target = TimelineAccessibilityFocus.selection(), let content = window.contentView,
+               TimelineCollectionView.showContextMenu(for: target, in: content) {
+                consumedKeys.insert(event.keyCode)
+                return nil
+            }
             return handleKey(event, voiceOver: NSWorkspace.shared.isVoiceOverEnabled,
                              editingText: (window.firstResponder as? NSTextView)?.isEditable == true,
-                             currentAccessibilityFocus: focusedTimelineElement())
+                             currentAccessibilityFocus: TimelineAccessibilityFocus.selection())
         }
 
         func handleKey(_ event: NSEvent, voiceOver: Bool, editingText: Bool, currentAccessibilityFocus: TimelineElementSelection? = nil) -> NSEvent? {
@@ -205,26 +212,6 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
             if !event.isARepeat || action == .earlier || action == .later {
                 if mouseSource != nil, action == .earlier || action == .later { beginMouseMovement() }
                 bridge.perform(action, target)
-            }
-            return nil
-        }
-
-        private func focusedTimelineElement() -> TimelineElementSelection? {
-            guard let focused = NSApp.accessibilityFocusedUIElement as? NSObject else { return nil }
-            let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
-            let parentSelector = NSSelectorFromString("accessibilityParent")
-            var element: NSObject? = focused
-            for _ in 0..<12 {
-                guard let current = element else { return nil }
-                if current.responds(to: identifierSelector),
-                   let identifier = current.value(forKey: "accessibilityIdentifier") as? String,
-                   let selection = TimelineElementAccessibilityIdentifier.selection(from: identifier) {
-                    return selection
-                }
-                guard current.responds(to: parentSelector),
-                      let parent = current.value(forKey: "accessibilityParent") as? NSObject,
-                      parent !== current else { return nil }
-                element = parent
             }
             return nil
         }
@@ -360,8 +347,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
         scroll.drawsBackground = false
         context.coordinator.collectionView = collection
         context.coordinator.scrollView = scroll
-        collection.contextMenuProvider = { [weak coordinator = context.coordinator] in
-            coordinator?.menuForSelectedItem()
+        collection.contextMenuProvider = { [weak coordinator = context.coordinator] target in
+            coordinator?.menuForSelectedItem(target: target)
         }
         return scroll
     }
@@ -524,9 +511,16 @@ struct TimelineClipsCollection: NSViewRepresentable {
             return menu
         }
 
-        func menuForSelectedItem() -> NSMenu? {
-            guard let collectionView,
-                  let index = collectionView.selectionIndexPaths.first?.item,
+        func menuForSelectedItem(target: TimelineElementSelection? = nil) -> NSMenu? {
+            if let target {
+                guard models.contains(where: { $0.selection == target }) else { return nil }
+                return makeMenu(for: target)
+            }
+            if NSWorkspace.shared.isVoiceOverEnabled {
+                guard let target = TimelineAccessibilityFocus.selection() else { return nil }
+                return menuForSelectedItem(target: target)
+            }
+            guard let index = collectionView?.selectionIndexPaths.first?.item,
                   models.indices.contains(index) else { return nil }
             return makeMenu(for: models[index].selection)
         }
@@ -623,7 +617,7 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
     }
 }
 
-private final class TimelineCollectionButton: NSButton {
+final class TimelineCollectionButton: NSButton, NSMenuDelegate {
     var showsSelection = false
     var showsTransition = false
 
@@ -648,7 +642,17 @@ private final class TimelineCollectionButton: NSButton {
     var selection: TimelineElementSelection?
     var activate: ((TimelineElementSelection) -> Void)?
     var focus: ((TimelineElementSelection) -> Void)?
-    var menuProvider: ((TimelineElementSelection) -> NSMenu)?
+    var menuProvider: ((TimelineElementSelection) -> NSMenu)? {
+        didSet {
+            if menuProvider == nil { menu = nil }
+            else if menu == nil {
+                let nativeMenu = NSMenu()
+                nativeMenu.delegate = self
+                menuNeedsUpdate(nativeMenu)
+                menu = nativeMenu
+            }
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -670,34 +674,83 @@ private final class TimelineCollectionButton: NSButton {
         return accepted
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? {
-        guard let selection else { return super.menu(for: event) }
-        return menuProvider?(selection)
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        guard let selection, let prepared = menuProvider?(selection) else { return }
+        for item in prepared.items {
+            prepared.removeItem(item)
+            menu.addItem(item)
+        }
+    }
+
+    @discardableResult
+    func showClipMenu(present: (NSMenu, NSView) -> Void = { menu, view in
+        _ = menu.popUp(positioning: nil, at: NSPoint(x: view.bounds.minX, y: view.bounds.maxY), in: view)
+    }) -> Bool {
+        guard isEnabled, selection != nil, let menu, window != nil else { return false }
+        menuNeedsUpdate(menu)
+        menu.update()
+        guard !menu.items.isEmpty else { return false }
+        // Use the button's own identity for native accessibility requests and
+        // position keyboard menus without treating a key event as a mouse event.
+        present(menu, self)
+        return true
     }
 
     override func keyDown(with event: NSEvent) {
-        guard NativeContextMenuShortcut.matches(
-            keyCode: event.keyCode,
-            modifiers: event.modifierFlags
-        ), let menu = menu(for: event) else {
+        guard NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags),
+              showClipMenu() else {
             super.keyDown(with: event)
             return
         }
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
+
 }
 
 private final class TimelineCollectionView: NSCollectionView {
-    var contextMenuProvider: (() -> NSMenu?)?
+    static func showContextMenu(for target: TimelineElementSelection, in view: NSView) -> Bool {
+        if let button = view as? TimelineCollectionButton, button.selection == target {
+            return button.showClipMenu()
+        }
+        for child in view.subviews where !child.isHidden {
+            if showContextMenu(for: target, in: child) { return true }
+        }
+        return false
+    }
+
+    var contextMenuProvider: ((TimelineElementSelection?) -> NSMenu?)?
 
     override func keyDown(with event: NSEvent) {
         guard NativeContextMenuShortcut.matches(
             keyCode: event.keyCode,
             modifiers: event.modifierFlags
-        ), let menu = contextMenuProvider?() else {
+        ), let menu = contextMenuProvider?(nil) else {
             super.keyDown(with: event)
             return
         }
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        _ = menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: bounds.maxY), in: self)
+    }
+}
+
+@MainActor
+enum TimelineAccessibilityFocus {
+    static func selection() -> TimelineElementSelection? {
+        guard let focused = NSApp.accessibilityFocusedUIElement as? NSObject else { return nil }
+        let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
+        let parentSelector = NSSelectorFromString("accessibilityParent")
+        var element: NSObject? = focused
+        for _ in 0..<12 {
+            guard let current = element else { return nil }
+            if current.responds(to: identifierSelector),
+               let identifier = current.value(forKey: "accessibilityIdentifier") as? String,
+               let selection = TimelineElementAccessibilityIdentifier.selection(from: identifier) {
+                return selection
+            }
+            guard current.responds(to: parentSelector),
+                  let parent = current.value(forKey: "accessibilityParent") as? NSObject,
+                  parent !== current else { return nil }
+            element = parent
+        }
+        return nil
     }
 }

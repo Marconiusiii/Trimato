@@ -40,6 +40,20 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Convert unsupported playback formats to a local playback proxy using the bundled FFmpeg tools.
 - Open common audio and video formats through Finder after installing the app in Applications.
 
+## Record narration
+
+Choose a microphone and playback device in Settings > Audio. Use Record Test and Play Test to check the input.
+
+Press Command-Shift-D to open Describer at the Editor markers, or Command-Shift-V to open Voicer at the playhead. Turn Record on to start a take and off to finish. Play take plays the recording alone. Play with Primary Audio mixes it with the project. In Describer, mixed playback starts at In and stops at Out, including after an Audio Ducking change. Play take can play the entire recording if it extends beyond Out.
+
+Choose Add to Project to add the recording as an audio clip. Describer can also save written description text on the Description Transcript track.
+
+## Sound settings
+
+In Settings > General, turn Processing sounds on or off. A soft ascending cue repeats during longer inline actions, such as preparing a recording or filter preview. Immediate actions, loading screens, and export progress remain quiet.
+
+Turn Export completion sound on or off to choose whether Trimato plays a short tune after a successful project export. These settings are separate from export notification permission.
+
 ## Mixer
 
 Choose Playback > Mixer or press Command-Shift-M. Choose a track with the Audio track picker, then adjust its Volume, Mute, Pan, Stereo balance, Stereo width, or Channel routing. The adjustments apply to all clips on that track, alongside each clip's existing audio settings. Playback continues as you change tracks and settings.

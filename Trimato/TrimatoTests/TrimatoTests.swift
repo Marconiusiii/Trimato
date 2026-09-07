@@ -46,7 +46,7 @@ struct TrimatoTests {
 
         #expect(content.title == "Export complete")
         #expect(content.body == "Trimato has completed exporting My Movie.mp4.")
-        #expect(content.sound == .default)
+        #expect(content.sound == nil)
     }
 
     @Test func exportNotificationPermissionStatesHaveRecoverableGuidance() {

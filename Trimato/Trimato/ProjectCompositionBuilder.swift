@@ -351,7 +351,8 @@ enum ProjectCompositionBuilder {
                     var usesRenderedAudio = false
                     let descriptions = try await source?.load(.formatDescriptions) ?? []
                     let channels = descriptions.first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame } ?? 2
-                    if !clip.audioSettings.isNeutral || channels != 2, let sourceURL = mediaURLs[clip.assetID] {
+                    let sampleRate = descriptions.first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mSampleRate } ?? 0
+                    if !clip.audioSettings.isNeutral || channels != 2 || sampleRate != 48000, let sourceURL = mediaURLs[clip.assetID] {
                         let renderedURL: URL
                         do {
                             renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(

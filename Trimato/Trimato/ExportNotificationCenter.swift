@@ -97,7 +97,7 @@ enum ExportNotificationCenter {
         let content = UNMutableNotificationContent()
         content.title = "Export complete"
         content.body = "Trimato has completed exporting \(filename)."
-        content.sound = .default
+        content.sound = nil
         return content
     }
 }
