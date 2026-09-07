@@ -78,6 +78,7 @@ final class ExternalMediaOpenCoordinator: ObservableObject {
     }
 
     func unregister(controller: ProjectController) {
+        MixerWindowRegistry.shared.close(for: controller)
         let identifier = ObjectIdentifier(controller)
         registrations[identifier] = nil
         activationOrder.removeAll { $0 == identifier }

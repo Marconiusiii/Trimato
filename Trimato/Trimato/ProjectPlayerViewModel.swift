@@ -717,6 +717,36 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
+    private var mixerRestartTask: Task<Void, Never>?
+    func toggleMixerPlayback() {
+        guard canControlPlayback else { return }
+        if let task = mixerRestartTask {
+            task.cancel(); mixerRestartTask = nil
+            return
+        }
+        guard !isPlaying, max(currentTime.seconds, player.currentTime().seconds) >= projectDuration.seconds, projectDuration > .zero else {
+            togglePlayback(); return
+        }
+        cancelFrameStepping()
+        stopCaptionRangePlayback(preservingSettlingPosition: false)
+        let item = player.currentItem
+        mixerRestartTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let finished = await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+            guard !Task.isCancelled else { return }
+            mixerRestartTask = nil
+            guard finished, player.currentItem === item, canControlPlayback else { return }
+            updateDisplayedTime(.zero)
+            jklIndex = 1
+            player.rate = 1
+        }
+    }
+
+    func stopMixerPlayback() {
+        mixerRestartTask?.cancel(); mixerRestartTask = nil
+        stop()
+    }
+
     func togglePlayback() {
         guard canControlPlayback else { return }
         cancelFrameStepping()

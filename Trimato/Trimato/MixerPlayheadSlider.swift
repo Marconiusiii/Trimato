@@ -11,6 +11,7 @@ struct MixerPlayheadSlider: View {
         LabeledContent("Project playhead") {
             Slider(value: $value, in: 0...1, step: step)
                 .accessibilityValue(timecode)
+                .accessibilityIdentifier("trimato.mixer.playhead")
         }
     }
 }

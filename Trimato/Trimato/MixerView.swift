@@ -67,6 +67,12 @@ final class MixerSession: ObservableObject {
         soloIDs.remove(selectedID)
         controller.resetTrackMix(selectedID); refresh()
     }
+    func selectAdjacentTrack(_ direction: Int) {
+        guard !tracks.isEmpty else { return }
+        controller.mixerAdjustmentEditing(false)
+        selectedID = MixerTrackNavigation.adjacent(direction, selected: selectedID, tracks: tracks.map(\.id))
+    }
+    func togglePlayback() { player.toggleMixerPlayback() }
     func close() {
         controller.mixerAdjustmentEditing(false)
         player.updateMix(project: controller.project, solo: [])
@@ -82,237 +88,108 @@ final class MixerSession: ObservableObject {
     }
 }
 
-@MainActor
-final class MixerWindowRegistry: ObservableObject {
-    static let shared = MixerWindowRegistry()
-    @Published var session: MixerSession?
-    func open(controller: ProjectController) {
-        guard session == nil, let player = controller.projectPlayer else { return }
-        session = MixerSession(controller: controller, player: player)
-    }
-}
-
-private struct CloseMixerKey: FocusedValueKey { typealias Value = () -> Void }
-extension FocusedValues {
-    var closeMixer: (() -> Void)? {
-        get { self[CloseMixerKey.self] }
-        set { self[CloseMixerKey.self] = newValue }
-    }
-}
-
-struct MixerWindowContent: View {
-    @ObservedObject private var registry = MixerWindowRegistry.shared
-    @ObservedObject private var projects = ExternalMediaOpenCoordinator.shared
-    @Environment(\.dismissWindow) private var dismissWindow
-    var body: some View {
-        Group {
-            if let session = registry.session, let coordinator = session.controller.projectSaveCoordinator {
-                MixerWindowEditor(session: session, coordinator: coordinator)
-                    .blocksEditingDuringQuit()
-                    .focusedSceneObject(session)
-                    .focusedSceneObject(session.controller)
-                    .focusedSceneObject(session.player)
-                    .focusedSceneValue(\.closeMixer, { dismissWindow(id: "mixer") })
-                    .onDisappear {
-                        session.close()
-                        if registry.session === session { registry.session = nil }
-                    }
-            } else {
-                Text("No project open")
-            }
-        }
-        .onChange(of: projects.activeProjectController?.project.id) { _, id in
-            if id != registry.session?.controller.project.id { dismissWindow(id: "mixer") }
-        }
-    }
-}
-
-private struct MixerWindowEditor: View {
-    let session: MixerSession
-    @ObservedObject var coordinator: ProjectWindowSaveCoordinator
-    var body: some View {
-        MixerView(session: session)
-            .disabled(coordinator.isConfirmingClose || coordinator.isResolvingClose)
-    }
-}
-
 struct MixerView: View {
     @ObservedObject var session: MixerSession
-    @FocusState private var volumeKeyboardFocus: Bool
-    @AccessibilityFocusState private var volumeAccessibilityFocus: Bool
+    let player: ProjectPlayerViewModel
 
     private func value(_ key: WritableKeyPath<TrackMixSettings, Double>) -> Binding<Double> {
         Binding(get: { session.selected?.mix[keyPath: key] ?? TrackMixSettings.neutral[keyPath: key] },
                 set: { session.change(key, to: $0) })
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if session.tracks.isEmpty {
-                Text("Add an audio track to use the Mixer.")
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Mixer").font(.title2).accessibilityAddTraits(.isHeader)
+            MixerPlaybackControls(player: player, play: session.togglePlayback)
+            Divider()
+            Picker("Audio track", selection: $session.selectedID) {
+                ForEach(session.tracks) { Text($0.name).tag(Optional($0.id)) }
             }
-            MixerTrackCollection(tracks: session.tracks, selectedID: session.selectedID, soloIDs: session.soloIDs,
-                select: { session.selectedID = $0 }, play: { session.player.togglePlayback() },
-                edit: { volumeKeyboardFocus = true; volumeAccessibilityFocus = true },
-                shuttle: { key in
-                    if key == "j" { session.player.pressJ() }
-                    else if key == "k" { session.player.pressK() }
-                    else { session.player.pressL() }
-                }, navigate: { code in
-                    switch code {
-                    case 123: session.player.goToPreviousEdit()
-                    case 124: session.player.goToNextEdit()
-                    case 126: session.player.goToStart()
-                    default: session.player.goToEnd()
-                    }
-                })
-                .frame(height: 100)
-            MacEditorPane("Track Controls") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Track Controls").font(.headline).accessibilityAddTraits(.isHeader)
-                    HStack {
-                    Slider(value: value(\.volumeDB), in: -60...12, step: 0.5, onEditingChanged: session.controller.mixerAdjustmentEditing) { Text("Volume") }
-                        .accessibilityValue(MixerValue.decibels(session.selected?.mix.volumeDB ?? 0))
-                        .focused($volumeKeyboardFocus).accessibilityFocused($volumeAccessibilityFocus)
-                        Text(MixerValue.decibels(session.selected?.mix.volumeDB ?? 0)).monospacedDigit().frame(width: 150, alignment: .trailing).accessibilityHidden(true)
-                    }
-                    Toggle("Mute", isOn: Binding(get: { session.selected?.muted ?? false }, set: session.mute))
-                    Toggle("Solo", isOn: Binding(get: { session.selectedID.map { session.soloIDs.contains($0) } ?? false }, set: session.solo))
-                    HStack {
-                    Slider(value: value(\.pan), in: -1...1, step: 0.01, onEditingChanged: session.controller.mixerAdjustmentEditing) { Text("Pan") }
-                        .accessibilityValue(MixerValue.position(session.selected?.mix.pan ?? 0))
-                        Text(MixerValue.position(session.selected?.mix.pan ?? 0)).monospacedDigit().frame(width: 150, alignment: .trailing).accessibilityHidden(true)
-                    }
-                    HStack {
-                    Slider(value: value(\.balance), in: -1...1, step: 0.01, onEditingChanged: session.controller.mixerAdjustmentEditing) { Text("Stereo balance") }
-                        .accessibilityValue(MixerValue.position(session.selected?.mix.balance ?? 0))
-                        Text(MixerValue.position(session.selected?.mix.balance ?? 0)).monospacedDigit().frame(width: 150, alignment: .trailing).accessibilityHidden(true)
-                    }
-                    HStack {
-                    Slider(value: value(\.width), in: 0...2, step: 0.01, onEditingChanged: session.controller.mixerAdjustmentEditing) { Text("Stereo width") }
-                        .accessibilityValue(MixerValue.width(session.selected?.mix.width ?? 1))
-                        Text(MixerValue.width(session.selected?.mix.width ?? 1)).monospacedDigit().frame(width: 150, alignment: .trailing).accessibilityHidden(true)
-                    }
-                    Picker("Channel routing", selection: Binding(get: { session.selected?.mix.routing ?? .both }, set: session.route)) {
-                        ForEach(TrackChannelRouting.allCases) { Text($0.title).tag($0) }
-                    }
-                    Button("Reset Track Mix", action: session.reset)
+            .accessibilityIdentifier("trimato.mixer.track")
+            .disabled(session.tracks.isEmpty)
+            Text("Track controls").font(.headline).accessibilityAddTraits(.isHeader)
+            Group {
+                AudioValueSlider(label: "Volume", value: value(\.volumeDB), range: -60...12, step: 0.5,
+                    unit: "dB", identifier: "trimato.mixer.volume", spokenValue: MixerValue.decibels,
+                    onEditingChanged: session.controller.mixerAdjustmentEditing)
+                Toggle("Mute", isOn: Binding(get: { session.selected?.muted ?? false }, set: session.mute))
+                Toggle("Solo", isOn: Binding(get: { session.selectedID.map { session.soloIDs.contains($0) } ?? false }, set: session.solo))
+                AudioValueSlider(label: "Pan", value: value(\.pan), range: -1...1, step: 0.01,
+                    unit: "", identifier: "trimato.mixer.pan", spokenValue: MixerValue.position,
+                    onEditingChanged: session.controller.mixerAdjustmentEditing)
+                AudioValueSlider(label: "Stereo balance", value: value(\.balance), range: -1...1, step: 0.01,
+                    unit: "", identifier: "trimato.mixer.balance", spokenValue: MixerValue.position,
+                    onEditingChanged: session.controller.mixerAdjustmentEditing)
+                AudioValueSlider(label: "Stereo width", value: value(\.width), range: 0...2, step: 0.01,
+                    unit: "", identifier: "trimato.mixer.width", spokenValue: MixerValue.width,
+                    onEditingChanged: session.controller.mixerAdjustmentEditing)
+                Picker("Channel routing", selection: Binding(get: { session.selected?.mix.routing ?? .both }, set: session.route)) {
+                    ForEach(TrackChannelRouting.allCases) { Text($0.title).tag($0) }
                 }
+                Button("Reset Track Mix", action: session.reset)
             }
             .disabled(session.selected == nil)
             Divider()
-            MixerPlaybackView(session: session, player: session.player)
+            AudioValueSlider(label: "Master Volume", value: Binding(get: { session.masterVolumeDB }, set: {
+                session.controller.setMasterVolume($0); session.refresh()
+            }), range: -60...12, step: 0.5, unit: "dB", identifier: "trimato.mixer.master",
+                spokenValue: MixerValue.decibels, onEditingChanged: session.controller.mixerAdjustmentEditing)
         }
-        .padding(20).frame(width: 620)
-        .onKeyPress(characters: CharacterSet(charactersIn: "jkl"), phases: .down) { event in
-            guard event.modifiers.isEmpty, !MixerKeyRouting.textOrChoiceFocused else { return .ignored }
-            switch event.characters.lowercased() {
-            case "j": session.player.pressJ()
-            case "k": session.player.pressK()
-            case "l": session.player.pressL()
-            default: return .ignored
-            }
-            return .handled
-        }
-        .onKeyPress(.space, phases: .down) { event in
-            guard event.modifiers.isEmpty, !MixerKeyRouting.controlOwnsSpace else { return .ignored }
-            session.player.togglePlayback(); return .handled
-        }
-        .onKeyPress(.leftArrow, phases: .down) { event in
-            guard event.modifiers == .command else { return .ignored }
-            session.player.goToPreviousEdit(); return .handled
-        }
-        .onKeyPress(.rightArrow, phases: .down) { event in
-            guard event.modifiers == .command else { return .ignored }
-            session.player.goToNextEdit(); return .handled
-        }
-        .onKeyPress(.upArrow, phases: .down) { event in
-            guard event.modifiers == .command else { return .ignored }
-            session.player.goToStart(); return .handled
-        }
-        .onKeyPress(.downArrow, phases: .down) { event in
-            guard event.modifiers == .command else { return .ignored }
-            session.player.goToEnd(); return .handled
-        }
+        .padding(20)
+        .frame(minWidth: 640, idealWidth: 760)
+        .background(EditorTheme.controlSurface)
+        .blocksEditingDuringQuit()
     }
 }
 
-private struct MixerPlaybackView: View {
-    @ObservedObject var session: MixerSession
+private struct MixerPlaybackControls: View {
     @ObservedObject var player: ProjectPlayerViewModel
+    let play: () -> Void
+    @StateObject private var keyboard = SettingsSliderKeyboard(identifier: "trimato.mixer.playhead")
     var body: some View {
-        MacEditorPane("Project Playback") {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Project Playback").font(.headline).accessibilityAddTraits(.isHeader)
-                MixerPlayheadSlider(value: Binding(get: { player.playbackFraction }, set: { player.seek(toFraction: $0) }),
-                                    step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel)
-                    .tint(EditorTheme.playhead)
-                    .disabled(!player.canControlPlayback)
-                HStack {
-                    Button(player.isPlaying ? "Pause" : "Play") { player.togglePlayback() }
-                    Button("Go to Beginning") { player.goToStart() }
-                    Button("Go to End") { player.goToEnd() }
-                }.disabled(!player.canControlPlayback)
-                HStack {
-                Slider(value: Binding(get: { session.masterVolumeDB }, set: {
-                    session.controller.setMasterVolume($0); session.refresh()
-                }), in: -60...12, step: 0.5, onEditingChanged: session.controller.mixerAdjustmentEditing) { Text("Master Volume") }
-                    .accessibilityValue(MixerValue.decibels(session.masterVolumeDB))
-                    Text(MixerValue.decibels(session.masterVolumeDB)).monospacedDigit().frame(width: 150, alignment: .trailing).accessibilityHidden(true)
-                }
+        VStack(spacing: 10) {
+            MixerPlayheadSlider(value: Binding(get: { player.playbackFraction }, set: { player.seek(toFraction: $0) }),
+                step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel)
+                .tint(EditorTheme.playhead)
+                .onAppear { keyboard.start() }
+                .onDisappear { keyboard.stop() }
+            Button { player.toggleTimecodeDisplay() } label: {
+                Text(player.accessibilityTimecodeLabel).font(.system(.title, design: .monospaced))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Project timecode")
+            .accessibilityValue(player.accessibilityTimecodeLabel)
+            HStack(spacing: 16) {
+                Button("Step backward one frame", systemImage: "backward.frame.fill", action: player.stepBackward)
+                Button("Skip back 10 seconds", systemImage: "gobackward.10", action: player.seekBackward)
+                Button(player.isPlaying ? "Pause" : "Play", systemImage: player.isPlaying ? "pause.fill" : "play.fill", action: play)
+                Button("Skip forward 10 seconds", systemImage: "goforward.10", action: player.seekForward)
+                Button("Step forward one frame", systemImage: "forward.frame.fill", action: player.stepForward)
+            }
+            .labelStyle(.iconOnly)
+            HStack {
+                Button("Go to Beginning", action: player.goToStart)
+                Button("Go to End", action: player.goToEnd)
             }
         }
+        .disabled(!player.canControlPlayback)
     }
 }
-
-nonisolated enum MixerValue {
-    static func decibels(_ value: Double) -> String { String(format: "%.1f dB", value) }
-    static func position(_ value: Double) -> String {
-        abs(value) < 0.005 ? "Center" : "\(Int((abs(value) * 100).rounded())) percent \(value < 0 ? "left" : "right")"
-    }
-    static func width(_ value: Double) -> String {
-        if value == 0 { return "Mono" }
-        if value == 1 { return "Original" }
-        return "\(Int((value * 100).rounded())) percent"
-    }
-}
-
-
-@MainActor
-private enum MixerKeyRouting {
-    private static var focusedRole: String? {
-        let object: NSObject?
-        if NSWorkspace.shared.isVoiceOverEnabled { object = NSApp.accessibilityFocusedUIElement as? NSObject }
-        else { object = NSApp.keyWindow?.firstResponder }
-        guard let object, object.responds(to: NSSelectorFromString("accessibilityRole")) else { return nil }
-        return object.value(forKey: "accessibilityRole") as? String
-    }
-    static var textOrChoiceFocused: Bool {
-        ["AXTextField", "AXTextArea", "AXPopUpButton", "AXComboBox", "AXMenu", "AXMenuItem"].contains(focusedRole ?? "")
-    }
-    static var controlOwnsSpace: Bool {
-        textOrChoiceFocused || ["AXButton", "AXCheckBox", "AXRadioButton", "AXSwitch"].contains(focusedRole ?? "")
-    }
-}
-
 
 struct MixerUndoCommands: Commands {
-    @FocusedObject private var session: MixerSession?
+    @ObservedObject private var registry = MixerWindowRegistry.shared
     var body: some Commands {
-        if let session {
+        if let session = registry.activeSession {
             CommandGroup(replacing: .undoRedo) {
                 Button(session.controller.mixerUndoManager?.undoMenuItemTitle ?? "Undo") {
                     session.controller.mixerAdjustmentEditing(false)
-                    session.controller.mixerUndoManager?.undo()
-                    session.refresh()
-                }
-                .keyboardShortcut("z", modifiers: .command)
-                .disabled(session.controller.mixerUndoManager?.canUndo != true)
+                    session.controller.mixerUndoManager?.undo(); session.refresh()
+                }.keyboardShortcut("z", modifiers: .command)
+                    .disabled(session.controller.mixerUndoManager?.canUndo != true)
                 Button(session.controller.mixerUndoManager?.redoMenuItemTitle ?? "Redo") {
-                    session.controller.mixerUndoManager?.redo()
-                    session.refresh()
-                }
-                .keyboardShortcut("z", modifiers: [.command, .shift])
-                .disabled(session.controller.mixerUndoManager?.canRedo != true)
+                    session.controller.mixerAdjustmentEditing(false)
+                    session.controller.mixerUndoManager?.redo(); session.refresh()
+                }.keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(session.controller.mixerUndoManager?.canRedo != true)
             }
         }
     }

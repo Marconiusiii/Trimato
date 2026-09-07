@@ -134,3 +134,38 @@ extension TrackMixerTests {
         #expect(doubles == [0.1, -0.2, 0.3, -0.4])
     }
 }
+
+extension TrackMixerTests {
+    @Test func ongoingMixChangesOnlyTheAdjustedTrack() {
+        let voice = TrackMixProcessor(trackID: UUID(), matrix: TrackMixSettings.neutral.matrix())
+        let music = TrackMixProcessor(trackID: UUID(), matrix: TrackMixSettings.neutral.matrix())
+        let format = AudioStreamBasicDescription(mSampleRate: 48000, mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: 8, mFramesPerPacket: 1, mBytesPerFrame: 8, mChannelsPerFrame: 2,
+            mBitsPerChannel: 32, mReserved: 0)
+        voice.prepare(format); music.prepare(format)
+        func nextBuffer(_ processor: TrackMixProcessor, left: Float, right: Float) -> [Float] {
+            var samples = (0..<960).flatMap { _ in [left, right] }
+            samples.withUnsafeMutableBytes { bytes in
+                var list = AudioBufferList(mNumberBuffers: 1, mBuffers: AudioBuffer(mNumberChannels: 2,
+                    mDataByteSize: UInt32(bytes.count), mData: bytes.baseAddress))
+                processor.process(&list, frames: 960)
+            }
+            return samples
+        }
+        #expect(nextBuffer(voice, left: 0.2, right: 0.4).suffix(2) == [0.2, 0.4])
+        var adjustment = TrackMixSettings()
+        adjustment.volumeDB = -6
+        adjustment.routing = .swap
+        voice.update(adjustment.matrix())
+        let changed = nextBuffer(voice, left: 0.2, right: 0.4)
+        #expect(abs(changed[1918] - 0.200475) < 0.00001)
+        #expect(abs(changed[1919] - 0.100237) < 0.00001)
+        #expect(nextBuffer(music, left: 0.1, right: 0.1).suffix(2) == [0.1, 0.1])
+        voice.update(.silent)
+        #expect(nextBuffer(voice, left: 0.2, right: 0.4).suffix(2).allSatisfy { abs($0) < 0.00001 })
+        #expect(nextBuffer(music, left: 0.1, right: 0.1).suffix(2) == [0.1, 0.1])
+        voice.update(TrackMixSettings.neutral.matrix())
+        #expect(nextBuffer(voice, left: 0.2, right: 0.4).suffix(2).elementsEqual([0.2, 0.4], by: { abs($0-$1) < 0.00001 }))
+    }
+}

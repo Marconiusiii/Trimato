@@ -785,31 +785,6 @@ struct MainEqualizerControls: View {
     }
 }
 
-/// A native slider with a bounded tick count and native VoiceOver arrow actions.
-struct AudioValueSlider: View {
-    let label: String
-    @Binding var value: Double
-    let range: ClosedRange<Double>
-    let step: Double
-    let unit: String
-    let identifier: String
-    @StateObject private var keyboard: SettingsSliderKeyboard
-    init(label: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double, unit: String, identifier: String) {
-        self.label = label; _value = value; self.range = range; self.step = step; self.unit = unit; self.identifier = identifier
-        _keyboard = StateObject(wrappedValue: SettingsSliderKeyboard(identifier: identifier))
-    }
-    var body: some View {
-        HStack {
-        Slider(value: $value, in: range, step: max(step, (range.upperBound - range.lowerBound) / 200)) { Text(label) }
-            .accessibilityValue(String(format: "%.1f %@", value, unit))
-            .accessibilityIdentifier(identifier)
-            .onAppear { keyboard.start() }
-            .onDisappear { keyboard.stop() }
-        Text(String(format: "%.1f %@", value, unit)).monospacedDigit().accessibilityHidden(true)
-        }
-    }
-}
-
 nonisolated enum AudioClipControlSpecification {
     static let gainRange = -60.0...12.0
     static let equalizerRange = -12.0...12.0

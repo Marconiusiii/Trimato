@@ -42,13 +42,13 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 
 ## Mixer
 
-Choose Playback > Mixer or press Command-Shift-M. Select a track in Audio Tracks, then adjust its Volume, Mute, Pan, Stereo balance, Stereo width, or Channel routing. The adjustments apply to all clips on that track, alongside each clip's existing audio settings. Playback continues as you change tracks and settings.
+Choose Playback > Mixer or press Command-Shift-M. Choose a track with the Audio track picker, then adjust its Volume, Mute, Pan, Stereo balance, Stereo width, or Channel routing. The adjustments apply to all clips on that track, alongside each clip's existing audio settings. Playback continues as you change tracks and settings.
 
 Use Solo to hear one or more tracks by themselves. Solo affects playback only and clears when the Mixer closes. Mute affects both playback and export. Master Volume adjusts the combined project audio. Audio description ducking continues to reduce other project audio during description clips.
 
 Stereo width offers Mono at zero percent and Original at 100 percent. Channel routing can use both channels, send only the left or right source channel to both sides, or swap the channels. Reset Track Mix restores the selected track's defaults and clears its Mute and Solo settings.
 
-Use the Project playhead, Play/Pause, Go to Beginning, and Go to End controls to play the project. J, K, and L control backward playback, pause, and forward playback. In Audio Tracks, Left and Right Arrow select adjacent tracks, Return moves to Volume, and Space plays or pauses.
+Use the Project playhead, Play/Pause, Go to Beginning, and Go to End controls to play the project. J, K, and L control backward playback, pause, and forward playback. Command-Option-Up Arrow selects the previous audio track and Command-Option-Down Arrow selects the next, wrapping at the ends. Track changes leave playback and the current control in place. Frame-step and 10-second skip buttons are also available. Playing again after the project ends starts from the beginning.
 
 Mix changes support Undo and Redo. Command-S saves the project and its mix settings; Command-W closes the Mixer. Saved track and master settings apply to exports.
 

@@ -11,7 +11,9 @@ nonisolated enum ProjectCommandContext {
 struct TrimatoApp: App {
     @NSApplicationDelegateAdaptor(TrimatoApplicationDelegate.self) private var appDelegate
     @FocusedObject private var viewModel: VideoPlayerViewModel?
-    @FocusedObject private var projectPlayer: ProjectPlayerViewModel?
+    @FocusedObject private var focusedProjectPlayer: ProjectPlayerViewModel?
+    @ObservedObject private var mixer = MixerWindowRegistry.shared
+    private var projectPlayer: ProjectPlayerViewModel? { mixer.activeSession?.player ?? focusedProjectPlayer }
     @FocusedObject private var projectController: ProjectController?
     @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
     @Environment(\.openWindow) private var openWindow
@@ -74,13 +76,13 @@ struct TrimatoApp: App {
                 Button("Mixer…") {
                     guard let controller = projectCommandController else { return }
                     MixerWindowRegistry.shared.open(controller: controller)
-                    openWindow(id: "mixer")
                 }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
                 .disabled(projectCommandController?.projectPlayer == nil)
                 Divider()
                 Button("Play or Pause (Space)") {
-                    if let projectPlayer { projectPlayer.togglePlayback() }
+                    if let session = mixer.activeSession { session.togglePlayback() }
+                    else if let projectPlayer { projectPlayer.togglePlayback() }
                     else { viewModel?.togglePlayPause() }
                 }
                 .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
@@ -235,9 +237,6 @@ struct TrimatoApp: App {
             }
         }
 
-        Window("Mixer", id: "mixer") { MixerWindowContent() }
-            .windowResizability(.contentSize)
-
         WindowGroup("Recording", id: "recording", for: UUID.self) { $id in
             if let id { RecordingWindowContent(id: id) }
         }
@@ -359,6 +358,7 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let project = ExternalMediaOpenCoordinator.shared.activeProjectController else { return .terminateNow }
         guard !quitPending else { return .terminateLater }
+        MixerWindowRegistry.shared.activeSession?.controller.mixerAdjustmentEditing(false)
         quitPending = true
         Task { @MainActor [weak self] in
             project.closeProjectForQuit { closed in
@@ -399,7 +399,11 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
 private struct ProjectFileCommands: Commands {
     @ObservedObject private var quitReview = QuitReviewState.shared
     @ObservedObject private var projectOpening = SingleProjectCoordinator.shared
-    @FocusedValue(\.closeMixer) private var closeMixer
+    @ObservedObject private var mixer = MixerWindowRegistry.shared
+    private var closeMixer: (() -> Void)? {
+        guard let window = mixer.activeWindow else { return nil }
+        return { window.performClose(nil) }
+    }
     @FocusedValue(\.closeRecording) private var closeRecording
     @FocusedValue(\.closeSettings) private var closeSettings
     @FocusedObject private var standaloneContext: StandaloneClipCommandContext?
