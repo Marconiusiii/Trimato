@@ -121,6 +121,7 @@ final class CaptionEditorWindowSession: ObservableObject, Identifiable {
     @Published private(set) var errorMessage: String?
     var closeAction: (() -> Void)?
 
+    private let initialText: String
     private let saveAction: (String) throws -> Void
     private let playAction: () -> Void
     private var finishedAction: (() -> Void)?
@@ -135,6 +136,7 @@ final class CaptionEditorWindowSession: ObservableObject, Identifiable {
         title = cue == nil ? "New Caption" : "Edit Caption"
         actionTitle = cue == nil ? "Add Caption" : "Update Caption"
         text = cue?.text ?? ""
+        initialText = cue?.text ?? ""
         self.range = range
         saveAction = save
         playAction = play
@@ -143,6 +145,12 @@ final class CaptionEditorWindowSession: ObservableObject, Identifiable {
 
     var canSave: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasPendingQuitEdits: Bool { text != initialText }
+    func saveForQuit() throws {
+        guard canSave else { throw QuitDraftError(message: "Enter caption text before saving.") }
+        try saveAction(text)
     }
 
     func save() {
@@ -235,6 +243,9 @@ struct CaptionEditorView: View {
         }
         .padding(20)
         .frame(minWidth: 520, minHeight: 350)
+        .pendingQuitDraft(session.text, pending: session.hasPendingQuitEdits,
+            validate: { if !session.canSave { throw QuitDraftError(message: "Enter caption text before saving.") } },
+            apply: { try session.saveForQuit() })
         .navigationTitle(session.title)
         .onChange(of: focusRequest.revision, initial: true) { _, revision in
             guard revision > 0 else { return }

@@ -2,6 +2,14 @@ import AppKit
 import SwiftUI
 
 struct QuickTransitionView: View {
+    private struct QuitDraft: Equatable {
+        let intro: Bool
+        let outro: Bool
+        let audio: Bool
+        let duration: String
+        let fadeIn: String
+        let fadeOut: String
+    }
     let project: TrimatoProject
     let request: TransitionRequest
     let add: ([TimelineTransition]) -> Void
@@ -53,6 +61,14 @@ struct QuickTransitionView: View {
         }
         .padding(20)
         .frame(width: 430)
+        .pendingQuitDraft(QuitDraft(intro: addIntro, outro: addOutro, audio: includeAudio, duration: durationText, fadeIn: fadeInDurationText, fadeOut: fadeOutDurationText),
+            pending: request.mode != .quickFade || addIntro || addOutro,
+            validate: { _ = try quitTransitions() }, apply: {
+                guard let controller = ExternalMediaOpenCoordinator.shared.activeProjectController else {
+                    throw QuitDraftError(message: "The transition project is no longer open.")
+                }
+                try controller.addTransitions(quitTransitions())
+            })
     }
 
     private var transitionName: String {
@@ -118,32 +134,31 @@ struct QuickTransitionView: View {
     }
 
     private func apply() {
+        do { submit(try quitTransitions()) }
+        catch { showValidation(error.localizedDescription) }
+    }
+
+    private func quitTransitions() throws -> [TimelineTransition] {
         guard let duration = TransitionDurationInput.parse(request.mode == .quickCross ? durationText : "1") else {
-            showValidation("Enter a duration greater than zero, such as 1.0 or 1.25 seconds.")
-            return
+            throw QuitDraftError(message: "Enter a duration greater than zero, such as 1.0 or 1.25 seconds.")
         }
         guard let track, let clip else {
-            showValidation("The timeline clip is no longer available.")
-            return
+            throw QuitDraftError(message: "The timeline clip is no longer available.")
         }
         if request.mode == .quickFade {
             guard let fadeIn = TransitionDurationInput.parse(addIntro ? fadeInDurationText : "1"),
                   let fadeOut = TransitionDurationInput.parse(addOutro ? fadeOutDurationText : "1") else {
-                showValidation("Enter a duration greater than zero for each enabled fade.")
-                return
+                throw QuitDraftError(message: "Enter a duration greater than zero for each enabled fade.")
             }
             guard let transitions = request.makeFades(in: project,
                 fadeInDuration: addIntro ? fadeIn : nil, fadeOutDuration: addOutro ? fadeOut : nil,
                 includeAudio: includeAudio) else {
-                showValidation("The timeline clip is no longer available.")
-                return
+                throw QuitDraftError(message: "The timeline clip is no longer available.")
             }
-            submit(transitions)
-            return
+            return transitions
         }
         guard let followingClip else {
-            showValidation("Move the playhead to a clip with a following edit.")
-            return
+            throw QuitDraftError(message: "Move the playhead to a clip with a following edit.")
         }
         var transitions = [TimelineTransition(
             trackID: track.id,
@@ -163,7 +178,7 @@ struct QuickTransitionView: View {
                 trailingClipID: trailing.id
             ))
         }
-        submit(transitions)
+        return transitions
     }
 
     private func submit(_ transitions: [TimelineTransition]) {

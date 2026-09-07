@@ -31,6 +31,12 @@ struct TrimatoApp: App {
         .defaultSize(width: 560, height: 680)
         .windowResizability(.contentSize)
 
+        Window("Save changes before quitting?", id: "quit-review") {
+            QuitReviewWindow()
+        }
+        .windowResizability(.contentSize)
+        .defaultSize(width: 460, height: 190)
+
         DocumentGroup(newDocument: { ProjectDocument() }) { file in
             EditorWorkspaceView(document: file.document)
         }
@@ -371,6 +377,7 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
 }
 
 private struct ProjectFileCommands: Commands {
+    @ObservedObject private var quitReview = QuitReviewState.shared
     @ObservedObject private var projectOpening = SingleProjectCoordinator.shared
     @FocusedValue(\.closeRecording) private var closeRecording
     @FocusedValue(\.closeSettings) private var closeSettings
@@ -405,8 +412,10 @@ private struct ProjectFileCommands: Commands {
 
         }
         CommandGroup(replacing: .saveItem) {
-            Button(closeSettings != nil ? "Close Settings" : (closeRecording != nil ? controller?.recordingSession.map { "Close \($0.purpose.toolTitle)" } : nil) ?? (controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project"))) {
-                if let closeSettings {
+            Button(quitReview.coordinator != nil ? "Cancel Quit" : closeSettings != nil ? "Close Settings" : (closeRecording != nil ? controller?.recordingSession.map { "Close \($0.purpose.toolTitle)" } : nil) ?? (controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project"))) {
+                if let coordinator = quitReview.coordinator {
+                    coordinator.cancelQuitReview()
+                } else if let closeSettings {
                     closeSettings()
                 } else if let closeRecording {
                     closeRecording()
@@ -419,9 +428,12 @@ private struct ProjectFileCommands: Commands {
                 }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(closeRecording == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil)
+            .disabled(quitReview.coordinator?.isResolvingClose == true || quitReview.coordinator == nil && closeRecording == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil)
             Divider()
-            Button("Save") { controller?.saveProjectDocument() }
+            Button(quitReview.coordinator != nil ? "Save and Quit" : "Save") {
+                if let coordinator = quitReview.coordinator { coordinator.chooseCloseDecision(.save) }
+                else { controller?.saveProjectDocument() }
+            }
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(controller == nil)
             Button("Save As\u{2026}") { controller?.saveProjectDocumentAs() }

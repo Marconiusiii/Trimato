@@ -98,6 +98,31 @@ final class DefaultActionButton: NSButton {
 /// owning feature closes it.
 @MainActor
 final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
+    private static var active: [WeakModal] = []
+    private struct WeakModal { weak var controller: NativeModalWindowController? }
+    private var suspendedForQuit = false
+    private var resumingAfterQuit = false
+
+    static func suspendForQuitReview() {
+        for item in active.reversed() {
+            guard let controller = item.controller, let session = controller.modalSession else { continue }
+            controller.modalSessionTimer?.invalidate()
+            controller.modalSessionTimer = nil
+            NSApp.endModalSession(session)
+            controller.modalSession = nil
+            controller.suspendedForQuit = true
+        }
+    }
+
+    static func resumeAfterQuitCancelled() {
+        for item in active {
+            guard let controller = item.controller, controller.suspendedForQuit, !controller.didClose else { continue }
+            controller.suspendedForQuit = false
+            controller.resumingAfterQuit = true
+            controller.showModal()
+        }
+    }
+
     private var didClose = false
     private var closeRequested = false
     private var windowIsClosing = false
@@ -153,6 +178,8 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
 
     func showModal() {
         guard let window, modalSession == nil else { return }
+        Self.active.removeAll { $0.controller == nil || $0.controller === self }
+        Self.active.append(WeakModal(controller: self))
         modalSession = NSApp.beginModalSession(for: window)
         let timer = Timer(
             timeInterval: 1.0 / 30.0,
@@ -183,6 +210,10 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        if suspendedForQuit || resumingAfterQuit {
+            resumingAfterQuit = false
+            return
+        }
         focusRequest?.request()
     }
 

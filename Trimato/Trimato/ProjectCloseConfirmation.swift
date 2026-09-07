@@ -9,17 +9,23 @@ struct ProjectCloseConfirmation: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Save changes to \(coordinator.projectName)?")
+            Text(coordinator.isApplicationTerminating ? "Save changes before quitting?" : "Save changes to \(coordinator.projectName)?")
                 .font(.headline).accessibilityAddTraits(.isHeader)
-            Text("The project has changes since your last Save.")
+            Text(coordinator.isApplicationTerminating ? "Save the project and pending editor changes before quitting Trimato." : "The project has changes since your last Save.")
+            if let error = coordinator.quitError {
+                Text(error).textSelection(.enabled)
+            }
+            if coordinator.isResolvingClose && coordinator.isApplicationTerminating {
+                Text("Saving changes…")
+            }
             HStack {
-                Button("Don’t Save") { coordinator.chooseCloseDecision(.discard) }
+                Button(coordinator.isApplicationTerminating ? "Quit Without Saving" : "Don’t Save") { coordinator.chooseCloseDecision(.discard) }
                 Spacer()
                 Button("Cancel") { coordinator.chooseCloseDecision(.cancel) }
                     .keyboardShortcut(.cancelAction)
                     .focused($cancelFocused)
                     .accessibilityFocused($cancelVoiceOverFocused)
-                Button("Save") { coordinator.chooseCloseDecision(.save) }
+                Button(coordinator.isApplicationTerminating ? "Save and Quit" : "Save") { coordinator.chooseCloseDecision(.save) }
                     .keyboardShortcut(.defaultAction)
             }
         }

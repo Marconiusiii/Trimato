@@ -35,6 +35,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     private var temporaryURLs: [URL] = []
     private var showPreview: (project: TrimatoProject, result: ProjectCompositionResult)?
     private var closed = false
+    private var originalQuitDraft: QuitDraft?
     private var previewIncludesTake = false
 
     var saveTitle: String { editingCueID == nil ? "Add to Project" : "Save Description" }
@@ -64,6 +65,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] time in
             Task { @MainActor [weak self] in self?.position = max(0, time.seconds) }
         }
+        originalQuitDraft = quitDraft
     }
 
     func toggleRecording(_ enabled: Bool) {
@@ -228,55 +230,89 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         return asset
     }
 
-    func save() {
-        guard validRange, !busy, !capture.isBusy, let controller else { return }
+    struct QuitDraft: Equatable {
+        let name: String
+        let text: String
+        let start: Double
+        let end: Double
+        let voice: VoiceAdjustment
+        let ducking: DescriptionDucking
+        let take: URL?
+        let speed: Bool
+        let trim: Bool
+    }
+    var quitDraft: QuitDraft {
+        QuitDraft(name: name, text: text, start: start, end: end, voice: voice, ducking: ducking,
+                  take: capture.testURL, speed: fitLongTake, trim: trimLongTake)
+    }
+    var hasPendingQuitEdits: Bool { capture.isBusy || capture.testURL != nil || quitDraft != originalQuitDraft }
+    func validateForQuit() throws {
+        guard validRange else { throw QuitDraftError(message: "Set a valid recording In and Out range before saving.") }
+        guard !capture.isBusy, !busy else { throw QuitDraftError(message: "Stop recording and wait for the take to finish before saving.") }
         guard ducking.decibels.isFinite, (-60...0).contains(ducking.decibels),
               ducking.fadeSeconds.isFinite, (0.01...5).contains(ducking.fadeSeconds) else {
-            fail("Use an audio reduction from −60 to 0 dB and a fade time from 0.01 to 5 seconds.")
-            return
+            throw QuitDraftError(message: "Use an Audio Ducking Amount from −60 to 0 dB and a fade time from 0.01 to 5 seconds.")
         }
-        stopPlayback()
+        try voice.validate()
+    }
+
+    func save() {
+        do { try validateForQuit() } catch { fail(error.localizedDescription); return }
         busy = true
         saving = true
         operation = Task { [weak self] in
             guard let self else { return }
-            defer { busy = false; saving = false }
-            var savedURL: URL?
             do {
-                var cue: CaptionCue?
-                if isDescriber, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    cue = try CaptionCue(id: editingCueID ?? UUID(), start: range.start, end: range.end, text: text).validated()
-                }
-                var asset: MediaAssetRecord?
-                if capture.testURL != nil {
-                    let (source, duration) = try await preparedTake()
-                    let folder = try await controller.recordingsDirectory()
-                    try Task.checkCancellation()
-                    let cleanName = name.components(separatedBy: CharacterSet(charactersIn: "/:\n\r")).joined(separator: " ")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    let filename = String((cleanName.isEmpty ? purpose.title : cleanName).prefix(80))
-                    let url = folder.appendingPathComponent("\(filename) \(UUID().uuidString).wav")
-                    try FileManager.default.copyItem(at: source, to: url)
-                    savedURL = url
-                    var record = recordingAsset(url: url, duration: duration)
-                    record.bookmarkData = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
-                    record.recordingRelativePath = "Recordings/\(url.lastPathComponent)"
-                    asset = record
-                }
-                guard asset != nil || cue != nil else { throw AudioCaptureError.message(isDescriber ? "Enter description text or record a take." : "Record a take first.") }
-                try Task.checkCancellation()
-                guard !closed else { throw CancellationError() }
-                try voice.validate()
-                if asset != nil { try await validateVoice(voice) }
-                try Task.checkCancellation()
-                try controller.addProjectRecording(asset: asset, at: ProjectTime(seconds: start), cue: cue, ducking: ducking, voice: voice)
-                controller.dismissRecording()
-            } catch is CancellationError {
-                if let savedURL { try? FileManager.default.removeItem(at: savedURL) }
-            } catch {
-                if let savedURL { try? FileManager.default.removeItem(at: savedURL) }
-                fail(error.localizedDescription)
+                try await persistRecording()
+                controller?.dismissRecording()
+            } catch is CancellationError { }
+            catch { fail(error.localizedDescription) }
+        }
+    }
+
+    func saveForQuit() async throws {
+        try validateForQuit()
+        try await persistRecording()
+    }
+
+    private func persistRecording() async throws {
+        guard let controller else { throw QuitDraftError(message: "The recording project is no longer open.") }
+        stopPlayback()
+        busy = true
+        saving = true
+        defer { busy = false; saving = false }
+        var savedURL: URL?
+        do {
+            var cue: CaptionCue?
+            if isDescriber, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                cue = try CaptionCue(id: editingCueID ?? UUID(), start: range.start, end: range.end, text: text).validated()
             }
+            var asset: MediaAssetRecord?
+            if capture.testURL != nil {
+                let (source, duration) = try await preparedTake()
+                let folder = try await controller.recordingsDirectory()
+                try Task.checkCancellation()
+                let cleanName = name.components(separatedBy: CharacterSet(charactersIn: "/:\n\r")).joined(separator: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let filename = String((cleanName.isEmpty ? purpose.title : cleanName).prefix(80))
+                let url = folder.appendingPathComponent("\(filename) \(UUID().uuidString).wav")
+                try FileManager.default.copyItem(at: source, to: url)
+                savedURL = url
+                var record = recordingAsset(url: url, duration: duration)
+                record.bookmarkData = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+                record.recordingRelativePath = "Recordings/\(url.lastPathComponent)"
+                asset = record
+            }
+            guard asset != nil || cue != nil else { throw AudioCaptureError.message(isDescriber ? "Enter description text or record a take." : "Record a take first.") }
+            try Task.checkCancellation()
+            guard !closed else { throw CancellationError() }
+            try voice.validate()
+            if asset != nil { try await validateVoice(voice) }
+            try Task.checkCancellation()
+            try controller.addProjectRecording(asset: asset, at: ProjectTime(seconds: start), cue: cue, ducking: ducking, voice: voice)
+        } catch {
+            if let savedURL { try? FileManager.default.removeItem(at: savedURL) }
+            throw error
         }
     }
 
@@ -451,6 +487,8 @@ struct ProjectRecordingView: View {
         .task(id: session.ducking) { await session.applyDucking() }
         .onChange(of: selectedTab) { voiceWork.cancel(); if !capture.isBusy { session.stopPlayback() } }
         .onChange(of: session.voice) { session.stopPlayback() }
+        .pendingQuitDraft(session.quitDraft, pending: session.hasPendingQuitEdits,
+            validate: { try session.validateForQuit() }, apply: { try await session.saveForQuit() })
         .onDisappear { voiceWork.cancel(); session.close() }
         .applicationMessage(voiceWork.message ?? session.message ?? capture.message) { voiceWork.message = nil; session.message = nil; capture.message = nil }
     }

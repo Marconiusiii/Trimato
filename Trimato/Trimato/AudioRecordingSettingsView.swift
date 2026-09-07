@@ -8,10 +8,7 @@ struct AudioRecordingSettingsView: View {
     @StateObject private var input = AudioInputManager.shared
     @ObservedObject private var capture: AudioCaptureSession
     @ObservedObject private var output = AudioOutputManager.shared
-    @AccessibilityFocusState private var pickerFocus: PickerTarget?
-    @State private var focusTask: Task<Void, Never>?
     @State private var message: ApplicationMessageDescriptor?
-    private enum PickerTarget: Hashable { case input, channel, depth, output }
 
     init(capture: AudioCaptureSession? = nil) {
         self.capture = capture ?? AudioCaptureSession()
@@ -43,9 +40,8 @@ struct AudioRecordingSettingsView: View {
                     label: { Text("Microphone").accessibilityHidden(true) }
                     .pickerStyle(.menu)
                     .accessibilityLabel("Microphone")
-                    .accessibilityFocused($pickerFocus, equals: .input)
                     .disabled(capture.isBusy)
-                    Picker(selection: Binding(get: { input.channel }, set: { input.channel = $0; restore(.channel) })) {
+                    Picker(selection: $input.channel) {
                         ForEach(0..<max(1, input.resolvedDevice?.inputChannels ?? 1), id: \.self) { Text("Channel \($0 + 1)").tag($0) }
                         if input.channel >= max(1, input.resolvedDevice?.inputChannels ?? 1) {
                             Text("Channel \(input.channel + 1) unavailable").tag(input.channel)
@@ -54,7 +50,6 @@ struct AudioRecordingSettingsView: View {
                     label: { Text("Microphone channel").accessibilityHidden(true) }
                     .pickerStyle(.menu)
                     .accessibilityLabel("Microphone channel")
-                    .accessibilityFocused($pickerFocus, equals: .channel)
                     .disabled(capture.isBusy)
                     Picker(selection: $input.bitDepth) {
                         Text("Standard").tag(16)
@@ -63,7 +58,6 @@ struct AudioRecordingSettingsView: View {
                     label: { Text("Recording quality").accessibilityHidden(true) }
                     .pickerStyle(.menu)
                     .accessibilityLabel("Recording quality")
-                    .accessibilityFocused($pickerFocus, equals: .depth)
                     .disabled(capture.isBusy)
                     MicrophoneVolumeSlider(value: Binding(get: { Double(input.hardwareGain ?? 0) * 100 }, set: { value in
                         do { try input.setGain(Float(value / 100)) }
@@ -86,7 +80,6 @@ struct AudioRecordingSettingsView: View {
                 label: { Text("Playback device").accessibilityHidden(true) }
                 .pickerStyle(.menu)
                 .accessibilityLabel("Playback device")
-                .accessibilityFocused($pickerFocus, equals: .output)
                 .disabled(capture.isBusy)
             }
             Text("Recording test")
@@ -96,7 +89,6 @@ struct AudioRecordingSettingsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Toggle("Record Test", isOn: Binding(get: { capture.isRecordingRequested }, set: { enabled in
-                            focusTask?.cancel()
                             capture.setRecording(enabled, input: input)
                         }))
                         .toggleStyle(.button)
@@ -119,12 +111,9 @@ struct AudioRecordingSettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(20)
-        .onChange(of: input.selectedUID) { _, _ in restore(.input) }
-        .onChange(of: input.bitDepth) { _, _ in restore(.depth) }
-        .onChange(of: output.selectedUID) { _, _ in restore(.output) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in input.refresh(); output.refresh() }
         .onAppear { sliderKeyboard.start() }
-        .onDisappear { sliderKeyboard.stop(); focusTask?.cancel(); capture.close() }
+        .onDisappear { sliderKeyboard.stop(); capture.close() }
         .applicationMessage(capture.message ?? message) { capture.message = nil; message = nil }
     }
 
@@ -140,21 +129,6 @@ struct AudioRecordingSettingsView: View {
         case .preparing: "Preparing recording"
         case .recording: "Recording"
         case .finishing: "Finishing recording"
-        }
-    }
-
-    private func restore(_ target: PickerTarget) {
-        focusTask?.cancel()
-        pickerFocus = nil
-        focusTask = Task { @MainActor in
-            do {
-                try await Task.sleep(for: .milliseconds(200))
-                guard !capture.isBusy else { return }
-                pickerFocus = target
-                try await Task.sleep(for: .milliseconds(350))
-                guard !capture.isBusy else { return }
-                pickerFocus = target
-            } catch { }
         }
     }
 }

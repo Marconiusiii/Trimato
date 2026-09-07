@@ -18,6 +18,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private var windowCloseRequested: (() -> Void)?
     @Published var isConfirmingClose = false
     @Published private(set) var isResolvingClose = false
+    @Published private(set) var quitError: String?
     private var closeDecision: ProjectCloseDecision?
     private var executingCloseDecision = false
     private var closeWaitsForSave = false
@@ -26,6 +27,8 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private var pendingCloseCompletion: ((Bool) -> Void)?
     private var windowBecameKeyObserver: NSObjectProtocol?
     private var windowWillCloseObserver: NSObjectProtocol?
+    private var sheetEndedObserver: NSObjectProtocol?
+    private var awaitingCloseDismissal = false
     private var applicationWillTerminateObserver: NSObjectProtocol?
     private var unsavedChangesSubscription: AnyCancellable?
     private var windowBecameKeyHandler: (() -> Void)?
@@ -33,7 +36,8 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private var lastProjectWindowWillCloseHandler: (() -> Void)?
     private var isFinishingProjectWindowClose = false
     private var didRestoreLauncherAfterClose = false
-    private var isApplicationTerminating = false
+    @Published private(set) var isApplicationTerminating = false
+    private var quitEdits: ProjectQuitEdits?
     @Published private(set) var windowAttachmentRevision = 0
     @Published var presentedError: ProjectPresentedError?
 
@@ -55,6 +59,7 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     }
 
     deinit {
+        if let sheetEndedObserver { NotificationCenter.default.removeObserver(sheetEndedObserver) }
         if let windowBecameKeyObserver {
             NotificationCenter.default.removeObserver(windowBecameKeyObserver)
         }
@@ -89,6 +94,13 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         }
         if let windowWillCloseObserver {
             NotificationCenter.default.removeObserver(windowWillCloseObserver)
+        }
+        if let sheetEndedObserver { NotificationCenter.default.removeObserver(sheetEndedObserver) }
+        sheetEndedObserver = NotificationCenter.default.addObserver(forName: NSWindow.didEndSheetNotification, object: window, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.awaitingCloseDismissal else { return }
+                self.closeConfirmationDismissed()
+            }
         }
         self.window = window
         window.isRestorable = false
@@ -144,6 +156,22 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
 
     func setTerminationRequested(_ value: Bool) { isApplicationTerminating = value }
 
+    func requestQuit(edits: ProjectQuitEdits, completion: @escaping (Bool) -> Void) {
+        guard nativeDocument != nil, pendingCloseCompletion == nil else { completion(false); return }
+        isApplicationTerminating = true
+        quitEdits = edits
+        quitError = nil
+        NativeModalWindowController.suspendForQuitReview()
+        QuitReviewState.shared.coordinator = self
+        requestClose(completion: completion)
+    }
+
+    func cancelQuitReview() {
+        guard pendingCloseCompletion != nil, !isResolvingClose else { return }
+        chooseCloseDecision(.cancel)
+        closeConfirmationDismissed()
+    }
+
     var projectName: String { projectDocument.project.name }
 
     func requestClose(completion: @escaping (Bool) -> Void) {
@@ -157,9 +185,9 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     }
 
     private func beginCloseReview() {
-        if hasUnsavedChanges {
+        if hasUnsavedChanges || quitEdits?.hasChanges == true {
             confirmationOrigin = NSApp.keyWindow
-            window?.makeKeyAndOrderFront(nil)
+            if !isApplicationTerminating { window?.makeKeyAndOrderFront(nil) }
             isConfirmingClose = true
         } else {
             finishClosing()
@@ -176,6 +204,9 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     // Called after the confirmation sheet has left, before presenting a save panel.
     func closeConfirmationDismissed() {
         guard pendingCloseCompletion != nil, !executingCloseDecision else { return }
+        awaitingCloseDismissal = true
+        guard isApplicationTerminating || window?.attachedSheet == nil else { return }
+        awaitingCloseDismissal = false
         executingCloseDecision = true
         let decision = closeDecision ?? .cancel
         closeDecision = nil
@@ -183,11 +214,19 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         case .cancel:
             completeClose(false)
         case .save:
-            save { [weak self] saved in
-                guard let self else { return }
-                if saved && !self.hasUnsavedChanges { self.finishClosing() }
-                else { self.completeClose(false) }
-            }
+            if let quitEdits {
+                Task { @MainActor in
+                    do {
+                        try await quitEdits.apply()
+                        self.saveAfterCloseReview()
+                    } catch {
+                        self.quitError = error.localizedDescription
+                        self.isResolvingClose = false
+                        self.executingCloseDecision = false
+                        self.isConfirmingClose = true
+                    }
+                }
+            } else { saveAfterCloseReview() }
         case .discard:
             let discarded = projectDocument.restoreExplicitlySavedProject()
             guard nativeDocument?.fileURL != nil else {
@@ -208,6 +247,14 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         }
     }
 
+    private func saveAfterCloseReview() {
+        save { [weak self] saved in
+            guard let self else { return }
+            if saved && !self.hasUnsavedChanges { self.finishClosing() }
+            else { self.completeClose(false) }
+        }
+    }
+
     private func finishClosing() {
         guard let nativeDocument else { completeClose(false); return }
         nativeDocument.updateChangeCount(.changeCleared)
@@ -219,11 +266,18 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     private func completeClose(_ closed: Bool) {
         let completion = pendingCloseCompletion
         pendingCloseCompletion = nil
+        awaitingCloseDismissal = false
         isResolvingClose = false
         executingCloseDecision = false
         closeDecision = nil
         if !closed, confirmationOrigin?.isVisible == true { confirmationOrigin?.makeKeyAndOrderFront(nil) }
         confirmationOrigin = nil
+        quitEdits = nil
+        if QuitReviewState.shared.coordinator === self { QuitReviewState.shared.coordinator = nil }
+        if !closed {
+            isApplicationTerminating = false
+            NativeModalWindowController.resumeAfterQuitCancelled()
+        }
         completion?(closed)
     }
 
@@ -399,7 +453,9 @@ final class ProjectWindowAttachmentView: NSView {
 enum ProjectSaveKeyboard {
     static func handle(_ event: NSEvent, controller: ProjectController?) -> NSEvent? {
         guard let controller, let saveAs = saveAsCommand(event) else { return event }
-        if saveAs { controller.saveProjectDocumentAs() }
+        if let coordinator = QuitReviewState.shared.coordinator {
+            coordinator.chooseCloseDecision(.save)
+        } else if saveAs { controller.saveProjectDocumentAs() }
         else { controller.saveProjectDocument() }
         return nil
     }

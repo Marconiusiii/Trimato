@@ -159,6 +159,11 @@ struct EditRecordedVoiceFilterView: View {
         .padding(20).frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)
         .applicationMessage(work.message) { work.message = nil }
+        .pendingQuitDraft(voice, pending: voice != context.audioSettings?.voice,
+            validate: { try voice.validate() }, apply: {
+                work.cancel()
+                context.audioSettings?.voice = voice
+            })
         .onDisappear { work.cancel() }
     }
 }
@@ -183,6 +188,12 @@ nonisolated enum AddFilterChoice: Hashable, Identifiable {
         }
         return choices
     }
+}
+
+private struct QuitFilterDraft: Equatable {
+    let selection: AddFilterChoice
+    let filter: ClipFilter
+    let voice: VoiceAdjustment
 }
 
 struct AddClipFilterView: View {
@@ -282,6 +293,20 @@ struct AddClipFilterView: View {
         .frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)
         .applicationMessage(voiceWork.message) { voiceWork.message = nil }
+        .pendingQuitDraft(QuitFilterDraft(selection: selection, filter: draft, voice: voiceDraft), pending: !available.isEmpty,
+            validate: {
+                if selection == .voiceMatching && voiceDraft.targetLoudness == nil {
+                    throw QuitDraftError(message: "Match the voice to Primary Audio before saving this filter.")
+                }
+                if selection == .voiceMatching || selection == .voiceSmoothing { try voiceDraft.validate() }
+            }, apply: {
+                guard let context = voiceContext else { throw QuitDraftError(message: "The filter's clip is no longer open.") }
+                voiceWork.cancel()
+                if case .filter = selection {
+                    context.filters.removeAll { $0.id == draft.id }
+                    context.filters.append(draft)
+                } else { context.audioSettings?.voice = voiceDraft }
+            })
         .task {
             await Task.yield()
             guard !available.isEmpty else { return }
@@ -335,6 +360,14 @@ struct EditClipFilterView: View {
         }.padding(20).frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)
         .applicationMessage(previewWork.message) { previewWork.message = nil }
+        .pendingQuitDraft(filter, pending: context?.filters.first(where: { $0.id == filter.id }) != filter, apply: {
+            guard let context, let index = context.filters.firstIndex(where: { $0.id == filter.id }) else {
+                throw QuitDraftError(message: "The filter's clip is no longer open.")
+            }
+            previewWork.cancel()
+            context.filters[index] = filter
+        })
+        .onDisappear { previewWork.cancel() }
     }
 }
 
@@ -419,7 +452,7 @@ struct FilterAuditionView: View {
                 else { play(enabled: !bypass, mixed: withShow) }
             }
             .disabled(!bypass && voiceMatching && voice?.targetLoudness == nil && !work.busy && !work.playing)
-            Text(work.busy ? "Preparing preview…" : work.playing ? "Playing preview." : "Preview ready.")
+            if work.busy { Text("Preparing preview…") }
             Text(comparison)
         }
         .onChange(of: candidate) { updatePreview() }

@@ -181,6 +181,8 @@ nonisolated struct ProjectSettingsValues: Equatable, Sendable {
 }
 
 struct ProjectCreationView: View {
+    private let quitBaseline: ProjectSettingsValues
+    private let quitProjectID: UUID
     let heading: String
     let finish: (ProjectSettingsValues) -> Void
     let submitHandlerReady: ((@escaping () -> Void) -> Void)?
@@ -215,6 +217,8 @@ struct ProjectCreationView: View {
         cancel: (() -> Void)? = nil,
         externalError: String? = nil
     ) {
+        quitBaseline = ProjectSettingsValues(name: initialProject.name, format: initialProject.format, targetDuration: initialProject.targetDuration)
+        quitProjectID = initialProject.id
         self.heading = heading
         self.finish = finish
         self.submitHandlerReady = submitHandlerReady
@@ -326,6 +330,20 @@ struct ProjectCreationView: View {
         }
         .padding(24)
         .frame(width: 480)
+        .pendingQuitDraft(quitValues, pending: ExternalMediaOpenCoordinator.shared.activeProjectController?.project.id == quitProjectID && quitValues != quitBaseline,
+            validate: {
+                if mode == .custom, let message = ProjectFormatValidation.message(width: resolvedWidth, height: resolvedHeight, frameRate: resolvedFrameRate) {
+                    throw QuitDraftError(message: message)
+                }
+                if usesTargetDuration && (!targetSeconds.isFinite || targetSeconds <= 0) {
+                    throw QuitDraftError(message: "Enter a positive target duration before saving project settings.")
+                }
+            }, apply: {
+                guard let controller = ExternalMediaOpenCoordinator.shared.activeProjectController, controller.project.id == quitProjectID else {
+                    throw QuitDraftError(message: "The project settings are no longer available.")
+                }
+                controller.updateProjectSettings(name: quitValues.name, format: quitValues.format, targetDuration: quitValues.targetDuration)
+            })
         .onAppear {
             submitHandlerReady?(submit)
         }
@@ -338,6 +356,13 @@ struct ProjectCreationView: View {
         .onChange(of: externalError) { _, message in
             if message != nil { validationErrorFocused = true }
         }
+    }
+
+    private var quitValues: ProjectSettingsValues {
+        ProjectSettingsValues(name: name,
+            format: ProjectFormat(mode: mode, width: mode == .custom ? resolvedWidth : nil,
+                                  height: mode == .custom ? resolvedHeight : nil, frameRate: mode == .custom ? resolvedFrameRate : nil),
+            targetDuration: usesTargetDuration ? ProjectTime(seconds: max(targetSeconds.isFinite ? targetSeconds : 0, 0.001)) : nil)
     }
 
     private var resolvedWidth: Int {

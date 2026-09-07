@@ -411,16 +411,19 @@ final class ProjectController: ObservableObject {
     }
 
     func closeProject(completion: @escaping (Bool) -> Void = { _ in }) {
+        guard QuitReviewState.shared.coordinator == nil else { completion(false); return }
         guard let closeProjectAction else { completion(false); return }
         closeProjectAction(completion)
     }
 
+    let quitEdits = ProjectQuitEdits()
+
     func closeProjectForQuit(completion: @escaping (Bool) -> Void) {
-        projectSaveCoordinator?.setTerminationRequested(true)
-        closeProject { [weak self] closed in
-            if !closed { self?.projectSaveCoordinator?.setTerminationRequested(false) }
-            completion(closed)
+        guard let coordinator = projectSaveCoordinator else {
+            closeProject(completion: completion)
+            return
         }
+        coordinator.requestQuit(edits: quitEdits, completion: completion)
     }
 
     var canExportProject: Bool {

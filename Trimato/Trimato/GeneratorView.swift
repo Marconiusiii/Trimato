@@ -67,6 +67,7 @@ final class GeneratorSession: ObservableObject, Identifiable {
     private var operation: Task<Void, Never>?
     private var operationID = UUID()
     private var completionAction: (() -> Void)?
+    private var originalQuitDraft: QuitDraft?
 
     func progressWindowDismissed() {
         guard progress == nil else { return }
@@ -91,6 +92,7 @@ final class GeneratorSession: ObservableObject, Identifiable {
             durationValue = controller.segments(for: editing)?.reduce(0) { $0 + $1.duration.seconds } ?? saved.duration.seconds
         }
         trackID = controller.activeTimelineTrack?.kind == .video ? controller.activeTimelineTrackID : defaultCompatibleTrackID
+        originalQuitDraft = quitDraft
     }
 
     var compatibleTracks: [TimelineTrack] {
@@ -127,6 +129,42 @@ final class GeneratorSession: ObservableObject, Identifiable {
         operation?.cancel()
         operation = nil
         if progress != nil { progress = nil }
+    }
+
+    struct QuitDraft: Equatable {
+        let definition: GeneratorDefinition
+        let duration: Double
+        let frames: Bool
+        let track: UUID?
+        let name: String
+    }
+    var hasPendingQuitEdits: Bool { quitDraft != originalQuitDraft }
+    var quitDraft: QuitDraft {
+        QuitDraft(definition: definition, duration: durationValue, frames: usesFrames, track: trackID, name: newTrackName)
+    }
+    func validatedQuitDefinition() throws -> GeneratorDefinition {
+        guard durationValue.isFinite, durationValue > 0,
+              durationValue <= (usesFrames ? 86400 * definition.frameRate : 86400),
+              !usesFrames || durationValue.rounded() == durationValue else {
+            throw QuitDraftError(message: "Enter a positive Generator duration no longer than 24 hours. Frame counts must be whole numbers.")
+        }
+        var result = definition
+        result.duration = ProjectTime(seconds: usesFrames ? durationValue / definition.frameRate : durationValue)
+        try result.validate()
+        return result
+    }
+    func saveForQuit() async throws {
+        guard let controller else { throw QuitDraftError(message: "The Generator project is no longer open.") }
+        cancelPreparation()
+        let value = try validatedQuitDefinition()
+        let expected = controller.project
+        _ = try await GeneratorRenderer.ensure(value) { _ in }
+        if let editing {
+            try controller.updateGenerator(value, editing: editing, expectedProject: expected)
+        } else {
+            try controller.placeGenerator(value, placement: .insert, at: playhead,
+                                          trackID: trackID, newTrackName: newTrackName, expectedProject: expected)
+        }
     }
 
     func prepare(placement: PlacementAction, onTop: Bool = false, finished: @escaping () -> Void = {}) {
@@ -257,6 +295,8 @@ struct GeneratorView: View {
         .padding(20)
         .frame(minWidth: 560, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
+        .pendingQuitDraft(session.quitDraft, pending: session.editing == nil || session.hasPendingQuitEdits, validate: { _ = try session.validatedQuitDefinition() },
+            apply: { try await session.saveForQuit() })
         .onChange(of: focusRequest.revision, initial: true) { _, revision in
             guard revision > 0 else { return }
             Task { @MainActor in

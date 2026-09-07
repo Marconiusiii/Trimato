@@ -5,6 +5,12 @@ struct TransitionEditorView: View {
     @State private var transitionName: String
     @State private var durationText: String
     @State private var validationMessage: String?
+    private struct QuitDraft: Equatable {
+        let transition: TimelineTransition
+        let name: String
+        let duration: String
+    }
+    private let original: TimelineTransition
     let contextDescription: String?
     let update: (TimelineTransition) -> Void
     let delete: () -> Void
@@ -17,6 +23,7 @@ struct TransitionEditorView: View {
         delete: @escaping () -> Void,
         cancel: @escaping () -> Void
     ) {
+        original = transition
         _draft = State(initialValue: transition)
         _transitionName = State(initialValue: transition.displayName)
         _durationText = State(initialValue: TransitionDurationInput.string(for: transition.duration))
@@ -60,6 +67,14 @@ struct TransitionEditorView: View {
         }
         .padding(20)
         .frame(width: 430)
+        .pendingQuitDraft(QuitDraft(transition: draft, name: transitionName, duration: durationText),
+            pending: draft != original || transitionName != original.displayName || durationText != TransitionDurationInput.string(for: original.duration),
+            validate: { _ = try quitTransition() }, apply: {
+                guard let controller = ExternalMediaOpenCoordinator.shared.activeProjectController else {
+                    throw QuitDraftError(message: "The transition project is no longer open.")
+                }
+                try controller.updateTransition(quitTransition())
+            })
     }
 
     @ViewBuilder
@@ -105,6 +120,18 @@ struct TransitionEditorView: View {
 
     private var audioTypes: [AudioTransitionType] {
         draft.edge == .between ? [.crossFade, .fadeOutIn] : [.fade]
+    }
+
+    private func quitTransition() throws -> TimelineTransition {
+        guard let duration = TransitionDurationInput.parse(durationText) else {
+            throw QuitDraftError(message: "Enter a transition duration greater than zero.")
+        }
+        let name = transitionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw QuitDraftError(message: "Enter a name for the transition.") }
+        var result = draft
+        result.duration = duration
+        result.customName = name == result.defaultDisplayName ? nil : name
+        return result
     }
 
     private func applyUpdate() {

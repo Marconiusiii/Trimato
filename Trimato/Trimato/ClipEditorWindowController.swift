@@ -128,6 +128,7 @@ final class ClipPlacementCommandContext: ObservableObject {
     private var baselineFilters: [ClipFilter] = []
     var closeDecisionHandler: ((ClipEditorCloseDecision) -> Void)?
     private var pendingCloseDecision: ClipEditorCloseDecision?
+    private var closeReviewActive = false
 
     init(
         controller: ProjectController,
@@ -192,6 +193,10 @@ final class ClipPlacementCommandContext: ObservableObject {
 
     var canUpdate: Bool {
         hasUncommittedChanges && !segments.isEmpty
+    }
+
+    var hasPendingQuitChanges: Bool {
+        hasUncommittedChanges || audioSettings != baselineAudioSettings || filters != baselineFilters
     }
 
     func refreshCommittedEffects() {
@@ -395,6 +400,8 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     func requestCloseConfirmation() {
+        guard !closeReviewActive else { return }
+        closeReviewActive = true
         closeConfirmationRequested = true
     }
 
@@ -404,7 +411,9 @@ final class ClipPlacementCommandContext: ObservableObject {
     }
 
     func completeCloseConfirmation() {
-        guard let decision = pendingCloseDecision else { return }
+        guard closeReviewActive else { return }
+        closeReviewActive = false
+        let decision = pendingCloseDecision ?? .cancel
         pendingCloseDecision = nil
         closeDecisionHandler?(decision)
     }
@@ -495,11 +504,13 @@ final class ClipEditorWindowCoordinator: ObservableObject {
 }
 
 @MainActor
-private final class ClipEditorWindowController: NSWindowController, NSWindowDelegate {
+final class ClipEditorWindowController: NSWindowController, NSWindowDelegate {
     let commandContext: ClipPlacementCommandContext
     var onClose: (() -> Void)?
     private var closeWasConfirmed = false
     private var pendingCloseCompletion: ((Bool) -> Void)?
+    private var confirmedDecision: ClipEditorCloseDecision?
+    private let quitDraftID = UUID()
 
     init<Content: View>(
         title: String,
@@ -527,6 +538,20 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
         commandContext.closeDecisionHandler = { [weak self] decision in
             self?.handleCloseDecision(decision)
         }
+        commandContext.controller.quitEdits.register(quitDraftID, entry: .init(priority: 100,
+            hasChanges: { [weak commandContext] in commandContext?.hasPendingQuitChanges == true },
+            validate: { [weak commandContext] in
+                guard let commandContext, !commandContext.segments.isEmpty else {
+                    throw QuitDraftError(message: "Set a valid In and Out range in the clip editor before saving.")
+                }
+                guard commandContext.isTimelineEntry else {
+                    throw QuitDraftError(message: "Add the source clip to a track before saving its audio settings.")
+                }
+            }, apply: { [weak commandContext] in
+                guard let commandContext, commandContext.performUpdate() else {
+                    throw QuitDraftError(message: commandContext?.presentedError?.message ?? "The clip could not be updated.")
+                }
+            }))
     }
 
     @available(*, unavailable)
@@ -547,6 +572,8 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
             completion(false)
             return
         }
+        // An editing sheet must resolve its own draft before a normal editor close.
+        guard window.attachedSheet == nil else { completion(false); return }
         pendingCloseCompletion = completion
         window.performClose(nil)
     }
@@ -558,6 +585,7 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
     }
 
     func windowDidEndSheet(_ notification: Notification) {
+        Task { @MainActor [weak self] in self?.finishConfirmedClose() }
         // Refresh menu ownership after the native sheet has actually detached.
         guard window?.isKeyWindow == true else { return }
         commandContext.setKeyWindow(true)
@@ -576,28 +604,34 @@ private final class ClipEditorWindowController: NSWindowController, NSWindowDele
     }
 
     private func handleCloseDecision(_ decision: ClipEditorCloseDecision) {
-        guard let window else { return }
+        confirmedDecision = decision
+        Task { @MainActor [weak self] in self?.finishConfirmedClose() }
+    }
+
+    private func finishConfirmedClose() {
+        guard let window, window.attachedSheet == nil, let decision = confirmedDecision else { return }
+        confirmedDecision = nil
         switch decision {
         case .update:
-            guard commandContext.performUpdate() else {
-                let completion = pendingCloseCompletion
-                pendingCloseCompletion = nil
-                completion?(false)
-                return
-            }
+            guard commandContext.performUpdate() else { finishCancelledClose(); return }
             closeWasConfirmed = true
-            window.performClose(nil)
+            window.close()
         case .discard:
             closeWasConfirmed = true
-            window.performClose(nil)
+            window.close()
         case .cancel:
-            let completion = pendingCloseCompletion
-            pendingCloseCompletion = nil
-            completion?(false)
+            finishCancelledClose()
         }
     }
 
+    private func finishCancelledClose() {
+        let completion = pendingCloseCompletion
+        pendingCloseCompletion = nil
+        completion?(false)
+    }
+
     func windowWillClose(_ notification: Notification) {
+        commandContext.controller.quitEdits.remove(quitDraftID)
         commandContext.setKeyWindow(false)
         ClipEditorCommandRouter.shared.deactivate(commandContext)
         let completion = pendingCloseCompletion

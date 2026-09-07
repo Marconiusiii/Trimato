@@ -33,6 +33,7 @@ struct EditorWorkspaceView: View {
 
     var body: some View {
         progressEditor
+            .blocksEditingDuringQuit()
             .disabled(projectWindowSaveCoordinator.isResolvingClose)
             .background(EditorTheme.workspace)
             .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
@@ -85,7 +86,12 @@ struct EditorWorkspaceView: View {
                     openWindow(id: "recording", value: id)
                 }
             }
-            .sheet(isPresented: $projectWindowSaveCoordinator.isConfirmingClose, onDismiss: {
+            .onChange(of: projectWindowSaveCoordinator.isConfirmingClose, initial: true) { _, showing in
+                if showing && projectWindowSaveCoordinator.isApplicationTerminating { openWindow(id: "quit-review") }
+            }
+            .sheet(isPresented: Binding(get: {
+                projectWindowSaveCoordinator.isConfirmingClose && !projectWindowSaveCoordinator.isApplicationTerminating
+            }, set: { projectWindowSaveCoordinator.isConfirmingClose = $0 }), onDismiss: {
                 projectWindowSaveCoordinator.closeConfirmationDismissed()
             }) {
                 ProjectCloseConfirmation(coordinator: projectWindowSaveCoordinator)

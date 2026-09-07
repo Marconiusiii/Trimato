@@ -1,6 +1,18 @@
 import SwiftUI
 
 struct AddTransitionView: View {
+    private struct QuitDraft: Equatable {
+        let intro: Bool
+        let outro: Bool
+        let introVideo: VideoTransitionType
+        let outroVideo: VideoTransitionType
+        let introAudio: AudioTransitionType
+        let outroAudio: AudioTransitionType
+        let introDuration: String
+        let outroDuration: String
+        let includeIntroAudio: Bool
+        let includeOutroAudio: Bool
+    }
     let project: TrimatoProject
     let request: TransitionRequest
     let add: ([TimelineTransition]) -> Void
@@ -49,6 +61,15 @@ struct AddTransitionView: View {
         }
         .padding(20)
         .frame(width: 440)
+        .pendingQuitDraft(QuitDraft(intro: addIntro, outro: addOutro, introVideo: introVideoType, outroVideo: outroVideoType,
+                                    introAudio: introAudioType, outroAudio: outroAudioType, introDuration: introDuration,
+                                    outroDuration: outroDuration, includeIntroAudio: includeIntroAudio, includeOutroAudio: includeOutroAudio), pending: addIntro || addOutro,
+            validate: { _ = try quitTransitions() }, apply: {
+                guard let controller = ExternalMediaOpenCoordinator.shared.activeProjectController else {
+                    throw QuitDraftError(message: "The transition project is no longer open.")
+                }
+                try controller.addTransitions(quitTransitions())
+            })
     }
 
     private var applicationName: String {
@@ -160,6 +181,19 @@ struct AddTransitionView: View {
 
     private func audioInclusionBinding(_ edge: TimelineTransitionEdge) -> Binding<Bool> {
         edge == .intro ? $includeIntroAudio : $includeOutroAudio
+    }
+
+    private func quitTransitions() throws -> [TimelineTransition] {
+        let intro = addIntro ? TransitionDurationInput.parse(introDuration) : nil
+        let outro = addOutro ? TransitionDurationInput.parse(outroDuration) : nil
+        guard !(addIntro && intro == nil), !(addOutro && outro == nil) else {
+            throw QuitDraftError(message: "Enter a duration greater than zero for each enabled transition.")
+        }
+        var result: [TimelineTransition] = []
+        if let intro { result += makeTransitions(edge: .intro, duration: intro) }
+        if let outro { result += makeTransitions(edge: .outro, duration: outro) }
+        guard !result.isEmpty else { throw QuitDraftError(message: "The transition clip is no longer available.") }
+        return result
     }
 
     private func apply() {

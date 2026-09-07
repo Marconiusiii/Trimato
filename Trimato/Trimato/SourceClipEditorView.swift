@@ -117,12 +117,10 @@ struct SourceClipEditorView: View {
                     }
                     Button("Retry Clip Preparation", action: loadIfNeeded).padding(.horizontal, 20)
                 }
-                if commandContext.narrationTrack != nil {
+                if voiceWork.busy {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(voiceWork.busy ? "Preparing voice adjustments…" : voiceWork.playing ? "Playing voice preview." : "Voice preview ready.")
-                        if voiceWork.busy {
-                            Button("Cancel preparation") { voiceWork.cancel() }
-                        }
+                        Text("Preparing voice adjustments…")
+                        Button("Cancel preparation") { voiceWork.cancel() }
                     }.padding(.horizontal, 20)
                 }
                 previewStatus.padding(.horizontal, 20)
@@ -136,6 +134,7 @@ struct SourceClipEditorView: View {
                     .padding(.bottom, 12)
             }
         }
+        .blocksEditingDuringQuit()
         .operationProgress(
             clipPreparationOperation,
             outcome: clipPreparationOutcome,
@@ -480,7 +479,7 @@ struct SourceClipEditorView: View {
     @ViewBuilder
     private var previewStatus: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(previewStatusText)
+            if let previewStatusText { Text(previewStatusText) }
             if preview.state == .preparing {
                 Button("Cancel preparation") { viewModel.waitingForClipPreview = false; preview.cancel() }
             }
@@ -512,9 +511,9 @@ struct SourceClipEditorView: View {
         }
     }
 
-    private var previewStatusText: String {
+    private var previewStatusText: String? {
         switch preview.state {
-        case .ready: "Clip preview ready."
+        case .ready: nil
         case .preparing: "Preparing updated preview…"
         case .cancelled: "Clip preview preparation cancelled."
         case .failed: "Clip preview could not be updated."
