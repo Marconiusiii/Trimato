@@ -80,6 +80,7 @@ nonisolated struct ProjectPreviewInput: Equatable {
     init(_ project: TrimatoProject) {
         var value = project
         value.name = ""
+        value.masterVolumeDB = 0
         value.folders = []
         value.targetDuration = nil
         value.tracks.removeAll { $0.kind == .captions }
@@ -93,6 +94,8 @@ nonisolated struct ProjectPreviewInput: Equatable {
         }.sorted { $0.id.uuidString < $1.id.uuidString }
         for track in value.tracks.indices {
             value.tracks[track].name = ""
+            value.tracks[track].mix = .neutral
+            if value.tracks[track].kind == .audio { value.tracks[track].isMuted = false }
             value.tracks[track].clips = value.tracks[track].clips.map(Self.withoutDisplayName)
         }
         value.primaryTimeline = value.primaryTimeline.map(Self.withoutDisplayName)
@@ -115,6 +118,33 @@ nonisolated struct ProjectPreviewInput: Equatable {
 
 @MainActor
 final class ProjectPlayerViewModel: ObservableObject {
+    private var mixProcessors: [TrackMixProcessor] = []
+    private var mixBindings: [CMPersistentTrackID: ProjectMixBinding] = [:]
+    private var latestMixProject: TrimatoProject?
+    private var soloTrackIDs: Set<UUID> = []
+
+    private var appliedDuckingRanges: [ProjectTimeRange] = []
+    func updateMix(project: TrimatoProject, solo: Set<UUID>? = nil, refreshEnvelopes: Bool = false) {
+        latestMixProject = project
+        if let solo { soloTrackIDs = solo }
+        let validSolo = soloTrackIDs.intersection(Set(project.tracks.filter { $0.kind == .audio }.map(\.id)))
+        var listeningProject = project
+        if !validSolo.isEmpty {
+            for index in listeningProject.tracks.indices where listeningProject.tracks[index].kind == .audio && !validSolo.contains(listeningProject.tracks[index].id) {
+                listeningProject.tracks[index].isMuted = true
+            }
+        }
+        let ranges = listeningProject.descriptionDucking.ranges(in: listeningProject)
+        if let item = player.currentItem, let mix = item.audioMix, refreshEnvelopes || appliedDuckingRanges != ranges {
+            item.audioMix = ProjectCompositionBuilder.refreshingAudioEnvelopes(project: listeningProject, original: mix, bindings: mixBindings)
+        }
+        appliedDuckingRanges = ranges
+        for processor in mixProcessors {
+            guard let track = listeningProject.track(id: processor.trackID) else { continue }
+            processor.update(track.mix.matrix(masterDB: project.masterVolumeDB, silent: track.isMuted))
+        }
+    }
+
     let player = AVPlayer()
     @Published private(set) var isPreparing = false
     @Published private(set) var isInitialPreparationPending: Bool
@@ -425,7 +455,10 @@ final class ProjectPlayerViewModel: ObservableObject {
                 let item = AVPlayerItem(asset: result.composition)
                 item.videoComposition = result.videoComposition
                 item.audioMix = result.audioMix
+                mixProcessors = result.mixProcessors
+                mixBindings = result.mixBindings
                 player.replaceCurrentItem(with: item)
+                updateMix(project: latestMixProject ?? project, refreshEnvelopes: true)
                 await player.seek(
                     to: boundedInitialTime.cmTime,
                     toleranceBefore: .zero,
@@ -512,6 +545,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         var pendingTemporaryMediaURLs: [URL] = []
         let previousPlayerItem = player.currentItem
         let previouslyHadPreparedPlayerItem = hasPreparedPlayerItem
+        let previousMixProcessors = mixProcessors
+        let previousMixBindings = mixBindings
         var replacedPlayerItem = false
         var stagingPlayer: AVPlayer?
         do {
@@ -526,6 +561,15 @@ final class ProjectPlayerViewModel: ObservableObject {
             guard preparationID == requestID else { throw CancellationError() }
 
             let stagedItem = Self.makeTransitionPreviewItem(from: result)
+            if let originalMix = result.audioMix {
+                let stagingMix = AVMutableAudioMix()
+                stagingMix.inputParameters = try originalMix.inputParameters.enumerated().map { index, original in
+                    let parameters = original.mutableCopy() as! AVMutableAudioMixInputParameters
+                    parameters.audioTapProcessor = try result.mixProcessors[index].copyProcessor().makeTap()
+                    return parameters
+                }
+                stagedItem.audioMix = stagingMix
+            }
             let duration = project.duration
             let boundedInitialTime = min(max(initialTime, .zero), duration)
             let stagedPlayer = AVPlayer(playerItem: stagedItem)
@@ -551,6 +595,9 @@ final class ProjectPlayerViewModel: ObservableObject {
 
             let committedItem = Self.makeTransitionPreviewItem(from: result)
             player.replaceCurrentItem(with: committedItem)
+            mixProcessors = result.mixProcessors
+            mixBindings = result.mixBindings
+            updateMix(project: latestMixProject ?? project, refreshEnvelopes: true)
             replacedPlayerItem = true
             try await waitUntilReadyToPlay(committedItem)
             progress(0.95)
@@ -578,6 +625,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             stagingPlayer?.replaceCurrentItem(with: nil)
             if replacedPlayerItem {
                 player.replaceCurrentItem(with: previousPlayerItem)
+                mixProcessors = previousMixProcessors
+                mixBindings = previousMixBindings
                 hasPreparedPlayerItem = previouslyHadPreparedPlayerItem
             }
             Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)

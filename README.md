@@ -25,7 +25,7 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Create saved Black, Solid Color, Static Gradient, Silence, and Text generators from a native Generator window.
 - Apply curated video and audio filters to individual timeline clips, with editable parameters, bypass, reset, and removal. Basic audio gain remains separate.
 - Reach the displayed Video frame as a VoiceOver image above the Editor playhead slider.
-- Mute audio tracks for both preview and export without removing their clips or changing their timing.
+- Mix whole audio tracks with Volume, Mute, Solo, Pan, Stereo balance, Stereo width, and Channel routing. Adjust the combined output with Master Volume.
 - Preview and export the complete arranged project as H.264 or HEVC MP4, H.264 or HEVC QuickTime, ProRes 422 LT, ProRes 422, ProRes 422 HQ, M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, or 24-bit WAV.
 - Open audio and video files from the File menu, Finder, drag and drop, or Command-O.
 - Play, pause, seek, and move forward or backward one frame at a time.
@@ -39,6 +39,18 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Preserve the source container and codec when native passthrough is available.
 - Convert unsupported playback formats to a local playback proxy using the bundled FFmpeg tools.
 - Open common audio and video formats through Finder after installing the app in Applications.
+
+## Mixer
+
+Choose Playback > Mixer or press Command-Shift-M. Select a track in Audio Tracks, then adjust its Volume, Mute, Pan, Stereo balance, Stereo width, or Channel routing. The adjustments apply to all clips on that track, alongside each clip's existing audio settings. Playback continues as you change tracks and settings.
+
+Use Solo to hear one or more tracks by themselves. Solo affects playback only and clears when the Mixer closes. Mute affects both playback and export. Master Volume adjusts the combined project audio. Audio description ducking continues to reduce other project audio during description clips.
+
+Stereo width offers Mono at zero percent and Original at 100 percent. Channel routing can use both channels, send only the left or right source channel to both sides, or swap the channels. Reset Track Mix restores the selected track's defaults and clears its Mute and Solo settings.
+
+Use the Project playhead, Play/Pause, Go to Beginning, and Go to End controls to play the project. J, K, and L control backward playback, pause, and forward playback. In Audio Tracks, Left and Right Arrow select adjacent tracks, Return moves to Volume, and Space plays or pauses.
+
+Mix changes support Undo and Redo. Command-S saves the project and its mix settings; Command-W closes the Mixer. Saved track and master settings apply to exports.
 
 ## Keyboard controls
 

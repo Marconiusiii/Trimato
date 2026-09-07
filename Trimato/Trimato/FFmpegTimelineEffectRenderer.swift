@@ -5,6 +5,7 @@ enum FFmpegTimelineEffectRenderer {
         sourceURL: URL,
         segments: [SourceSegment],
         settings: AudioClipSettings,
+        stereo: Bool = false,
         progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         let directory = FileManager.default.temporaryDirectory
@@ -19,13 +20,14 @@ enum FFmpegTimelineEffectRenderer {
         let inputs = usable.indices.map { "[s\($0)]" }.joined()
         var final = "\(inputs)concat=n=\(usable.count):v=0:a=1"
         if let effects = audioFilter(for: settings) { final += ",\(effects)" }
+        if stereo { final += ",aformat=sample_fmts=fltp:channel_layouts=stereo" }
         final += "[outa]"
         chains.append(final)
         let arguments = [
             "-hide_banner", "-nostdin", "-y", "-i", sourceURL.path,
             "-filter_complex", chains.joined(separator: ";"),
             "-map", "[outa]", "-vn", "-sn", "-dn",
-            "-c:a", "pcm_s16le", "-progress", "pipe:1", "-nostats", outputURL.path,
+            "-ac", "2", "-c:a", "pcm_f32le", "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {
             _ = try await FFmpegRunner.run(
@@ -175,7 +177,7 @@ enum FFmpegTimelineEffectRenderer {
             "-hide_banner", "-nostdin", "-y",
             "-i", leadingURL.path, "-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outa]", "-vn", "-sn", "-dn",
-            "-c:a", "pcm_s16le", "-t", number(duration.seconds),
+            "-ac", "2", "-c:a", "pcm_f32le", "-t", number(duration.seconds),
             "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {

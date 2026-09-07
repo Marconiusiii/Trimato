@@ -288,6 +288,7 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
     var tracks: [TimelineTrack] = []
     var transitions: [TimelineTransition] = []
     var descriptionDucking = DescriptionDucking()
+    var masterVolumeDB: Double = 0
     var recordingsFolderBookmark: Data?
 
     init(name: String = "Untitled Project") {
@@ -296,7 +297,7 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, id, name, format, targetDuration, folders, media
-        case primaryTimeline, cutaways, tracks, transitions, descriptionDucking, recordingsFolderBookmark
+        case primaryTimeline, cutaways, tracks, transitions, descriptionDucking, recordingsFolderBookmark, masterVolumeDB
     }
 
     init(from decoder: Decoder) throws {
@@ -316,6 +317,7 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
         tracks = try container.decodeIfPresent([TimelineTrack].self, forKey: .tracks) ?? []
         transitions = try container.decodeIfPresent([TimelineTransition].self, forKey: .transitions) ?? []
         descriptionDucking = try container.decodeIfPresent(DescriptionDucking.self, forKey: .descriptionDucking) ?? DescriptionDucking()
+        masterVolumeDB = TrackMixSettings.bounded(try container.decodeIfPresent(Double.self, forKey: .masterVolumeDB) ?? 0, -60...12, fallback: 0)
         recordingsFolderBookmark = try container.decodeIfPresent(Data.self, forKey: .recordingsFolderBookmark)
         if tracks.isEmpty {
             tracks = Self.migratedTracks(
@@ -351,6 +353,7 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
         try container.encode(tracks, forKey: .tracks)
         try container.encode(transitions, forKey: .transitions)
         try container.encode(descriptionDucking, forKey: .descriptionDucking)
+        try container.encode(masterVolumeDB, forKey: .masterVolumeDB)
         try container.encodeIfPresent(recordingsFolderBookmark, forKey: .recordingsFolderBookmark)
     }
 

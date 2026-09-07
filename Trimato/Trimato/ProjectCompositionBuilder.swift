@@ -6,6 +6,14 @@ struct ProjectCompositionResult {
     let videoComposition: AVMutableVideoComposition?
     let audioMix: AVMutableAudioMix?
     let temporaryMediaURLs: [URL]
+    var mixProcessors: [TrackMixProcessor] = []
+    var mixBindings: [CMPersistentTrackID: ProjectMixBinding] = [:]
+}
+
+struct ProjectMixBinding {
+    let sourceID: UUID
+    let isDescription: Bool
+    let isTransition: Bool
 }
 
 nonisolated enum ProjectCompositionPurpose: Equatable, Sendable {
@@ -341,13 +349,16 @@ enum ProjectCompositionBuilder {
                     )
                     var renderedAudioAsset: AVURLAsset?
                     var usesRenderedAudio = false
-                    if !clip.audioSettings.isNeutral, let sourceURL = mediaURLs[clip.assetID] {
+                    let descriptions = try await source?.load(.formatDescriptions) ?? []
+                    let channels = descriptions.first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame } ?? 2
+                    if !clip.audioSettings.isNeutral || channels != 2, let sourceURL = mediaURLs[clip.assetID] {
                         let renderedURL: URL
                         do {
                             renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
                                 sourceURL: sourceURL,
                                 segments: clip.segments,
                                 settings: clip.audioSettings,
+                                stereo: true,
                                 progress: progressReporter?.beginJob()
                             )
                         } catch is CancellationError {
@@ -577,53 +588,64 @@ enum ProjectCompositionBuilder {
             videoComposition = nil
         }
 
-        let sourceAudioCutaways = project.cutaways.filter { $0.audioMode == .sourceAudio }
+        var mixProcessors: [TrackMixProcessor] = []
+        var mixBindings: [CMPersistentTrackID: ProjectMixBinding] = [:]
+        var parameters: [AVMutableAudioMixInputParameters] = []
+        for (items, isTransition) in [(additionalAudioTracks, false), (transitionAudioTracks, true)] {
+            for item in items {
+                let input = AVMutableAudioMixInputParameters(track: item.track)
+                let processor = TrackMixProcessor(trackID: item.source.id,
+                    matrix: item.source.mix.matrix(masterDB: project.masterVolumeDB, silent: item.source.isMuted))
+                input.audioTapProcessor = try processor.makeTap()
+                mixProcessors.append(processor)
+                mixBindings[item.track.trackID] = ProjectMixBinding(sourceID: item.source.id,
+                    isDescription: item.isDescription, isTransition: isTransition)
+                parameters.append(input)
+            }
+        }
         let audioMix: AVMutableAudioMix?
-        if additionalAudioTracks.isEmpty && transitionAudioTracks.isEmpty {
-            audioMix = nil
-        } else {
-            var parameters: [AVMutableAudioMixInputParameters] = []
-            for item in additionalAudioTracks {
-                let input = AVMutableAudioMixInputParameters(track: item.track)
-                applyBaseAudioEnvelope(
-                    duration: project.duration,
-                    transitions: project.transitions.filter { $0.trackID == item.source.id },
-                    on: project.track(id: item.source.id) ?? item.source,
-                    mutedRanges: item.source.isMuted
-                        ? [ProjectTimeRange(start: .zero, duration: project.duration)]
-                        : (item.source.role == .primaryAudio ? sourceAudioCutaways.map {
-                            ProjectTimeRange(start: $0.start, duration: $0.duration)
-                        } : []),
-                    parameters: input,
-                    ducking: project.descriptionDucking,
-                    duckedRanges: item.isDescription ? [] : project.descriptionDucking.ranges(in: project)
-                )
-                parameters.append(input)
-            }
-            for item in transitionAudioTracks {
-                let input = AVMutableAudioMixInputParameters(track: item.track)
-                applyBaseAudioEnvelope(
-                    duration: project.duration, transitions: [], on: item.source,
-                    mutedRanges: item.source.isMuted ? [ProjectTimeRange(start: .zero, duration: project.duration)] : [],
-                    parameters: input, ducking: project.descriptionDucking,
-                    duckedRanges: item.isDescription ? [] : project.descriptionDucking.ranges(in: project)
-                )
-                parameters.append(input)
-            }
-            let mix = AVMutableAudioMix()
-            mix.inputParameters = parameters
-            audioMix = mix
+        if parameters.isEmpty { audioMix = nil }
+        else {
+            let base = AVMutableAudioMix()
+            base.inputParameters = parameters
+            audioMix = refreshingAudioEnvelopes(project: project, original: base, bindings: mixBindings)
         }
 
         let result = ProjectCompositionResult(
             composition: composition,
             videoComposition: videoComposition,
             audioMix: audioMix,
-            temporaryMediaURLs: temporaryMediaURLs
+            temporaryMediaURLs: temporaryMediaURLs,
+            mixProcessors: mixProcessors,
+            mixBindings: mixBindings
         )
         progressReporter?.finishComposition()
         shouldPreserveTemporaryMedia = true
         return result
+    }
+
+    static func refreshingAudioEnvelopes(project: TrimatoProject, original: AVAudioMix,
+                                         bindings: [CMPersistentTrackID: ProjectMixBinding]) -> AVMutableAudioMix {
+        let mix = AVMutableAudioMix()
+        let sourceAudioCutaways = project.cutaways.filter { $0.audioMode == .sourceAudio }
+        let duckedRanges = project.descriptionDucking.ranges(in: project)
+        mix.inputParameters = original.inputParameters.map { originalInput in
+            guard let binding = bindings[originalInput.trackID],
+                  let track = project.track(id: binding.sourceID) else { return originalInput }
+            let input = AVMutableAudioMixInputParameters()
+            input.trackID = originalInput.trackID
+            input.audioTapProcessor = originalInput.audioTapProcessor
+            applyBaseAudioEnvelope(duration: project.duration,
+                transitions: binding.isTransition ? [] : project.transitions.filter { $0.trackID == track.id },
+                on: track,
+                mutedRanges: !binding.isTransition && track.role == .primaryAudio ? sourceAudioCutaways.map {
+                    ProjectTimeRange(start: $0.start, duration: $0.duration)
+                } : [],
+                parameters: input, ducking: project.descriptionDucking,
+                duckedRanges: binding.isDescription ? [] : duckedRanges)
+            return input
+        }
+        return mix
     }
 
     private static func transitionSourceRange(

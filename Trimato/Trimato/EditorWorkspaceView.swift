@@ -502,6 +502,7 @@ struct ProjectViewerView: View {
             requestPreparation()
         }
         .onChange(of: controller.project) { previous, project in
+            viewModel.updateMix(project: project)
             guard !controller.consumePreparedTransitionPreview(for: project),
                   ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
             requestPreparation()

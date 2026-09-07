@@ -40,6 +40,7 @@ struct TrimatoApp: App {
         DocumentGroup(newDocument: { ProjectDocument() }) { file in
             EditorWorkspaceView(document: file.document)
         }
+        .commands { MixerUndoCommands() }
         .commands {
             ProjectFileCommands()
             ContextualExportCommands()
@@ -70,6 +71,14 @@ struct TrimatoApp: App {
                 )
             }
             CommandMenu("Playback") {
+                Button("Mixer…") {
+                    guard let controller = projectCommandController else { return }
+                    MixerWindowRegistry.shared.open(controller: controller)
+                    openWindow(id: "mixer")
+                }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(projectCommandController?.projectPlayer == nil)
+                Divider()
                 Button("Play or Pause (Space)") {
                     if let projectPlayer { projectPlayer.togglePlayback() }
                     else { viewModel?.togglePlayPause() }
@@ -225,6 +234,9 @@ struct TrimatoApp: App {
                 .disabled(projectCommandController?.activeTimelineTrack?.kind != .audio)
             }
         }
+
+        Window("Mixer", id: "mixer") { MixerWindowContent() }
+            .windowResizability(.contentSize)
 
         WindowGroup("Recording", id: "recording", for: UUID.self) { $id in
             if let id { RecordingWindowContent(id: id) }
@@ -387,6 +399,7 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
 private struct ProjectFileCommands: Commands {
     @ObservedObject private var quitReview = QuitReviewState.shared
     @ObservedObject private var projectOpening = SingleProjectCoordinator.shared
+    @FocusedValue(\.closeMixer) private var closeMixer
     @FocusedValue(\.closeRecording) private var closeRecording
     @FocusedValue(\.closeSettings) private var closeSettings
     @FocusedObject private var standaloneContext: StandaloneClipCommandContext?
@@ -420,9 +433,11 @@ private struct ProjectFileCommands: Commands {
 
         }
         CommandGroup(replacing: .saveItem) {
-            Button(quitReview.coordinator != nil ? "Cancel Quit" : closeSettings != nil ? "Close Settings" : (closeRecording != nil ? controller?.recordingSession.map { "Close \($0.purpose.toolTitle)" } : nil) ?? (controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project"))) {
+            Button(quitReview.coordinator != nil ? "Cancel Quit" : closeMixer != nil ? "Close Mixer" : closeSettings != nil ? "Close Settings" : (closeRecording != nil ? controller?.recordingSession.map { "Close \($0.purpose.toolTitle)" } : nil) ?? (controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project"))) {
                 if let coordinator = quitReview.coordinator {
                     coordinator.cancelQuitReview()
+                } else if let closeMixer {
+                    closeMixer()
                 } else if let closeSettings {
                     closeSettings()
                 } else if let closeRecording {
@@ -436,7 +451,7 @@ private struct ProjectFileCommands: Commands {
                 }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(quitReview.coordinator?.isResolvingClose == true || quitReview.coordinator == nil && closeRecording == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil)
+            .disabled(quitReview.coordinator?.isResolvingClose == true || quitReview.coordinator == nil && closeMixer == nil && closeRecording == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil)
             Divider()
             Button(quitReview.coordinator != nil ? "Save and Quit" : "Save") {
                 if let coordinator = quitReview.coordinator { coordinator.chooseCloseDecision(.save) }

@@ -75,6 +75,7 @@ final class ProjectController: ObservableObject {
     @Published private(set) var movingTimelineClipID: UUID?
     @Published private(set) var movementPreview: TrimatoProject?
     private var movementBaseline: TrimatoProject?
+    private var mixerAdjustmentOrigin: TrimatoProject?
     private var movementNudgeOrigin: TrimatoProject?
     private var movementNudgeFrames = 0
     private(set) var timelineFocusRestoreTarget: TimelineElementSelection?
@@ -84,7 +85,7 @@ final class ProjectController: ObservableObject {
     private var exportTask: Task<Void, Never>?
     private(set) weak var projectSaveCoordinator: ProjectWindowSaveCoordinator?
     private weak var projectUndoManager: UndoManager?
-    private weak var projectPlayer: ProjectPlayerViewModel?
+    private(set) weak var projectPlayer: ProjectPlayerViewModel?
     private var projectWithPreparedTransitionPreview: TrimatoProject?
     private var closeProjectAction: ((@escaping (Bool) -> Void) -> Void)?
     private var projectInfoTarget: ProjectInfoTarget = .selection(.project)
@@ -413,6 +414,7 @@ final class ProjectController: ObservableObject {
 
     func installProjectPlayer(_ player: ProjectPlayerViewModel) {
         projectPlayer = player
+        player.updateMix(project: project)
         player.onPlayheadChange { [weak self] time in
             guard let self, self.timelinePlayhead != time else { return }
             self.timelinePlayhead = time
@@ -2373,6 +2375,7 @@ final class ProjectController: ObservableObject {
             located.media[index].recordingRelativePath = location.recordingRelativePath
         }
         document.project = located
+        projectPlayer?.updateMix(project: located)
         timelineContentRevision += 1
         updateCacheProtection(for: project)
         if let undoManager = projectUndoManager {
@@ -2477,4 +2480,69 @@ extension ProjectController {
             try $0.setTrackVoice(trackID, settings: settings)
         }
     }
+}
+
+
+extension ProjectController {
+    func setTrackMix(_ id: UUID, settings: TrackMixSettings) {
+        mutateMixer(actionName: "Adjust Track Mix") { project in
+            guard let index = project.tracks.firstIndex(where: { $0.id == id && $0.kind == .audio }) else { return }
+            project.tracks[index].mix = settings.normalized
+        }
+    }
+
+    func setMixerTrackMuted(_ id: UUID, muted: Bool) {
+        mutateMixer(actionName: muted ? "Mute Track" : "Unmute Track") { project in
+            guard let index = project.tracks.firstIndex(where: { $0.id == id && $0.kind == .audio }) else { return }
+            project.tracks[index].isMuted = muted
+        }
+    }
+
+    func setMasterVolume(_ value: Double) {
+        mutateMixer(actionName: "Adjust Master Volume") {
+            $0.masterVolumeDB = TrackMixSettings.bounded(value, -60...12, fallback: 0)
+        }
+    }
+
+    func resetTrackMix(_ id: UUID) {
+        mutateMixer(actionName: "Reset Track Mix") { project in
+            guard let index = project.tracks.firstIndex(where: { $0.id == id && $0.kind == .audio }) else { return }
+            project.tracks[index].mix = .neutral
+            project.tracks[index].isMuted = false
+        }
+    }
+}
+
+
+extension ProjectController {
+    func mixerAdjustmentEditing(_ editing: Bool) {
+        if editing {
+            if mixerAdjustmentOrigin == nil { mixerAdjustmentOrigin = project }
+        } else if let before = mixerAdjustmentOrigin {
+            mixerAdjustmentOrigin = nil
+            registerMixerUndo(before: before, after: project, actionName: "Adjust Mix")
+        }
+    }
+    private func mutateMixer(actionName: String, _ mutation: (inout TrimatoProject) -> Void) {
+        guard projectSaveCoordinator?.isResolvingClose != true else { return }
+        let before = project
+        var after = before
+        mutation(&after)
+        guard after != before else { return }
+        document.project = after
+        projectPlayer?.updateMix(project: after)
+        if mixerAdjustmentOrigin == nil { registerMixerUndo(before: before, after: after, actionName: actionName) }
+    }
+    private func registerMixerUndo(before: TrimatoProject, after: TrimatoProject, actionName: String) {
+        guard before != after, let undoManager = projectUndoManager else { return }
+        undoManager.registerUndo(withTarget: self) { target in
+            target.apply(before, undoingTo: after, actionName: actionName)
+        }
+        undoManager.setActionName(actionName)
+    }
+}
+
+
+extension ProjectController {
+    var mixerUndoManager: UndoManager? { projectUndoManager }
 }
