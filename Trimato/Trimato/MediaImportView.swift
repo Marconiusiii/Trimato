@@ -17,7 +17,7 @@ struct MediaImportView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("File: \(filename)")
                 Text(status)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(EditorTheme.secondaryText)
             }
             .accessibilityElement(children: .combine)
 
@@ -43,7 +43,6 @@ struct MediaImportView: View {
         .padding(24)
         .tint(EditorTheme.accent)
         .background(EditorTheme.controlSurface)
-        .preferredColorScheme(.dark)
         .interactiveDismissDisabled()
         .task {
             await Task.yield()

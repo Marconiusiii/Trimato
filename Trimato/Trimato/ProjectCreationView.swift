@@ -305,7 +305,7 @@ struct ProjectCreationView: View {
 
                     Text("Choose a preset or enter custom even dimensions from 2 through 8,192 pixels and a custom frame rate from 1 through 240 fps.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EditorTheme.secondaryText)
                     if let validationError {
                         Text(validationError)
                             .foregroundStyle(.red)

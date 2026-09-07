@@ -90,6 +90,7 @@ enum SettingsToolbarAccessibility {
 }
 
 private struct GeneralSettingsView: View {
+    @AppStorage(AppPreferenceKey.appearance) private var appearance = AppAppearance.system
     @AppStorage(AppPreferenceKey.importedFileHandling) private var importedFileHandling = ImportedFileHandling.keep
     @AppStorage(AppPreferenceKey.autoSaveEnabled) private var autoSaveEnabled = false
     @AppStorage(AppPreferenceKey.autoSaveMinutes)
@@ -108,6 +109,11 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            Picker("Appearance", selection: $appearance) {
+                ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
             Text("Saving")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
@@ -142,7 +148,7 @@ private struct GeneralSettingsView: View {
                     LabeledContent("Export notification access", value: notificationModel.state.statusText)
                         .accessibilityElement(children: .combine)
                     Text(notificationModel.state.explanation)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EditorTheme.secondaryText)
 
                     if notificationModel.state == .notRequested {
                         Button("Allow export notifications…") {
@@ -195,7 +201,7 @@ private struct AccessibilitySettingsView: View {
 
                     if timecodeFeedback == .onDemand {
                         Text("Press T to hear the current timecode.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(EditorTheme.secondaryText)
                     }
                 }
             }

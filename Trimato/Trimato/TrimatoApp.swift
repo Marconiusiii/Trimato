@@ -333,6 +333,7 @@ private struct ClipPlacementCommands: Commands {
 
 private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate {
     private let documents = SingleProjectCoordinator.shared
+    private let appearanceController = ApplicationAppearanceController()
     private var projectCommandMonitor: Any?
     private var quitPending = false
 
@@ -354,6 +355,10 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
             }
         }
         return .terminateLater
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        appearanceController.start()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

@@ -230,7 +230,7 @@ struct ProjectTimelineView: View {
 
     private func emptyMessage(_ message: String) -> some View {
         Text(message)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(EditorTheme.secondaryText)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
     }

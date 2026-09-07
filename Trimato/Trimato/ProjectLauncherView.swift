@@ -18,7 +18,6 @@ struct ProjectLauncherView: View {
         .frame(width: 560, height: 680)
         .background(EditorTheme.workspace)
         .tint(EditorTheme.accent)
-        .preferredColorScheme(.dark)
         .background(ProjectCreationSheetPresenter(
             isPresented: navigation.isCreatingProject,
             projectCreated: openCreatedProject,
@@ -66,7 +65,7 @@ struct ProjectLauncherView: View {
 
             Text("Create a project or continue editing.")
                 .font(.title3)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(EditorTheme.secondaryText)
                 .accessibilityHidden(true)
         }
     }
@@ -102,7 +101,7 @@ struct ProjectLauncherView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if recentProjects.urls.isEmpty {
                         Text("No recent projects")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(EditorTheme.secondaryText)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(recentProjects.urls, id: \.self) { url in

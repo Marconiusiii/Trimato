@@ -599,18 +599,15 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
         case .transition(let id): button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.transition(id))
         case .caption(let id): button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.caption(id))
         }
-        button.wantsLayer = true
-        button.layer?.cornerRadius = 6
-        button.layer?.borderWidth = model.isTransition ? 1.5 : 1
-        button.layer?.borderColor = model.isTransition
-            ? NSColor.controlAccentColor.withAlphaComponent(0.75).cgColor
-            : NSColor.separatorColor.cgColor
-        button.layer?.backgroundColor = model.isSelected
-            ? NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
-            : NSColor.controlBackgroundColor.cgColor
+        button.showsSelection = model.isSelected
+        button.showsTransition = model.isTransition
+        button.updateSurface()
     }
 
     func configureEmpty(title: String) {
+        button.showsSelection = false
+        button.showsTransition = false
+        button.updateSurface()
         button.image = nil
         button.title = title
         eventAnchor.element = nil
@@ -627,6 +624,27 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
 }
 
 private final class TimelineCollectionButton: NSButton {
+    var showsSelection = false
+    var showsTransition = false
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateSurface()
+    }
+
+    func updateSurface() {
+        wantsLayer = true
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.cornerRadius = 6
+            layer?.borderWidth = showsSelection ? 3 : (showsTransition ? 2 : 1)
+            layer?.borderColor = (showsSelection || showsTransition
+                ? NSColor(named: "AccentColor") ?? .controlAccentColor
+                : NSColor(named: "Separator") ?? .separatorColor).cgColor
+            layer?.backgroundColor = (NSColor(named: showsSelection ? "SelectionSurface" : "RaisedSurface")
+                ?? .controlBackgroundColor).cgColor
+        }
+    }
+
     var selection: TimelineElementSelection?
     var activate: ((TimelineElementSelection) -> Void)?
     var focus: ((TimelineElementSelection) -> Void)?

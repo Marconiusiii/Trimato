@@ -92,9 +92,9 @@ struct MediaCacheSettingsView: View {
                     LabeledContent("Storage limit", value: "10 GB")
                     LabeledContent("Stored in", value: "macOS Caches")
                     Text("Trimato creates a reusable playback proxy only when macOS cannot play an original file directly. Compatible media may use no proxy storage.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EditorTheme.secondaryText)
                     Text("This total does not include projects, original media, exports, transition renders, audio previews, or export intermediates.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EditorTheme.secondaryText)
 
                     Button("Refresh storage usage") {
                         model.refresh(announceCompletion: true)
@@ -113,14 +113,14 @@ struct MediaCacheSettingsView: View {
                     }
                     .disabled(model.isWorking || model.isRefreshing)
                     Text("Removes playback proxies that have not been used in the last seven days.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EditorTheme.secondaryText)
 
                     Button("Clear all playback proxies…") {
                         confirmation = .all
                     }
                     .disabled(model.isWorking || model.isRefreshing)
                     Text("Removes every playback proxy except those required by an open project or editor.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EditorTheme.secondaryText)
                 }
             }
         }

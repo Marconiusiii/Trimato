@@ -47,7 +47,6 @@ struct ContentView: View {
         .frame(minWidth: 640, minHeight: compact ? 280 : 480)
         .background(EditorTheme.workspace)
         .tint(EditorTheme.accent)
-        .preferredColorScheme(.dark)
         .focusedObject(viewModel)
         .background(ClipEditorEntryFocusBridge(owner: entryFocus, ready: entryFocusReady))
         .onChange(of: entryFocus.request) {
@@ -124,7 +123,7 @@ struct ContentView: View {
 
     private var videoArea: some View {
         ZStack {
-            Color.black
+            (viewModel.hasMedia && viewModel.hasVideo ? Color.black : EditorTheme.workspace)
             if viewModel.hasMedia {
                 if viewModel.hasVideo {
                     VideoPlayerView(player: viewModel.player)
@@ -142,9 +141,9 @@ struct ContentView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "waveform")
                         .font(.system(size: 64))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(EditorTheme.secondaryText)
                     Text(viewModel.mediaStatus ?? "Open an audio or video file to begin")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EditorTheme.secondaryText)
                     if allowsFileOpening {
                         Button("Open File\u{2026}") { viewModel.openFile() }
                     }
@@ -173,6 +172,7 @@ struct ContentView: View {
                 step: viewModel.playbackFractionStep
             )
             .disabled(viewModel.duration <= 0)
+            .tint(EditorTheme.playhead)
             .accessibilityLabel("Clip playhead")
             .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.playhead)
@@ -201,7 +201,7 @@ struct ContentView: View {
                             .foregroundStyle(EditorTheme.accent)
                         Text(viewModel.showingFrames ? "FRAMES" : "TIMECODE")
                             .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(EditorTheme.secondaryText)
                     }
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
@@ -277,7 +277,7 @@ struct ContentView: View {
                  ? "← \(Int(abs(viewModel.playbackRate)))×"
                  : "\(Int(viewModel.playbackRate))× →")
                 .font(.system(.caption, design: .monospaced).weight(.medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(EditorTheme.secondaryText)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(EditorTheme.raisedSurface, in: Capsule())
@@ -300,7 +300,7 @@ struct ClipExportControlsView: View {
             if !viewModel.isExporting, let exportStatus = viewModel.exportStatus {
                 Text(exportStatus)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(EditorTheme.secondaryText)
             }
         }
         .frame(maxWidth: .infinity)

@@ -36,7 +36,7 @@ struct AddTransitionView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             Text(clip?.displayName ?? "Timeline clip")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(EditorTheme.secondaryText)
 
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(edgeLabel(.intro), isOn: $addIntro)

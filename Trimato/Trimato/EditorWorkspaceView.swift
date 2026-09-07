@@ -37,7 +37,6 @@ struct EditorWorkspaceView: View {
             .disabled(projectWindowSaveCoordinator.isResolvingClose)
             .background(EditorTheme.workspace)
             .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
-            .preferredColorScheme(.dark)
             .focusedSceneObject(controller)
             .handlesTrimatoMediaOpening()
             .onAppear {
@@ -586,13 +585,18 @@ struct ProjectViewerView: View {
             .accessibilityFocused($focusedAccessibilityTarget, equals: .videoFrame)
             if !controller.project.tracks.contains(where: { !$0.clips.isEmpty }) {
                 Text("Add a clip to the project timeline")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
+                    .padding(12)
+                    .background(EditorTheme.controlSurface, in: RoundedRectangle(cornerRadius: 6))
             } else if viewModel.isPreparing {
                 EmptyView()
             } else if viewModel.preparationWasCancelled {
                 Button("Retry Project Preview", action: prepare)
+                    .padding(12)
+                    .background(EditorTheme.controlSurface, in: RoundedRectangle(cornerRadius: 6))
             } else if let failure = viewModel.presentedPreviewFailure {
                 previewFailureView(failure)
+                    .background(EditorTheme.controlSurface, in: RoundedRectangle(cornerRadius: 6))
             } else if viewModel.errorMessage != nil {
                 VStack(spacing: 12) {
                     Text("Project preview unavailable")
@@ -601,6 +605,7 @@ struct ProjectViewerView: View {
                 }
                 .padding()
                 .frame(maxWidth: 480)
+                .background(EditorTheme.controlSurface, in: RoundedRectangle(cornerRadius: 6))
             }
         }
         .overlay(alignment: .bottom) {
@@ -651,6 +656,7 @@ struct ProjectViewerView: View {
                 step: viewModel.playbackFractionStep
             )
             .disabled(!viewModel.canControlPlayback)
+            .tint(EditorTheme.playhead)
             .accessibilityLabel("Project playhead")
             .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier("trimato.editor.playhead")
@@ -764,7 +770,7 @@ struct ProjectViewerView: View {
                             .foregroundStyle(EditorTheme.accent)
                         Text(viewModel.showingFrames ? "FRAMES" : "TIMECODE")
                             .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(EditorTheme.secondaryText)
                     }
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
@@ -781,7 +787,7 @@ struct ProjectViewerView: View {
                          ? "\(Int(abs(viewModel.playbackRate))) times backward"
                          : "\(Int(viewModel.playbackRate)) times forward")
                         .font(.system(.caption, design: .monospaced).weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EditorTheme.secondaryText)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(EditorTheme.raisedSurface, in: Capsule())

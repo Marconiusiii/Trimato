@@ -27,7 +27,7 @@ struct AboutView: View {
                 .accessibilityAddTraits(.isHeader)
 
             Text(AboutInformation.versionText())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(EditorTheme.secondaryText)
 
             Text(AboutInformation.copyright)
 
@@ -35,7 +35,7 @@ struct AboutView: View {
 
             Text(AboutInformation.ffmpegAcknowledgment)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(EditorTheme.secondaryText)
 
             Link("Visit the FFmpeg website", destination: URL(string: "https://ffmpeg.org/")!)
 
@@ -49,7 +49,6 @@ struct AboutView: View {
         .padding(28)
         .tint(EditorTheme.accent)
         .background(EditorTheme.controlSurface)
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -80,6 +79,5 @@ struct FFmpegLicenseView: View {
             }
         }
         .background(EditorTheme.workspace)
-        .preferredColorScheme(.dark)
     }
 }

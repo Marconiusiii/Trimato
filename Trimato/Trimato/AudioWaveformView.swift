@@ -22,27 +22,37 @@ struct AudioWaveformView: View {
                     }
                     context.stroke(
                         waveform,
-                        with: .color(EditorTheme.accent.opacity(0.9)),
+                        with: .color(EditorTheme.accent),
                         lineWidth: max(size.width / CGFloat(count), 1)
                     )
                 }
 
                 Rectangle()
-                    .fill(Color.white.opacity(0.25))
+                    .fill(EditorTheme.separator)
                     .frame(height: 1)
 
                 if !isLoading, samples.isEmpty {
                     Text("Waveform unavailable")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EditorTheme.secondaryText)
                 }
 
                 Rectangle()
-                    .fill(Color.white)
-                    .frame(width: 2)
+                    .fill(EditorTheme.playhead)
+                    .frame(width: 3)
+                    .padding(.horizontal, 2)
+                    .background(EditorTheme.workspace)
                     .position(
-                        x: min(max(playbackFraction, 0), 1) * geometry.size.width,
+                        x: min(max(min(max(playbackFraction, 0), 1) * geometry.size.width, 1.5), max(geometry.size.width - 1.5, 1.5)),
                         y: geometry.size.height / 2
                     )
+                Path { path in
+                    let x = min(max(playbackFraction, 0), 1) * geometry.size.width
+                    path.move(to: CGPoint(x: x - 5, y: 0))
+                    path.addLine(to: CGPoint(x: x + 5, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: 7))
+                    path.closeSubpath()
+                }
+                .fill(EditorTheme.playhead)
             }
             .clipped()
         }
