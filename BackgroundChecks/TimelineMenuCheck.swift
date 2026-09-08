@@ -25,7 +25,7 @@ import AppKit
         let provider: (TimelineElementSelection) -> NSMenu = { selection in
             requested.append(selection)
             let menu = NSMenu()
-            let item = menu.addItem(withTitle: "Delete from Timeline", action: #selector(MenuActionRecorder.choose(_:)), keyEquivalent: "")
+            let item = menu.addItem(withTitle: "Remove from Timeline", action: #selector(MenuActionRecorder.choose(_:)), keyEquivalent: "")
             item.target = actionRecorder
             item.representedObject = selection
             return menu
@@ -58,7 +58,28 @@ import AppKit
         first.menuProvider = nil
         precondition(first.menu == nil, "Empty/recycled button retained a menu")
         precondition(!first.showClipMenu { _, _ in fatalError("Empty button presented a menu") })
+        let coordinator = TimelineClipsCollection.Coordinator()
+        coordinator.models = [firstID, secondID].map {
+            TimelineCollectionItemModel(selection: $0, title: "Kitchen AD", subtitle: nil,
+                accessibilityValue: "", accessibilityHint: "", isSelected: $0 == secondID, isTransition: false)
+        }
+        var removedTarget: TimelineElementSelection?
+        var deletedMediaTarget: UUID?
+        coordinator.actions = TimelineCollectionActions(
+            activate: { _ in }, focus: { _ in }, renameClip: { _ in }, copyClip: { _ in },
+            pasteClipAfter: { _ in }, toggleClipMovement: { _ in }, moveClip: { _, _ in },
+            canMoveClip: { _, _ in true }, movePlayheadToCaption: { _ in },
+            delete: { removedTarget = $0 }, deleteMedia: { deletedMediaTarget = $0 })
+        let productionMenu = coordinator.menuForSelectedItem(target: firstID)!
+        for title in ["Remove from Timeline", "Delete Media"] {
+            let item = productionMenu.item(withTitle: title)!
+            precondition(NSApp.sendAction(item.action!, to: item.target, from: item))
+        }
+        precondition(removedTarget == firstID)
+        if case .clip(let id) = firstID { precondition(deletedMediaTarget == id) }
+        precondition(productionMenu.item(withTitle: "Delete from Timeline") == nil)
+        precondition(coordinator.menuForSelectedItem(target: .clip(UUID())) == nil)
         precondition(!window.isVisible && !window.isKeyWindow)
-        print("Native AXShowMenu attachment, mouse/accessibility lookup, target-button presentation, keyboard-focus independence, and reuse cleanup passed without displaying a menu or window")
+        print("Native AXShowMenu attachment, mouse/accessibility lookup, target-button presentation, keyboard-focus independence, reuse cleanup, and production removal/deletion action targets passed without displaying a menu or window")
     }
 }

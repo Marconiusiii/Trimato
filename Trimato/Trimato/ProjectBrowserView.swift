@@ -1,14 +1,14 @@
 import SwiftUI
 
 nonisolated enum ProjectSourceDeletionConfirmation {
-    static let title = "Delete Source Clip?"
+    static let title = "Delete Media?"
 
     static func message(clipName: String, timelineUseCount: Int) -> String {
         if timelineUseCount == 0 {
-            return "Remove \(clipName) from Project Source? This can be undone."
+            return "Remove \(clipName) from the project? The file stays in Finder. This can be undone."
         }
         let uses = timelineUseCount == 1 ? "1 timeline clip" : "\(timelineUseCount) timeline clips"
-        return "\(clipName) is used by \(uses). Deleting it from Project Source will also remove those timeline clips and their transitions. This can be undone."
+        return "\(clipName) is used by \(uses). Deleting it from the project will also remove those timeline clips and their transitions. The file stays in Finder. This can be undone."
     }
 }
 
@@ -153,7 +153,7 @@ struct ProjectBrowserView: View {
                     clipName: asset.name,
                     timelineUseCount: controller.project.sourceAssetTimelineUseCount(asset.id)
                 ),
-                confirmTitle: "Delete Source Clip",
+                confirmTitle: "Delete Media",
                 cancel: cancelAssetDeletion,
                 confirm: confirmAssetDeletion
             )
@@ -248,7 +248,7 @@ struct ProjectBrowserView: View {
                     }
                 }
                 Divider()
-                Button("Delete Source Clip", role: .destructive) {
+                Button("Delete Media", role: .destructive) {
                     beginDeletingAsset(id)
                 }
             case .project, .timeline, .clips, .generators, .none:

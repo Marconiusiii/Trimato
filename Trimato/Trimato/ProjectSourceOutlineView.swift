@@ -521,7 +521,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                     }
                 }
                 menu.addItem(.separator())
-                add("Delete Source Clip", to: menu) { source.requestDeleteAsset(assetID) }
+                add("Delete Media", to: menu) { source.requestDeleteAsset(assetID) }
             case .timeline, .clips, .generators:
                 return nil
             }

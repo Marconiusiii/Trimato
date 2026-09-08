@@ -306,6 +306,7 @@ struct TimelineCollectionActions {
     let canMoveClip: (TimelineMoveDestination, UUID) -> Bool
     let movePlayheadToCaption: (UUID) -> Void
     let delete: (TimelineElementSelection) -> Void
+    let deleteMedia: (UUID) -> Void
 }
 
 struct TimelineClipsCollection: NSViewRepresentable {
@@ -495,7 +496,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
                 moveItem.submenu = moveMenu
                 menu.addItem(moveItem)
                 menu.addItem(.separator())
-                add("Delete from Timeline", to: menu) { [weak self] in self?.actions?.delete(selection) }
+                add("Remove from Timeline", to: menu) { [weak self] in self?.actions?.delete(selection) }
+                add("Delete Media", to: menu) { [weak self] in self?.actions?.deleteMedia(id) }
             case .transition:
                 add("Edit Transition…", to: menu) { [weak self] in self?.actions?.activate(selection) }
                 add("Delete Transition", to: menu) { [weak self] in self?.actions?.delete(selection) }

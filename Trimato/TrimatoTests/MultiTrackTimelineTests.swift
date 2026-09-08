@@ -995,7 +995,7 @@ struct MultiTrackTimelineTests {
     }
 
     @Test func clipDeletionConfirmationIsNamedAndExplainsUndo() {
-        #expect(TimelineClipDeletionConfirmation.title == "Delete Clip?")
+        #expect(TimelineClipDeletionConfirmation.title == "Remove from Timeline?")
         #expect(TimelineClipDeletionConfirmation.message(clipName: "Interview") ==
                 "Remove Interview from the timeline? This can be undone.")
     }

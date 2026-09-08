@@ -1253,10 +1253,10 @@ final class ProjectController: ObservableObject {
 
     func deleteTimelineClip(id: UUID, selecting selectionAfterDeletion: EditorSelection) {
         do {
-            try mutateProjectThrowing(actionName: "Delete Timeline Clip") { try $0.removeTrackClip(id: id) }
+            try mutateProjectThrowing(actionName: "Remove from Timeline") { try $0.removeTrackClip(id: id) }
             if selection != selectionAfterDeletion { selection = selectionAfterDeletion }
             projectInfoTarget = .selection(selectionAfterDeletion)
-            announce("Timeline clip deleted")
+            announce("Timeline clip removed")
         } catch {
             announce(error.localizedDescription)
         }
@@ -2007,14 +2007,21 @@ final class ProjectController: ObservableObject {
 
     func deleteSourceAsset(_ assetID: UUID) {
         guard let asset = project.asset(id: assetID) else { return }
-        mutateProject(actionName: "Delete Source Clip") { project in
+        mutateProject(actionName: "Delete Media") { project in
             project.removeSourceAsset(assetID)
         }
-        if selection == .asset(assetID) { selection = .project }
+        switch selection {
+        case .asset(let id) where id == assetID: selection = .project
+        case .timelineClip(let id) where project.timelineClip(id: id) == nil: selection = .project
+        case .cutaway(let id) where !project.cutaways.contains(where: { $0.id == id }): selection = .project
+        case .transition(let id) where project.transition(id: id) == nil: selection = .project
+        default: break
+        }
+        projectInfoTarget = .selection(selection)
         if activeTimelineTrackID.flatMap({ project.track(id: $0) }) == nil {
             activeTimelineTrackID = Self.preferredTimelineTrackID(in: project)
         }
-        announce("\(asset.name) deleted from Project Source")
+        announce("\(asset.name) deleted from the project")
     }
 
     func updateProjectSettings(name: String, format: ProjectFormat, targetDuration: ProjectTime?) {
@@ -2313,9 +2320,9 @@ final class ProjectController: ObservableObject {
         switch selection {
         case .timelineClip(let id):
             do {
-                try mutateProjectThrowing(actionName: "Delete Timeline Clip") { try $0.removeTrackClip(id: id) }
+                try mutateProjectThrowing(actionName: "Remove from Timeline") { try $0.removeTrackClip(id: id) }
                 selection = .project
-                announce("Timeline clip deleted")
+                announce("Timeline clip removed")
             } catch { announce(error.localizedDescription) }
         case .cutaway(let id):
             mutateProject(actionName: "Delete Cutaway") { $0.cutaways.removeAll { $0.id == id } }

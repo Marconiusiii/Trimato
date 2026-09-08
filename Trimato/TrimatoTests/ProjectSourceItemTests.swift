@@ -88,15 +88,15 @@ struct ProjectSourceItemTests {
     }
 
     @Test func sourceDeletionConfirmationIsNamedAndExplainsTimelineRemoval() {
-        #expect(ProjectSourceDeletionConfirmation.title == "Delete Source Clip?")
+        #expect(ProjectSourceDeletionConfirmation.title == "Delete Media?")
         #expect(ProjectSourceDeletionConfirmation.message(
             clipName: "Interview",
             timelineUseCount: 0
-        ) == "Remove Interview from Project Source? This can be undone.")
+        ) == "Remove Interview from the project? The file stays in Finder. This can be undone.")
         #expect(ProjectSourceDeletionConfirmation.message(
             clipName: "Interview",
             timelineUseCount: 2
-        ) == "Interview is used by 2 timeline clips. Deleting it from Project Source will also remove those timeline clips and their transitions. This can be undone.")
+        ) == "Interview is used by 2 timeline clips. Deleting it from the project will also remove those timeline clips and their transitions. The file stays in Finder. This can be undone.")
     }
 
     @Test func sourceDeletionFocusChoosesNextThenPreviousThenClips() {

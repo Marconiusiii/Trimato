@@ -19,7 +19,7 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Append clips, insert and split at the playhead, or replace the remainder of the clip at the playhead.
 - Add a single-layer cutaway that temporarily replaces the picture, either with its source audio or while retaining the primary storyline audio.
 - Send only the audio from an imported video clip to an existing or newly named audio track, using the complete source edit or its marked In and Out range.
-- Split, rename, delete, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
+- Split, rename, remove, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
 - Pick up a Timeline clip with Space, choose its position with arrow keys, and drop it with Space as one undoable move. On additional tracks, plain arrows also nudge the focused clip one project frame without pickup and without overlapping neighboring clips.
 - Add, edit, and remove video fades, cross dissolves, directional wipes, audio fades, and cross fades as independent timeline elements.
 - Create saved Black, Solid Color, Static Gradient, Silence, and Text generators from a native Generator window.
@@ -135,6 +135,8 @@ These commands apply while focus is in Editor or Clip Editor. Timeline Clips use
 - VO-Command-Shift-Space: Hold the mouse button on a clip, use arrows to adjust its position, then repeat the command to release and drop it.
 
 Additional-track nudges do not require Space first. With VoiceOver, use ordinary VO-Arrow navigation to review clips; those navigation commands do not move clips. If Quick Nav is handling plain arrows, turn it off for nudging or use the Timeline menu's Move Clip Earlier and Move Clip Later commands.
+
+Choose Remove from Timeline to remove a clip while keeping its source in Project Source. Choose Delete Media in Timeline Clips or Project Source to remove the source from the project and all timeline clips and transitions that use it. The confirmation shows how many timeline clips use the source. Files remain in Finder. Both actions support Undo and Redo. Save the project to keep these changes.
 
 The clip context menu provides a movement-selection toggle and one Move To… submenu with Start, Before, After, and End. Pick up a source clip, focus a destination, and choose Before or After. Start and End use the active track and also work directly on the focused clip without pickup. The redundant Move Earlier and Move Later context-menu items have been removed.
 

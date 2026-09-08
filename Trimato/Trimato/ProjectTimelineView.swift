@@ -18,7 +18,7 @@ nonisolated enum TimelineAccessibility {
 }
 
 nonisolated enum TimelineClipDeletionConfirmation {
-    static let title = "Delete Clip?"
+    static let title = "Remove from Timeline?"
 
     static func message(clipName: String?) -> String {
         guard let clipName else {
@@ -45,6 +45,10 @@ struct ProjectTimelineView: View {
     @State private var transitionFocusReturn: TimelineElementSelection?
     @State private var transitionPendingDeletion: TimelineTransition?
     @State private var clipPendingDeletion: TimelineClip?
+    @State private var mediaPendingDeletion: MediaAssetRecord?
+    @State private var mediaDeletionOrigin: UUID?
+    @State private var confirmedMediaDeletion: UUID?
+    @State private var mediaDeletionFallback: TimelineElementSelection?
     @State private var clipDeletionFocusID: UUID?
     @State private var clipDeletionWasConfirmed = false
     @State private var clipDeletionFallback: TimelineElementSelection?
@@ -165,9 +169,22 @@ struct ProjectTimelineView: View {
             ConfirmationView(
                 title: TimelineClipDeletionConfirmation.title,
                 message: TimelineClipDeletionConfirmation.message(clipName: clip.displayName),
-                confirmTitle: "Delete Clip",
+                confirmTitle: "Remove from Timeline",
                 cancel: { clipPendingDeletion = nil },
                 confirm: { confirmClipDeletion(clip) }
+            )
+        }
+        .sheet(item: $mediaPendingDeletion, onDismiss: finishMediaDeletion) { asset in
+            ConfirmationView(
+                title: ProjectSourceDeletionConfirmation.title,
+                message: ProjectSourceDeletionConfirmation.message(clipName: asset.name,
+                    timelineUseCount: controller.project.sourceAssetTimelineUseCount(asset.id)),
+                confirmTitle: "Delete Media",
+                cancel: { mediaPendingDeletion = nil },
+                confirm: {
+                    confirmedMediaDeletion = asset.id
+                    mediaPendingDeletion = nil
+                }
             )
         }
         .applicationMessage(errorMessage.map {
@@ -222,7 +239,8 @@ struct ProjectTimelineView: View {
                 moveClip: { destination, id in controller.moveClip(to: destination, targetID: id) },
                 canMoveClip: { destination, id in controller.canMoveClip(to: destination, targetID: id) },
                 movePlayheadToCaption: controller.movePlayheadToCaption,
-                delete: deleteTimelineElement
+                delete: deleteTimelineElement,
+                deleteMedia: beginDeletingMedia
             )
         )
         .frame(minHeight: 88)
@@ -440,6 +458,34 @@ struct ProjectTimelineView: View {
         isRenamingClip = true
     }
 
+    private func beginDeletingMedia(_ clipID: UUID) {
+        guard let clip = controller.project.timelineClip(id: clipID),
+              let asset = controller.project.asset(id: clip.assetID) else { return }
+        controller.selection = .timelineClip(clipID)
+        focusedElement = nil; keyboardFocusedElement = nil
+        mediaDeletionOrigin = clipID
+        confirmedMediaDeletion = nil
+        mediaDeletionFallback = TimelineElementSequence.focusTargetAfterDeletingMedia(asset.id, clipID: clipID, from: timelineElements)
+        mediaPendingDeletion = asset
+    }
+
+    private func finishMediaDeletion() {
+        guard let origin = mediaDeletionOrigin else { return }
+        let assetID = confirmedMediaDeletion
+        let fallback = mediaDeletionFallback
+        mediaDeletionOrigin = nil; confirmedMediaDeletion = nil; mediaDeletionFallback = nil
+        guard let assetID else { restoreTimelineElementFocus(to: .clip(origin)); return }
+        let window = NSApp.keyWindow
+        DispatchQueue.main.async {
+            controller.deleteSourceAsset(assetID)
+            controller.selection = editorSelection(for: fallback) ?? .project
+            controller.setProjectInfoTarget(.selection(controller.selection))
+            guard window?.isKeyWindow == true, window?.attachedSheet == nil else { return }
+            if let fallback { controller.requestTimelineFocusRestore(to: fallback) }
+            else { controller.requestTimelineListFocusRestore() }
+        }
+    }
+
     private func deleteTimelineClip(_ id: UUID) {
         guard let clip = controller.project.timelineClip(id: id) else { return }
         controller.selection = .timelineClip(id)
@@ -497,9 +543,10 @@ struct ProjectTimelineView: View {
             }
         }
         Divider()
-        Button("Delete from Timeline", role: .destructive) {
+        Button("Remove from Timeline", role: .destructive) {
             deleteTimelineClip(clip.id)
         }
+        Button("Delete Media", role: .destructive) { beginDeletingMedia(clip.id) }
     }
 
     private func clipAccessibilityValue(_ clip: TimelineClip) -> String {
@@ -718,6 +765,17 @@ struct TimelineListElement: Identifiable, Equatable {
 extension TimelineListElement.Content: Equatable {}
 
 enum TimelineElementSequence {
+    static func focusTargetAfterDeletingMedia(_ assetID: UUID, clipID: UUID,
+                                             from elements: [TimelineListElement]) -> TimelineElementSelection? {
+        guard let index = elements.firstIndex(where: {
+            if case .clip(let clip) = $0.content { return clip.id == clipID }; return false
+        }) else { return nil }
+        for element in Array(elements[..<index].reversed()) + Array(elements.dropFirst(index + 1)) {
+            if case .clip(let clip) = element.content, clip.assetID != assetID { return .clip(clip.id) }
+        }
+        return nil
+    }
+
     static func focusTargetAfterDeletingClip(
         _ clipID: UUID,
         from elements: [TimelineListElement]
