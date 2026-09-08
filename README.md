@@ -46,6 +46,8 @@ Choose a microphone and playback device in Settings > Audio. Use Record Test and
 
 Press Command-Shift-D to open Describer at the Editor markers, or Command-Shift-V to open Voicer at the playhead. Turn Record on to start a take and off to finish. Play take plays the recording alone. Play with Primary Audio mixes it with the project. In Describer, mixed playback starts at In and stops at Out, including after an Audio Ducking change. Play take can play the entire recording if it extends beyond Out.
 
+In Settings > Audio, choose System Default to use the current macOS input or playback device, or select a specific device. Input and playback can use different devices. Choose the input channel for a multi-channel interface. Recordings retain the input sample rate and use the selected recording quality.
+
 Choose Add to Project to add the recording as an audio clip. Describer can also save written description text on the Description Transcript track.
 
 ## Sound settings

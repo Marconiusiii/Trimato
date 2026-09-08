@@ -2,8 +2,8 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 struct TCaptureBuffer {
-    _Atomic uint64_t head, tail;
-    _Atomic int accepting, active, received, failure;
+    _Atomic uint64_t head, tail, deliveries;
+    _Atomic int accepting, active, received, failure, deviceStatus;
     uint32_t slots, capacity;
     uint32_t *lengths;
     float *samples;
@@ -11,9 +11,9 @@ struct TCaptureBuffer {
 TCaptureBuffer *TCaptureCreate(uint32_t slots, uint32_t capacity) {
     TCaptureBuffer *r = calloc(1, sizeof(*r));
     if (!r) return NULL;
-    atomic_init(&r->head, 0); atomic_init(&r->tail, 0);
+    atomic_init(&r->head, 0); atomic_init(&r->tail, 0); atomic_init(&r->deliveries, 0);
     atomic_init(&r->accepting, 0); atomic_init(&r->active, 0);
-    atomic_init(&r->received, 0); atomic_init(&r->failure, 0);
+    atomic_init(&r->received, 0); atomic_init(&r->failure, 0); atomic_init(&r->deviceStatus, 0);
     _Static_assert(ATOMIC_LLONG_LOCK_FREE == 2 && ATOMIC_INT_LOCK_FREE == 2, "Capture needs lock-free atomics");
     r->slots = slots; r->capacity = capacity;
     r->lengths = calloc(slots, sizeof(uint32_t));
@@ -26,10 +26,13 @@ void TCaptureBegin(TCaptureBuffer *r) { atomic_store(&r->accepting, 1); }
 void TCaptureStop(TCaptureBuffer *r) { atomic_store(&r->accepting, 0); }
 int TCaptureActive(TCaptureBuffer *r) { return atomic_load(&r->active); }
 int TCaptureReceived(TCaptureBuffer *r) { return atomic_load(&r->received); }
+uint64_t TCaptureDeliveries(TCaptureBuffer *r) { return atomic_load(&r->deliveries); }
 int TCaptureFailure(TCaptureBuffer *r) { return atomic_load(&r->failure); }
+void TCaptureDeviceError(TCaptureBuffer *r, int32_t status) { atomic_store(&r->deviceStatus, status); int expected = 0; atomic_compare_exchange_strong(&r->failure, &expected, 3); }
+int32_t TCaptureDeviceStatus(TCaptureBuffer *r) { return atomic_load(&r->deviceStatus); }
 void TCapturePush(TCaptureBuffer *r, const float *source, uint32_t frames, uint32_t stride, int valid) {
     atomic_fetch_add(&r->active, 1);
-    if (valid && frames) atomic_store(&r->received, 1);
+    if (valid && frames) { atomic_store(&r->received, 1); atomic_fetch_add(&r->deliveries, 1); }
     if (atomic_load(&r->accepting) && !atomic_load(&r->failure)) {
         uint64_t head = atomic_load_explicit(&r->head, memory_order_relaxed);
         uint64_t tail = atomic_load_explicit(&r->tail, memory_order_acquire);

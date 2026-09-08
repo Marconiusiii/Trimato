@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import AudioToolbox
 @testable import Trimato
 
 @main struct RecordingPlaybackCheck {
@@ -12,6 +13,7 @@ import AVFoundation
         do { _ = try await cancelledRender.value; preconditionFailure("Render ignored cancellation") }
         catch is CancellationError { }
         print("Cancelled media subprocess released its worker")
+        try checkInputFormats()
         try await checkCaptureLifecycle()
         let soundID = UUID()
         InterfaceSounds.shared.capture(soundID, active: true)
@@ -179,4 +181,54 @@ import AVFoundation
     precondition(session.state == .idle && backend.begins == 1 && cues == 1)
     session.close()
     print("Capture lifecycle: preparation changes, one cue, immediate stop gate and asynchronous cleanup passed")
+}
+
+private func checkInputFormats() throws {
+    for rate in [8000.0, 16000, 32000, 44100, 48000, 96000, 192000] {
+        for channels in [1, 2, 8, 32] {
+            let channel = channels - 1
+            let format = try AudioCaptureConfiguration.format(sampleRate: rate, channels: channels, selectedChannel: channel)
+            precondition(format.mSampleRate == rate && format.mChannelsPerFrame == channels)
+            precondition(format.mBytesPerFrame == channels * 4 && format.mFramesPerPacket == 1)
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("InputFormat-\(UUID()).wav")
+            defer { try? FileManager.default.removeItem(at: url) }
+            let writer = try AudioCaptureWriter(url: url, sampleRate: rate, channel: channel, bitDepth: 24, inputChannels: channels)
+            let samples = (0..<(64 * channels)).map { Float($0 % channels + 1) / Float(channels * 2) }
+            writer.begin()
+            samples.withUnsafeBytes { writer.receiveInterleaved($0.baseAddress!, byteCount: $0.count) }
+            let result = writer.finish()
+            precondition(result.1 == nil && result.0.frames == 64)
+            let file = try AVAudioFile(forReading: url)
+            let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 64)!
+            try file.read(into: buffer)
+            precondition(file.processingFormat.sampleRate == rate && file.processingFormat.channelCount == 1)
+            for frame in 0..<64 { precondition(abs(buffer.floatChannelData![0][frame] - 0.5) < 0.0001) }
+        }
+    }
+    for (rate, channels, selected) in [(0.0, 1, 0), (Double.nan, 1, 0), (48000.0, 0, 0), (48000.0, 2, 2), (48000.0, 2, -1)] {
+        do { _ = try AudioCaptureConfiguration.format(sampleRate: rate, channels: channels, selectedChannel: selected)
+            preconditionFailure("Invalid input configuration was accepted")
+        } catch { }
+    }
+    precondition(AudioCaptureSetupError(status: kAudioQueueErr_InvalidDevice, operation: "test").canRetry)
+    precondition(!AudioCaptureSetupError(status: kAudioQueueErr_Permissions, operation: "test").canRetry)
+    // Native default selection must not attempt any property access on the queue.
+    try AudioCaptureConfiguration.selectDevice(OpaquePointer(bitPattern: 1)!, uid: "", systemDefault: true, operation: "test")
+    var selected = false
+    try AudioCaptureConfiguration.selectDevice(OpaquePointer(bitPattern: 1)!, uid: "test-input", systemDefault: false,
+        operation: "Selecting test input", setProperty: { _, property, data, size in
+            precondition(property == kAudioQueueProperty_CurrentDevice && size == MemoryLayout<UnsafeRawPointer>.size)
+            let reference = data.load(as: UnsafeRawPointer.self)
+            let value = Unmanaged<CFString>.fromOpaque(reference).takeUnretainedValue() as String
+            precondition(value == "test-input"); selected = true; return noErr
+        })
+    precondition(selected)
+    do {
+        try AudioCaptureConfiguration.selectDevice(OpaquePointer(bitPattern: 1)!, uid: "test-input", systemDefault: false,
+            operation: "Selecting test input", setProperty: { _, _, _, _ in kAudioQueueErr_InvalidDevice })
+        preconditionFailure("Explicit device failure was hidden")
+    } catch let error as AudioCaptureSetupError {
+        precondition(error.status == kAudioQueueErr_InvalidDevice && error.operation == "Selecting test input")
+    }
+    print("Input formats: 28 rate/channel combinations preserved the selected channel; invalid formats and retry policy passed")
 }
