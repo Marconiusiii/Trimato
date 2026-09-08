@@ -10,6 +10,15 @@ import AVFoundation
         var cues: [Data] = []
         var stops = 0
         let sounds = InterfaceSounds(defaults: defaults, playback: { cues.append($0) }, stopPlayback: { stops += 1 })
+        let work = VoiceAdjustmentWork(processingSound: ProcessingSound(sounds: sounds))
+        work.run { try await Task.sleep(for: .milliseconds(900)) }
+        try await Task.sleep(for: .seconds(1))
+        precondition(cues.isEmpty, "Automatic work played a processing sound")
+        work.run(soundFeedback: true) { try await Task.sleep(for: .milliseconds(900)) }
+        try await Task.sleep(for: .seconds(1))
+        precondition(cues.count == 1, "Explicit slow action did not play a processing sound")
+        work.cancel()
+        cues.removeAll()
         let quick = sounds.begin(); sounds.end(quick)
         try await Task.sleep(for: .milliseconds(750))
         precondition(cues.isEmpty, "Immediate actions played a cue")

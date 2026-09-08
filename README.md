@@ -50,7 +50,7 @@ Choose Add to Project to add the recording as an audio clip. Describer can also 
 
 ## Sound settings
 
-In Settings > General, turn Processing sounds on or off. A soft ascending cue repeats during longer inline actions, such as preparing a recording or filter preview. Immediate actions, loading screens, and export progress remain quiet.
+In Settings > General, turn Processing sounds on or off. A soft ascending cue repeats when an action you activate takes extra time, such as preparing a recording or filter preview. Moving between controls, automatic preview updates, immediate actions, loading screens, and export progress remain quiet.
 
 Turn Export completion sound on or off to choose whether Trimato plays a short tune after a successful project export. These settings are separate from export notification permission.
 

@@ -492,7 +492,7 @@ struct FilterAuditionView: View {
     private func play(enabled: Bool, mixed: Bool, position: Double = 0) {
         beforePlayback()
         let (filters, audio) = settings(enabled: enabled)
-        work.run {
+        work.run(soundFeedback: true) {
             if mixed {
                 let url = try await context.voiceMixedPreview(filters: filters, audio: audio)
                 do { try await work.play(url, position: position) }

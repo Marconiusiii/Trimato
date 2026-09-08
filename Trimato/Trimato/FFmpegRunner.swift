@@ -1,12 +1,12 @@
 import Foundation
 import os
 
-enum FFmpegTool: String {
+nonisolated enum FFmpegTool: String {
     case ffmpeg
     case ffprobe
 }
 
-struct FFmpegCommandError: LocalizedError {
+nonisolated struct FFmpegCommandError: LocalizedError {
     let tool: FFmpegTool
     let status: Int32
     let diagnostics: String
@@ -45,6 +45,11 @@ nonisolated final class FFmpegProcessBox: @unchecked Sendable {
         lock.unlock()
         if runningProcess?.isRunning == true {
             runningProcess?.terminate()
+            if let runningProcess {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
+                    if runningProcess.isRunning { kill(runningProcess.processIdentifier, SIGKILL) }
+                }
+            }
         }
     }
 
@@ -99,53 +104,7 @@ private nonisolated final class FFmpegOutputCollector: @unchecked Sendable {
     }
 }
 
-private actor FFmpegExecutionGate {
-    static let shared = FFmpegExecutionGate()
-
-    private struct Waiter {
-        let id: UUID
-        let continuation: CheckedContinuation<Void, Error>
-    }
-
-    private var isOccupied = false
-    private var waiters: [Waiter] = []
-
-    func acquire() async throws {
-        try Task.checkCancellation()
-        guard isOccupied else {
-            isOccupied = true
-            return
-        }
-
-        let id = UUID()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                if Task.isCancelled {
-                    continuation.resume(throwing: CancellationError())
-                } else {
-                    waiters.append(Waiter(id: id, continuation: continuation))
-                }
-            }
-        } onCancel: {
-            Task { await self.cancelWaiter(id: id) }
-        }
-    }
-
-    func release() {
-        guard !waiters.isEmpty else {
-            isOccupied = false
-            return
-        }
-        waiters.removeFirst().continuation.resume()
-    }
-
-    private func cancelWaiter(id: UUID) {
-        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
-        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
-    }
-}
-
-struct FFmpegRunner {
+nonisolated struct FFmpegRunner {
     nonisolated private static let signposter = OSSignposter(
         subsystem: "com.marconius.trimato", category: "Media processing"
     )
@@ -164,6 +123,7 @@ struct FFmpegRunner {
         return candidates.compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
+    @concurrent
     static func run(
         tool: FFmpegTool,
         arguments: [String],
@@ -171,9 +131,10 @@ struct FFmpegRunner {
         expectedDuration: Double? = nil,
         outputLine: (@Sendable (String) -> Void)? = nil
     ) async throws -> Result {
+        let lane: MediaJobScheduler.Lane = tool == .ffprobe ? .inspection : .render
         let queued = signposter.beginInterval("Media queue wait", id: signposter.makeSignpostID())
         do {
-            try await FFmpegExecutionGate.shared.acquire()
+            try await MediaJobScheduler.shared.acquire(lane, priority: MediaJobContext.priority)
         } catch {
             signposter.endInterval("Media queue wait", queued)
             throw error
@@ -190,14 +151,15 @@ struct FFmpegRunner {
                 expectedDuration: expectedDuration,
                 outputLine: outputLine
             )
-            await FFmpegExecutionGate.shared.release()
+            await MediaJobScheduler.shared.release(lane)
             return result
         } catch {
-            await FFmpegExecutionGate.shared.release()
+            await MediaJobScheduler.shared.release(lane)
             throw error
         }
     }
 
+    @concurrent
     private static func runProcess(
         tool: FFmpegTool,
         arguments: [String],
@@ -225,22 +187,24 @@ struct FFmpegRunner {
                     outputLine: outputLine
                 )
                 stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                    collector.append(handle.availableData)
-                }
-
-                do {
-                    try box.launch(process)
-                } catch {
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    try? stdoutPipe.fileHandleForReading.close()
-                    try? stdoutPipe.fileHandleForWriting.close()
-                    try? stderrPipe.fileHandleForReading.close()
-                    try? stderrPipe.fileHandleForWriting.close()
-                    continuation.resume(throwing: error)
-                    return
+                    let data = handle.availableData
+                    if data.isEmpty { handle.readabilityHandler = nil }
+                    else { collector.append(data) }
                 }
 
                 DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        try box.launch(process)
+                    } catch {
+                        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                        try? stdoutPipe.fileHandleForReading.close()
+                        try? stdoutPipe.fileHandleForWriting.close()
+                        try? stderrPipe.fileHandleForReading.close()
+                        try? stderrPipe.fileHandleForWriting.close()
+                        continuation.resume(throwing: error)
+                        return
+                    }
+
                     let errorData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
                     process.waitUntilExit()
                     stdoutPipe.fileHandleForReading.readabilityHandler = nil

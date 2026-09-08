@@ -1,6 +1,6 @@
 import Foundation
 
-enum ProjectRenderMediaError: LocalizedError {
+nonisolated enum ProjectRenderMediaError: LocalizedError {
     case insufficientDiskSpace
 
     var errorDescription: String? {
@@ -11,7 +11,7 @@ enum ProjectRenderMediaError: LocalizedError {
     }
 }
 
-enum ProjectRenderMediaManager {
+nonisolated enum ProjectRenderMediaManager {
     static func arguments(
         sourceURL: URL,
         outputURL: URL,
@@ -35,6 +35,7 @@ enum ProjectRenderMediaManager {
         return result
     }
 
+    @concurrent
     static func createIntermediate(
         sourceURL: URL,
         duration: Double,

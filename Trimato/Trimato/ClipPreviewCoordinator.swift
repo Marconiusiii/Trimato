@@ -93,9 +93,11 @@ final class ClipPreviewCoordinator: ObservableObject {
             do {
                 if debounce { try await Task.sleep(for: .milliseconds(250)) }
                 try Task.checkCancellation()
-                let url = try await self.render(request) { [weak self] value in
+                let url = try await MediaJobContext.$priority.withValue(.interactive) {
+                    try await self.render(request) { [weak self] value in
                     guard let self, self.requestID == id, value.isFinite else { return }
                     self.progress = max(self.progress, min(max(value, 0), 1))
+                }
                 }
                 output = url
                 try Task.checkCancellation()

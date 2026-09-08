@@ -4,6 +4,15 @@ import AVFoundation
 
 @main struct RecordingPlaybackCheck {
     @MainActor static func main() async throws {
+        let cancelledRender = Task {
+            try await FFmpegRunner.run(tool: .ffmpeg, arguments: ["-v", "error", "-re", "-f", "lavfi", "-i", "sine=frequency=440", "-f", "null", "-"])
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        cancelledRender.cancel()
+        do { _ = try await cancelledRender.value; preconditionFailure("Render ignored cancellation") }
+        catch is CancellationError { }
+        print("Cancelled media subprocess released its worker")
+        try await checkCaptureLifecycle()
         let soundID = UUID()
         InterfaceSounds.shared.capture(soundID, active: true)
         defer { InterfaceSounds.shared.capture(soundID, active: false) }
@@ -122,4 +131,52 @@ import AVFoundation
         precondition(session.player.rate == 0 && session.player.currentTime().seconds <= 0.76, "Describer playback crossed Out")
         print("Describer sought to In, retained Out after ducking changed, and stopped at Out")
     }
+}
+
+@MainActor private final class CaptureCheckBackend: AudioCaptureBackend {
+    var isReady = false
+    var configurationChanged: (() -> Void)?
+    var begins = 0
+    var finishes = 0
+    var stoppedAccepting = false
+    func prepare(_ request: AudioCaptureRequest) async throws { configurationChanged?() }
+    func settle() async throws { isReady = true }
+    func begin() async throws { begins += 1 }
+    func progress() -> (AudioRecordingSummary, String?) { (AudioRecordingSummary(), nil) }
+    func stopAccepting() { stoppedAccepting = true }
+    func finish(playCue: Bool) async -> AudioCaptureResult {
+        try? await Task.sleep(for: .milliseconds(100))
+        finishes += 1; isReady = false
+        return AudioCaptureResult()
+    }
+}
+
+@MainActor private func checkCaptureLifecycle() async throws {
+    let backend = CaptureCheckBackend()
+    var cues = 0
+    let session = AudioCaptureSession(routes: AudioOutputManager(observeHardware: false), backend: backend,
+        preparationDelay: .zero, cueSettlingDelay: .zero, playCue: { _, _ in
+            cues += 1; backend.isReady = false; backend.configurationChanged?()
+        })
+    let request = AudioCaptureRequest(inputDeviceID: 10, inputUID: "test", outputDeviceID: 20,
+                                     outputUID: "test-output", channel: 0, bitDepth: 24)
+    session.record(request: request)
+    let deadline = ContinuousClock.now + .seconds(2)
+    while session.state == .preparing && ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    precondition(session.state == .recording && cues == 1 && backend.begins == 1)
+    session.close()
+    precondition(backend.stoppedAccepting && session.state == .finishing)
+    precondition(!AudioCaptureSession.suppressesAnnouncements)
+    while session.state == .finishing && ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    precondition(session.state == .idle && backend.finishes == 1)
+    session.record(request: request)
+    session.stop(playCue: false)
+    try await Task.sleep(for: .milliseconds(200))
+    precondition(session.state == .idle && backend.begins == 1 && cues == 1)
+    session.close()
+    print("Capture lifecycle: preparation changes, one cue, immediate stop gate and asynchronous cleanup passed")
 }

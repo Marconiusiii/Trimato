@@ -84,7 +84,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
             guard validRange else { fail("Set a valid insertion time and, for Describer, an Out point after the In point."); return }
             if controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {
                 preparingRecording = true
-                preview(mixed: false, autoplay: false, recording: true)
+                preview(mixed: false, autoplay: false, recording: true, soundFeedback: true)
             } else { capture.setRecording(true, input: input) }
         } else { capture.setRecording(false, input: input) }
     }
@@ -95,7 +95,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         capture.setTestPlayback(false)
     }
 
-    func preview(mixed: Bool, autoplay: Bool = true, recording: Bool = false, seekTime: Double? = nil, soundFeedback: Bool = true) {
+    func preview(mixed: Bool, autoplay: Bool = true, recording: Bool = false, seekTime: Double? = nil, soundFeedback: Bool = false) {
         if player.rate != 0 && autoplay && seekTime == nil { stopPlayback(); return }
         guard !busy, !capture.isBusy, let controller else { return }
         stopPlayback()
@@ -296,7 +296,6 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         stopPlayback()
         busy = true
         saving = true
-        processingSound.start()
         defer { busy = false; saving = false }
         var savedURL: URL?
         do {
@@ -436,7 +435,7 @@ struct ProjectRecordingView: View {
                             .disabled(session.busy && !session.preparingRecording)
                         Button(session.takePlaying ? "Stop take" : "Play take") { session.playTake() }
                             .disabled(capture.testURL == nil || capture.isBusy || session.busy)
-                        Button("Play with Primary Audio") { session.preview(mixed: true) }
+                        Button("Play with Primary Audio") { session.preview(mixed: true, soundFeedback: true) }
                             .disabled(capture.testURL == nil || capture.isBusy || session.busy)
                         Button("Delete take") { session.stopPlayback(); capture.deleteTest() }
                             .disabled(capture.testURL == nil || capture.isBusy || session.busy)
@@ -458,7 +457,7 @@ struct ProjectRecordingView: View {
                             }, beforePlayback: session.stopPlayback)
                         HStack {
                             Button(session.takePlaying ? "Stop take" : "Play take") { voiceWork.cancel(); session.playTake() }
-                            Button("Play with Primary Audio") { voiceWork.cancel(); session.preview(mixed: true) }
+                            Button("Play with Primary Audio") { voiceWork.cancel(); session.preview(mixed: true, soundFeedback: true) }
                         }.disabled(capture.testURL == nil || session.busy || voiceWork.busy)
                         Spacer(minLength: 0)
                     }

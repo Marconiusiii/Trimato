@@ -12,12 +12,15 @@ final class AudioInputManager: ObservableObject {
     @Published var channel: Int { didSet { guard !reloadingPreferences else { return }; defaults.set(channel, forKey: AppPreferenceKey.audioInputChannel); refreshGain() } }
     @Published var bitDepth: Int { didSet { guard !reloadingPreferences else { return }; defaults.set(bitDepth, forKey: AppPreferenceKey.audioRecordingBitDepth) } }
     @Published private(set) var hardwareGain: Float?
+    private let gainWorker = SerialMediaWorker(label: "com.marconius.trimato.input-gain")
+    private var gainGeneration = UUID()
+    private var gainTask: Task<Void, Never>?
     private let defaults: UserDefaults
     private var observation: AnyCancellable?
     let routes: AudioOutputManager
     var inputs: [AudioDeviceChoice] { routes.devices.filter { $0.inputChannels > 0 } }
     var resolvedDevice: AudioDeviceChoice? {
-        AudioOutputManager.resolve(selectedUID: selectedUID, devices: inputs, defaultID: AudioHardware.defaultDevice(input: true))
+        AudioOutputManager.resolve(selectedUID: selectedUID, devices: inputs, defaultID: routes.defaultInputID)
     }
     var permissionTitle: String {
         switch permission {
@@ -66,8 +69,14 @@ final class AudioInputManager: ObservableObject {
     }
 
     private func refreshGain() {
-        let gain = resolvedDevice.flatMap { AudioHardware.gain($0.deviceID, channel: channel) }
-        if hardwareGain != gain { hardwareGain = gain }
+        gainTask?.cancel()
+        let id = UUID(); gainGeneration = id
+        let device = resolvedDevice; let channel = channel
+        gainTask = Task { [weak self, gainWorker] in
+            let gain = try? await gainWorker.run { device.flatMap { AudioHardware.gain($0.deviceID, channel: channel) } }
+            guard let self, gainGeneration == id else { return }
+            if hardwareGain != gain { hardwareGain = gain }
+        }
     }
 
     func setGain(_ value: Float) throws {
@@ -77,6 +86,7 @@ final class AudioInputManager: ObservableObject {
         // Devices may quantize gain more coarsely than a native slider increment.
         // Keep successful requests so repeated adjustments can cross those steps.
         // A route change or app activation refreshes the hardware readback.
+        gainGeneration = UUID()
         hardwareGain = requestedGain
     }
 }

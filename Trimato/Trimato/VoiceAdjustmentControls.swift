@@ -11,26 +11,27 @@ final class VoiceAdjustmentWork: ObservableObject {
     private let sliderKeyboard = SettingsSliderKeyboard(identifier: "trimato.voice.level")
     func startKeyboard() { sliderKeyboard.start() }
     func stopKeyboard() { sliderKeyboard.stop() }
-    private let processingSound = ProcessingSound()
+    private let processingSound: ProcessingSound
     private var task: Task<Void, Never>?
     private var files: [URL] = []
     private var rateObserver: AnyCancellable?
     private var generation = UUID()
 
-    init() {
+    init(processingSound: ProcessingSound? = nil) {
+        self.processingSound = processingSound ?? ProcessingSound()
         AudioOutputManager.shared.register(player)
         rateObserver = player.publisher(for: \.rate).receive(on: RunLoop.main).sink { [weak self] in self?.playing = $0 != 0 }
     }
 
-    func run(_ action: @escaping @MainActor () async throws -> Void) {
+    func run(soundFeedback: Bool = false, _ action: @escaping @MainActor () async throws -> Void) {
         cancel()
         busy = true
-        processingSound.start()
+        if soundFeedback { processingSound.start() }
         let id = generation
         task = Task { [weak self] in
             guard let self else { return }
             defer { if generation == id { processingSound.stop(); busy = false; task = nil } }
-            do { try await action() }
+            do { try await MediaJobContext.$priority.withValue(.interactive) { try await action() } }
             catch is CancellationError { }
             catch {
                 guard generation == id else { return }
@@ -100,7 +101,7 @@ struct VoiceAdjustmentControls: View {
                     if work.playing { work.cancel(); return }
                     beforePlayback()
                     let start = settings.referenceStart, end = settings.referenceEnd
-                    work.run {
+                    work.run(soundFeedback: true) {
                         let url = try await VoiceReferenceAudio.render(project: controller.project,
                             urls: controller.resolvedMediaURLs(), start: start, end: end)
                         do { try work.play(url) }
@@ -111,7 +112,7 @@ struct VoiceAdjustmentControls: View {
                     beforePlayback()
                     let original = settings
                     let project = controller.project
-                    work.run {
+                    work.run(soundFeedback: true) {
                         let url = try await VoiceReferenceAudio.render(project: project,
                             urls: controller.resolvedMediaURLs(), start: original.referenceStart, end: original.referenceEnd)
                         defer { try? FileManager.default.removeItem(at: url) }
@@ -144,7 +145,7 @@ struct VoiceAdjustmentControls: View {
                     Button("Apply voice settings to \(track.name)") {
                         let candidate = settings
                         beforePlayback()
-                        work.run { try await applyTrack(candidate) }
+                        work.run(soundFeedback: true) { try await applyTrack(candidate) }
                     }
                 }
             }

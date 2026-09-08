@@ -1,6 +1,7 @@
 import Foundation
 
-enum FFmpegTimelineEffectRenderer {
+nonisolated enum FFmpegTimelineEffectRenderer {
+    @concurrent
     static func renderAudio(
         sourceURL: URL,
         segments: [SourceSegment],
@@ -44,6 +45,7 @@ enum FFmpegTimelineEffectRenderer {
         }
     }
 
+    @concurrent
     static func renderVideoTransition(
         leadingURL: URL,
         trailingURL: URL,
@@ -118,6 +120,7 @@ enum FFmpegTimelineEffectRenderer {
         }
     }
 
+    @concurrent
     static func renderAudioTransition(
         leadingURL: URL,
         trailingURL: URL,
@@ -372,7 +375,7 @@ enum FFmpegTimelineEffectRenderer {
     }
 }
 
-enum AudioCrossFadeCurve: Equatable {
+nonisolated enum AudioCrossFadeCurve: Equatable {
     case linear
     case equalPower
 
@@ -384,7 +387,7 @@ enum AudioCrossFadeCurve: Equatable {
     }
 }
 
-struct AudioTransitionFormat: Equatable {
+nonisolated struct AudioTransitionFormat: Equatable {
     let sampleRate: Int?
     let channelLayout: String?
 

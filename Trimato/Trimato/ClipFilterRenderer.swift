@@ -2,7 +2,8 @@ import AVFoundation
 import Foundation
 
 // Outputs belong to the caller and are removed with the composed preview or export.
-enum ClipFilterRenderer {
+nonisolated enum ClipFilterRenderer {
+    @concurrent
     static func render(source: URL, filters: [ClipFilter], audio: Bool, duration: Double,
                        segments: [SourceSegment]? = nil, audioSettings: AudioClipSettings? = nil,
                        highPrecision: Bool = false,
@@ -81,6 +82,7 @@ enum ClipFilterRenderer {
         }
     }
 
+    @concurrent
     static func prepare(project: TrimatoProject, urls: [UUID: URL]) async throws -> (TrimatoProject, [UUID: URL], [URL]) {
         var prepared = project
         var resolved = urls

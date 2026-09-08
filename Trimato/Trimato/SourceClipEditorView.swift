@@ -603,7 +603,7 @@ struct SourceClipEditorView: View {
         viewModel.waitingForClipPreview = resume
         previewRequest = request
         showsPreviewProgress = userInitiated
-        preview.update(request, debounce: debounce, force: force, soundFeedback: debounce && !userInitiated, readiness: { ready in
+        preview.update(request, debounce: debounce, force: force, soundFeedback: false, readiness: { ready in
             commandContext.effectsReady = ready
             viewModel.completePreviewPreparation(ready: ready)
         }, restoreOriginal: {

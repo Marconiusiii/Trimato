@@ -122,16 +122,18 @@ final class InterfaceSounds {
 @MainActor
 final class ProcessingSound {
     private var token: UUID?
+    private let sounds: InterfaceSounds
+    init(sounds: InterfaceSounds? = nil) { self.sounds = sounds ?? .shared }
     func start() {
         stop()
-        token = InterfaceSounds.shared.begin()
+        token = sounds.begin()
     }
     func stopBeforePlayback() {
         stop()
-        InterfaceSounds.shared.silenceForPlayback()
+        sounds.silenceForPlayback()
     }
     func stop() {
-        if let token { InterfaceSounds.shared.end(token) }
+        if let token { sounds.end(token) }
         token = nil
     }
 }

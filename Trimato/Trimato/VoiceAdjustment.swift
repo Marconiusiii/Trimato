@@ -26,7 +26,8 @@ nonisolated struct VoiceAdjustment: Codable, Hashable, Sendable {
 
 /// Measures the audible edit but preserves source timing for timeline placement.
 /// Originals are never overwritten. Callers own all returned files.
-enum VoiceAudioProcessor {
+nonisolated enum VoiceAudioProcessor {
+    @concurrent
     static func measure(_ url: URL, segments: [SourceSegment]? = nil) async throws -> Double {
         let selection = try selectionGraph(segments)
         let graph = selection + "loudnorm=I=-23:TP=-1:dual_mono=true:print_format=json[out]"
@@ -63,6 +64,7 @@ enum VoiceAudioProcessor {
         return graph + segments.indices.map { "[s\($0)]" }.joined() + "concat=n=\(segments.count):v=0:a=1,"
     }
 
+    @concurrent
     static func render(source: URL, settings: VoiceAdjustment, segments: [SourceSegment]?, trimOutput: Bool) async throws -> URL {
         try settings.validate()
         var intermediate: URL?
@@ -94,6 +96,7 @@ enum VoiceAudioProcessor {
 
     static func effectiveRatio(_ amount: Double) -> Double { min(max(amount, 0), 100) * 0.04 }
 
+    @concurrent
     private static func process(source: URL, graph: String) async throws -> URL {
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-voice-\(UUID()).wav")
         do {
@@ -110,7 +113,7 @@ enum VoiceAudioProcessor {
     }
 }
 
-enum VoiceReferenceAudio {
+nonisolated enum VoiceReferenceAudio {
     static func showOnly(_ project: TrimatoProject) -> TrimatoProject {
         var result = project
         let narration = Set(project.media.filter { [.audioDescription, .voiceOver].contains($0.recordingPurpose) }.map(\.id))
@@ -125,6 +128,7 @@ enum VoiceReferenceAudio {
         return result
     }
 
+    @concurrent
     static func render(project: TrimatoProject, urls: [UUID: URL], start: Double, end: Double) async throws -> URL {
         guard start.isFinite, end.isFinite, start >= 0, end - start >= 0.4,
               end <= project.duration.seconds else {

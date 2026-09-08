@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-struct ProjectCompositionResult {
+nonisolated struct ProjectCompositionResult {
     let composition: AVMutableComposition
     let videoComposition: AVMutableVideoComposition?
     let audioMix: AVMutableAudioMix?
@@ -10,7 +10,7 @@ struct ProjectCompositionResult {
     var mixBindings: [CMPersistentTrackID: ProjectMixBinding] = [:]
 }
 
-struct ProjectMixBinding {
+nonisolated struct ProjectMixBinding {
     let sourceID: UUID
     let isDescription: Bool
     let isTransition: Bool
@@ -26,7 +26,7 @@ nonisolated enum ProjectCompositionMediaSelection: Equatable, Sendable {
     case playbackProxy
 }
 
-enum ProjectCompositionError: LocalizedError {
+nonisolated enum ProjectCompositionError: LocalizedError {
     case emptyTimeline
     case missingMedia(String)
     case missingVideo(String)
@@ -78,7 +78,7 @@ enum ProjectCompositionError: LocalizedError {
     }
 }
 
-private enum CachedCompositionTrack {
+nonisolated private enum CachedCompositionTrack {
     case available(AVAssetTrack)
     case unavailable
 
@@ -155,7 +155,7 @@ private final class ProjectCompositionProgressReporter {
     }
 }
 
-enum ProjectCompositionBuilder {
+nonisolated enum ProjectCompositionBuilder {
     nonisolated static func mediaSelection(
         for record: MediaAssetRecord,
         purpose: ProjectCompositionPurpose
@@ -174,7 +174,20 @@ enum ProjectCompositionBuilder {
         return record.playbackMode == .cachedProxy && record.proxyCacheKey == nil
     }
 
+    @concurrent
     static func build(
+        project: TrimatoProject,
+        mediaURLs: [UUID: URL],
+        purpose: ProjectCompositionPurpose = .preview,
+        progress: (@MainActor @Sendable (Double) -> Void)? = nil
+    ) async throws -> ProjectCompositionResult {
+        try await MediaJobContext.$priority.withValue(purpose == .preview ? .interactive : .background) {
+            try await buildComposition(project: project, mediaURLs: mediaURLs, purpose: purpose, progress: progress)
+        }
+    }
+
+    @concurrent
+    private static func buildComposition(
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
         purpose: ProjectCompositionPurpose = .preview,
@@ -196,12 +209,12 @@ enum ProjectCompositionBuilder {
             return CGSize(width: width, height: height)
         }()
         let projectFrameRate = ProjectFormat.stableFrameRate(project.format.frameRate ?? 30)
-        let progressReporter = progress.map {
+        let progressReporter = await MainActor.run { progress.map {
             ProjectCompositionProgressReporter(
                 jobCount: renderJobCount(project: project, hasRenderSize: renderSize != nil),
                 progress: $0
             )
-        }
+        } }
         var assets: [UUID: AVURLAsset] = [:]
         var videoSourceTracks: [UUID: CachedCompositionTrack] = [:]
         var audioSourceTracks: [UUID: CachedCompositionTrack] = [:]
@@ -360,7 +373,7 @@ enum ProjectCompositionBuilder {
                                 segments: clip.segments,
                                 settings: clip.audioSettings,
                                 stereo: true,
-                                progress: progressReporter?.beginJob()
+                                progress: await progressReporter?.beginJob()
                             )
                         } catch is CancellationError {
                             throw CancellationError()
@@ -371,7 +384,7 @@ enum ProjectCompositionBuilder {
                                 detail: ProjectCompositionError.failureDetail(for: error)
                             )
                         }
-                        progressReporter?.completeJob()
+                        await progressReporter?.completeJob()
                         temporaryMediaURLs.append(renderedURL)
                         let retainedAsset = AVURLAsset(url: renderedURL)
                         renderedAudioAsset = retainedAsset
@@ -456,9 +469,9 @@ enum ProjectCompositionBuilder {
                     type: type,
                     duration: transition.duration,
                     muteLeading: muteLeading, muteTrailing: muteTrailing,
-                    progress: progressReporter?.beginJob()
+                    progress: await progressReporter?.beginJob()
                 )
-                progressReporter?.completeJob()
+                await progressReporter?.completeJob()
             } catch {
                 throw ProjectTransitionRenderError(
                     transitionID: transition.id,
@@ -511,9 +524,9 @@ enum ProjectCompositionBuilder {
                         width: width,
                         height: height,
                         frameRate: projectFrameRate,
-                        progress: progressReporter?.beginJob()
+                        progress: await progressReporter?.beginJob()
                     )
-                    progressReporter?.completeJob()
+                    await progressReporter?.completeJob()
                 } catch {
                     throw ProjectTransitionRenderError(
                         transitionID: transition.id,
@@ -620,7 +633,7 @@ enum ProjectCompositionBuilder {
             mixProcessors: mixProcessors,
             mixBindings: mixBindings
         )
-        progressReporter?.finishComposition()
+        await progressReporter?.finishComposition()
         shouldPreserveTemporaryMedia = true
         return result
     }
@@ -649,6 +662,7 @@ enum ProjectCompositionBuilder {
         return mix
     }
 
+    @concurrent
     private static func transitionSourceRange(
         for track: AVAssetTrack,
         requestedDuration: ProjectTime,
@@ -690,6 +704,7 @@ enum ProjectCompositionBuilder {
         return asset
     }
 
+    @concurrent
     private static func preparedAsset(
         _ record: MediaAssetRecord,
         urls: [UUID: URL],
@@ -750,6 +765,7 @@ enum ProjectCompositionBuilder {
         return asset
     }
 
+    @concurrent
     private static func sourceTrack(
         for assetID: UUID,
         mediaType: AVMediaType,
@@ -762,6 +778,7 @@ enum ProjectCompositionBuilder {
         return track
     }
 
+    @concurrent
     private static func cachedDisplayTransform(
         for assetID: UUID,
         track: AVAssetTrack,
@@ -774,6 +791,7 @@ enum ProjectCompositionBuilder {
         return transform
     }
 
+    @concurrent
     static func displayTransform(
         for track: AVAssetTrack,
         renderSize: CGSize

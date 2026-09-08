@@ -687,7 +687,7 @@ extension TrimatoProject {
         return result
     }
 
-    mutating func synchronizeTracksToLegacyTimeline() {
+    nonisolated mutating func synchronizeTracksToLegacyTimeline() {
         primaryTimeline = tracks.flatMap { track -> [TimelineClip] in
             if track.role == .primaryVideo { return track.sortedClips }
             if track.role == .primaryAudio {

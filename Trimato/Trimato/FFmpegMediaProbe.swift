@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-struct FFmpegMediaProbe {
+nonisolated struct FFmpegMediaProbe {
     private nonisolated final class FrameProgressReporter: @unchecked Sendable {
         private let lock = NSLock()
         private let duration: Double
@@ -190,6 +190,7 @@ struct FFmpegMediaProbe {
         }
     }
 
+    @concurrent
     static func inspect(url: URL) async throws -> Report {
         let result = try await FFmpegRunner.run(tool: .ffprobe, arguments: [
             "-v", "error",
@@ -211,6 +212,7 @@ struct FFmpegMediaProbe {
         }
     }
 
+    @concurrent
     static func frameTimestamps(
         url: URL,
         duration: Double? = nil,
@@ -241,7 +243,7 @@ struct FFmpegMediaProbe {
             }
         progressReporter?.finish()
         if let progress {
-            progress(1)
+            await progress(1)
         }
         guard let first = seconds.first else { return [] }
         return seconds.map { timestamp in

@@ -101,12 +101,17 @@ final class AudioOutputManager: ObservableObject {
         }
     }
     private let defaults: UserDefaults
+    private let hardwareWorker = SerialMediaWorker(label: "com.marconius.trimato.device-discovery")
+    private var refreshTask: Task<Void, Never>?
+    private var refreshAgain = false
+    private(set) var defaultInputID: AudioDeviceID = 0
+    private var defaultOutputID: AudioDeviceID = 0
     private let players = NSHashTable<AVPlayer>.weakObjects()
     private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     private var lastResolvedUID: String?
     var outputs: [AudioDeviceChoice] { devices.filter { $0.outputChannels > 0 } }
     var resolvedDevice: AudioDeviceChoice? {
-        Self.resolve(selectedUID: selectedUID, devices: outputs, defaultID: AudioHardware.defaultDevice(input: false))
+        Self.resolve(selectedUID: selectedUID, devices: outputs, defaultID: defaultOutputID)
     }
     var isAvailable: Bool { resolvedDevice != nil }
 
@@ -142,8 +147,23 @@ final class AudioOutputManager: ObservableObject {
     }
 
     func refresh() {
-        let updated = AudioHardware.devices()
-        if devices != updated { devices = updated }
+        guard refreshTask == nil else { refreshAgain = true; return }
+        refreshTask = Task { [weak self, hardwareWorker] in
+            let snapshot = try? await hardwareWorker.run {
+                (AudioHardware.devices(), AudioHardware.defaultDevice(input: true), AudioHardware.defaultDevice(input: false))
+            }
+            guard let self else { return }
+            if let snapshot {
+                if devices != snapshot.0 { devices = snapshot.0 }
+                defaultInputID = snapshot.1; defaultOutputID = snapshot.2
+                applyRoutes()
+            }
+            refreshTask = nil
+            if refreshAgain { refreshAgain = false; refresh() }
+        }
+    }
+
+    private func applyRoutes() {
         let uid = resolvedDevice?.id
         let interruptedPlayback = uid == nil && lastResolvedUID != nil && players.allObjects.contains { $0.rate != 0 }
         for player in players.allObjects {
@@ -163,7 +183,8 @@ final class AudioOutputManager: ObservableObject {
     private func apply(to player: AVPlayer) {
         // Keep an unavailable explicit route silent; never fall back to speakers.
         player.isMuted = !isAvailable
-        player.audioOutputDeviceUniqueID = selectedUID.isEmpty ? nil : selectedUID
+        let outputUID: String? = selectedUID.isEmpty ? nil : selectedUID
+        if player.audioOutputDeviceUniqueID != outputUID { player.audioOutputDeviceUniqueID = outputUID }
         if !isAvailable { player.pause() }
     }
 }

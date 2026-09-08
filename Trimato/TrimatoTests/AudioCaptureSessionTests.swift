@@ -76,6 +76,14 @@ struct AudioCaptureLifecycleTests {
         #expect(session.message == nil)
     }
 
+    private func waitUntilIdle(_ session: AudioCaptureSession) async throws {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while session.state != .idle, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(session.state == .idle)
+    }
+
     @Test func failedPreparationCanBeRetriedWithTheNewDevice() async throws {
         let backend = TestCaptureBackend()
         backend.failNextSettle = true
@@ -85,7 +93,7 @@ struct AudioCaptureLifecycleTests {
         for _ in 0..<100 where session.state == .preparing {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(session.state == .idle)
+        try await waitUntilIdle(session)
         #expect(session.message != nil)
         let replacement = AudioCaptureRequest(inputDeviceID: 30, inputUID: "built-in", outputDeviceID: 40,
                                              outputUID: "default-output", channel: 0, bitDepth: 24)
@@ -113,6 +121,7 @@ struct AudioCaptureLifecycleTests {
         #expect(session.isRecordingRequested)
         session.setRecording(false, input: AudioInputManager(routes: AudioOutputManager(observeHardware: false)))
         #expect(!session.isRecordingRequested)
+        try await waitUntilIdle(session)
         #expect(backend.finishCount == 1)
     }
 
@@ -130,7 +139,7 @@ struct AudioCaptureLifecycleTests {
         defer { session.close() }
         session.record(request: request)
         try await waitUntilRecording(session)
-        #expect(cues == 2)
+        #expect(cues == 1)
         #expect(backend.settleCount == 2)
         #expect(backend.beginCount == 1)
     }
@@ -146,7 +155,7 @@ struct AudioCaptureLifecycleTests {
         #expect(session.message == nil)
         backend.isReady = false
         backend.configurationChanged?()
-        #expect(session.state == .idle)
+        try await waitUntilIdle(session)
         #expect(session.message != nil)
         #expect(backend.finishCount == 1)
     }
@@ -175,13 +184,14 @@ struct AudioCaptureLifecycleTests {
         try await waitUntilRecording(session)
         var closed = false
         let close = SettingsCloseAction(capture: session, closeWindow: {
-            #expect(session.state == .idle)
-            #expect(backend.finishCount == 1)
+            #expect(session.state == .finishing)
             #expect(!AudioCaptureSession.suppressesAnnouncements)
             closed = true
         })
         close()
         #expect(closed)
+        try await waitUntilIdle(session)
+        #expect(backend.finishCount == 1)
     }
 
     @Test func settingsToolbarIsNamedWithoutNamingPanelContents() async throws {
@@ -296,12 +306,12 @@ private final class TestCaptureBackend: AudioCaptureBackend {
     var settleCount = 0
     var beginCount = 0
     var finishCount = 0
-    func prepare(_ request: AudioCaptureRequest) throws {
+    func prepare(_ request: AudioCaptureRequest) async throws {
         prepareCount += 1
         lastInputUID = request.inputUID
         if notifyDuringPreparation { configurationChanged?() }
     }
-    func settle() throws {
+    func settle() async throws {
         settleCount += 1
         if failNextSettle {
             failNextSettle = false
@@ -309,7 +319,7 @@ private final class TestCaptureBackend: AudioCaptureBackend {
         }
         isReady = true
     }
-    func begin() { beginCount += 1 }
+    func begin() async throws { beginCount += 1 }
     func progress() -> (AudioRecordingSummary, String?) { (AudioRecordingSummary(), nil) }
-    func finish() -> AudioCaptureResult { finishCount += 1; isReady = false; return AudioCaptureResult() }
+    func finish(playCue: Bool) async -> AudioCaptureResult { finishCount += 1; isReady = false; return AudioCaptureResult() }
 }
