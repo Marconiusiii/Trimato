@@ -168,7 +168,7 @@ Check Text Fit reports the line count and whether text fits within the safe area
 
 The Caption and Subtitle generator templates create ordinary styled text clips and are separate from the project Captions track. Caption-file import uses the Captions track. Trimato does not transcribe audio. Text and styling remain editable in the saved generator definition. Text layout uses macOS fonts and native text rendering; generated media preserves alpha through the supported filters and transitions.
 
-Open a timeline video or audio clip and choose the Filters tab. Choose Add Filter, select an effect, and choose Add. Filter preparation runs in a separate progress window with a Cancel button and restrained VoiceOver percentage announcements. Review the preview, then choose Update Clip to save the filter to that timeline clip. Use Edit Filter, Reset, Enable, and Remove to manage existing filters. Gain remains in the Audio group; existing EQ and frequency filtering appear as Tone.
+Open a timeline video or audio clip and find the Filters section below Equalizer. Choose Add Filter, select an effect, preview it, and choose Add. The Applied Filters list remains available when empty. Open a filter’s context menu to enable or disable it, edit its settings, or remove it. Disabled filters keep their settings and do not affect playback or export. Choose Update Clip to save the changes to the project. The Export heading at the bottom contains Export Clip, Update Clip, and Add to Timeline; Update Clip appears when editing a timeline clip.
 
 | Video filters | Audio filters |
 | --- | --- |

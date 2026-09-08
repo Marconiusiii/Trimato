@@ -66,7 +66,8 @@ struct VoiceAdjustmentTests {
         let view = FilterAuditionView(context: context, work: VoiceAdjustmentWork(), candidate: nil, voice: voice, voiceMatching: true, beforePlayback: {})
         let (filters, audio) = view.settings(enabled: true)
         let (_, bypass) = view.settings(enabled: false)
-        #expect(bypass?.voice?.targetLoudness == nil)
+        #expect(bypass?.voice?.targetLoudness == -25)
+        #expect(bypass?.voice?.matchingActive == false)
         #expect(bypass?.voice?.evenOut == true)
         let url = try await context.voiceMixedPreview(filters: filters, audio: audio)
         defer { try? FileManager.default.removeItem(at: url) }

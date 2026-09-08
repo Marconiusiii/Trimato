@@ -15,33 +15,19 @@ struct ClipFiltersView: View {
     @State private var editing: AppliedFilterSelection?
     @State private var pending: ClipFilter?
     @State private var pendingVoice: VoiceAdjustment?
-    private enum FocusTarget: Hashable { case list, edit }
+    private enum FocusTarget: Hashable { case list }
     @FocusState private var keyboardFocus: FocusTarget?
     @AccessibilityFocusState private var voiceOverFocus: FocusTarget?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AppliedFilterList(rows: displayedFilters, selection: $selection)
+            AppliedFilterList(rows: displayedFilters, selection: $selection,
+                edit: editFilter, toggle: toggleFilter, remove: removeFilter)
                 .equatable()
-            .accessibilityLabel("Applied Filters")
-            .focused($keyboardFocus, equals: .list)
-            .accessibilityFocused($voiceOverFocus, equals: .list)
-            HStack {
-                Button("Edit Filter…") { beforePlayback(); editing = selection }
-                    .disabled(selection == nil)
-                    .focused($keyboardFocus, equals: .edit)
-                    .accessibilityFocused($voiceOverFocus, equals: .edit)
-                Button("Remove Filter") {
-                    guard let selection else { return }
-                    switch selection {
-                    case .filter(let id): context.filters.removeAll { $0.id == id }
-                    case .voiceMatching: context.audioSettings?.voice?.targetLoudness = nil
-                    case .voiceSmoothing: context.audioSettings?.voice?.evenOut = false
-                    }
-                    self.selection = nil
-                    restoreFocus()
-                }.disabled(selection == nil)
-            }
+                .accessibilityLabel("Applied Filters")
+                .focused($keyboardFocus, equals: .list)
+                .accessibilityFocused($voiceOverFocus, equals: .list)
+
         }
         .onChange(of: context.audioSettings?.voice) { validateSelection() }
         .onChange(of: context.filters) { validateSelection() }
@@ -59,15 +45,50 @@ struct ClipFiltersView: View {
         }
     }
 
+    private func editFilter(_ target: AppliedFilterSelection) {
+        selection = target
+        beforePlayback()
+        editing = target
+    }
+
+    private func toggleFilter(_ target: AppliedFilterSelection) {
+        switch target {
+        case .filter(let id):
+            guard let index = context.filters.firstIndex(where: { $0.id == id }) else { return }
+            context.filters[index].enabled.toggle()
+        case .voiceMatching:
+            context.audioSettings?.voice?.matchingBypassed = context.audioSettings?.voice?.matchingBypassed != true
+        case .voiceSmoothing:
+            context.audioSettings?.voice?.smoothingBypassed = context.audioSettings?.voice?.smoothingBypassed != true
+        }
+    }
+
+    private func removeFilter(_ target: AppliedFilterSelection) {
+        let rows = displayedFilters
+        guard let index = rows.firstIndex(where: { $0.id == target }) else { return }
+        switch target {
+        case .filter(let id): context.filters.removeAll { $0.id == id }
+        case .voiceMatching:
+            context.audioSettings?.voice?.targetLoudness = nil
+            context.audioSettings?.voice?.matchingBypassed = nil
+        case .voiceSmoothing:
+            context.audioSettings?.voice?.evenOut = false
+            context.audioSettings?.voice?.smoothingBypassed = nil
+        }
+        let remaining = displayedFilters
+        selection = remaining.isEmpty ? nil : remaining[min(index, remaining.count - 1)].id
+        restoreFocus()
+    }
+
     private var displayedFilters: [AppliedFilterRow] {
         var rows = context.filters.map {
-            AppliedFilterRow(id: .filter($0.id), title: "\($0.kind.title), \($0.enabled ? "Enabled" : "Disabled")")
+            AppliedFilterRow(id: .filter($0.id), title: $0.kind.title, enabled: $0.enabled)
         }
         if context.audioSettings?.voice?.targetLoudness != nil {
-            rows.append(AppliedFilterRow(id: .voiceMatching, title: "Match voice loudness to Primary Audio, Enabled"))
+            rows.append(AppliedFilterRow(id: .voiceMatching, title: "Match voice loudness to Primary Audio", enabled: context.audioSettings?.voice?.matchingActive == true))
         }
         if context.audioSettings?.voice?.evenOut == true {
-            rows.append(AppliedFilterRow(id: .voiceSmoothing, title: "Even out voice, Enabled"))
+            rows.append(AppliedFilterRow(id: .voiceSmoothing, title: "Even out voice", enabled: context.audioSettings?.voice?.smoothingActive == true))
         }
         return rows
     }
@@ -95,7 +116,7 @@ struct ClipFiltersView: View {
     private func restoreFocus() {
         Task { @MainActor in
             await Task.yield()
-            keyboardFocus = selection == nil ? .list : .edit
+            keyboardFocus = .list
             voiceOverFocus = keyboardFocus
         }
     }
@@ -104,12 +125,16 @@ struct ClipFiltersView: View {
 private struct AppliedFilterRow: Equatable, Identifiable {
     let id: AppliedFilterSelection
     let title: String
+    let enabled: Bool
 }
 
 /// Keep unrelated editor and render updates out of the native collection.
 private struct AppliedFilterList: View, Equatable {
     let rows: [AppliedFilterRow]
     @Binding var selection: AppliedFilterSelection?
+    let edit: (AppliedFilterSelection) -> Void
+    let toggle: (AppliedFilterSelection) -> Void
+    let remove: (AppliedFilterSelection) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.rows == rhs.rows && lhs.selection == rhs.selection
@@ -118,7 +143,13 @@ private struct AppliedFilterList: View, Equatable {
     var body: some View {
         List(selection: $selection) {
             ForEach(rows) { row in
-                Text(row.title).tag(row.id)
+                Text("\(row.title), \(row.enabled ? "Enabled" : "Disabled")")
+                    .tag(row.id)
+                    .contextMenu {
+                        Button(row.enabled ? "Disable Filter" : "Enable Filter") { toggle(row.id) }
+                        Button("Edit Filter…") { edit(row.id) }
+                        Button("Remove Filter", role: .destructive) { remove(row.id) }
+                    }
             }
         }
     }
@@ -149,6 +180,8 @@ struct EditRecordedVoiceFilterView: View {
                 Text("Even out voice").font(.headline).accessibilityAddTraits(.isHeader)
                 VoiceSmoothingControls(settings: $voice)
             } else {
+                Toggle("Enable voice matching", isOn: Binding(get: { voice.matchingBypassed != true },
+                    set: { voice.matchingBypassed = !$0 })).toggleStyle(.switch)
                 VoiceAdjustmentControls(settings: $voice, controller: context.controller, work: work,
                     track: nil, validateTake: context.validateVoice, applyTrack: { _ in }, beforePlayback: beforePlayback)
             }
@@ -235,7 +268,7 @@ struct AddClipFilterView: View {
         if case .filter(let kind) = initial { _draft = State(initialValue: ClipFilter(kind: kind)) }
         else { _draft = State(initialValue: ClipFilter(kind: .tone)) }
         initialVoice = voice
-        if initial == .voiceSmoothing { voice.evenOut = true }
+        if initial == .voiceSmoothing { voice.evenOut = true; voice.smoothingBypassed = nil }
         _voiceDraft = State(initialValue: voice)
         self.voiceContext = voiceContext
         self.addVoice = addVoice
@@ -319,7 +352,7 @@ struct AddClipFilterView: View {
             voiceWork.cancel()
             if case .filter(let kind) = choice { draft = ClipFilter(kind: kind) }
             if choice == .voiceMatching || choice == .voiceSmoothing { voiceDraft = initialVoice }
-            if choice == .voiceSmoothing { voiceDraft.evenOut = true }
+            if choice == .voiceSmoothing { voiceDraft.evenOut = true; voiceDraft.smoothingBypassed = nil }
         }
         .onDisappear { voiceWork.cancel() }
     }
@@ -468,15 +501,14 @@ struct FilterAuditionView: View {
     func settings(enabled: Bool) -> ([ClipFilter], AudioClipSettings?) {
         var filters = context.filters
         var audio = context.audioSettings
-        if let candidate {
+        if var candidate {
+            candidate.enabled = enabled
             filters.removeAll { $0.id == candidate.id || $0.kind == candidate.kind }
             if enabled { filters.append(candidate) }
         }
         if var voice {
-            if !enabled {
-                if voiceMatching { voice.targetLoudness = nil }
-                else { voice.evenOut = false }
-            }
+            if voiceMatching { voice.matchingBypassed = !enabled }
+            else { voice.smoothingBypassed = !enabled }
             audio?.voice = voice
         }
         return (filters, audio)

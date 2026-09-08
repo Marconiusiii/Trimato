@@ -118,6 +118,7 @@ struct VoiceAdjustmentControls: View {
                         defer { try? FileManager.default.removeItem(at: url) }
                         var candidate = original
                         candidate.targetLoudness = try await VoiceAudioProcessor.measure(url)
+                        candidate.matchingBypassed = nil
                         try await validateTake(candidate)
                         try Task.checkCancellation()
                         guard settings == original, controller.project == project else {
@@ -126,10 +127,10 @@ struct VoiceAdjustmentControls: View {
                         settings = candidate
                     }
                 }
-                Button("Remove match") { settings.targetLoudness = nil }
+                Button("Remove match") { settings.targetLoudness = nil; settings.matchingBypassed = nil }
                     .disabled(settings.targetLoudness == nil)
             }
-            Text(settings.targetLoudness == nil ? "Voice is not matched." : "Voice matching enabled.")
+            Text(settings.targetLoudness == nil ? "Voice is not matched." : (settings.matchingActive ? "Voice matching enabled." : "Voice matching disabled."))
             VoiceSmoothingControls(settings: $settings)
             Slider(value: $settings.level, in: -12...12, step: 0.5) { Text("Voice level") }
                 .accessibilityValue(AudioClipControlSpecification.spokenDecibels(settings.level))
@@ -140,6 +141,8 @@ struct VoiceAdjustmentControls: View {
                     settings.targetLoudness = nil
                     settings.evenOut = false
                     settings.level = 0
+                    settings.matchingBypassed = nil
+                    settings.smoothingBypassed = nil
                 }
                 if let track {
                     Button("Apply voice settings to \(track.name)") {
@@ -159,8 +162,11 @@ struct VoiceAdjustmentControls: View {
 struct VoiceSmoothingControls: View {
     @Binding var settings: VoiceAdjustment
     var body: some View {
-        Toggle("Even out voice", isOn: $settings.evenOut).toggleStyle(.switch)
-        if settings.evenOut {
+        Toggle("Even out voice", isOn: Binding(get: { settings.smoothingActive }, set: {
+            if $0 { settings.evenOut = true }
+            settings.smoothingBypassed = !$0
+        })).toggleStyle(.switch)
+        if settings.smoothingActive {
             AudioValueSlider(label: "Smoothing amount", value: Binding(get: { settings.effectiveSmoothingAmount },
                 set: { settings.smoothingAmount = $0 }), range: 0...100, step: 1, unit: "percent", identifier: "trimato.voice.smoothing")
         }

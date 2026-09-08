@@ -11,7 +11,12 @@ nonisolated struct VoiceAdjustment: Codable, Hashable, Sendable {
     var smoothingAmount: Double?
     var effectiveSmoothingAmount: Double { smoothingAmount ?? 50 }
 
-    var isActive: Bool { targetLoudness != nil || evenOut || level != 0 }
+    // Missing bypass flags keep older projects enabled.
+    var matchingBypassed: Bool?
+    var smoothingBypassed: Bool?
+    var matchingActive: Bool { targetLoudness != nil && matchingBypassed != true }
+    var smoothingActive: Bool { evenOut && smoothingBypassed != true }
+    var isActive: Bool { matchingActive || smoothingActive || level != 0 }
 
     func validate() throws {
         guard effectiveSmoothingAmount.isFinite, (0...100).contains(effectiveSmoothingAmount) else {
@@ -70,7 +75,7 @@ nonisolated enum VoiceAudioProcessor {
         var intermediate: URL?
         defer { if let intermediate { try? FileManager.default.removeItem(at: intermediate) } }
         var input = source
-        if settings.evenOut {
+        if settings.smoothingActive {
             let originalLevel = try await measure(source, segments: segments)
             let preparationGain = -23 - originalLevel
             let ratio = 1 + effectiveRatio(settings.effectiveSmoothingAmount)
@@ -78,7 +83,7 @@ nonisolated enum VoiceAudioProcessor {
             intermediate = input
         }
         var gain = settings.level
-        if let target = settings.targetLoudness {
+        if settings.matchingActive, let target = settings.targetLoudness {
             let measured = try await measure(input, segments: segments)
             let correction = target - measured
             guard abs(correction) <= 24 else {

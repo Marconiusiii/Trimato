@@ -89,10 +89,7 @@ struct SourceClipEditorView: View {
                         }
                         .padding(8).tabItem { Text("Voice") }.tag("Voice")
                     }
-                    if commandContext.isTimelineEntry {
-                        ClipFiltersView(context: commandContext, beforePlayback: { viewModel.player.pause(); voiceWork.cancel() })
-                            .padding(8).tabItem { Text("Filters") }.tag("Filters")
-                    }
+
                 }
                 .frame(height: selectedTab == "Voice" ? 335 : 170)
                 .padding(.horizontal, 20)
@@ -104,10 +101,13 @@ struct SourceClipEditorView: View {
                         .disabled(viewModel.isExporting || viewModel.isPresentingExportPanel)
                 }
                 if commandContext.isTimelineEntry {
-                    HStack {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Filters").font(.headline).accessibilityAddTraits(.isHeader)
                         Button("Add Filter…") { addingFilter = true }
                             .focused($addFilterKeyboardFocused)
                             .accessibilityFocused($addFilterVoiceOverFocused)
+                        ClipFiltersView(context: commandContext, beforePlayback: { viewModel.player.pause(); voiceWork.cancel() })
+                            .frame(height: 130)
                         if currentAsset.generator != nil {
                             Button("Edit Generator…") {
                                 controller.requestGenerator(editing: editSelection)
@@ -136,6 +136,9 @@ struct SourceClipEditorView: View {
                 }
                 previewStatus.padding(.horizontal, 20)
 
+                Text("Export").font(.headline).accessibilityAddTraits(.isHeader)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
                 ClipExportControlsView(viewModel: viewModel)
                     .padding(.horizontal, 20)
 
@@ -279,12 +282,10 @@ struct SourceClipEditorView: View {
             audio.voice = pendingVoice
             commandContext.audioSettings = audio
             self.pendingVoice = nil
-            selectedTab = "Filters"
         }
         if let pendingFilter {
             commandContext.filters.append(pendingFilter)
             self.pendingFilter = nil
-            selectedTab = "Filters"
         }
         Task { @MainActor in
             await Task.yield()
