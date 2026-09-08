@@ -276,18 +276,12 @@ private func checkInputFormats() throws {
         preconditionFailure("Cue cancellation was ignored")
     } catch is CancellationError { }
 
-    let normal = RecordingOutputSnapshot(uid: "headset", sampleRate: 44100, channels: 2)
-    let recording = RecordingOutputSnapshot(uid: "headset", sampleRate: 16000, channels: 1)
-    var recovery = RecordingOutputRecovery(baseline: normal, settlingTime: 0.5)
-    precondition(!recovery.observe(recording, at: 0))
-    precondition(!recovery.observe(normal, at: 1))
-    precondition(!recovery.observe(normal, at: 1.4))
-    precondition(recovery.observe(normal, at: 1.5))
-    precondition(!recovery.observe(nil, at: 2))
-    precondition(!recovery.observe(normal, at: 3))
-    precondition(recovery.observe(normal, at: 3.5))
-    let newOutput = RecordingOutputSnapshot(uid: "new-output", sampleRate: 48000, channels: 1)
-    precondition(!recovery.observe(newOutput, at: 4))
-    precondition(recovery.observe(newOutput, at: 4.5))
-    print("Recording cues: delayed startup, completion, repeat use, timeout and cancellation passed; output recovery waits for stable format")
+    // A still-connected output remains selectable after its channel layout and device ID change.
+    let stereo = AudioDeviceChoice(id: "headset", deviceID: 10, name: "Headset", inputChannels: 0, outputChannels: 2)
+    let mono = AudioDeviceChoice(id: "headset", deviceID: 20, name: "Headset", inputChannels: 0, outputChannels: 1)
+    precondition(AudioOutputManager.resolve(selectedUID: "headset", devices: [stereo], defaultID: 10) == stereo)
+    precondition(AudioOutputManager.resolve(selectedUID: "headset", devices: [mono], defaultID: 20) == mono)
+    precondition(AudioOutputManager.resolve(selectedUID: "", devices: [mono], defaultID: 20) == mono)
+    precondition(AudioOutputManager.resolve(selectedUID: "headset", devices: [], defaultID: 20) == nil)
+    print("Recording cues: delayed startup, completion, repeat use, timeout and cancellation passed; changed output remains selectable")
 }

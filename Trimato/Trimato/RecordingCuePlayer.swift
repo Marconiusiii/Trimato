@@ -51,33 +51,3 @@ nonisolated final class RecordingCueCompletion: @unchecked Sendable {
         }
     }
 }
-
-nonisolated struct RecordingOutputSnapshot: Equatable, Sendable {
-    let uid: String
-    let sampleRate: Double
-    let channels: Int
-    var valid: Bool { !uid.isEmpty && sampleRate.isFinite && sampleRate > 0 && channels > 0 }
-}
-
-/// A changed or unavailable route restarts the settling period. A headset must
-/// regain its pre-capture format where Core Audio reports that format change.
-nonisolated struct RecordingOutputRecovery {
-    let baseline: RecordingOutputSnapshot
-    let settlingTime: TimeInterval
-    private var previous: RecordingOutputSnapshot?
-    private var stableSince: TimeInterval?
-
-    init(baseline: RecordingOutputSnapshot, settlingTime: TimeInterval) {
-        self.baseline = baseline; self.settlingTime = settlingTime
-    }
-
-    mutating func observe(_ snapshot: RecordingOutputSnapshot?, at time: TimeInterval) -> Bool {
-        guard let snapshot, snapshot.valid,
-              snapshot.uid != baseline.uid ||
-                (snapshot.sampleRate >= baseline.sampleRate && snapshot.channels >= baseline.channels) else {
-            previous = nil; stableSince = nil; return false
-        }
-        if snapshot != previous { previous = snapshot; stableSince = time }
-        return time - (stableSince ?? time) >= settlingTime
-    }
-}

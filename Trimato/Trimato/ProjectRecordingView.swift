@@ -117,7 +117,6 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
             var pendingMedia: [URL] = []
             defer { for url in pendingMedia { try? FileManager.default.removeItem(at: url) } }
             do {
-                if autoplay && !recording { try await capture.preparePlayback() }
                 var project = controller.project
                 if isDescriber { project.descriptionDucking = requestedDucking }
                 var urls = controller.resolvedMediaURLs()
@@ -196,7 +195,6 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
             do {
                 let url = try await processedTake(voice)
                 try Task.checkCancellation()
-                try await capture.preparePlayback()
                 takePlayer.replaceCurrentItem(with: AVPlayerItem(url: url))
                 processingSound.stopBeforePlayback()
                 takePlayer.play()
@@ -457,7 +455,7 @@ struct ProjectRecordingView: View {
                             track: session.voiceTrack, validateTake: session.validateVoice,
                             applyTrack: { settings in
                                 if let track = session.voiceTrack { try await controller.applyVoiceToTrack(track.id, settings: settings) }
-                            }, beforePlayback: session.stopPlayback, preparePlayback: capture.preparePlayback)
+                            }, beforePlayback: session.stopPlayback)
                         HStack {
                             Button(session.takePlaying ? "Stop take" : "Play take") { voiceWork.cancel(); session.playTake() }
                             Button("Play with Primary Audio") { voiceWork.cancel(); session.preview(mixed: true, soundFeedback: true) }
