@@ -84,6 +84,7 @@ struct VoiceAdjustmentControls: View {
     let validateTake: (VoiceAdjustment) async throws -> Void
     let applyTrack: (VoiceAdjustment) async throws -> Void
     let beforePlayback: () -> Void
+    var preparePlayback: () async throws -> Void = { }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -104,7 +105,7 @@ struct VoiceAdjustmentControls: View {
                     work.run(soundFeedback: true) {
                         let url = try await VoiceReferenceAudio.render(project: controller.project,
                             urls: controller.resolvedMediaURLs(), start: start, end: end)
-                        do { try work.play(url) }
+                        do { try await preparePlayback(); try work.play(url) }
                         catch { try? FileManager.default.removeItem(at: url); throw error }
                     }
                 }

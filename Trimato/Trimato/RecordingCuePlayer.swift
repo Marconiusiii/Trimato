@@ -16,3 +16,68 @@ nonisolated enum RecordingCuePlayer {
         return buffer
     }
 }
+
+/// Audio Queue can report "not running" before startup. Buffer consumption must
+/// be observed before requesting a graceful stop and waiting for output to drain.
+nonisolated final class RecordingCueCompletion: @unchecked Sendable {
+    private let consumed = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var cancelled = false
+    func cancel() { lock.lock(); cancelled = true; lock.unlock(); consumed.signal() }
+    func reset() { lock.lock(); cancelled = false; lock.unlock() }
+    private func checkCancellation() throws {
+        lock.lock(); let value = cancelled; lock.unlock()
+        if value { throw CancellationError() }
+    }
+    func bufferConsumed() { consumed.signal() }
+
+    func play(timeout: TimeInterval = 3, start: () throws -> Void,
+              drain: () throws -> Void, isRunning: () throws -> Bool) throws {
+        while consumed.wait(timeout: .now()) == .success { }
+        try checkCancellation()
+        let deadline = Date().addingTimeInterval(timeout)
+        try start()
+        guard consumed.wait(timeout: .now() + max(0, deadline.timeIntervalSinceNow)) == .success else {
+            throw AudioCaptureError.message("The recording cue did not play on the selected output.")
+        }
+        try checkCancellation()
+        try drain()
+        while try isRunning() {
+            try checkCancellation()
+            guard Date() < deadline else {
+                throw AudioCaptureError.message("The recording cue did not finish on the selected output.")
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+    }
+}
+
+nonisolated struct RecordingOutputSnapshot: Equatable, Sendable {
+    let uid: String
+    let sampleRate: Double
+    let channels: Int
+    var valid: Bool { !uid.isEmpty && sampleRate.isFinite && sampleRate > 0 && channels > 0 }
+}
+
+/// A changed or unavailable route restarts the settling period. A headset must
+/// regain its pre-capture format where Core Audio reports that format change.
+nonisolated struct RecordingOutputRecovery {
+    let baseline: RecordingOutputSnapshot
+    let settlingTime: TimeInterval
+    private var previous: RecordingOutputSnapshot?
+    private var stableSince: TimeInterval?
+
+    init(baseline: RecordingOutputSnapshot, settlingTime: TimeInterval) {
+        self.baseline = baseline; self.settlingTime = settlingTime
+    }
+
+    mutating func observe(_ snapshot: RecordingOutputSnapshot?, at time: TimeInterval) -> Bool {
+        guard let snapshot, snapshot.valid,
+              snapshot.uid != baseline.uid ||
+                (snapshot.sampleRate >= baseline.sampleRate && snapshot.channels >= baseline.channels) else {
+            previous = nil; stableSince = nil; return false
+        }
+        if snapshot != previous { previous = snapshot; stableSince = time }
+        return time - (stableSince ?? time) >= settlingTime
+    }
+}

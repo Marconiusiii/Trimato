@@ -44,7 +44,7 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 
 Choose a microphone and playback device in Settings > Audio. Use Record Test and Play Test to check the input.
 
-Press Command-Shift-D to open Describer at the Editor markers, or Command-Shift-V to open Voicer at the playhead. Turn Record on to start a take and off to finish. Play take plays the recording alone. Play with Primary Audio mixes it with the project. In Describer, mixed playback starts at In and stops at Out, including after an Audio Ducking change. Play take can play the entire recording if it extends beyond Out.
+Press Command-Shift-D to open Describer at the Editor markers, or Command-Shift-V to open Voicer at the playhead. Turn Record on and begin speaking after the start cue. Turn Record off to finish; the stop cue sounds before the microphone is released. Playback waits for the output device to settle after recording. Play take plays the recording alone. Play with Primary Audio mixes it with the project. In Describer, mixed playback starts at In and stops at Out, including after an Audio Ducking change. Play take can play the entire recording if it extends beyond Out.
 
 In Settings > Audio, choose System Default to use the current macOS input or playback device, or select a specific device. Input and playback can use different devices. Choose the input channel for a multi-channel interface. Recordings retain the input sample rate and use the selected recording quality.
 

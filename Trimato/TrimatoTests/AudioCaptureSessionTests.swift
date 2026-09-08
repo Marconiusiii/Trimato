@@ -64,7 +64,7 @@ struct AudioCaptureLifecycleTests {
     private let request = AudioCaptureRequest(inputDeviceID: 10, inputUID: "microphone", outputDeviceID: 20, outputUID: "headphones", channel: 0, bitDepth: 24)
 
     private func makeSession(_ backend: TestCaptureBackend, playCue: @escaping (Bool, AudioDeviceID) async throws -> Void = { _, _ in }) -> AudioCaptureSession {
-        AudioCaptureSession(routes: AudioOutputManager(observeHardware: false), backend: backend, preparationDelay: .zero, cueSettlingDelay: .zero, playCue: playCue)
+        AudioCaptureSession(routes: AudioOutputManager(observeHardware: false), backend: backend, preparationDelay: .zero, playCue: playCue)
     }
 
     private func waitUntilRecording(_ session: AudioCaptureSession) async throws {
@@ -125,14 +125,13 @@ struct AudioCaptureLifecycleTests {
         #expect(backend.finishCount == 1)
     }
 
-    @Test func cueDeviceReconfigurationSettlesBeforeAnySamplesAreRetained() async throws {
+    @Test func cueCompletesBeforeSamplesAreRetainedWithoutAnotherPreparationWait() async throws {
         let backend = TestCaptureBackend()
         var cues = 0
         let session = makeSession(backend) { _, _ in
             cues += 1
             #expect(backend.beginCount == 0)
             if cues == 1 {
-                backend.isReady = false
                 backend.configurationChanged?()
             }
         }
@@ -140,7 +139,7 @@ struct AudioCaptureLifecycleTests {
         session.record(request: request)
         try await waitUntilRecording(session)
         #expect(cues == 1)
-        #expect(backend.settleCount == 2)
+        #expect(backend.settleCount == 1)
         #expect(backend.beginCount == 1)
     }
 
@@ -319,7 +318,10 @@ private final class TestCaptureBackend: AudioCaptureBackend {
         }
         isReady = true
     }
-    func begin() async throws { beginCount += 1 }
+    func begin() async throws {
+        guard isReady else { throw AudioCaptureError.message("Input was lost during the cue.") }
+        beginCount += 1
+    }
     func progress() -> (AudioRecordingSummary, String?) { (AudioRecordingSummary(), nil) }
     func finish(playCue: Bool) async -> AudioCaptureResult { finishCount += 1; isReady = false; return AudioCaptureResult() }
 }

@@ -13,6 +13,7 @@ import AudioToolbox
         do { _ = try await cancelledRender.value; preconditionFailure("Render ignored cancellation") }
         catch is CancellationError { }
         print("Cancelled media subprocess released its worker")
+        try await checkCueTransitions()
         try checkInputFormats()
         try await checkCaptureLifecycle()
         let soundID = UUID()
@@ -116,6 +117,7 @@ import AudioToolbox
         defer { session.close() }
         session.start = 0.25; session.end = 0.75
         session.player.isMuted = true
+        session.player.volume = 0
         session.preview(mixed: false, autoplay: false)
         for _ in 0..<200 { if !session.busy { break }; try await Task.sleep(for: .milliseconds(25)) }
         precondition(!session.busy && session.message == nil, "Describer preview preparation failed")
@@ -129,8 +131,16 @@ import AudioToolbox
         for _ in 0..<200 { if !session.busy { break }; try await Task.sleep(for: .milliseconds(25)) }
         precondition(session.player.currentItem?.forwardPlaybackEndTime.seconds == 0.75)
         session.player.play()
-        try await Task.sleep(for: .seconds(1))
-        precondition(session.player.rate == 0 && session.player.currentTime().seconds <= 0.76, "Describer playback crossed Out")
+        let playbackDeadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < playbackDeadline {
+            let position = session.player.currentTime().seconds
+            precondition(position <= 0.76, "Describer playback crossed Out")
+            if session.player.rate == 0 && position >= 0.74 { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let stoppedAt = session.player.currentTime().seconds
+        precondition(session.player.rate == 0 && stoppedAt >= 0.74 && stoppedAt <= 0.76,
+                     "Describer did not reach and stop at Out: \(stoppedAt), rate \(session.player.rate)")
         print("Describer sought to In, retained Out after ducking changed, and stopped at Out")
     }
 }
@@ -143,7 +153,10 @@ import AudioToolbox
     var stoppedAccepting = false
     func prepare(_ request: AudioCaptureRequest) async throws { configurationChanged?() }
     func settle() async throws { isReady = true }
-    func begin() async throws { begins += 1 }
+    func begin() async throws {
+        guard isReady else { throw AudioCaptureError.message("Input was lost during the cue.") }
+        begins += 1
+    }
     func progress() -> (AudioRecordingSummary, String?) { (AudioRecordingSummary(), nil) }
     func stopAccepting() { stoppedAccepting = true }
     func finish(playCue: Bool) async -> AudioCaptureResult {
@@ -157,8 +170,8 @@ import AudioToolbox
     let backend = CaptureCheckBackend()
     var cues = 0
     let session = AudioCaptureSession(routes: AudioOutputManager(observeHardware: false), backend: backend,
-        preparationDelay: .zero, cueSettlingDelay: .zero, playCue: { _, _ in
-            cues += 1; backend.isReady = false; backend.configurationChanged?()
+        preparationDelay: .zero, playCue: { _, _ in
+            cues += 1; backend.configurationChanged?()
         })
     let request = AudioCaptureRequest(inputDeviceID: 10, inputUID: "test", outputDeviceID: 20,
                                      outputUID: "test-output", channel: 0, bitDepth: 24)
@@ -231,4 +244,50 @@ private func checkInputFormats() throws {
         precondition(error.status == kAudioQueueErr_InvalidDevice && error.operation == "Selecting test input")
     }
     print("Input formats: 28 rate/channel combinations preserved the selected channel; invalid formats and retry policy passed")
+}
+
+@concurrent private func checkCueTransitions() async throws {
+    let completion = RecordingCueCompletion()
+    for _ in 0..<2 {
+        completion.reset()
+        var drained = false
+        var checks = 0
+        try completion.play(timeout: 1, start: {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.03) { completion.bufferConsumed() }
+        }, drain: { drained = true }, isRunning: {
+            precondition(drained)
+            checks += 1
+            return checks == 1
+        })
+        precondition(drained && checks == 2)
+    }
+    // A queue that has not started is not a completed cue, even if IsRunning would be false.
+    completion.reset()
+    do {
+        try completion.play(timeout: 0.03, start: {}, drain: { preconditionFailure("Unplayed cue was drained") },
+                            isRunning: { preconditionFailure("Startup was mistaken for completion") })
+        preconditionFailure("Unplayed cue succeeded")
+    } catch is AudioCaptureError { }
+    completion.reset()
+    do {
+        try completion.play(timeout: 1, start: {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.03) { completion.cancel() }
+        }, drain: { preconditionFailure("Cancelled cue was drained") }, isRunning: { false })
+        preconditionFailure("Cue cancellation was ignored")
+    } catch is CancellationError { }
+
+    let normal = RecordingOutputSnapshot(uid: "headset", sampleRate: 44100, channels: 2)
+    let recording = RecordingOutputSnapshot(uid: "headset", sampleRate: 16000, channels: 1)
+    var recovery = RecordingOutputRecovery(baseline: normal, settlingTime: 0.5)
+    precondition(!recovery.observe(recording, at: 0))
+    precondition(!recovery.observe(normal, at: 1))
+    precondition(!recovery.observe(normal, at: 1.4))
+    precondition(recovery.observe(normal, at: 1.5))
+    precondition(!recovery.observe(nil, at: 2))
+    precondition(!recovery.observe(normal, at: 3))
+    precondition(recovery.observe(normal, at: 3.5))
+    let newOutput = RecordingOutputSnapshot(uid: "new-output", sampleRate: 48000, channels: 1)
+    precondition(!recovery.observe(newOutput, at: 4))
+    precondition(recovery.observe(newOutput, at: 4.5))
+    print("Recording cues: delayed startup, completion, repeat use, timeout and cancellation passed; output recovery waits for stable format")
 }

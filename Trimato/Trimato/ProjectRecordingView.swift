@@ -81,6 +81,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         guard !busy else { return }
         player.pause()
         if enabled {
+            takePlayer.replaceCurrentItem(with: nil)
             guard validRange else { fail("Set a valid insertion time and, for Describer, an Out point after the In point."); return }
             if controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {
                 preparingRecording = true
@@ -116,6 +117,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
             var pendingMedia: [URL] = []
             defer { for url in pendingMedia { try? FileManager.default.removeItem(at: url) } }
             do {
+                if autoplay && !recording { try await capture.preparePlayback() }
                 var project = controller.project
                 if isDescriber { project.descriptionDucking = requestedDucking }
                 var urls = controller.resolvedMediaURLs()
@@ -194,6 +196,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
             do {
                 let url = try await processedTake(voice)
                 try Task.checkCancellation()
+                try await capture.preparePlayback()
                 takePlayer.replaceCurrentItem(with: AVPlayerItem(url: url))
                 processingSound.stopBeforePlayback()
                 takePlayer.play()
@@ -454,7 +457,7 @@ struct ProjectRecordingView: View {
                             track: session.voiceTrack, validateTake: session.validateVoice,
                             applyTrack: { settings in
                                 if let track = session.voiceTrack { try await controller.applyVoiceToTrack(track.id, settings: settings) }
-                            }, beforePlayback: session.stopPlayback)
+                            }, beforePlayback: session.stopPlayback, preparePlayback: capture.preparePlayback)
                         HStack {
                             Button(session.takePlaying ? "Stop take" : "Play take") { voiceWork.cancel(); session.playTake() }
                             Button("Play with Primary Audio") { voiceWork.cancel(); session.preview(mixed: true, soundFeedback: true) }
@@ -484,7 +487,10 @@ struct ProjectRecordingView: View {
         .interactiveDismissDisabled()
         .onChange(of: capture.state) { _, state in
             if state == .recording { session.player.play() }
-            else if state == .idle || state == .finishing { session.player.pause() }
+            else if state == .idle || state == .finishing {
+                session.player.pause()
+                if state == .finishing { session.player.replaceCurrentItem(with: nil) }
+            }
         }
         .defaultFocus($keyboardFocus, .name)
         .onChange(of: windowActivity, initial: true) { _, activity in

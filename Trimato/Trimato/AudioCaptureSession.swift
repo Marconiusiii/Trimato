@@ -154,6 +154,7 @@ protocol AudioCaptureBackend: AnyObject {
     func begin() async throws
     func progress() -> (AudioRecordingSummary, String?)
     func stopAccepting()
+    func waitForPlaybackOutput() async throws
     func finish(playCue: Bool) async -> AudioCaptureResult
 }
 
@@ -162,6 +163,7 @@ extension AudioCaptureBackend {
     var preparationIssue: String? { nil }
     func stopAccepting() { }
     func playStartCue() async throws { }
+    func waitForPlaybackOutput() async throws { }
 }
 
 /// The UI-facing adapter reads only snapshots; all engine ownership stays on its worker.
@@ -182,6 +184,9 @@ private final class MicrophoneCaptureBackend: AudioCaptureBackend {
     func begin() async throws { try await worker.run { [device] in try device.begin() } }
     func progress() -> (AudioRecordingSummary, String?) { device.progress() }
     func stopAccepting() { device.stopAccepting() }
+    func waitForPlaybackOutput() async throws {
+        try await worker.run { [device] in try device.waitForPlaybackOutput() }
+    }
     func finish(playCue: Bool) async -> AudioCaptureResult {
         device.stopAccepting()
         do { return try await worker.run(alwaysRun: true) { [device] in device.finish(playCue: playCue) } }
@@ -205,11 +210,19 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
     var resolvedRoutes: (input: String, output: String)? {
         lock.lock(); defer { lock.unlock() }; return routeSnapshot
     }
+    private var stopRequested = false
     private var running = false
     private var inputQueue: AudioQueueRef?
     private var inputContext: Unmanaged<AudioCaptureWriter>?
     private var readyAfterDelivery: UInt64 = 0
+    private var inputReadyAfter: TimeInterval = 0
     private var outputQueue: AudioQueueRef?
+    private var cueContext: Unmanaged<RecordingCueCompletion>?
+    private var cueSnapshot: RecordingCueCompletion?
+    private var outputBaseline: RecordingOutputSnapshot?
+    private var recoveryRequest: AudioCaptureRequest?
+    private var outputNeedsRecovery = false
+    private var outputIsBluetooth = false
     private var writer: AudioCaptureWriter?
     private var request: AudioCaptureRequest?
     private var candidateURL: URL?
@@ -217,7 +230,7 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
     private var setupRetries = 0
 
     var isReady: Bool {
-        lock.lock(); let ready = running; let writer = snapshotWriter; let baseline = readyAfterDelivery; lock.unlock()
+        lock.lock(); let ready = running && ProcessInfo.processInfo.systemUptime >= inputReadyAfter; let writer = snapshotWriter; let baseline = readyAfterDelivery; lock.unlock()
         return ready && (writer?.deliveryCount ?? 0) > baseline
     }
     func progress() -> (AudioRecordingSummary, String?) {
@@ -225,8 +238,9 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
         return writer?.snapshot() ?? (AudioRecordingSummary(), nil)
     }
     func stopAccepting() {
-        lock.lock(); let writer = snapshotWriter; lock.unlock()
+        lock.lock(); stopRequested = true; let writer = snapshotWriter; let cue = cueSnapshot; lock.unlock()
         writer?.stopAccepting()
+        cue?.cancel()
     }
     private func publish(running: Bool, writer: AudioCaptureWriter?) {
         lock.lock(); self.running = running; snapshotWriter = writer; lock.unlock()
@@ -237,9 +251,10 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
         guard inputQueue == nil, outputQueue == nil else {
             throw AudioCaptureError.message("The previous audio input has not finished closing. Reconnect the device before another recording.")
         }
-        lock.lock(); readyAfterDelivery = 0; completedRecording = AudioCaptureResult(); lock.unlock()
+        lock.lock(); stopRequested = false; readyAfterDelivery = 0; completedRecording = AudioCaptureResult(); lock.unlock()
         self.request = request
         setupRetries = 0
+        outputBaseline = nil
         // Opening is deferred to settle so a temporarily incomplete Bluetooth route can become ready.
     }
 
@@ -273,6 +288,15 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
             return
         }
         preparationIssue(nil)
+        if outputBaseline == nil {
+            outputBaseline = RecordingOutputSnapshot(uid: output.id, sampleRate: AudioHardware.sampleRate(output.deviceID), channels: output.outputChannels)
+            var property = AudioHardware.address(kAudioDevicePropertyTransportType)
+            var transport: UInt32 = 0
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            AudioObjectGetPropertyData(output.deviceID, &property, 0, nil, &size, &transport)
+            outputIsBluetooth = [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(transport)
+        }
+        recoveryRequest = request
         lock.lock(); routeSnapshot = (input.id, output.id); lock.unlock()
         let rate = AudioHardware.sampleRate(input.deviceID)
         guard rate.isFinite, rate > 0 else { return }
@@ -307,17 +331,31 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
             try AudioCaptureConfiguration.check(AudioQueueEnqueueBuffer(queue, buffer, 0, nil), operation: "Queuing a recording buffer")
         }
         try AudioCaptureConfiguration.check(AudioQueueStart(queue, nil), operation: "Starting the recording input")
+        outputNeedsRecovery = true
+        lock.lock(); inputReadyAfter = ProcessInfo.processInfo.systemUptime + (outputIsBluetooth ? 0.5 : 0); lock.unlock()
         publish(running: true, writer: writer)
     }
 
     func playCue(start: Bool) throws {
         guard let request else { throw AudioCaptureError.message("The recording output is not prepared.") }
+        if start {
+            lock.lock(); readyAfterDelivery = writer?.deliveryCount ?? 0; lock.unlock()
+        }
         let buffer = try RecordingCuePlayer.buffer(start: start)
         if outputQueue == nil {
             var format = try AudioCaptureConfiguration.format(sampleRate: 48000, channels: 1, selectedChannel: 0)
             var queue: AudioQueueRef?
-            try AudioCaptureConfiguration.check(AudioQueueNewOutput(&format, { _, _, _ in }, nil, nil, nil, 0, &queue),
-                                                operation: "Creating the recording cue output")
+            let completion = Unmanaged.passRetained(RecordingCueCompletion())
+            let status = AudioQueueNewOutput(&format, { context, _, _ in
+                guard let context else { return }
+                Unmanaged<RecordingCueCompletion>.fromOpaque(context).takeUnretainedValue().bufferConsumed()
+            }, completion.toOpaque(), nil, nil, 0, &queue)
+            if status != noErr || queue == nil { completion.release() }
+            else {
+                cueContext = completion
+                lock.lock(); cueSnapshot = completion.takeUnretainedValue(); lock.unlock()
+            }
+            try AudioCaptureConfiguration.check(status, operation: "Creating the recording cue output")
             guard let queue else { throw AudioCaptureError.message("Core Audio did not create a recording cue output.") }
             outputQueue = queue
             try AudioCaptureConfiguration.selectDevice(queue, uid: request.outputUID,
@@ -332,26 +370,28 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
         defer { if AudioQueueStop(queue, true) == noErr { AudioQueueFreeBuffer(queue, output) } }
         output.pointee.mAudioData.copyMemory(from: buffer.floatChannelData![0], byteCount: Int(bytes))
         output.pointee.mAudioDataByteSize = bytes
-        try AudioCaptureConfiguration.check(AudioQueueEnqueueBuffer(queue, output, 0, nil), operation: "Queuing the recording cue")
-        try AudioCaptureConfiguration.check(AudioQueueStart(queue, nil), operation: "Starting the recording cue")
-        try AudioCaptureConfiguration.check(AudioQueueStop(queue, false), operation: "Finishing the recording cue")
-        let deadline = ContinuousClock.now + .seconds(3)
-        while true {
+        guard let completion = cueContext?.takeUnretainedValue() else {
+            throw AudioCaptureError.message("The recording cue output is unavailable.")
+        }
+        if !start { completion.reset() }
+        else {
+            lock.lock(); let stopped = stopRequested; lock.unlock()
+            if stopped { completion.cancel() }
+        }
+        try completion.play(start: {
+            try AudioCaptureConfiguration.check(AudioQueueEnqueueBuffer(queue, output, 0, nil), operation: "Queuing the recording cue")
+            try AudioCaptureConfiguration.check(AudioQueueStart(queue, nil), operation: "Starting the recording cue")
+        }, drain: {
+            try AudioCaptureConfiguration.check(AudioQueueStop(queue, false), operation: "Finishing the recording cue")
+        }, isRunning: {
             var active: UInt32 = 0
             var size = UInt32(MemoryLayout<UInt32>.size)
             try AudioCaptureConfiguration.check(AudioQueueGetProperty(queue, kAudioQueueProperty_IsRunning, &active, &size),
                                                 operation: "Checking the recording cue")
-            if active == 0 { break }
-            guard ContinuousClock.now < deadline else {
-                AudioQueueStop(queue, true)
-                throw AudioCaptureError.message("The recording cue did not finish on the selected output.")
-            }
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        if start {
-            lock.lock(); readyAfterDelivery = writer?.deliveryCount ?? 0; lock.unlock()
-        }
+            return active != 0
+        })
     }
+
     func begin() throws {
         if let error = progress().1 { throw AudioCaptureError.message(error) }
         guard isReady else { throw AudioCaptureError.message("The input stopped delivering audio before recording could begin.") }
@@ -359,11 +399,23 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
     }
     func finish(playCue: Bool = false) -> AudioCaptureResult {
         stopAccepting()
-        let result = writer?.finish()
-        let saved = AudioCaptureResult(url: result.map { $0.0.frames > 0 ? candidateURL : nil } ?? nil,
-            summary: result?.0 ?? AudioRecordingSummary(), error: result?.1)
-        lock.lock(); completedRecording = saved; lock.unlock()
-        if recording && playCue { try? self.playCue(start: false) }
+        // Drain disk writes independently; neither the stop cue nor microphone release waits for storage.
+        let finalized = DispatchGroup()
+        if let writer {
+            let url = candidateURL
+            finalized.enter()
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                let result = writer.finish()
+                let saved = AudioCaptureResult(url: result.0.frames > 0 ? url : nil, summary: result.0, error: result.1)
+                lock.lock(); completedRecording = saved; lock.unlock()
+                finalized.leave()
+            }
+        }
+        var finishingError: String?
+        if recording && playCue {
+            do { try self.playCue(start: false) }
+            catch { finishingError = error.localizedDescription }
+        }
         recording = false
         // Disposal synchronizes callbacks before releasing their writer context. All of this stays on the worker.
         if let inputQueue {
@@ -378,15 +430,44 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
         if let outputQueue {
             AudioQueueStop(outputQueue, true)
             let status = AudioQueueDispose(outputQueue, true)
-            if status == noErr { self.outputQueue = nil }
+            if status == noErr {
+                self.outputQueue = nil
+                lock.lock(); cueSnapshot = nil; lock.unlock()
+                cueContext?.release(); cueContext = nil
+            }
             else { try? AudioCaptureConfiguration.check(status, operation: "Closing the recording cue output") }
         }
         publish(running: false, writer: nil)
+        do { try waitForPlaybackOutput() }
+        catch { finishingError = finishingError ?? error.localizedDescription }
+        finalized.wait()
+        lock.lock(); var saved = completedRecording; lock.unlock()
+        saved.error = saved.error ?? finishingError
         writer = nil; request = nil
         let url = candidateURL; candidateURL = nil
-        if let result, result.0.frames > 0 { return AudioCaptureResult(url: url, summary: result.0, error: result.1) }
-        if let url { try? FileManager.default.removeItem(at: url) }
-        return AudioCaptureResult(error: result?.1)
+        if saved.url == nil, let url { try? FileManager.default.removeItem(at: url) }
+        return saved
+    }
+
+    func waitForPlaybackOutput() throws {
+        guard outputNeedsRecovery else { return }
+        guard inputQueue == nil, outputQueue == nil else {
+            throw AudioCaptureError.message("The recording device is still closing. Playback will be available after it closes.")
+        }
+        guard let baseline = outputBaseline, let request = recoveryRequest else { return }
+        var recovery = RecordingOutputRecovery(baseline: baseline, settlingTime: outputIsBluetooth ? 0.5 : 0.1)
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            let devices = AudioHardware.devices()
+            let defaultID = AudioHardware.defaultDevice(input: false)
+            let device = devices.first { request.systemDefaultOutput ? $0.deviceID == defaultID : $0.id == request.outputUID }
+            let snapshot = device.map { RecordingOutputSnapshot(uid: $0.id, sampleRate: AudioHardware.sampleRate($0.deviceID), channels: $0.outputChannels) }
+            if recovery.observe(snapshot, at: ProcessInfo.processInfo.systemUptime) {
+                outputNeedsRecovery = false; return
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        throw AudioCaptureError.message("The playback output has not recovered after recording. Wait for the headset to reconnect, then try playback again.")
     }
 
 }
@@ -411,11 +492,11 @@ final class AudioCaptureSession: ObservableObject {
     private let backend: any AudioCaptureBackend
     private let playCue: (Bool, AudioDeviceID) async throws -> Void
     private let preparationDelay: Duration
-    private let cueSettlingDelay: Duration
     private let player = AVPlayer()
     private var inputUID: String?
     private var outputUID: String?
     private var task: Task<Void, Never>?
+    private var playbackTask: Task<Void, Never>?
     private var timer: Timer?
     private var rateObservation: AnyCancellable?
     private var routeObservation: AnyCancellable?
@@ -428,14 +509,12 @@ final class AudioCaptureSession: ObservableObject {
         routes: AudioOutputManager? = nil,
         backend: (any AudioCaptureBackend)? = nil,
         preparationDelay: Duration = .milliseconds(700),
-        cueSettlingDelay: Duration = .milliseconds(300),
         playCue: ((Bool, AudioDeviceID) async throws -> Void)? = nil
     ) {
         let routes = routes ?? AudioOutputManager.shared
         self.routes = routes
         self.backend = backend ?? MicrophoneCaptureBackend()
         self.preparationDelay = preparationDelay
-        self.cueSettlingDelay = cueSettlingDelay
         let captureBackend = self.backend
         self.playCue = playCue ?? { start, _ in if start { try await captureBackend.playStartCue() } }
         routes.register(player)
@@ -481,6 +560,7 @@ final class AudioCaptureSession: ObservableObject {
         guard state != .finishing else { return }
         Self.activeSession = self
         player.pause()
+        player.replaceCurrentItem(with: nil)
         message = nil
         sessionID = UUID()
         let id = sessionID
@@ -494,14 +574,12 @@ final class AudioCaptureSession: ObservableObject {
                 try Task.checkCancellation()
                 guard self.sessionID == id else { return }
                 try await self.backend.prepare(request)
+                try await self.backend.settle()
                 // No focus request or start announcement. Input configuration settles and
                 // actual input buffers arrive before the cue and before samples are retained.
                 try await Task.sleep(for: self.preparationDelay)
                 try await self.waitForInput(sessionID: id)
                 try await self.playCue(true, request.outputDeviceID)
-                try await Task.sleep(for: self.cueSettlingDelay)
-                // Do not replay the cue while a Bluetooth route settles.
-                try await self.waitForInput(sessionID: id)
                 try Task.checkCancellation()
                 guard self.sessionID == id else { return }
                 self.lastFrameCount = 0; self.lastBufferTime = Date()
@@ -572,17 +650,32 @@ final class AudioCaptureSession: ObservableObject {
 
     func setTestPlayback(_ enabled: Bool) {
         if enabled { playTest() }
-        else { player.pause() }
+        else { playbackTask?.cancel(); playbackTask = nil; player.pause() }
     }
 
     func playTest() {
         guard !isBusy, let testURL else { return }
         guard routes.isAvailable else { fail("Choose an available audio playback output."); return }
-        player.replaceCurrentItem(with: AVPlayerItem(url: testURL))
-        player.play()
+        playbackTask?.cancel()
+        playbackTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await preparePlayback()
+                guard !closed, !isBusy, self.testURL == testURL else { return }
+                player.replaceCurrentItem(with: AVPlayerItem(url: testURL))
+                player.play()
+            } catch is CancellationError { }
+            catch { fail(error.localizedDescription) }
+        }
+    }
+
+    func preparePlayback() async throws {
+        try await backend.waitForPlaybackOutput()
+        try Task.checkCancellation()
     }
 
     func deleteTest() {
+        playbackTask?.cancel(); playbackTask = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         if let testURL { try? FileManager.default.removeItem(at: testURL) }
