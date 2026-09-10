@@ -509,13 +509,13 @@ struct ClipEditorSessionTests {
         #expect(context.presentedError?.message.contains("source clip is no longer available") == true)
     }
 
-    @Test func oneSourceRangeOpensTheFullSourceWithSavedMarkers() {
+    @Test func oneSourceRangeOpensTheFullSourceWithSavedMarkers() throws {
         let segment = SourceSegment(sourceRange: ProjectTimeRange(
             start: ProjectTime(seconds: 1),
             duration: ProjectTime(seconds: 3)
         ))
 
-        let opening = ClipEditorOpeningConfiguration.make(
+        let opening = try ClipEditorOpeningConfiguration.make(
             segments: [segment],
             sourceDuration: ProjectTime(seconds: 10)
         )
@@ -525,7 +525,7 @@ struct ClipEditorSessionTests {
         #expect(opening.outMarker == ProjectTime(seconds: 4))
     }
 
-    @Test func multipleSourceRangesOpenAsTheCurrentEditedSequence() {
+    @Test func multipleSourceRangesOpenAsTheCurrentEditedSequence() throws {
         let segments = [
             SourceSegment(sourceRange: ProjectTimeRange(
                 start: .zero,
@@ -537,7 +537,7 @@ struct ClipEditorSessionTests {
             )),
         ]
 
-        let opening = ClipEditorOpeningConfiguration.make(
+        let opening = try ClipEditorOpeningConfiguration.make(
             segments: segments,
             sourceDuration: ProjectTime(seconds: 10)
         )

@@ -111,6 +111,66 @@ struct MediaAnalysisCacheTests {
         model.closeMedia()
     }
 
+    @Test func invalidSavedRangesAreRejectedButShortEditsRemainValid() throws {
+        let duration = ProjectTime(seconds: 5.84)
+        let short = SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 0.112)))
+        let opening = try ClipEditorOpeningConfiguration.make(segments: [short], sourceDuration: duration)
+        #expect(opening.playbackSegments == nil)
+        #expect(opening.outMarker == short.sourceRange.end)
+        for range in [
+            ProjectTimeRange(start: ProjectTime(seconds: -1), duration: ProjectTime(seconds: 2)),
+            ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 6)),
+            ProjectTimeRange(start: .zero, duration: .zero)
+        ] {
+            #expect(throws: (any Error).self) {
+                try ClipEditorOpeningConfiguration.make(segments: [SourceSegment(sourceRange: range)], sourceDuration: duration)
+            }
+        }
+    }
+
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: NSHomeDirectory() + "/Movies/proClips/Clips/buddy_pullAway.mov")))
+    @MainActor func importedPullAwayProjectReopensAfterClearingSavedShortSelection() async throws {
+        let url = URL(fileURLWithPath: NSHomeDirectory() + "/Movies/proClips/Clips/buddy_pullAway.mov")
+        var imported = try await ProjectImportCoordinator.importAsset(at: url)
+        #expect(imported.duration.seconds > 5.8)
+        #expect(imported.sourceEdit.count == 1)
+        #expect(imported.sourceEdit[0].sourceRange.start == .zero)
+        #expect(imported.sourceEdit[0].duration == imported.duration)
+        // Reproduce the old project's persisted range without changing the user's project.
+        imported.sourceEdit = [SourceSegment(sourceRange: ProjectTimeRange(
+            start: .zero, duration: ProjectTime(seconds: 0.1122666667)))]
+        var project = TrimatoProject(name: "PullAway regression")
+        project.media = [imported]
+        for _ in 0..<2 {
+            let reopened = try JSONDecoder().decode(TrimatoProject.self, from: JSONEncoder().encode(project))
+            let controller = ProjectController(document: ProjectDocument(project: reopened))
+            let asset = try #require(reopened.media.first)
+            let source = try #require(try await controller.preparedMediaSource(for: asset))
+            let opening = try ClipEditorOpeningConfiguration.make(segments: asset.sourceEdit, sourceDuration: asset.duration)
+            let model = VideoPlayerViewModel()
+            model.player.isMuted = true
+            defer { model.closeMedia() }
+            model.load(url: url, sourceSegments: opening.playbackSegments, preparedSource: source,
+                       initialInMarker: opening.inMarker, initialOutMarker: opening.outMarker)
+            for _ in 0..<600 where model.isLoadingMedia { try await Task.sleep(for: .milliseconds(50)) }
+            #expect(model.mediaOpenErrorMessage == nil)
+            #expect(model.duration > 5.8)
+            #expect(model.outMarker == opening.outMarker?.cmTime)
+            model.clearIn()
+            model.clearOut()
+            #expect(model.placementSourceSegments.reduce(0) { $0 + $1.duration.seconds } > 5.8)
+            let item = try #require(model.player.currentItem)
+            for _ in 0..<100 where item.status == .unknown { try await Task.sleep(for: .milliseconds(50)) }
+            #expect(item.status == .readyToPlay)
+            #expect(await model.player.seek(to: CMTime(seconds: 5, preferredTimescale: 48_000), toleranceBefore: .zero, toleranceAfter: .zero))
+            model.togglePlayPause()
+            for _ in 0..<60 where model.player.currentTime().seconds < 5.3 { try await Task.sleep(for: .milliseconds(50)) }
+            model.player.pause()
+            #expect(model.player.currentTime().seconds >= 5.3)
+            project.media[0].sourceEdit = model.placementSourceSegments
+        }
+    }
+
     @Test(.enabled(if: FileManager.default.fileExists(atPath: NSHomeDirectory() + "/Movies/proClips/Clips/buddy_pullAway.mov")))
     @MainActor func pullAwayReopensAtFullDurationAndSeeksBeyondTheOldBoundary() async throws {
         let url = URL(fileURLWithPath: NSHomeDirectory() + "/Movies/proClips/Clips/buddy_pullAway.mov")

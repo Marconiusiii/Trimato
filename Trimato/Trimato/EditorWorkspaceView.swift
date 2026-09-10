@@ -202,6 +202,7 @@ struct EditorWorkspaceView: View {
             .operationProgress(
                 importOperation,
                 outcome: controller.importOutcome,
+                completionPending: controller.isImporting,
                 returnWindow: projectWindowSaveCoordinator.attachedWindow,
                 waitsForReturnWindow: true,
                 dismissed: restoreImportFocus
@@ -266,6 +267,7 @@ struct EditorWorkspaceView: View {
     }
 
     private func restoreImportFocus() {
+        guard !controller.finishProjectSourceImportFocus() else { return }
         initialImportFocusRequest += 1
     }
 

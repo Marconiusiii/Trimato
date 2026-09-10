@@ -8,8 +8,12 @@ nonisolated struct ClipEditorOpeningConfiguration: Equatable, Sendable {
     static func make(
         segments: [SourceSegment],
         sourceDuration: ProjectTime
-    ) -> ClipEditorOpeningConfiguration {
-        let usable = segments.filter { $0.duration.isPositive }
+    ) throws -> ClipEditorOpeningConfiguration {
+        guard sourceDuration.isPositive,
+              segments.allSatisfy({ $0.sourceRange.isValid && $0.sourceRange.end <= sourceDuration }) else {
+            throw MediaSourceError.unreadable("The saved clip edit contains a range outside the source media. Reopen the original file to recover the full clip.")
+        }
+        let usable = segments
         guard usable.count == 1, let segment = usable.first,
               segment.sourceRange.start >= .zero,
               segment.sourceRange.end <= sourceDuration else {

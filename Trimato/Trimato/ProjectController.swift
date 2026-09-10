@@ -57,6 +57,7 @@ final class ProjectController: ObservableObject {
     @Published private(set) var importProgress: Double?
     @Published private(set) var importDetail: String?
     @Published private(set) var importOutcome = OperationProgressOutcome.completed
+    private var sourceImportFocus: (existingIDs: Set<UUID>, fallback: ProjectSourceItemID)?
     private var importTask: Task<Void, Never>?
     private var projectFilePanel: NSOpenPanel?
 
@@ -1154,6 +1155,21 @@ final class ProjectController: ObservableObject {
 
     func requestEditorFocusRestore() {
         editorFocusRestoreRequest += 1
+    }
+
+    func beginProjectSourceImportFocus(returningTo item: ProjectSourceItemID?) {
+        sourceImportFocus = (Set(project.media.map(\.id)), item ?? .clips(project.id))
+    }
+
+    /// Called only after import progress has dismissed and the project window has returned.
+    @discardableResult
+    func finishProjectSourceImportFocus() -> Bool {
+        guard !isImporting, let pending = sourceImportFocus else { return false }
+        sourceImportFocus = nil
+        let importedID = ProjectSourcePasteFocus.firstImportedAssetID(
+            existingAssetIDs: pending.existingIDs, assets: project.media)
+        requestProjectSourceFocus(to: importedID.map { .asset($0) } ?? pending.fallback)
+        return true
     }
 
     func requestProjectSourceFocus(to item: ProjectSourceItemID) {

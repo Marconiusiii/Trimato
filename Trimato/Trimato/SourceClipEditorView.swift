@@ -365,10 +365,6 @@ struct SourceClipEditorView: View {
         loadedAssetID = currentAsset.id
         let segments = preserveDraft ? commandContext.segments : controller.segments(for: editSelection) ?? initialSegments
         if !preserveDraft { commandContext.setSegments(segments) }
-        let opening = ClipEditorOpeningConfiguration.make(
-            segments: segments,
-            sourceDuration: currentAsset.duration
-        )
         let requestID = UUID()
         preparationID = requestID
         preparingSource = true
@@ -406,6 +402,15 @@ struct SourceClipEditorView: View {
                     controller.mediaFiles.refresh()
                     throw QuitDraftError(message: "Source Missing. Relink this media from Project Source.")
                 }
+                // Edits use original source time, even when a playback proxy has rounded its endpoint.
+                let measuredDuration = try? await source.originalAsset.load(.duration)
+                let sourceDuration = measuredDuration.flatMap {
+                    $0.isValid && $0.isNumeric && $0 > .zero ? ProjectTime($0) : nil
+                } ?? currentAsset.duration
+                let opening = try ClipEditorOpeningConfiguration.make(
+                    segments: segments,
+                    sourceDuration: sourceDuration
+                )
                 viewModel.load(
                     url: source.originalURL,
                     sourceSegments: opening.playbackSegments,

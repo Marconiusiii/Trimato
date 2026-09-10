@@ -94,6 +94,7 @@ private struct OperationProgressPresenter: ViewModifier {
     let dismissed: () -> Void
 
     @State private var sessionID: UUID?
+    @State private var awaitingCompletion = false
 
     private var snapshot: OperationProgressSnapshot {
         OperationProgressSnapshot(
@@ -116,6 +117,7 @@ private struct OperationProgressPresenter: ViewModifier {
     }
 
     private func synchronize() {
+        if operation != nil || completionPending { awaitingCompletion = true }
         if let operation {
             guard !waitsForReturnWindow || returnWindow != nil else { return }
             if let sessionID,
@@ -130,7 +132,12 @@ private struct OperationProgressPresenter: ViewModifier {
             return
         }
 
-        guard !completionPending, let sessionID else { return }
+        guard !completionPending, awaitingCompletion else { return }
+        awaitingCompletion = false
+        guard let sessionID else {
+            dismissed()
+            return
+        }
         self.sessionID = nil
         OperationProgressWindowCoordinator.shared.finish(
             id: sessionID,

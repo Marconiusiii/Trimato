@@ -8,10 +8,6 @@ nonisolated enum ProjectSourcePasteFocus {
     ) -> UUID? {
         assets.first { !existingAssetIDs.contains($0.id) }?.id
     }
-
-    static func shouldRestoreFocus(pendingAssetID: UUID?, importIsRunning: Bool) -> Bool {
-        pendingAssetID != nil && !importIsRunning
-    }
 }
 
 struct ProjectSourceOutlineView: View {
@@ -24,17 +20,12 @@ struct ProjectSourceOutlineView: View {
     let requestNewTrack: (UUID, NewTrackSourceKind) -> Void
     let focusRequest: ProjectSourceFocusRequest
 
-    @State private var pastedImportBaselineAssetIDs: Set<UUID>?
-    @State private var pendingPastedAssetFocusID: UUID?
-    @State private var pastedFocusRequest = ProjectSourceFocusRequest()
-
     var body: some View {
         ProjectSourceNativeOutline(
             controller: controller,
             hierarchy: ProjectSourceItem.hierarchy(for: controller.project),
             selection: $selection,
             focusRequest: focusRequest,
-            pastedFocusRequest: pastedFocusRequest,
             openClipEditor: openClipEditor,
             requestNewFolder: requestNewFolder,
             requestRenameFolder: requestRenameFolder,
@@ -45,13 +36,6 @@ struct ProjectSourceOutlineView: View {
         )
         .onChange(of: selection) { _, selectedItem in
             synchronizeControllerSelection(selectedItem)
-        }
-        .onChange(of: controller.project.media.map(\.id)) {
-            capturePastedAssetFocusIfAvailable()
-        }
-        .onChange(of: controller.isImporting) {
-            capturePastedAssetFocusIfAvailable()
-            restorePastedAssetFocusIfReady()
         }
     }
 
@@ -72,36 +56,11 @@ struct ProjectSourceOutlineView: View {
 
     @discardableResult
     private func importFiles(_ urls: [URL], into folderID: UUID?) -> Bool {
-        guard !urls.isEmpty, !controller.isImporting else { return false }
-        pastedImportBaselineAssetIDs = Set(controller.project.media.map(\.id))
-        pendingPastedAssetFocusID = nil
+        guard !urls.isEmpty, !controller.isImporting,
+              !controller.mediaFiles.isBusy, !controller.isRelinkingMedia else { return false }
+        controller.beginProjectSourceImportFocus(returningTo: selection)
         controller.importFiles(at: urls, into: folderID)
         return true
-    }
-
-    private func capturePastedAssetFocusIfAvailable() {
-        guard let pastedImportBaselineAssetIDs else { return }
-        if let assetID = ProjectSourcePasteFocus.firstImportedAssetID(
-            existingAssetIDs: pastedImportBaselineAssetIDs,
-            assets: controller.project.media
-        ) {
-            pendingPastedAssetFocusID = assetID
-            self.pastedImportBaselineAssetIDs = nil
-            selection = .asset(assetID)
-            synchronizeControllerSelection(.asset(assetID))
-        } else if !controller.isImporting {
-            self.pastedImportBaselineAssetIDs = nil
-        }
-    }
-
-    private func restorePastedAssetFocusIfReady() {
-        guard ProjectSourcePasteFocus.shouldRestoreFocus(
-            pendingAssetID: pendingPastedAssetFocusID,
-            importIsRunning: controller.isImporting
-        ), let assetID = pendingPastedAssetFocusID else { return }
-        pendingPastedAssetFocusID = nil
-        let nextRevision = pastedFocusRequest.revision + 1
-        pastedFocusRequest = ProjectSourceFocusRequest(target: .asset(assetID), revision: nextRevision)
     }
 }
 
@@ -110,7 +69,6 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
     let hierarchy: ProjectSourceItem
     @Binding var selection: ProjectSourceItemID?
     let focusRequest: ProjectSourceFocusRequest
-    let pastedFocusRequest: ProjectSourceFocusRequest
     let openClipEditor: (EditorSelection) -> Void
     let requestNewFolder: () -> Void
     let requestRenameFolder: (UUID) -> Void
@@ -165,9 +123,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
         private var snapshot: ProjectSourceItem?
         private var expandedIDs: Set<ProjectSourceItemID> = []
         private var handledFocusRevision = 0
-        private var handledPastedFocusRevision = 0
         private var pendingFocusRequest: ProjectSourceFocusRequest?
-        private var pendingPastedFocusRequest: ProjectSourceFocusRequest?
         private var focusTask: Task<Void, Never>?
         private var isUpdating = false
         private let cellIdentifier = NSUserInterfaceItemIdentifier("ProjectSourceCell")
@@ -231,16 +187,12 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                source.focusRequest.target != nil {
                 pendingFocusRequest = source.focusRequest
             }
-            if source.pastedFocusRequest.revision > handledPastedFocusRevision,
-               source.pastedFocusRequest.revision != pendingPastedFocusRequest?.revision,
-               source.pastedFocusRequest.target != nil {
-                pendingPastedFocusRequest = source.pastedFocusRequest
-            }
+
         }
 
         private func schedulePendingFocus() {
             guard focusTask == nil,
-                  pendingPastedFocusRequest != nil || pendingFocusRequest != nil else { return }
+                  pendingFocusRequest != nil else { return }
             focusTask = Task { @MainActor [weak self] in
                 await Task.yield()
                 guard let self, !Task.isCancelled else { return }
@@ -257,7 +209,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                 }
                 self.focusTask = nil
                 if didFocus,
-                   self.pendingPastedFocusRequest != nil || self.pendingFocusRequest != nil {
+                   self.pendingFocusRequest != nil {
                     self.schedulePendingFocus()
                 }
             }
@@ -269,12 +221,6 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
 
         @discardableResult
         private func focusNextPendingRequest() -> Bool {
-            if let request = pendingPastedFocusRequest,
-               focus(request.target) {
-                handledPastedFocusRevision = request.revision
-                pendingPastedFocusRequest = nil
-                return true
-            }
             if let request = pendingFocusRequest,
                focus(request.target) {
                 handledFocusRevision = request.revision
@@ -332,6 +278,8 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                       window.makeFirstResponder(outlineView), window.firstResponder === outlineView else { return false }
                 focusedElement = outlineView
             }
+            source?.selection = id
+            source?.selectionChanged(id)
             NSAccessibility.post(element: outlineView, notification: .selectedRowsChanged)
             NSApp.setAccessibilityApplicationFocusedUIElement(focusedElement)
             NSAccessibility.post(element: focusedElement, notification: .focusedUIElementChanged)

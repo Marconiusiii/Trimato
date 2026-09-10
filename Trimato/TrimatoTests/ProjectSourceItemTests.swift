@@ -71,20 +71,38 @@ struct ProjectSourceItemTests {
         #expect(focusedID == nil)
     }
 
-    @Test func pastedSourceFocusWaitsUntilImportAndProgressUpdatesFinish() {
-        let assetID = UUID()
-        #expect(ProjectSourcePasteFocus.shouldRestoreFocus(
-            pendingAssetID: assetID,
-            importIsRunning: true
-        ) == false)
-        #expect(ProjectSourcePasteFocus.shouldRestoreFocus(
-            pendingAssetID: assetID,
-            importIsRunning: false
-        ))
-        #expect(ProjectSourcePasteFocus.shouldRestoreFocus(
-            pendingAssetID: nil,
-            importIsRunning: false
-        ) == false)
+    @Test @MainActor func pasteFocusReturnsOnceAfterImportCompletion() {
+        let document = ProjectDocument()
+        let controller = ProjectController(document: document)
+        let prior = makeAsset(name: "Existing")
+        let imported = makeAsset(name: "Imported")
+        document.project.media = [prior]
+        controller.beginProjectSourceImportFocus(returningTo: .asset(prior.id))
+        controller.isImporting = true
+        document.project.media.append(imported)
+        #expect(!controller.finishProjectSourceImportFocus())
+        #expect(controller.projectSourceFocusRequest.revision == 0)
+        controller.isImporting = false
+        let progress = OperationProgressWindowSession(
+            operation: OperationProgress(title: "Importing Files"), postsAnnouncements: false)
+        progress.finish(outcome: .completed) { _ = controller.finishProjectSourceImportFocus() }
+        #expect(controller.projectSourceFocusRequest.revision == 0)
+        progress.completeDismissal()
+        #expect(controller.projectSourceFocusRequest.target == .asset(imported.id))
+        let revision = controller.projectSourceFocusRequest.revision
+        #expect(!controller.finishProjectSourceImportFocus())
+        #expect(controller.projectSourceFocusRequest.revision == revision)
+    }
+
+    @Test @MainActor func cancelledOrDuplicatePasteReturnsToItsOrigin() {
+        let document = ProjectDocument()
+        let controller = ProjectController(document: document)
+        let prior = makeAsset(name: "Existing")
+        document.project.media = [prior]
+        controller.beginProjectSourceImportFocus(returningTo: .asset(prior.id))
+        #expect(controller.finishProjectSourceImportFocus())
+        #expect(controller.projectSourceFocusRequest.target == .asset(prior.id))
+        #expect(!controller.finishProjectSourceImportFocus())
     }
 
     @Test func sourceDeletionConfirmationIsNamedAndExplainsTimelineRemoval() {
