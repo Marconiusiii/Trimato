@@ -2179,7 +2179,8 @@ final class ProjectController: ObservableObject {
         _ placement: PlacementAction,
         editing editSelection: EditorSelection,
         segments: [SourceSegment]? = nil,
-        audioSettings: AudioClipSettings? = nil, filters: [ClipFilter]? = nil
+        audioSettings: AudioClipSettings? = nil, filters: [ClipFilter]? = nil,
+        announcesConfirmation: Bool = true
     ) throws -> UUID {
         guard let asset = asset(for: editSelection) else {
             throw ProjectTimelineError.sourceAssetNotFound
@@ -2203,7 +2204,7 @@ final class ProjectController: ObservableObject {
         guard let selectedID else { throw ProjectTimelineError.unsupportedPlacement }
         selection = placement.isCutaway ? .cutaway(selectedID) : .timelineClip(selectedID)
         advanceAfterInsertion(placement, clipID: selectedID)
-        announce(placement.confirmation)
+        if announcesConfirmation { announce(placement.confirmation) }
         return selectedID
     }
 
@@ -2213,7 +2214,8 @@ final class ProjectController: ObservableObject {
         editing editSelection: EditorSelection,
         segments: [SourceSegment]?,
         onTrack trackID: UUID,
-        audioSettings: AudioClipSettings? = nil, filters: [ClipFilter]? = nil
+        audioSettings: AudioClipSettings? = nil, filters: [ClipFilter]? = nil,
+        announcesConfirmation: Bool = true
     ) throws -> UUID {
         guard let asset = asset(for: editSelection) else {
             throw ProjectTimelineError.sourceAssetNotFound
@@ -2236,7 +2238,7 @@ final class ProjectController: ObservableObject {
         activeTimelineTrackID = trackID
         selection = .timelineClip(selectedID)
         advanceAfterInsertion(placement, clipID: selectedID)
-        announce(placement.confirmation)
+        if announcesConfirmation { announce(placement.confirmation) }
         return selectedID
     }
 

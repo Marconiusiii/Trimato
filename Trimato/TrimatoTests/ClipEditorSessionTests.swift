@@ -209,6 +209,55 @@ struct ClipEditorSessionTests {
         return element.value(forKey: "accessibilityIdentifier") as? String
     }
 
+    @Test(arguments: [true, false], [true, false])
+    @MainActor func immediateAppendWaitsForEntryAndConfirmsOnce(hasVideo: Bool, marked: Bool) async throws {
+        var project = TrimatoProject()
+        let full = SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 5)))
+        let selected = marked ? SourceSegment(sourceRange: ProjectTimeRange(
+            start: ProjectTime(seconds: 1), duration: ProjectTime(seconds: 2))) : full
+        let asset = MediaAssetRecord(name: "Append regression", originalPath: "/tmp/append-regression.mov",
+            duration: ProjectTime(seconds: 5), naturalWidth: hasVideo ? 640 : nil,
+            naturalHeight: hasVideo ? 480 : nil, frameRate: hasVideo ? 30 : nil,
+            hasAudio: true, sourceEdit: [full])
+        project.media = [asset]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(asset.id), segments: [selected])
+        var messages: [String] = []
+        context.placementFeedback = { messages.append($0) }
+        context.beginOpening()
+        context.setKeyWindow(true)
+        let router = ClipEditorCommandRouter()
+        router.activate(context)
+        router.perform(.append)
+        #expect(controller.project.duration == .zero)
+        #expect(messages.isEmpty)
+        context.finishOpening()
+        #expect(controller.project.duration == selected.duration)
+        #expect(router.activeContext === context)
+        for _ in 0..<50 where messages.isEmpty { await Task.yield() }
+        #expect(messages == ["Clip appended"])
+        context.finishOpening()
+        #expect(controller.project.duration == selected.duration)
+        // The same command after opening uses the same completion path.
+        router.perform(.append)
+        for _ in 0..<50 where messages.count < 2 { await Task.yield() }
+        #expect(messages == ["Clip appended", "Clip appended"])
+        #expect(controller.project.duration == selected.duration + selected.duration)
+    }
+
+    @Test @MainActor func closingBeforeEntryCancelsAnEarlyAppend() {
+        let asset = fixtureAsset(name: "Cancelled append", duration: 5)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(asset.id), segments: asset.sourceEdit)
+        context.beginOpening()
+        context.place(.append)
+        context.cancelPendingPlacements()
+        context.finishOpening()
+        #expect(controller.project.duration == .zero)
+    }
+
     @Test @MainActor func clipMenuCommandsUseOnlyTheCurrentEditorAndRecoverAfterPreparation() throws {
         func makeContext() -> ClipPlacementCommandContext {
             var project = TrimatoProject()

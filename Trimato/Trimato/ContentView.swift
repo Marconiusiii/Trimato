@@ -10,6 +10,7 @@ struct ContentView: View {
     private let compact: Bool
     private let isPreparingSource: Bool
     private let isPreparingClipPreview: Bool
+    private let entryCompleted: () -> Void
     @StateObject private var entryFocus = ClipEditorEntryFocus()
     @FocusState private var playheadKeyboardFocused: Bool
     @AccessibilityFocusState private var playheadVoiceOverFocused: Bool
@@ -20,7 +21,8 @@ struct ContentView: View {
         editorHeading: String? = nil,
         compact: Bool = false,
         isPreparingSource: Bool = false,
-        isPreparingClipPreview: Bool = false
+        isPreparingClipPreview: Bool = false,
+        entryCompleted: @escaping () -> Void = {}
     ) {
         self.viewModel = viewModel
         self.allowsFileOpening = allowsFileOpening
@@ -28,6 +30,7 @@ struct ContentView: View {
         self.compact = compact
         self.isPreparingSource = isPreparingSource
         self.isPreparingClipPreview = isPreparingClipPreview
+        self.entryCompleted = entryCompleted
     }
 
     var body: some View {
@@ -53,6 +56,10 @@ struct ContentView: View {
             viewModel.refreshAccessibilityValueForFocus()
             playheadKeyboardFocused = true
             playheadVoiceOverFocused = true
+            Task { @MainActor in
+                await Task.yield()
+                entryCompleted()
+            }
         }
         .onChange(of: playheadVoiceOverFocused) { _, focused in
             if focused {

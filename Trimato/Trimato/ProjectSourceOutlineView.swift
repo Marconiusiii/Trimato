@@ -196,17 +196,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
             focusTask = Task { @MainActor [weak self] in
                 await Task.yield()
                 guard let self, !Task.isCancelled else { return }
-                var didFocus = false
-                for delay in [0, 100, 250] {
-                    if delay > 0 {
-                        try? await Task.sleep(for: .milliseconds(delay))
-                    }
-                    guard !Task.isCancelled else { return }
-                    if self.focusNextPendingRequest() {
-                        didFocus = true
-                        break
-                    }
-                }
+                let didFocus = self.focusNextPendingRequest()
                 self.focusTask = nil
                 if didFocus,
                    self.pendingFocusRequest != nil {
@@ -261,11 +251,13 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
         @discardableResult
         private func focus(_ id: ProjectSourceItemID?) -> Bool {
             guard let outlineView, let id,
-                  let window = outlineView.window, window.isKeyWindow else { return false }
+                  let window = outlineView.window, window.isKeyWindow,
+                  window.attachedSheet == nil, NSApp.modalWindow == nil else { return false }
             restoreSelection(id)
             let row = nodes[id].map(outlineView.row(forItem:)) ?? -1
             guard row >= 0 else { return false }
             outlineView.scrollRowToVisible(row)
+            outlineView.layoutSubtreeIfNeeded()
 
             let focusedElement: NSView
             if case .asset = id,
@@ -281,7 +273,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
             source?.selection = id
             source?.selectionChanged(id)
             NSAccessibility.post(element: outlineView, notification: .selectedRowsChanged)
-            NSApp.setAccessibilityApplicationFocusedUIElement(focusedElement)
+            focusedElement.setAccessibilityFocused(true)
             NSAccessibility.post(element: focusedElement, notification: .focusedUIElementChanged)
             return true
         }
@@ -580,29 +572,28 @@ private final class ProjectSourceNode: NSObject {
 
 private final class ProjectSourceAppKitOutlineView: NSOutlineView {
     weak var owner: ProjectSourceNativeOutline.Coordinator?
-    private var keyWindowObserver: NSObjectProtocol?
+    private var windowObservers: [NSObjectProtocol] = []
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let keyWindowObserver {
-            NotificationCenter.default.removeObserver(keyWindowObserver)
-            self.keyWindowObserver = nil
-        }
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
+        windowObservers = []
         guard let window else { return }
-        keyWindowObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.owner?.projectSourceWindowDidBecomeKey()
-            }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didEndSheetNotification] {
+            windowObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.owner?.projectSourceWindowDidBecomeKey() }
+            })
         }
     }
 
-    deinit {
-        if let keyWindowObserver { NotificationCenter.default.removeObserver(keyWindowObserver) }
+    override func layout() {
+        super.layout()
+        owner?.projectSourceWindowDidBecomeKey()
     }
+
+    deinit { windowObservers.forEach(NotificationCenter.default.removeObserver) }
 
     override func keyDown(with event: NSEvent) {
         if NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags),

@@ -129,6 +129,37 @@ final class ClipPlacementCommandContext: ObservableObject {
     var closeDecisionHandler: ((ClipEditorCloseDecision) -> Void)?
     private var pendingCloseDecision: ClipEditorCloseDecision?
     private var closeReviewActive = false
+    private var isOpening = false
+    private var pendingPlacements: [PlacementAction] = []
+    var placementFeedback: ((String) -> Void)?
+
+    func beginOpening() { isOpening = true }
+
+    func finishOpening() {
+        guard isOpening else { return }
+        isOpening = false
+        let pending = pendingPlacements
+        pendingPlacements = []
+        for placement in pending { place(placement) }
+    }
+
+    func cancelPendingPlacements() {
+        pendingPlacements = []
+        isOpening = false
+    }
+
+    private func confirmPlacement(_ placement: PlacementAction) {
+        // Menu dispatch and the model update must finish before the result is spoken.
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            if let placementFeedback { placementFeedback(placement.confirmation); return }
+            guard let window = hostWindow, window.isKeyWindow else { return }
+            NSAccessibility.post(element: window, notification: .announcementRequested,
+                userInfo: [.announcement: placement.confirmation,
+                           .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
+    }
 
     init(
         controller: ProjectController,
@@ -239,6 +270,10 @@ final class ClipPlacementCommandContext: ObservableObject {
 
     func place(_ placement: PlacementAction) {
         guard canPlace else { return }
+        if isOpening {
+            pendingPlacements.append(placement)
+            return
+        }
         _ = place(placement, onTrack: nil)
     }
 
@@ -259,16 +294,17 @@ final class ClipPlacementCommandContext: ObservableObject {
                     placement,
                     editing: editSelection,
                     segments: segments,
-                    onTrack: trackID, audioSettings: audioSettings, filters: filters
+                    onTrack: trackID, audioSettings: audioSettings, filters: filters, announcesConfirmation: false
                 )
             } else {
                 placedID = try controller.placeThrowing(
                     placement,
                     editing: editSelection,
-                    segments: segments, audioSettings: audioSettings, filters: filters
+                    segments: segments, audioSettings: audioSettings, filters: filters, announcesConfirmation: false
                 )
             }
 
+            confirmPlacement(placement)
             return placedID
         } catch {
             presentPlacementError(placement, trackID: trackID, message: error.localizedDescription)
@@ -521,6 +557,7 @@ final class ClipEditorWindowController: NSWindowController, NSWindowDelegate {
         commandContext: ClipPlacementCommandContext
     ) {
         self.commandContext = commandContext
+        commandContext.beginOpening()
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 760),
@@ -636,6 +673,7 @@ final class ClipEditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        commandContext.cancelPendingPlacements()
         commandContext.controller.quitEdits.remove(quitDraftID)
         commandContext.setKeyWindow(false)
         ClipEditorCommandRouter.shared.deactivate(commandContext)

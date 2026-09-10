@@ -23,7 +23,7 @@ struct VideoPlayerView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PlayerNSView, context: Context) {
-        nsView.playerLayer.player = player
+        if nsView.playerLayer.player !== player { nsView.playerLayer.player = player }
         nsView.configureCaptionPreview(
             cues: captionCues,
             duration: captionDuration,

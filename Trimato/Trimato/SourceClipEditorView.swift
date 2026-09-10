@@ -61,7 +61,8 @@ struct SourceClipEditorView: View {
                     editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo),
                     compact: true,
                     isPreparingSource: preparingSource,
-                    isPreparingClipPreview: preview.state == .preparing
+                    isPreparingClipPreview: preview.state == .preparing,
+                    entryCompleted: commandContext.finishOpening
                 )
 
                 TabView(selection: $selectedTab) {
