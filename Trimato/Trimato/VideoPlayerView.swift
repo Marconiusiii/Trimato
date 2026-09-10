@@ -33,15 +33,26 @@ struct VideoPlayerView: NSViewRepresentable {
     }
 
     private func configureAccessibility(_ view: PlayerNSView) {
-        view.setAccessibilityElement(accessibleFrame)
-        view.setAccessibilityRole(accessibleFrame ? .image : .unknown)
-        view.setAccessibilityLabel(accessibleFrame ? "Video frame" : nil)
+        let state = PlayerNSView.FrameAccessibility(isVisible: accessibleFrame, description: frameDescription)
+        guard view.frameAccessibility != state else { return }
+        let visibilityChanged = view.frameAccessibility?.isVisible != accessibleFrame
+        view.frameAccessibility = state
+        if visibilityChanged {
+            view.setAccessibilityElement(accessibleFrame)
+            view.setAccessibilityRole(accessibleFrame ? .image : .unknown)
+            view.setAccessibilityLabel(accessibleFrame ? "Video frame" : nil)
+            view.setAccessibilityIdentifier(accessibleFrame ? "trimato.editor.frame" : nil)
+        }
         view.setAccessibilityValue(accessibleFrame ? frameDescription : nil)
-        view.setAccessibilityIdentifier(accessibleFrame ? "trimato.editor.frame" : nil)
     }
 }
 
 final class PlayerNSView: NSView {
+    struct FrameAccessibility: Equatable {
+        let isVisible: Bool
+        let description: String
+    }
+    var frameAccessibility: FrameAccessibility?
     let playerLayer = AVPlayerLayer()
     private var captionSynchronizedLayer: AVSynchronizedLayer?
     private var captionContentLayer: CALayer?

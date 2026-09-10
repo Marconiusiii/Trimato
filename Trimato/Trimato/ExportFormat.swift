@@ -123,6 +123,7 @@ struct ExportSaveSelection {
     let url: URL
     let captionDelivery: CaptionDelivery
     var exportDescriptions = false
+    var audioMode: ExportAudioMode = .preserveSpatial
 }
 
 nonisolated enum CaptionDelivery: String, CaseIterable, Identifiable, Sendable {
@@ -149,6 +150,14 @@ nonisolated enum CaptionDelivery: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+nonisolated enum ExportAudioMode: String, CaseIterable, Identifiable, Sendable {
+    case preserveSpatial, highQualityStereo
+    var id: Self { self }
+    var title: String { self == .preserveSpatial ? "Preserve Spatial Audio" : "High-quality Stereo" }
+    static let preferenceKey = "exportAudioMode"
+    static var saved: Self { Self(rawValue: UserDefaults.standard.string(forKey: preferenceKey) ?? "") ?? .preserveSpatial }
+}
+
 @MainActor
 final class ExportFormatSelectionModel: ObservableObject {
     nonisolated static let pickerLabel = "Format"
@@ -159,6 +168,27 @@ final class ExportFormatSelectionModel: ObservableObject {
                 captionDelivery = .webVTT
             }
             formatChanged?(selectedFormat)
+        }
+    }
+    @Published var audioMode: ExportAudioMode = .highQualityStereo {
+        didSet {
+            if !availableFormats.contains(selectedFormat), let first = availableFormats.first { selectedFormat = first }
+        }
+    }
+    var allFormats: [ExportFormat] = []
+    var offersAudioChoice = false
+    var spatialUnavailableReason: String?
+    var availableFormats: [ExportFormat] {
+        guard offersAudioChoice else { return allFormats }
+        return allFormats.filter { audioMode == .preserveSpatial ? $0.supportsSpatialAudio : $0 != .original }
+    }
+    var audioSummary: String {
+        if audioMode == .preserveSpatial { return "Keeps spatial sound and a stereo playback alternative. Audio changes use uncompressed audio and produce larger files." }
+        switch selectedFormat {
+        case .proRes422LT, .proRes422, .proRes422HQ, .wav24: return "Stereo with uncompressed 24-bit audio."
+        case .wav: return "Stereo with uncompressed 16-bit audio. Choose 24-bit WAV for greater precision."
+        case .m4aAppleLossless, .flac: return "Stereo with lossless audio encoding."
+        default: return "Stereo with high-quality AAC audio. AAC uses lossy compression."
         }
     }
     @Published var captionDelivery: CaptionDelivery
@@ -185,11 +215,23 @@ private struct ExportFormatAccessoryView: View {
     var body: some View {
         VStack {
             Picker(ExportFormatSelectionModel.pickerLabel, selection: $model.selectedFormat) {
-                ForEach(formats, id: \.self) { format in
+                ForEach(model.availableFormats, id: \.self) { format in
                     Text(format.title).tag(format)
                 }
             }
             .frame(width: 330)
+            if model.offersAudioChoice {
+                Picker("Audio", selection: $model.audioMode) {
+                    ForEach(ExportAudioMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                            .disabled(mode == .preserveSpatial && model.spatialUnavailableReason != nil)
+                    }
+                }.frame(width: 330)
+                Text(model.audioSummary).frame(width: 330, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                if let reason = model.spatialUnavailableReason {
+                    Text(reason).frame(width: 330, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             if !model.selectedFormat.isAudioOnly, let summary = model.outputSummary {
                 Text(summary).frame(width: 330, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             }
@@ -226,6 +268,8 @@ final class ExportSavePanel {
         hasCaptions: Bool = false,
         hasDescriptions: Bool = false,
         outputSummary: String? = nil,
+        offersAudioChoice: Bool = false,
+        spatialUnavailableReason: String? = nil,
         originalExtension: String? = nil,
         originalContentType: UTType? = nil
     ) {
@@ -237,6 +281,14 @@ final class ExportSavePanel {
         self.originalContentType = originalContentType
         self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0], hasCaptions: hasCaptions, hasDescriptions: hasDescriptions, outputSummary: outputSummary)
 
+        formatModel.allFormats = formats
+        formatModel.offersAudioChoice = offersAudioChoice
+        formatModel.spatialUnavailableReason = spatialUnavailableReason ?? (offersAudioChoice && !formats.contains(where: \.supportsSpatialAudio)
+            ? "Spatial Audio export requires a QuickTime video format." : nil)
+        if offersAudioChoice {
+            formatModel.audioMode = formatModel.spatialUnavailableReason == nil ? .saved : .highQualityStereo
+        }
+
         panel.title = title
         panel.prompt = "Export"
         panel.nameFieldLabel = "Export As:"
@@ -247,14 +299,14 @@ final class ExportSavePanel {
             model: formatModel,
             formats: formats
         ))
-        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 74 : 36) + (hasDescriptions ? 32 : 0) + (outputSummary == nil ? 0 : 110))
+        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 74 : 36) + (hasDescriptions ? 32 : 0) + (outputSummary == nil ? 0 : 110) + (offersAudioChoice ? 160 : 0) + (spatialUnavailableReason == nil ? 0 : 100))
         panel.accessoryView = accessory
 
-        panel.nameFieldStringValue = formats[0].filename(
+        panel.nameFieldStringValue = formatModel.selectedFormat.filename(
             for: baseName,
             originalExtension: originalExtension
         )
-        apply(format: formats[0], replacingFilenameExtension: false)
+        apply(format: formatModel.selectedFormat, replacingFilenameExtension: false)
         formatModel.formatChanged = { [weak self] format in
             self?.apply(format: format, replacingFilenameExtension: true)
         }
@@ -263,11 +315,13 @@ final class ExportSavePanel {
     func selection(parentWindow: NSWindow) async -> ExportSaveSelection? {
         let response = await panel.beginSheetModal(for: parentWindow)
         guard response == .OK, let url = panel.url else { return nil }
+        if formatModel.offersAudioChoice { UserDefaults.standard.set(formatModel.audioMode.rawValue, forKey: ExportAudioMode.preferenceKey) }
         return ExportSaveSelection(
             format: selectedFormat,
             url: url,
             captionDelivery: formatModel.hasCaptions ? formatModel.captionDelivery : .none,
-            exportDescriptions: formatModel.hasDescriptions && formatModel.exportDescriptions
+            exportDescriptions: formatModel.hasDescriptions && formatModel.exportDescriptions,
+            audioMode: formatModel.audioMode
         )
     }
 

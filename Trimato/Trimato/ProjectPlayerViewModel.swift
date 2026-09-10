@@ -120,6 +120,17 @@ nonisolated struct ProjectPreviewInput: Equatable {
 final class ProjectPlayerViewModel: ObservableObject {
     private var mixProcessors: [TrackMixProcessor] = []
     private var hasSpatialAudio = false
+    private var spatialPlaybackProject: TrimatoProject?
+    private var spatialMediaURLs: [UUID: URL] = [:]
+    private var spatialMixRebuildTask: Task<Void, Never>?
+    private var resumeAfterSpatialMix = false
+
+    private func spatialMixMatches(_ project: TrimatoProject) -> Bool {
+        guard let previous = spatialPlaybackProject, previous.masterVolumeDB == project.masterVolumeDB else { return false }
+        let old = previous.tracks.filter { $0.kind == .audio }
+        let new = project.tracks.filter { $0.kind == .audio }
+        return old.count == new.count && zip(old, new).allSatisfy { $0.id == $1.id && $0.mix == $1.mix && $0.isMuted == $1.isMuted }
+    }
     private var spatialMixBlocked = false
     private var mixBindings: [CMPersistentTrackID: ProjectMixBinding] = [:]
     private var latestMixProject: TrimatoProject?
@@ -136,6 +147,11 @@ final class ProjectPlayerViewModel: ObservableObject {
                 listeningProject.tracks[index].isMuted = true
             }
         }
+        if audioNotice != nil, (try? SpatialAudioPlan.validateControls(listeningProject)) != nil,
+           !spatialMixMatches(listeningProject) {
+            startPreparation(project: listeningProject, mediaURLs: spatialMediaURLs, initialTime: currentTime)
+            return
+        }
         if hasSpatialAudio {
             do {
                 try SpatialAudioPlan.validateControls(listeningProject)
@@ -145,12 +161,34 @@ final class ProjectPlayerViewModel: ObservableObject {
                     presentedPreviewFailure = nil
                 }
                 spatialMixBlocked = false
+                if !spatialMixMatches(listeningProject) {
+                    resumeAfterSpatialMix = resumeAfterSpatialMix || player.rate != 0
+                    player.pause()
+                    spatialMixBlocked = true
+                    isPreparing = true
+                    preparationProgress = 0
+                    spatialMixRebuildTask?.cancel()
+                    spatialMixRebuildTask = Task { @MainActor [weak self] in
+                        do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+                        guard let self else { return }
+                        self.spatialMixRebuildTask = nil
+                        self.startPreparation(project: listeningProject, mediaURLs: self.spatialMediaURLs, initialTime: self.currentTime)
+                    }
+                    return
+                }
+                if spatialMixRebuildTask != nil {
+                    spatialMixRebuildTask?.cancel()
+                    spatialMixRebuildTask = nil
+                    isPreparing = false
+                    preparationProgress = nil
+                    if resumeAfterSpatialMix { player.play() }
+                    resumeAfterSpatialMix = false
+                }
             } catch {
-                spatialMixBlocked = true
-                player.pause()
-                errorMessage = error.localizedDescription
-                currentPreviewFailure = ProjectPreviewFailure(title: "Spatial Audio Preview Unavailable",
-                    message: error.localizedDescription, transitionID: nil)
+                // Unsupported spatial effects still have a usable stereo preview;
+                // the builder labels it and Export keeps the audio choice explicit.
+                resumeAfterSpatialMix = resumeAfterSpatialMix || player.rate != 0
+                startPreparation(project: listeningProject, mediaURLs: spatialMediaURLs, initialTime: currentTime)
                 return
             }
         }
@@ -171,6 +209,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     @Published private(set) var preparationProgress: Double?
     @Published private(set) var preparationWasCancelled = false
     @Published private(set) var hasPreparedPlayerItem = false
+    @Published private(set) var audioNotice: String?
     @Published private(set) var errorMessage: String?
     @Published private(set) var presentedPreviewFailure: ProjectPreviewFailure?
     @Published private(set) var isPlaying = false
@@ -371,10 +410,23 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func showPreviewFailure() {
-        presentedPreviewFailure = currentPreviewFailure
+        guard let errorMessage else { return }
+        presentedPreviewFailure = currentPreviewFailure ?? ProjectPreviewFailure(
+            title: "Project Preview Unavailable", message: errorMessage, transitionID: nil)
+    }
+
+    private var presentsNextPreparationFailure = false
+
+    func retryPreview(project: TrimatoProject, mediaURLs: [UUID: URL], initialTime: ProjectTime) {
+        presentsNextPreparationFailure = true
+        requestPreparation(project: project, mediaURLs: mediaURLs, initialTime: initialTime)
     }
 
     func cancelPreparation() {
+        let hadPendingSpatialMix = spatialMixRebuildTask != nil
+        spatialMixRebuildTask?.cancel()
+        spatialMixRebuildTask = nil
+        resumeAfterSpatialMix = false
         preparationRequestTask?.cancel()
         preparationRequestTask = nil
         guard isPreparing else {
@@ -383,6 +435,11 @@ final class ProjectPlayerViewModel: ObservableObject {
             return
         }
         buildTask?.cancel()
+        if hadPendingSpatialMix, buildTask == nil {
+            isPreparing = false
+            preparationProgress = nil
+            spatialMixBlocked = true
+        }
     }
 
     func requestPreparation(
@@ -420,6 +477,11 @@ final class ProjectPlayerViewModel: ObservableObject {
         mediaURLs: [UUID: URL],
         initialTime: ProjectTime
     ) {
+        let presentsFailure = presentsNextPreparationFailure
+        presentsNextPreparationFailure = false
+        spatialMixRebuildTask?.cancel()
+        spatialMixRebuildTask = nil
+        spatialMediaURLs = mediaURLs
         stopCaptionRangePlayback(preservingSettlingPosition: false)
         buildTask?.cancel()
         cancelFrameStepping()
@@ -439,6 +501,10 @@ final class ProjectPlayerViewModel: ObservableObject {
         removeTemporaryMedia()
         guard project.tracks.contains(where: { !$0.clips.isEmpty }) else {
             player.replaceCurrentItem(with: nil)
+            hasSpatialAudio = false
+            audioNotice = nil
+            spatialPlaybackProject = nil
+            spatialMixBlocked = false
             hasPreparedPlayerItem = false
             isPreparing = false
             isInitialPreparationPending = false
@@ -455,6 +521,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         currentPreviewFailure = nil
         presentedPreviewFailure = nil
         buildTask = Task { @MainActor in
+            defer { if self.preparationID == preparationID { self.buildTask = nil } }
             var pendingTemporaryMediaURLs: [URL] = []
             do {
                 let result = try await ProjectCompositionBuilder.build(
@@ -476,7 +543,9 @@ final class ProjectPlayerViewModel: ObservableObject {
                 item.videoComposition = result.playbackVideoComposition
                 item.appliesPerFrameHDRDisplayMetadata = false
                 item.audioMix = result.audioMix
+                audioNotice = result.audioNotice
                 hasSpatialAudio = result.spatialAudio != nil
+                spatialPlaybackProject = project
                 spatialMixBlocked = false
                 mixProcessors = result.mixProcessors
                 mixBindings = result.mixBindings
@@ -498,11 +567,15 @@ final class ProjectPlayerViewModel: ObservableObject {
                 pendingInsertionPlayhead = nil
                 updateDisplayedTime(boundedInitialTime)
                 preparationProgress = 1
-                isPreparing = false
+                isPreparing = spatialMixRebuildTask != nil
                 isInitialPreparationPending = false
                 if !spatialMixBlocked {
                     currentPreviewFailure = nil
                     presentedPreviewFailure = nil
+                }
+                if resumeAfterSpatialMix, !spatialMixBlocked {
+                    resumeAfterSpatialMix = false
+                    player.play()
                 }
             } catch is CancellationError {
                 Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
@@ -536,6 +609,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                     }
                     errorMessage = failure.message
                     currentPreviewFailure = failure
+                    if presentsFailure { presentedPreviewFailure = failure }
                     // Keep background failures available through Show Preview
                     // Error. Only that explicit action may present the alert.
                 }
@@ -572,6 +646,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         let previouslyHadPreparedPlayerItem = hasPreparedPlayerItem
         let previousMixProcessors = mixProcessors
         let previousMixBindings = mixBindings
+        let previousSpatialProject = spatialPlaybackProject
+        let previousSpatialURLs = spatialMediaURLs
         let previousSpatialAudio = hasSpatialAudio
         let previousSpatialMixBlocked = spatialMixBlocked
         var replacedPlayerItem = false
@@ -623,6 +699,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             let committedItem = Self.makeTransitionPreviewItem(from: result)
             player.replaceCurrentItem(with: committedItem)
             hasSpatialAudio = result.spatialAudio != nil
+            spatialPlaybackProject = project
+            spatialMediaURLs = mediaURLs
             spatialMixBlocked = false
             mixProcessors = result.mixProcessors
             mixBindings = result.mixBindings
@@ -656,6 +734,8 @@ final class ProjectPlayerViewModel: ObservableObject {
                 player.replaceCurrentItem(with: previousPlayerItem)
                 mixProcessors = previousMixProcessors
                 mixBindings = previousMixBindings
+                spatialPlaybackProject = previousSpatialProject
+                spatialMediaURLs = previousSpatialURLs
                 hasSpatialAudio = previousSpatialAudio
                 spatialMixBlocked = previousSpatialMixBlocked
                 hasPreparedPlayerItem = previouslyHadPreparedPlayerItem

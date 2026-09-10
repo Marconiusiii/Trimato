@@ -60,15 +60,10 @@ struct SpatialAudioIntegrationTests {
         let urls = [base.media[0].id: source]
         let index = try #require(base.tracks.firstIndex { $0.kind == .audio })
         var changes: [TrimatoProject] = []
-        var gain = base; gain.masterVolumeDB = -3; changes.append(gain)
-        var clipGain = base; clipGain.tracks[index].clips[0].audioSettings.gainDecibels = -3; changes.append(clipGain)
         var mix = base; mix.tracks[index].mix.pan = 0.5; changes.append(mix)
-        var muted = base; muted.tracks[index].isMuted = true; changes.append(muted)
-        var extra = base; var track = extra.tracks[index]; track.id = UUID(); extra.tracks.append(track); changes.append(extra)
-        var gap = base; gap.tracks[index].clips[0].timelineStart = ProjectTime(seconds: 0.1); changes.append(gap)
         for project in changes {
             await #expect(throws: SpatialAudioError.self) {
-                _ = try await ProjectCompositionBuilder.build(project: project, mediaURLs: urls)
+                _ = try await ProjectCompositionBuilder.build(project: project, mediaURLs: urls, purpose: .finalExport)
             }
         }
         let target = Self.directory.appendingPathComponent("must-not-replace.mp4")
@@ -122,16 +117,17 @@ struct SpatialAudioIntegrationTests {
         #expect(item.audioMix == nil)
         try await assertSpatial(item.asset, matches: AVURLAsset(url: source))
         var changed = project
-        changed.masterVolumeDB = -6
+        changed.tracks[changed.tracks.firstIndex { $0.kind == .audio }!].mix.pan = 0.5
         model.updateMix(project: changed)
-        #expect(!model.canControlPlayback)
-        #expect(model.errorMessage?.contains("Spatial Audio") == true)
-        model.showPreviewFailure()
-        #expect(model.presentedPreviewFailure?.message == model.errorMessage)
-        model.updateMix(project: project)
+        for _ in 0..<300 where model.isPreparing { try await Task.sleep(for: .milliseconds(100)) }
         #expect(model.canControlPlayback)
+        #expect(model.audioNotice?.contains("Stereo preview") == true)
         #expect(model.errorMessage == nil)
-        #expect(model.presentedPreviewFailure == nil)
+        model.updateMix(project: project)
+        for _ in 0..<300 where model.isPreparing { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(model.canControlPlayback)
+        #expect(model.audioNotice == nil)
+        #expect(model.errorMessage == nil)
         let editor = VideoPlayerViewModel()
         editor.player.isMuted = true
         defer { editor.closeMedia() }

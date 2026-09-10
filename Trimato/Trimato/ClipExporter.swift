@@ -100,6 +100,9 @@ struct ClipExporter {
             return
         }
         if format == .original {
+            if !preserveSpatialAudio, try await SpatialAudioPlan.detect(in: asset) {
+                throw SpatialAudioError.unsupported("Choose a converted format for High-quality Stereo.")
+            }
             guard let sourceContentType else { throw ClipExportError.unsupportedFileType }
             try await export(
                 asset: asset,

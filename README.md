@@ -28,7 +28,7 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Mix whole audio tracks with Volume, Mute, Solo, Pan, Stereo balance, Stereo width, and Channel routing. Adjust the combined output with Master Volume.
 - Preview and export the complete arranged project as H.264 or HEVC MP4, H.264 or HEVC QuickTime, ProRes 422 LT, ProRes 422, ProRes 422 HQ, M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, or 24-bit WAV.
 - Preserve HDR brightness and color in compatible HEVC and ProRes exports, or choose SDR conversion in Settings > Video.
-- Retain source audio sample rates during clip processing and choose lossless audio formats for the finished mix. Preserve iPhone Spatial Audio through supported single-source cuts, video edits, and QuickTime exports.
+- Retain source audio sample rates during clip processing and choose lossless audio formats for the finished mix. Combine compatible iPhone Spatial Audio recordings with cuts and transitions, and choose spatial or high-quality stereo export.
 - Open audio and video files from the File menu, Finder, drag and drop, or Command-O.
 - Play, pause, seek, and move forward or backward one frame at a time.
 - Display the playhead as timecode or a frame number.
@@ -256,7 +256,7 @@ HDR preservation does not make video encoding lossless. H.264, HEVC, and ProRes 
 
 ### Audio quality and export choices
 
-Clip audio processing uses 32-bit floating-point intermediates and retains the source sample rate. Project mixing uses the highest sample rate among its source audio, converting lower-rate sources to that common rate. It does not impose a blanket 44.1 or 48 kHz limit. Mixed project output is stereo; a standalone mono audio export can remain mono. Supported Spatial Audio projects preserve their original audio tracks instead of passing through this mixer. These capabilities apply to audio-only editing as well as video soundtracks.
+Clip audio processing uses 32-bit floating-point intermediates and retains the source sample rate. Project mixing uses the highest sample rate among its source audio, converting lower-rate sources to that common rate. It does not impose a blanket 44.1 or 48 kHz limit. Mixed project output is stereo; a standalone mono audio export can remain mono. Supported Spatial Audio projects use a separate path that retains the spatial channels and stereo playback alternative. These capabilities apply to audio-only editing as well as video soundtracks.
 
 | Export choice | Audio result |
 |---|---|
@@ -265,19 +265,28 @@ Clip audio processing uses 32-bit floating-point intermediates and retains the s
 | ProRes 422 LT, 422, or 422 HQ movie | Video with uncompressed 24-bit PCM audio. |
 | M4A AAC audio, H.264, or HEVC video | Compressed AAC audio; audio is re-encoded and is not lossless. |
 
-These format choices describe mono and stereo editing. Choose Apple Lossless, FLAC, or 24-bit WAV to avoid an additional lossy audio encoding stage, or ProRes for uncompressed audio inside a video file. Spatial-preserving QuickTime exports, including ProRes, retain the source audio encoding instead. A lossless format does not restore information absent from the source or undo audio effects. Unsupported multichannel audio is rejected rather than automatically downmixed.
+These format choices describe mono and stereo editing. Choose Apple Lossless, FLAC, or 24-bit WAV to avoid an additional lossy audio encoding stage, or ProRes for uncompressed audio inside a video file. Spatial QuickTime exports retain the source audio encoding for unchanged audio, or use uncompressed floating-point audio for supported volume and transition edits. A lossless format does not restore information absent from the source or undo audio effects. Unsupported multichannel audio is rejected rather than automatically downmixed.
 
 ### iPhone Spatial Audio and Cinematic recordings
 
-Trimato preserves the original spatial audio and stereo compatibility tracks in normal Clip Editor and project previews and supported QuickTime exports. The audio keeps its source encoding, sample rate, channel layout, playback alternatives, and spatial metadata. Video can be rendered separately without re-encoding that audio.
+Import multiple iPhone recordings, trim and arrange them on the timeline, and preview or export the finished edit. Compatible Spatial Audio recordings retain their spatial channels through cuts, volume changes, mute, fades, Cross Fade, and Fade Out/In. Standard four-channel iPhone recordings can be combined with five-channel Cinematic recordings without changing their shared spatial channels.
 
-For a spatial project, keep one source recording on one audio track, covering the project continuously. Trim it, remove sections, or split it into consecutive clips while keeping the retained source ranges in recording order. Video-only filters, captions, and picture edits can use this unchanged soundtrack. Export the full project or an In/Out range as HEVC movie or ProRes; turn Preserve HDR off for H.264 QuickTime. A standalone Clip Editor also offers Original format when passthrough is available.
+Choose Audio in Export Project or Export Clip:
 
-Spatial projects require neutral clip, track, and master audio settings. Spatial audio filters, fades, crossfades, gain changes, ducking, narration/music mixing, multiple audio sources, gaps, overlaps, and reordered or repeated source ranges are not supported. Trimato reports the unsupported operation and stops preview or export instead of silently substituting stereo. Restore the unchanged audio settings or use Undo to continue. MP4 and audio-only formats are not offered for spatial exports.
+| Audio | Result |
+|---|---|
+| Preserve Spatial Audio | A QuickTime movie with spatial sound and a stereo playback alternative. Ordered cuts from one unchanged recording retain the source encoding and metadata. Combined recordings and audio changes use uncompressed 32-bit floating-point audio and create larger files. |
+| High-quality Stereo | The finished edit rendered to stereo. Use 24-bit WAV, Apple Lossless, FLAC, or ProRes for uncompressed or lossless output. AAC-based formats use high-quality lossy compression, identified in Export. |
+
+Export remembers the last audio choice and shows compatible file formats. The selected Audio option is passed through both project and standalone clip export paths. Stereo processing uses each recording's stereo playback alternative, retains the source sample rate during clip processing, and uses the highest source rate for project mixing. It supports the normal mono/stereo effects engine.
+
+Spatial preservation supports compatible channel layouts and sample rates. Voice adjustments, other audio filters, pan, balance, width, routing, ducking, mixed spatial/non-spatial audio, and source-audio cutaways currently require stereo. For these edits, Trimato provides a labeled stereo preview and explains why Preserve Spatial Audio is unavailable in Export. It does not silently change the exported audio choice.
+
+Processed spatial exports retain the source sample rate and spatial channel layout but do not retain the recording's original Apple Audio Mix analysis information. Reimporting Trimato's processed spatial movies supports further editing. Preview prepares the updated soundtrack before playback resumes; longer recordings take more time and temporary disk space.
 
 Cinematic picture can be edited, but converted exports do not retain editable focus and depth information. Cinematic mode does not imply a particular resolution or frame rate; inspect the actual clip properties with Get Info.
 
-The app integration is verified against the three supplied iPhone 16 Pro AAC/APAC recordings, including the Cinematic recording's five-channel spatial audio. The native decoder compares every audio sample in full, trimmed, HDR-rendered, and cut exports with the source. Ambisonic PCM is also detected so ProRes spatial sources cannot silently enter the stereo mixer; an original iPhone ProRes spatial recording has not yet been tested. Head-tracked playback and physical VoiceOver behavior remain separate device checks. See the [spatial integration and validation details](BackgroundChecks/SpatialAudioPreservation.md).
+The app integration is verified against the three supplied iPhone 16 Pro AAC/APAC recordings, including the Cinematic recording's five-channel spatial audio. Automated checks compare every audio sample in full, trimmed, HDR-rendered, and cut exports with the source, and compare volume, fades, and transitions against the expected samples in every channel. Ambisonic PCM is also detected so ProRes spatial sources cannot silently enter the stereo mixer; an original iPhone ProRes spatial recording has not yet been tested. Head-tracked playback and physical VoiceOver behavior remain separate device checks. See the [spatial integration and validation details](BackgroundChecks/SpatialAudioPreservation.md).
 
 ## Mixed media and project format
 

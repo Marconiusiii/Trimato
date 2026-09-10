@@ -1,6 +1,6 @@
 # Spatial Audio integration and validation
 
-Spatial preservation is integrated into Trimato's normal Clip Editor and project preview/export paths through `SpatialAudioPlan`. Supported edits keep one continuous source soundtrack, with cuts in recording order and neutral audio settings. Video filters and rendering are independent of the preserved audio. Unsupported mixing, effects, fades, gaps, overlaps, repeated/reordered ranges, and MP4/audio-only exports fail explicitly.
+Spatial preservation is integrated into Trimato's normal Clip Editor and project preview/export paths through `SpatialAudioPlan`. Ordered cuts with unchanged audio preserve the original encoding and metadata. A separate processing path now supports volume, mute, fades, crossfades, reordered/repeated sections, and gaps across compatible source recordings and audio tracks. Video rendering remains independent. Export offers Preserve Spatial Audio and High-quality Stereo. Edits that cannot preserve spatial channels use a labeled stereo preview and an explicit stereo export choice.
 
 ## App integration checks
 
@@ -14,9 +14,31 @@ xcodebuild -project Trimato/Trimato.xcodeproj -scheme Trimato -configuration Deb
 
 The twelve main app exports are written to `/tmp/trimato-spatial-app-integration`. Verified copies, converted clip examples, ordered-cut examples, and reports from the integration run are saved in `appStore/test_videos/spatial-app-integration-results`. The standalone decoder below can independently compare them with the originals. The September 10 integration run passed all twenty-four comparisons: full-length audio was identical, AAC trims were identical, and APAC trims differed by at most `2.98e-8`. The app tests also compare the samples across removed middle sections and video-filter processing.
 
-The preservation path keeps the original movie edit lists and removes unwanted intervals before replacing picture. Tests caught changed decoder timing when rebuilding compressed tracks individually; that approach was removed. Reordered and repeated source ranges remain unsupported because native insertion did not preserve the same decoder results.
+The preservation path keeps the original movie edit lists and removes unwanted intervals before replacing picture. Tests caught changed decoder timing when rebuilding compressed tracks individually; that approach was removed. Reordered and repeated source ranges use the decoded processing path because compressed native insertion did not preserve the same decoder results.
 
 Detection includes APAC, ambisonic PCM layouts, and spatial fallback associations. No original iPhone ProRes spatial sample has been supplied, so that capture variant is not yet device-verified. Physical VoiceOver, head tracking, and subjective video appearance are also unverified.
+
+## Spatial processing checks
+
+`SpatialAudioProcessingTests` checks project export through `ProjectExporter` and preview through `ProjectCompositionBuilder`. It compares all channels of the stereo alternative and spatial soundtrack with independently calculated volume and transition envelopes. Volume plus an introductory fade is tested against all three supplied recordings; both between-clip transitions and repeated processing use the five-channel Cinematic recording. The live Master Volume test checks the rebuilt player asset.
+
+The renderer decodes the source once per preparation into temporary Float32 files, processes bounded blocks, and writes uncompressed audio with the original channel layout and sample rate. Preview and export share the edit plan. Repeated Volume changes are debounced but currently rebuild the soundtrack; a reusable decoded-source cache is not implemented. Long recordings can therefore take time and temporary disk space.
+
+Matching Float32 PCM is read directly. Requesting an unnecessary Core Audio conversion changed the five-channel hybrid layout by adding part of the first channel to the others; raw stored samples were correct. Regression checks cover reprocessing a generated movie. Zero-sample decoder drain markers are skipped. Other multichannel PCM working formats are rejected for processing until conversion is verified.
+
+Processed movies retain alternate audio grouping and the stereo fallback association. They do not copy original recording-analysis metadata. Apple's spatial metadata sample generator is unavailable on macOS, so these exports must not be described as retaining Apple's editable Audio Mix analysis. Native player readiness and sample comparisons do not establish head-tracked rendering on a physical playback device.
+
+The resumed September 10 run passed 12 tests in 3 suites: spatial preservation, spatial processing, and Help. Processed samples and a short report are saved in `appStore/test_videos/spatial-processing-results`. All processing sample comparisons met the `1e-6` tolerance.
+
+## Multiple recordings and export audio choice
+
+The renderer assigns a source URL to each edit region, decodes each recording separately, and processes all regions at their timeline positions. It accepts matching spatial layouts and the standard iPhone four-channel SN3D layout combined with the Cinematic SN3D-plus-center five-channel layout. For four-channel regions, the fifth channel is silent; the original four coefficients are copied without a conversion or normalization change. Other layouts or rates require stereo and are checked before offering spatial export.
+
+`MultiSourceSpatialTests` reads the optional `~/Movies/proClips/proClips.trimato/project.json` fixture, adds the third imported recording to an in-memory edit, round-trips project serialization, prepares spatial preview, exports spatial video and 24-bit stereo audio, compares source samples, and checks that the original project JSON is unchanged. Another test blends four- and five-channel recordings and checks every channel. Standalone native and FFmpeg-routed clip exports are also checked for explicit stereo delivery.
+
+For compatible spatial edits, stereo project export takes the stereo alternative from the same sample-aligned rendered soundtrack used for spatial output. For other effects, stereo project rendering copies each recording's existing stereo alternative into a temporary source without another audio encoding step, and the ordinary mixer and effects engine process these sources; the final selected format determines uncompressed, lossless, or high-quality AAC encoding. The export panel remembers the audio choice, identifies its encoding, and limits formats to compatible choices. Processed spatial exports remain uncompressed Float32 with a stereo alternative.
+
+The final multiple-recording run passed 79 tests in seven suites. Generated spatial and 24-bit stereo examples are saved in `appStore/test_videos/multi-recording-results`. Shared rendering fixes per-cut stereo timing rounding; PCM movie timescales and rounded sample-count export ranges retain the complete audio duration.
 
 ## Earlier standalone prototype
 

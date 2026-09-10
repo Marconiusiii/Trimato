@@ -34,6 +34,7 @@ enum ProjectExporter {
         timeRange: ProjectTimeRange? = nil,
         format: ExportFormat = .h264MP4,
         to outputURL: URL,
+        audioMode: ExportAudioMode = .preserveSpatial,
         progress: @escaping @MainActor @Sendable (Double) -> Void,
         preserveHDR: Bool = AppPreferences.preserveHDR()
     ) async throws {
@@ -41,7 +42,8 @@ enum ProjectExporter {
             project: project,
             mediaURLs: mediaURLs,
             purpose: .finalExport,
-            preserveHDR: preserveHDR
+            preserveHDR: preserveHDR,
+            audioMode: audioMode
         )
         defer {
             for url in result.temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }

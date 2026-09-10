@@ -7,6 +7,23 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
+    @Test func appendingMarkedVideoPreservesEditorContextAndDoesNotRequestFocusMovement() throws {
+        let asset = fixtureAsset(name: "Marked video", duration: 4)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let segments = [SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: 1), duration: ProjectTime(seconds: 2)))]
+        let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(asset.id), segments: segments)
+        let clipID = try #require(context.place(.append, onTrack: nil))
+        #expect(controller.project.timelineClip(id: clipID)?.segments == segments)
+        #expect(context.editSelection == .asset(asset.id))
+        #expect(context.segments == segments)
+        #expect(controller.editorFocusRestoreRequest == 0)
+        #expect(controller.timelineFocusRestoreRequest == 0)
+        #expect(controller.timelineListFocusRestoreRequest == 0)
+        #expect(PlacementAction.append.confirmation == "Clip appended")
+    }
+
     @Test func editorCommandScopeUsesVoiceOverControlFocusInsteadOfStaleKeyboardFocus() {
         #expect(EditorAccessibilityFocusScope.resolveInputFocus(
             voiceOverEnabled: true,
@@ -1162,6 +1179,25 @@ struct ProjectPlaybackTests {
         await waitForPreviewPreparation(viewModel)
         #expect(viewModel.errorMessage != nil)
         #expect(viewModel.presentedPreviewFailure == nil)
+    }
+
+    @Test func explicitRetryPresentsItsFailureAndCloseKeepsTheErrorAvailable() async throws {
+        let asset = fixtureAsset(name: "Missing recording", duration: 1)
+        var project = TrimatoProject(name: "Retry failure")
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        let model = ProjectPlayerViewModel()
+        model.retryPreview(project: project, mediaURLs: [:], initialTime: .zero)
+        for _ in 0..<100 where model.errorMessage == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(model.presentedPreviewFailure?.message == model.errorMessage)
+        #expect(model.presentedPreviewFailure != nil)
+        model.dismissPreviewFailure()
+        #expect(model.errorMessage != nil)
+        #expect(model.presentedPreviewFailure == nil)
+        model.showPreviewFailure()
+        #expect(model.presentedPreviewFailure != nil)
     }
 
     @Test @MainActor func emptyProjectSupersedesEarlierPreviewPreparation() async throws {

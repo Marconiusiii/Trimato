@@ -5,6 +5,21 @@ import Foundation
 nonisolated struct SpatialAudioPlan: Sendable {
     let source: AVURLAsset
     let ranges: [CMTimeRange]
+    var processing: SpatialAudioRenderPlan? = nil
+    var temporaryURL: URL? = nil
+
+    func materialized() async throws -> Self {
+        guard let processing else { return self }
+        let url = try await processing.render()
+        do {
+            let asset = AVURLAsset(url: url)
+            guard let track = try await asset.loadTracks(withMediaType: .audio).first,
+                  let description = try await track.load(.formatDescriptions).first,
+                  let format = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else { throw SpatialAudioError.invalidMovie }
+            let duration = CMTime(value: Int64((processing.duration * format.mSampleRate).rounded()), timescale: Int32(format.mSampleRate))
+            return Self(source: asset, ranges: [CMTimeRange(start: .zero, duration: duration)], temporaryURL: url)
+        } catch { try? FileManager.default.removeItem(at: url); throw error }
+    }
 
     var duration: CMTime { ranges.reduce(.zero) { CMTimeAdd($0, $1.duration) } }
 
@@ -39,6 +54,23 @@ nonisolated struct SpatialAudioPlan: Sendable {
         return false
     }
 
+    /// Copy the recording's existing stereo rendering and picture without another
+    /// encoding step, so the ordinary effects engine never receives APAC channels.
+    static func stereoSource(_ url: URL) async throws -> URL {
+        let asset = AVURLAsset(url: url)
+        guard let selected = try await AudioProcessingFormat.selectedTrack(in: asset) else { throw SpatialAudioError.invalidMovie }
+        let movie = AVMutableMovie(url: url, options: nil)
+        for track in movie.tracks where track.mediaType != .video && track.trackID != selected.trackID { movie.removeTrack(track) }
+        for track in movie.tracks(withMediaType: .audio) { track.alternateGroupID = 0; track.isEnabled = true }
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-stereo-source-" + UUID().uuidString + ".mov")
+        do {
+            guard let export = AVAssetExportSession(asset: movie, presetName: AVAssetExportPresetPassthrough) else { throw SpatialAudioError.invalidMovie }
+            try await export.export(to: output, as: .mov)
+            try Task.checkCancellation()
+            return output
+        } catch { try? FileManager.default.removeItem(at: output); throw error }
+    }
+
     static func clip(asset: AVAsset, ranges: [CMTimeRange]) async throws -> Self? {
         guard try await detect(in: asset) else { return nil }
         guard let source = asset as? AVURLAsset else { throw SpatialAudioError.unsupported("This spatial source is not an original media file.") }
@@ -66,27 +98,33 @@ nonisolated struct SpatialAudioPlan: Sendable {
         }
         guard !spatialIDs.isEmpty else { return nil }
         try validateControls(project)
-        guard tracks.count == 1, let track = tracks.first,
-              Set(track.clips.map(\.assetID)).count == 1,
-              let id = track.clips.first?.assetID, spatialIDs.contains(id), let url = urls[id] else {
-            throw SpatialAudioError.unsupported("Combining Spatial Audio with another source, narration, or music is not supported yet.")
+        guard let track = tracks.first, let id = track.clips.first?.assetID, let url = urls[id],
+              sourceIDs == spatialIDs else {
+            throw SpatialAudioError.unsupported("This edit combines spatial audio with a different audio format. Choose High-quality Stereo for this edit.")
         }
+        let regions = try tracks.flatMap { try SpatialAudioRenderPlan.project(project, source: url, track: $0, urls: urls).regions }
+        let render = SpatialAudioRenderPlan(source: url, duration: project.duration.seconds, regions: regions)
         var cursor = ProjectTime.zero
         var ranges: [CMTimeRange] = []
+        var consecutive = true
         for clip in track.sortedClips where clip.visibleDuration.isPositive {
-            guard clip.visibleTimelineStart == cursor else {
-                throw SpatialAudioError.unsupported("Spatial audio clips must be consecutive, without gaps or overlaps.")
-            }
+            if clip.visibleTimelineStart != cursor { consecutive = false }
             ranges += clip.visibleSegments.map { $0.sourceRange.cmTimeRange }
             cursor = cursor + clip.visibleDuration
         }
-        guard cursor == project.duration else {
-            throw SpatialAudioError.unsupported("The spatial audio must cover the complete project duration.")
+        if tracks.count == 1, sourceIDs.count == 1, consecutive, cursor == project.duration, (try? validatePassthroughControls(project)) != nil,
+           let preserved = try? await clip(asset: AVURLAsset(url: url), ranges: ranges) {
+            return preserved
         }
-        return try await clip(asset: AVURLAsset(url: url), ranges: ranges)
+        try await SpatialAudioRenderPlan.validateSources(Set(sourceIDs.compactMap { urls[$0] }))
+        return Self(source: AVURLAsset(url: url), ranges: [CMTimeRange(start: .zero, duration: project.duration.cmTime)], processing: render)
     }
 
     static func validateControls(_ project: TrimatoProject) throws {
+        try SpatialAudioRenderPlan.validate(project)
+    }
+
+    private static func validatePassthroughControls(_ project: TrimatoProject) throws {
         let audio = project.tracks.filter { $0.kind == .audio && !$0.clips.isEmpty }
         guard project.masterVolumeDB == 0,
               audio.allSatisfy({ !$0.isMuted && $0.mix == .neutral && $0.clips.allSatisfy {
@@ -148,7 +186,7 @@ nonisolated struct SpatialAudioPlan: Sendable {
         guard before.count == 2, after.count == before.count,
               try await asset.load(.trackGroups).contains(where: {
                   Set($0.trackIDs.map(\.int32Value)) == Set(after.map(\.trackID))
-              }) else { throw SpatialAudioError.invalidMovie }
+              }) else { throw SpatialAudioError.processingFailure(#line) }
         for (original, preserved) in zip(before, after) {
             guard let a = try await original.load(.formatDescriptions).first,
                   let b = try await preserved.load(.formatDescriptions).first,
@@ -159,13 +197,21 @@ nonisolated struct SpatialAudioPlan: Sendable {
                   originalFormat.mChannelsPerFrame == preservedFormat.mChannelsPerFrame,
                   try await original.load(.isEnabled) == preserved.load(.isEnabled),
                   try await original.loadAssociatedTracks(ofType: .audioFallback).count == preserved.loadAssociatedTracks(ofType: .audioFallback).count
-            else { throw SpatialAudioError.invalidMovie }
-            var aSize = 0, bSize = 0
-            guard let aLayout = CMAudioFormatDescriptionGetChannelLayout(a, sizeOut: &aSize),
-                  let bLayout = CMAudioFormatDescriptionGetChannelLayout(b, sizeOut: &bSize),
-                  aSize == bSize, Data(bytes: aLayout, count: aSize) == Data(bytes: bLayout, count: bSize)
-            else { throw SpatialAudioError.invalidMovie }
+            else { throw SpatialAudioError.processingFailure(#line) }
+            guard try Self.channelLayout(a) == Self.channelLayout(b) else { throw SpatialAudioError.processingFailure(#line) }
         }
+    }
+
+    static func channelLayout(_ description: CMAudioFormatDescription) throws -> Data {
+        var size = 0
+        if let layout = CMAudioFormatDescriptionGetChannelLayout(description, sizeOut: &size) {
+            return Data(bytes: layout, count: size)
+        }
+        let channels = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee.mChannelsPerFrame
+        guard channels == 1 || channels == 2 else { throw SpatialAudioError.invalidMovie }
+        var layout = AudioChannelLayout()
+        layout.mChannelLayoutTag = channels == 1 ? kAudioChannelLayoutTag_Mono : kAudioChannelLayoutTag_Stereo
+        return withUnsafeBytes(of: &layout) { Data($0.prefix(12)) }
     }
 
     static func remap(_ composition: AVMutableVideoComposition?, tracks: [CMPersistentTrackID: AVAssetTrack]) throws -> AVMutableVideoComposition? {
@@ -233,10 +279,11 @@ nonisolated struct SpatialAudioPlan: Sendable {
 nonisolated enum SpatialAudioError: LocalizedError {
     case unsupported(String)
     case invalidMovie
+    case processingFailure(Int)
     var errorDescription: String? {
         switch self {
         case .unsupported(let reason): "\(reason) Spatial Audio has not been converted to stereo."
-        case .invalidMovie: "Trimato could not preserve this recording's spatial audio tracks and metadata. No stereo substitute was exported."
+        case .invalidMovie, .processingFailure: "Trimato could not preserve this recording's spatial audio tracks and metadata. No stereo substitute was exported."
         }
     }
 }

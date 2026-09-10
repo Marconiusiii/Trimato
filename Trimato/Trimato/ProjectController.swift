@@ -548,9 +548,17 @@ final class ProjectController: ObservableObject {
             guard let self else { return }
             defer { self.isPresentingExportPanel = false }
             let policy: VideoColorPolicy
-            let spatial: SpatialAudioPlan?
+            var hasSpatial = false
+            var spatialReason: String?
             do {
-                spatial = try await SpatialAudioPlan.project(self.project, urls: urls)
+                for id in Set(self.project.tracks.filter { $0.kind == .audio }.flatMap(\.clips).map(\.assetID))
+                    .union(self.project.cutaways.filter { $0.audioMode == .sourceAudio }.map(\.assetID)) {
+                    if let url = urls[id], try await SpatialAudioPlan.detect(in: AVURLAsset(url: url)) { hasSpatial = true }
+                }
+                if hasSpatial {
+                    do { _ = try await SpatialAudioPlan.project(self.project, urls: urls) }
+                    catch { spatialReason = error.localizedDescription }
+                }
                 policy = try await VideoColorPolicy.resolve(project: self.project, urls: urls,
                                                            preserveHDR: AppPreferences.preserveHDR())
             } catch {
@@ -558,17 +566,17 @@ final class ProjectController: ObservableObject {
                 return
             }
             let formats = ExportFormat.projectFormats.filter { format in
-                (spatial == nil || format.supportsSpatialAudio) && ((format.isAudioOnly && self.project.hasTimelineAudio) ||
+                ((format.isAudioOnly && self.project.hasTimelineAudio) ||
                     (!format.isAudioOnly && self.project.hasTimelineVideo && (policy == .sdr || format.supportsHDR)))
             }
             let summary = self.project.hasTimelineVideo
-                ? "\(policy == .hlg ? "HDR video" : "SDR video"). \(spatial == nil ? "Stereo audio." : "Spatial Audio and its stereo compatibility track are preserved.") Editable Cinematic focus information is not included."
+                ? "\(policy == .hlg ? "HDR video" : "SDR video"). Converted exports do not include editable Cinematic focus information."
                 : nil
             let savePanel = ExportSavePanel(
                 title: "Export Project", baseName: self.project.name, formats: formats,
                 hasCaptions: self.project.captionTrack?.captionCues.isEmpty == false,
                 hasDescriptions: self.project.descriptionTranscriptTrack?.captionCues.isEmpty == false,
-                outputSummary: summary)
+                outputSummary: summary, offersAudioChoice: hasSpatial, spatialUnavailableReason: spatialReason)
             let selection = await savePanel.selection(parentWindow: parentWindow)
             guard let selection else { return }
             self.startProjectExport(
@@ -577,7 +585,7 @@ final class ProjectController: ObservableObject {
                 exportRange: exportRange,
                 mediaURLs: urls,
                 captionDelivery: selection.captionDelivery,
-                exportDescriptions: selection.exportDescriptions
+                exportDescriptions: selection.exportDescriptions, audioMode: selection.audioMode
             )
         }
     }
@@ -588,7 +596,8 @@ final class ProjectController: ObservableObject {
         exportRange: ProjectTimeRange?,
         mediaURLs: [UUID: URL],
         captionDelivery: CaptionDelivery,
-        exportDescriptions: Bool
+        exportDescriptions: Bool,
+        audioMode: ExportAudioMode
     ) {
         if captionDelivery != .none,
            project.captionTrack?.captionCues.contains(where: \.isDraft) == true {
@@ -620,7 +629,7 @@ final class ProjectController: ObservableObject {
                     mediaURLs: mediaURLs,
                     timeRange: exportRange,
                     format: format,
-                    to: outputURL
+                    to: outputURL, audioMode: audioMode
                 ) { [weak self] progress in
                     self?.exportProgress = progress
                 }
@@ -2425,7 +2434,7 @@ final class ProjectController: ObservableObject {
         guard let message, !message.isEmpty else { return }
         guard let application = NSApp else { return }
         NSAccessibility.post(
-            element: application,
+            element: (application.keyWindow as Any?) ?? application,
             notification: .announcementRequested,
             userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue]
         )

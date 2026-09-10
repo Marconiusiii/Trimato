@@ -15,6 +15,9 @@ struct EditorWorkspaceView: View {
     @State private var transitionOutcome = OperationProgressOutcome.completed
     @State private var hasRequestedInitialImportFocus = false
     @State private var initialImportFocusRequest = 0
+    @State private var pendingPreviewRecovery: PreviewRecovery?
+
+    private enum PreviewRecovery { case retry, removeTransition(UUID) }
     @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
@@ -144,6 +147,18 @@ struct EditorWorkspaceView: View {
             .sheet(item: Binding(get: { controller.mediaFiles.prompt }, set: { _ in controller.mediaFiles.dismissPrompt() }), onDismiss: controller.mediaFiles.promptDismissed) { kind in
                 ProjectMediaFilesPrompt(model: controller.mediaFiles, kind: kind)
             }
+            .sheet(item: Binding(
+                get: { projectPlayer.presentedPreviewFailure },
+                set: { if $0 == nil { projectPlayer.dismissPreviewFailure() } }
+            ), onDismiss: finishPreviewRecovery) { failure in
+                ProjectPreviewFailureSheet(failure: failure, retry: {
+                    pendingPreviewRecovery = .retry
+                    projectPlayer.dismissPreviewFailure()
+                }, removeTransition: { id in
+                    pendingPreviewRecovery = .removeTransition(id)
+                    projectPlayer.dismissPreviewFailure()
+                }, dismiss: { projectPlayer.dismissPreviewFailure() })
+            }
             .applicationMessage(controller.presentedError.map {
                 ApplicationMessageDescriptor(title: $0.title, message: $0.message)
             }) {
@@ -208,8 +223,23 @@ struct EditorWorkspaceView: View {
     }
 
     private func initialPreparationDismissed() {
-        guard projectPlayer.errorMessage == nil else { return }
+        guard projectPlayer.errorMessage == nil else {
+            projectPlayer.showPreviewFailure()
+            return
+        }
         requestInitialImportFocus()
+    }
+
+    private func finishPreviewRecovery() {
+        let recovery = pendingPreviewRecovery
+        pendingPreviewRecovery = nil
+        switch recovery {
+        case .retry:
+            projectPlayer.retryPreview(project: controller.project,
+                mediaURLs: controller.resolvedMediaURLs(), initialTime: controller.timelinePlayhead)
+        case .removeTransition(let id): controller.deleteTransition(id: id)
+        case nil: break
+        }
     }
 
     private func requestInitialImportFocus() {
@@ -582,7 +612,7 @@ struct ProjectViewerView: View {
                         CGSize(width: width, height: height)
                     }
                 },
-                accessibleFrame: controller.project.hasTimelineVideo && viewModel.canControlPlayback && viewModel.errorMessage == nil,
+                accessibleFrame: controller.project.hasTimelineVideo,
                 frameDescription: "Project time \(String(format: "%.3f", viewModel.currentTime.seconds)) seconds, frame \(Int((viewModel.currentTime.seconds * (controller.project.format.frameRate ?? 30)).rounded()))"
             )
             .accessibilityFocused($focusedAccessibilityTarget, equals: .videoFrame)
@@ -596,9 +626,6 @@ struct ProjectViewerView: View {
             } else if viewModel.preparationWasCancelled {
                 Button("Retry Project Preview", action: prepare)
                     .padding(12)
-                    .background(EditorTheme.controlSurface, in: RoundedRectangle(cornerRadius: 6))
-            } else if let failure = viewModel.presentedPreviewFailure {
-                previewFailureView(failure)
                     .background(EditorTheme.controlSurface, in: RoundedRectangle(cornerRadius: 6))
             } else if viewModel.errorMessage != nil {
                 VStack(spacing: 12) {
@@ -619,37 +646,11 @@ struct ProjectViewerView: View {
         }
     }
 
-    private func previewFailureView(_ failure: ProjectPreviewFailure) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(failure.title)
-                .font(.headline)
-            Text(failure.message)
-                .textSelection(.enabled)
-            HStack {
-                if let transitionID = failure.transitionID {
-                    Button("Remove Transition", role: .destructive) {
-                        viewModel.dismissPreviewFailure()
-                        controller.deleteTransition(id: transitionID)
-                        controller.requestEditorFocusRestore()
-                    }
-                } else {
-                    Button("Retry") {
-                        viewModel.dismissPreviewFailure()
-                        prepare()
-                    }
-                }
-                Button("Dismiss") {
-                    viewModel.dismissPreviewFailure()
-                    controller.requestEditorFocusRestore()
-                }
-            }
-        }
-        .padding()
-        .frame(maxWidth: 480)
-    }
-
     private var controlsArea: some View {
         VStack(spacing: 10) {
+            if let notice = viewModel.audioNotice {
+                Text(notice).fixedSize(horizontal: false, vertical: true)
+            }
             Slider(
                 value: Binding(
                     get: { viewModel.playbackFraction },
@@ -847,5 +848,35 @@ struct ProjectViewerView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Playback")
         .accessibilityIdentifier("trimato.editor.playback")
+    }
+}
+
+/// A native sheet keeps error details and recovery actions in their own navigable context.
+struct ProjectPreviewFailureSheet: View {
+    let failure: ProjectPreviewFailure
+    let retry: () -> Void
+    let removeTransition: (UUID) -> Void
+    let dismiss: () -> Void
+    @AccessibilityFocusState private var messageFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(failure.title).font(.headline)
+            Text(failure.message)
+                .textSelection(.enabled)
+                .accessibilityFocused($messageFocused)
+            HStack {
+                Button("Retry Preview", action: retry)
+                if let id = failure.transitionID {
+                    Button("Remove Transition", role: .destructive) { removeTransition(id) }
+                }
+                Spacer()
+                Button("Close", action: dismiss).keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+        .fixedSize(horizontal: false, vertical: true)
+        .onAppear { messageFocused = true }
     }
 }

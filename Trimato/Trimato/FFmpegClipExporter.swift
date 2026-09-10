@@ -137,6 +137,7 @@ struct FFmpegClipExporter {
         hasAudio: Bool,
         format: ExportFormat = .h264MP4,
         to outputURL: URL,
+        audioMode: ExportAudioMode = .preserveSpatial,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
         if format.isAudioOnly && !hasAudio {
@@ -144,7 +145,7 @@ struct FFmpegClipExporter {
         }
         if try await SpatialAudioPlan.detect(in: AVURLAsset(url: sourceURL)) {
             try await ClipExporter.export(asset: AVURLAsset(url: sourceURL), sourceRanges: sourceRanges,
-                sourceContentType: nil, format: format, to: outputURL, progress: progress)
+                sourceContentType: nil, format: format, to: outputURL, preserveSpatialAudio: audioMode == .preserveSpatial, progress: progress)
             return
         }
         if !format.isAudioOnly {

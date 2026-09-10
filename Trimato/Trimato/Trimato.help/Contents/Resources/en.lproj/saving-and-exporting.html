@@ -48,7 +48,7 @@
     <p>Preserving HDR does not make video encoding lossless. The project format, filters, and export codec still affect the finished picture.</p>
 
     <h2 id="audio-quality">Choose audio quality</h2>
-    <p>For mono or stereo audio-only work or a mixed video soundtrack, choose the output format to suit the next editing or delivery step. Spatial-preserving QuickTime exports retain the source audio encoding, including when exporting ProRes video.</p>
+    <p>For mono or stereo audio-only work or a mixed video soundtrack, choose the output format to suit the next editing or delivery step. Spatial QuickTime exports keep the source audio encoding for unchanged audio or use uncompressed audio for supported volume and transition edits.</p>
     <table>
         <caption>Audio export choices</caption>
         <thead><tr><th scope="col">Format</th><th scope="col">When to choose it</th></tr></thead>
@@ -60,19 +60,20 @@
             <tr><th scope="row">M4A AAC audio, H.264, or HEVC video</th><td>Use compressed AAC audio for delivery. This re-encodes audio and is not lossless.</td></tr>
         </tbody>
     </table>
-    <p>Clip processing retains the source audio sample rate. A project mixes at the highest sample rate among its source audio, converting lower-rate sources to that common rate. Mixed project exports are stereo; standalone mono audio can remain mono. Spatial-preserving exports keep the original audio tracks instead. Unsupported multichannel sources without a usable mono or stereo track cannot be mixed.</p>
+    <p>Clip processing retains the source audio sample rate. A project mixes at the highest sample rate among its source audio, converting lower-rate sources to that common rate. Mixed project exports are stereo; standalone mono audio can remain mono. Spatial exports retain the spatial channels and a stereo playback alternative. Unsupported multichannel sources without a usable mono or stereo track cannot be mixed.</p>
     <p>A lossless format avoids an additional lossy encoding stage. It does not recover information missing from the original recording or undo changes made with filters, volume, or other mix controls.</p>
 
     <h2 id="spatial-audio">Preserve iPhone Spatial Audio</h2>
-    <p>Trimato preserves the recording's spatial audio and stereo playback alternative in supported Clip Editor and project previews and QuickTime exports. The audio keeps its source encoding, sample rate, channel layout, and spatial metadata.</p>
+    <p>Import your iPhone recordings, trim and arrange them on the timeline, and add volume changes, fades, Cross Fade, or Fade Out/In. Compatible recordings keep their spatial sound through the finished edit.</p>
     <ol>
-        <li>Use one source recording on one audio track, covering the whole project without gaps or overlaps.</li>
-        <li>Trim, remove sections, or split the recording while keeping the retained sections in their original recording order. Leave clip audio, track mix, and Master Volume unchanged.</li>
-        <li>Add video-only filters, captions, or picture edits as needed.</li>
-        <li>Choose Export Project or Export Clip. Select HEVC movie or ProRes. For H.264 QuickTime, turn Preserve HDR off in Settings &gt; Video. Original format is also available for supported standalone clip exports.</li>
+        <li>Choose Export Project, or Export Clip for a standalone edit.</li>
+        <li>Choose Audio: Preserve Spatial Audio or High-quality Stereo.</li>
+        <li>Choose a compatible Format. Preserve Spatial Audio uses QuickTime movies. For stereo, 24-bit WAV, Apple Lossless, FLAC, and ProRes offer uncompressed or lossless audio; AAC formats use lossy compression.</li>
+        <li>Export the complete edit, or set In and Out beforehand to export a selected range.</li>
     </ol>
-    <p>Set In and Out to export a selected range, or clear both markers to export the complete edit. Spatial exports keep the original audio even when the video is converted.</p>
-    <p>Spatial audio filters, volume changes, fades, crossfades, ducking, narration/music mixing, multiple audio sources, and reordered or repeated source ranges are not supported. An unsupported audio change stops preview or export with an explanation; Trimato does not silently convert it to stereo. Use Undo or restore the unchanged audio settings to continue. MP4 and audio-only formats are unavailable for spatial exports.</p>
+    <p>Trimato remembers your audio choice. Combining spatial recordings or changing their audio creates larger files with uncompressed audio and a stereo playback alternative. Ordered cuts from one recording with unchanged audio keep the original encoding. Processed spatial exports do not include the original Apple Audio Mix analysis information.</p>
+    <p>Spatial preservation supports compatible recording layouts and sample rates, including standard iPhone and Cinematic recordings together. Other audio effects, voice adjustments, pan, balance, width, channel routing, ducking, and mixing spatial recordings with ordinary audio currently use a labeled stereo preview. Export explains when High-quality Stereo is required.</p>
+    <p>Wait for preview preparation after changing the edit. In Settings &gt; Video, keep Preserve HDR on for compatible HDR output; turn it off for SDR, including H.264 QuickTime.</p>
     <p>Cinematic video can be edited as picture, but converted exports do not retain editable focus and depth information. Select the clip and press Command-I to check its actual dimensions and frame rate; Cinematic mode can use different recording settings.</p>
 
     <h2>Understand which media export uses</h2>

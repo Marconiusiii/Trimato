@@ -822,14 +822,14 @@ final class VideoPlayerViewModel: ObservableObject {
            ClipExporter.canPassthrough(asset: mediaSource.originalAsset, sourceContentType: sourceContentType) {
             formats.insert(.original, at: 0)
         }
-        if hasSpatialAudio { formats.removeAll { !$0.supportsSpatialAudio } }
         let baseName = mediaSource.originalURL.deletingPathExtension().lastPathComponent + "-trimmed"
         guard let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         let savePanel = ExportSavePanel(
             title: "Export Clip",
             baseName: baseName,
             formats: formats,
-            outputSummary: hasSpatialAudio ? "Spatial Audio and its stereo compatibility track are preserved. Editable Cinematic focus information is not included." : nil,
+            outputSummary: "Converted exports do not include editable Cinematic focus information.",
+            offersAudioChoice: hasSpatialAudio,
             originalExtension: mediaSource.originalURL.pathExtension,
             originalContentType: mediaSource.contentType
         )
@@ -843,7 +843,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 mediaSource: mediaSource,
                 sourceRanges: sourceRanges,
                 format: selection.format,
-                outputURL: selection.url
+                outputURL: selection.url, audioMode: selection.audioMode
             )
         }
     }
@@ -852,7 +852,8 @@ final class VideoPlayerViewModel: ObservableObject {
         mediaSource: MediaSource,
         sourceRanges: [CMTimeRange],
         format: ExportFormat,
-        outputURL: URL
+        outputURL: URL,
+        audioMode: ExportAudioMode
     ) {
         isExporting = true
         exportStatus = "Exporting clip"
@@ -869,7 +870,7 @@ final class VideoPlayerViewModel: ObservableObject {
                         sourceRanges: sourceRanges,
                         sourceContentType: mediaSource.contentType,
                         format: format,
-                        to: outputURL
+                        to: outputURL, preserveSpatialAudio: audioMode == .preserveSpatial
                     ) { [weak self] progress in
                         self?.exportProgress = progress
                     }
@@ -879,7 +880,7 @@ final class VideoPlayerViewModel: ObservableObject {
                         sourceRanges: sourceRanges,
                         hasAudio: mediaSource.hasAudio,
                         format: format,
-                        to: outputURL
+                        to: outputURL, audioMode: audioMode
                     ) { [weak self] progress in
                         self?.exportProgress = progress
                     }

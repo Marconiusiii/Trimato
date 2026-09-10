@@ -5,9 +5,10 @@ nonisolated struct ProjectCompositionResult {
     let composition: AVMutableComposition
     let videoComposition: AVMutableVideoComposition?
     let audioMix: AVMutableAudioMix?
-    let temporaryMediaURLs: [URL]
+    var temporaryMediaURLs: [URL]
     var mixProcessors: [TrackMixProcessor] = []
     var mixBindings: [CMPersistentTrackID: ProjectMixBinding] = [:]
+    var audioNotice: String? = nil
     var spatialAudio: SpatialAudioPlan? = nil
     var spatialPlaybackAsset: AVAsset? = nil
     var spatialVideoComposition: AVMutableVideoComposition? = nil
@@ -185,11 +186,88 @@ nonisolated enum ProjectCompositionBuilder {
         mediaURLs: [UUID: URL],
         purpose: ProjectCompositionPurpose = .preview,
         progress: (@MainActor @Sendable (Double) -> Void)? = nil,
-        preserveHDR: Bool = AppPreferences.preserveHDR()
+        preserveHDR: Bool = AppPreferences.preserveHDR(),
+        audioMode: ExportAudioMode = .preserveSpatial,
+        forceSpatialProcessing: Bool = false
     ) async throws -> ProjectCompositionResult {
         try await MediaJobContext.$priority.withValue(purpose == .preview ? .interactive : .background) {
-            let spatial = try await SpatialAudioPlan.project(project, urls: mediaURLs)
-            var result = try await buildComposition(project: project, mediaURLs: mediaURLs, purpose: purpose, progress: progress, preserveHDR: preserveHDR)
+            if audioMode == .highQualityStereo {
+                // Use the same sample-aligned rendered edit for both delivery
+                // choices whenever the project supports spatial processing.
+                if (try? await SpatialAudioPlan.project(project, urls: mediaURLs)) != nil {
+                    let spatialResult = try await build(project: project, mediaURLs: mediaURLs, purpose: .finalExport,
+                        progress: progress, preserveHDR: preserveHDR, audioMode: .preserveSpatial, forceSpatialProcessing: true)
+                    do {
+                        guard let source = spatialResult.spatialAudio?.source,
+                              let audio = try await AudioProcessingFormat.selectedTrack(in: source),
+                              let destination = spatialResult.composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                            throw SpatialAudioError.invalidMovie
+                        }
+                        for track in spatialResult.composition.tracks(withMediaType: .audio) where track.trackID != destination.trackID {
+                            spatialResult.composition.removeTrack(track)
+                        }
+                        try destination.insertTimeRange(try await audio.load(.timeRange), of: audio, at: .zero)
+                        return ProjectCompositionResult(composition: spatialResult.composition,
+                            videoComposition: spatialResult.videoComposition, audioMix: nil,
+                            temporaryMediaURLs: spatialResult.temporaryMediaURLs)
+                    } catch {
+                        for url in spatialResult.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) }
+                        throw error
+                    }
+                }
+                var urls = mediaURLs
+                var temporary: [URL] = []
+                do {
+                    let ids = Set(project.tracks.filter { $0.kind == .audio }.flatMap(\.clips).map(\.assetID))
+                        .union(project.cutaways.filter { $0.audioMode == .sourceAudio }.map(\.assetID))
+                    for id in ids {
+                        if let url = urls[id], try await SpatialAudioPlan.detect(in: AVURLAsset(url: url)) {
+                            let stereo = try await SpatialAudioPlan.stereoSource(url)
+                            temporary.append(stereo)
+                            urls[id] = stereo
+                        }
+                    }
+                    var result = try await buildComposition(project: project, mediaURLs: urls, purpose: purpose, progress: progress, preserveHDR: preserveHDR)
+                    result.temporaryMediaURLs += temporary
+                    return result
+                } catch { for url in temporary { try? FileManager.default.removeItem(at: url) }; throw error }
+            }
+            let plan: SpatialAudioPlan?
+            let spatial: SpatialAudioPlan?
+            do {
+                var candidate = audioMode == .preserveSpatial ? try await SpatialAudioPlan.project(project, urls: mediaURLs) : nil
+                if forceSpatialProcessing, let source = candidate?.source.url, candidate?.processing == nil {
+                    let regions = try project.tracks.filter { $0.kind == .audio }.flatMap {
+                        try SpatialAudioRenderPlan.project(project, source: source, track: $0, urls: mediaURLs).regions
+                    }
+                    candidate?.processing = SpatialAudioRenderPlan(source: source, duration: project.duration.seconds, regions: regions)
+                }
+                plan = candidate
+                spatial = try await plan?.materialized()
+            } catch SpatialAudioError.unsupported(let reason) where purpose == .preview {
+                var result = try await build(project: project, mediaURLs: mediaURLs, purpose: purpose, progress: progress, preserveHDR: preserveHDR, audioMode: .highQualityStereo)
+                result.audioNotice = "Stereo preview. " + reason
+                return result
+            }
+            var pictureProject = project
+            if plan?.processing != nil {
+                let audioIDs = Set(project.tracks.filter { $0.kind == .audio }.map(\.id))
+                pictureProject.transitions.removeAll { audioIDs.contains($0.trackID) }
+                pictureProject.masterVolumeDB = 0
+                for index in pictureProject.tracks.indices where pictureProject.tracks[index].kind == .audio {
+                    pictureProject.tracks[index].mix = .neutral
+                    pictureProject.tracks[index].isMuted = false
+                    for clip in pictureProject.tracks[index].clips.indices { pictureProject.tracks[index].clips[clip].audioSettings = .neutral }
+                }
+            }
+            var result: ProjectCompositionResult
+            do {
+                result = try await buildComposition(project: pictureProject, mediaURLs: mediaURLs, purpose: purpose, progress: progress, preserveHDR: preserveHDR)
+            } catch {
+                if let url = spatial?.temporaryURL { try? FileManager.default.removeItem(at: url) }
+                throw error
+            }
+            if let url = spatial?.temporaryURL { result.temporaryMediaURLs.append(url) }
             do {
                 result.spatialAudio = spatial
                 if let spatial, purpose == .preview {
