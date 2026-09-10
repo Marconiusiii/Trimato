@@ -263,9 +263,6 @@ final class ClipPlacementCommandContext: ObservableObject {
         }
         self.segments = segments
         draft.replace(with: segments)
-        if case .asset(let id) = editSelection {
-            controller.updateSourceEdit(assetID: id, segments: segments)
-        }
     }
 
     func place(_ placement: PlacementAction) {

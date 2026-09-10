@@ -210,6 +210,8 @@ When a video source contains audio, open it in Clip Editor and use the native Au
 
 Every primary clip and cutaway has a distinct displayed timeline name. Repeated filenames and additional uses of the same source receive stable letter suffixes. Choose Rename Clip from the item's context menu or Selected Element Actions to give an instance a unique custom name. Timeline renames are saved in the project and participate in Undo and Redo.
 
+Opening an audio or video clip from Project Source starts with the complete original media and no In or Out markers. Source selections are temporary for that editor session. Appending places the selected range in the timeline; closing and reopening the source clears the selection. Opening a clip from Timeline Clips restores that timeline instance’s saved range.
+
 ## Tracks and transitions
 
 VoiceOver focus in Timeline clips identifies the target clip or transition for timeline commands and Command-I Get Info. It does not set the Current or Selected movement states. Change the Track picker, or press Option-Command-Up Arrow and Option-Command-Down Arrow, to move between tracks without turning the complete project into one long list. When track selection begins in Editor, Trimato announces the active track and its direct-edit clip without moving VoiceOver into Timeline.

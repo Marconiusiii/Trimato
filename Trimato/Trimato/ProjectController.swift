@@ -2076,14 +2076,6 @@ final class ProjectController: ObservableObject {
         isShowingProjectSettings = false
     }
 
-    func updateSourceEdit(assetID: UUID, segments: [SourceSegment]) {
-        guard project.asset(id: assetID)?.sourceEdit.map(\.sourceRange) != segments.map(\.sourceRange) else { return }
-        mutateProject(actionName: "Edit Source Clip") { project in
-            guard let index = project.media.firstIndex(where: { $0.id == assetID }) else { return }
-            project.media[index].sourceEdit = segments
-        }
-    }
-
     func updateClipDraft(_ selection: EditorSelection, segments: [SourceSegment], audio: AudioClipSettings?, filters: [ClipFilter]) throws {
         for filter in filters { try filter.validate() }
         try mutateProjectThrowing(actionName: "Update Clip") { project in
@@ -2328,7 +2320,9 @@ final class ProjectController: ObservableObject {
     func segments(for editSelection: EditorSelection) -> [SourceSegment]? {
         switch editSelection {
         case .asset(let id):
-            return project.asset(id: id)?.sourceEdit
+            return project.asset(id: id).map { asset in
+                [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: asset.duration))]
+            }
         case .timelineClip(let id):
             return project.timelineClip(id: id)?.segments
         case .cutaway(let id):

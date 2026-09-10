@@ -558,6 +558,44 @@ struct ClipEditorSessionTests {
         #expect(context.presentedError?.message.contains("source clip is no longer available") == true)
     }
 
+    @Test(arguments: [true, false]) @MainActor
+    func sourceReopeningClearsMarkersAndPreservesAppendedTimelineRanges(hasVideo: Bool) throws {
+        let savedRange = SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: 1), duration: ProjectTime(seconds: 0.112)))
+        let asset = MediaAssetRecord(name: "Session selection", originalPath: "/tmp/session.mov",
+            duration: ProjectTime(seconds: 6), naturalWidth: hasVideo ? 640 : nil,
+            naturalHeight: hasVideo ? 480 : nil, frameRate: hasVideo ? 24 : nil,
+            hasAudio: true, sourceEdit: [savedRange])
+        var project = TrimatoProject()
+        project.media = [asset]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let full = try #require(controller.segments(for: .asset(asset.id)))
+        #expect(full.count == 1)
+        #expect(full[0].sourceRange.start == .zero)
+        #expect(full[0].duration == asset.duration)
+        let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(asset.id), segments: full)
+        let chosen = [SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: 2), duration: ProjectTime(seconds: 3)))]
+        context.setSegments(chosen)
+        #expect(controller.project == project)
+        let clipID = try #require(context.place(.append, onTrack: nil))
+        #expect(controller.project.timelineClip(id: clipID)?.segments == chosen)
+        let reopened = ProjectController(document: ProjectDocument(project:
+            try JSONDecoder().decode(TrimatoProject.self, from: JSONEncoder().encode(controller.project))))
+        let sourceOpening = try ClipEditorOpeningConfiguration.make(
+            segments: try #require(reopened.segments(for: .asset(asset.id))),
+            sourceDuration: asset.duration, restoresSelection: false)
+        #expect(sourceOpening.playbackSegments == nil)
+        #expect(sourceOpening.inMarker == nil && sourceOpening.outMarker == nil)
+        let timelineOpening = try ClipEditorOpeningConfiguration.make(
+            segments: try #require(reopened.segments(for: .timelineClip(clipID))), sourceDuration: asset.duration)
+        #expect(timelineOpening.inMarker == ProjectTime(seconds: 2))
+        #expect(timelineOpening.outMarker == ProjectTime(seconds: 5))
+        #expect(reopened.project.timelineClip(id: clipID)?.segments == chosen)
+        let invalidLegacyRange = SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 99)))
+        let legacyOpening = try ClipEditorOpeningConfiguration.make(segments: [invalidLegacyRange],
+            sourceDuration: asset.duration, restoresSelection: false)
+        #expect(legacyOpening.playbackSegments == nil && legacyOpening.outMarker == nil)
+    }
+
     @Test func oneSourceRangeOpensTheFullSourceWithSavedMarkers() throws {
         let segment = SourceSegment(sourceRange: ProjectTimeRange(
             start: ProjectTime(seconds: 1),

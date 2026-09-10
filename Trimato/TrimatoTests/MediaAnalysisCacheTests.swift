@@ -129,7 +129,7 @@ struct MediaAnalysisCacheTests {
     }
 
     @Test(.enabled(if: FileManager.default.fileExists(atPath: NSHomeDirectory() + "/Movies/proClips/Clips/buddy_pullAway.mov")))
-    @MainActor func importedPullAwayProjectReopensAfterClearingSavedShortSelection() async throws {
+    @MainActor func importedPullAwaySourceReopensWithoutSavedShortSelection() async throws {
         let url = URL(fileURLWithPath: NSHomeDirectory() + "/Movies/proClips/Clips/buddy_pullAway.mov")
         var imported = try await ProjectImportCoordinator.importAsset(at: url)
         #expect(imported.duration.seconds > 5.8)
@@ -146,7 +146,7 @@ struct MediaAnalysisCacheTests {
             let controller = ProjectController(document: ProjectDocument(project: reopened))
             let asset = try #require(reopened.media.first)
             let source = try #require(try await controller.preparedMediaSource(for: asset))
-            let opening = try ClipEditorOpeningConfiguration.make(segments: asset.sourceEdit, sourceDuration: asset.duration)
+            let opening = try ClipEditorOpeningConfiguration.make(segments: asset.sourceEdit, sourceDuration: asset.duration, restoresSelection: false)
             let model = VideoPlayerViewModel()
             model.player.isMuted = true
             defer { model.closeMedia() }
@@ -156,8 +156,7 @@ struct MediaAnalysisCacheTests {
             #expect(model.mediaOpenErrorMessage == nil)
             #expect(model.duration > 5.8)
             #expect(model.outMarker == opening.outMarker?.cmTime)
-            model.clearIn()
-            model.clearOut()
+            #expect(model.inMarker == nil && model.outMarker == nil)
             #expect(model.placementSourceSegments.reduce(0) { $0 + $1.duration.seconds } > 5.8)
             let item = try #require(model.player.currentItem)
             for _ in 0..<100 where item.status == .unknown { try await Task.sleep(for: .milliseconds(50)) }
@@ -167,7 +166,6 @@ struct MediaAnalysisCacheTests {
             for _ in 0..<60 where model.player.currentTime().seconds < 5.3 { try await Task.sleep(for: .milliseconds(50)) }
             model.player.pause()
             #expect(model.player.currentTime().seconds >= 5.3)
-            project.media[0].sourceEdit = model.placementSourceSegments
         }
     }
 

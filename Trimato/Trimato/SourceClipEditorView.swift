@@ -410,7 +410,8 @@ struct SourceClipEditorView: View {
                 } ?? currentAsset.duration
                 let opening = try ClipEditorOpeningConfiguration.make(
                     segments: segments,
-                    sourceDuration: sourceDuration
+                    sourceDuration: sourceDuration,
+                    restoresSelection: preserveDraft || commandContext.isTimelineEntry
                 )
                 viewModel.load(
                     url: source.originalURL,

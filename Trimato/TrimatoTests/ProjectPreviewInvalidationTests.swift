@@ -17,30 +17,23 @@ struct ProjectPreviewInvalidationTests {
         return project
     }
 
-    @Test func importedMarkersSaveAndUndoWithoutInvalidatingProjectPlayback() throws {
+    @Test func sourceMarkersStayInTheSessionWithoutChangingTheProject() throws {
         let controller = ProjectController(document: ProjectDocument(project: try fixture()))
         let asset = controller.project.media[0]
         let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(asset.id),
                                                   segments: asset.sourceEdit)
         let original = controller.project
-        let input = ProjectPreviewInput(original)
         let undo = UndoManager()
         undo.groupsByEvent = false
         controller.installUndoManager(undo)
         let selection = [SourceSegment(sourceRange: ProjectTimeRange(
             start: ProjectTime(seconds: 2), duration: ProjectTime(seconds: 4)))]
-        undo.beginUndoGrouping()
         context.setSegments(selection)
-        undo.endUndoGrouping()
-        #expect(controller.project.media[0].sourceEdit == selection)
-        #expect(controller.project.tracks == original.tracks)
-        #expect(ProjectPreviewInput(controller.project) == input)
-        undo.undo()
+        #expect(context.segments == selection)
         #expect(controller.project == original)
-        #expect(ProjectPreviewInput(controller.project) == input)
-        undo.redo()
-        #expect(controller.project.media[0].sourceEdit == selection)
-        #expect(ProjectPreviewInput(controller.project) == input)
+        #expect(!controller.document.hasUnsavedChanges)
+        #expect(!undo.canUndo)
+        #expect(ProjectPreviewInput(controller.project) == ProjectPreviewInput(original))
     }
 
     @Test func browserMetadataAndUnusedImportsDoNotRebuildPlayback() throws {

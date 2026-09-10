@@ -7,10 +7,16 @@ nonisolated struct ClipEditorOpeningConfiguration: Equatable, Sendable {
 
     static func make(
         segments: [SourceSegment],
-        sourceDuration: ProjectTime
+        sourceDuration: ProjectTime,
+        restoresSelection: Bool = true
     ) throws -> ClipEditorOpeningConfiguration {
-        guard sourceDuration.isPositive,
-              segments.allSatisfy({ $0.sourceRange.isValid && $0.sourceRange.end <= sourceDuration }) else {
+        guard sourceDuration.isPositive else {
+            throw MediaSourceError.unreadable("The source media does not have a usable duration.")
+        }
+        guard restoresSelection else {
+            return ClipEditorOpeningConfiguration(playbackSegments: nil, inMarker: nil, outMarker: nil)
+        }
+        guard segments.allSatisfy({ $0.sourceRange.isValid && $0.sourceRange.end <= sourceDuration }) else {
             throw MediaSourceError.unreadable("The saved clip edit contains a range outside the source media. Reopen the original file to recover the full clip.")
         }
         let usable = segments
