@@ -179,10 +179,11 @@ nonisolated enum ProjectCompositionBuilder {
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
         purpose: ProjectCompositionPurpose = .preview,
-        progress: (@MainActor @Sendable (Double) -> Void)? = nil
+        progress: (@MainActor @Sendable (Double) -> Void)? = nil,
+        preserveHDR: Bool = AppPreferences.preserveHDR()
     ) async throws -> ProjectCompositionResult {
         try await MediaJobContext.$priority.withValue(purpose == .preview ? .interactive : .background) {
-            try await buildComposition(project: project, mediaURLs: mediaURLs, purpose: purpose, progress: progress)
+            try await buildComposition(project: project, mediaURLs: mediaURLs, purpose: purpose, progress: progress, preserveHDR: preserveHDR)
         }
     }
 
@@ -191,9 +192,26 @@ nonisolated enum ProjectCompositionBuilder {
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
         purpose: ProjectCompositionPurpose = .preview,
-        progress: (@MainActor @Sendable (Double) -> Void)? = nil
+        progress: (@MainActor @Sendable (Double) -> Void)? = nil,
+        preserveHDR: Bool = AppPreferences.preserveHDR()
     ) async throws -> ProjectCompositionResult {
         guard project.tracks.contains(where: { !$0.clips.isEmpty }) else { throw ProjectCompositionError.emptyTimeline }
+        var sourceFormats: [AudioProcessingFormat] = []
+        let audioIDs = Set(project.tracks.filter { $0.kind == .audio }.flatMap(\.clips).map(\.assetID))
+        for id in audioIDs {
+            guard let url = mediaURLs[id] else { continue }
+            if let track = try await AudioProcessingFormat.selectedTrack(in: AVURLAsset(url: url)) {
+                sourceFormats.append(try await AudioProcessingFormat.inspect(tracks: [track], stereoMix: false))
+                continue
+            }
+            let report = try await FFmpegMediaProbe.inspect(url: url)
+            if let audio = report.audioStream {
+                sourceFormats.append(AudioProcessingFormat(sampleRate: Double(audio.sampleRate ?? "") ?? 0,
+                                                           channels: audio.channels ?? 0))
+            }
+        }
+        let projectAudioFormat = try AudioProcessingFormat.select(sourceFormats, stereoMix: true)
+        let colorPolicy = try await VideoColorPolicy.resolve(project: project, urls: mediaURLs, preserveHDR: preserveHDR)
         let (project, mediaURLs, filteredURLs) = try await ClipFilterRenderer.prepare(project: project, urls: mediaURLs)
         let composition = AVMutableComposition()
         var primaryVideo: AVMutableCompositionTrack?
@@ -365,7 +383,7 @@ nonisolated enum ProjectCompositionBuilder {
                     let descriptions = try await source?.load(.formatDescriptions) ?? []
                     let channels = descriptions.first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame } ?? 2
                     let sampleRate = descriptions.first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mSampleRate } ?? 0
-                    if !clip.audioSettings.isNeutral || channels != 2 || sampleRate != 48000, let sourceURL = mediaURLs[clip.assetID] {
+                    if !clip.audioSettings.isNeutral || channels != 2 || sampleRate != projectAudioFormat.sampleRate, let sourceURL = mediaURLs[clip.assetID] {
                         let renderedURL: URL
                         do {
                             renderedURL = try await FFmpegTimelineEffectRenderer.renderAudio(
@@ -373,6 +391,8 @@ nonisolated enum ProjectCompositionBuilder {
                                 segments: clip.segments,
                                 settings: clip.audioSettings,
                                 stereo: true,
+                                sourceChannels: Int(channels),
+                                sampleRate: Int(projectAudioFormat.sampleRate),
                                 progress: await progressReporter?.beginJob()
                             )
                         } catch is CancellationError {
@@ -463,12 +483,12 @@ nonisolated enum ProjectCompositionBuilder {
                 renderedURL = try await FFmpegTimelineEffectRenderer.renderAudioTransition(
                     leadingURL: leadingURL,
                     trailingURL: trailingURL,
-                    projectReferenceURL: track.sortedClips.first.flatMap { mediaURLs[$0.assetID] },
                     leadingClip: leading,
                     trailingClip: trailing,
                     type: type,
                     duration: transition.duration,
                     muteLeading: muteLeading, muteTrailing: muteTrailing,
+                    sampleRate: Int(projectAudioFormat.sampleRate),
                     progress: await progressReporter?.beginJob()
                 )
                 await progressReporter?.completeJob()
@@ -562,16 +582,38 @@ nonisolated enum ProjectCompositionBuilder {
             }
         }
 
+        if colorPolicy == .hlg, purpose == .finalExport, let renderSize {
+            // Composite SDR caption artwork as a separate native video layer. Passing
+            // the HDR picture through Core Animation's post-processing surface can clip it.
+            for cue in project.captionTrack?.captionCues ?? [] {
+                let start = max(cue.start, .zero)
+                let end = min(cue.end, project.duration)
+                guard end > start else { continue }
+                var definition = GeneratorDefinition()
+                definition.kind = .text
+                definition.width = Int(renderSize.width)
+                definition.height = Int(renderSize.height)
+                definition.frameRate = projectFrameRate
+                definition.duration = end - start
+                definition.textSettings.apply(.caption)
+                definition.textSettings.text = cue.text
+                let url = try await GeneratorRenderer.ensure(definition)
+                let asset = AVURLAsset(url: url)
+                guard let source = try await asset.loadTracks(withMediaType: .video).first,
+                      let track = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    throw ProjectCompositionError.cannotCreateTrack
+                }
+                try track.insertTimeRange(CMTimeRange(start: .zero, duration: (end - start).cmTime), of: source, at: start.cmTime)
+                additionalVideoTracks.append((track, [(ProjectTimeRange(start: start, duration: end - start), .identity)], nil))
+            }
+        }
+
         let videoComposition: AVMutableVideoComposition?
         if primaryVideo != nil || cutawayVideo != nil || !additionalVideoTracks.isEmpty {
             guard let renderSize else { throw ProjectCompositionError.unresolvedFormat }
             let composition = AVMutableVideoComposition()
             composition.renderSize = renderSize
-            // Use the same SDR color space for live composition and encoded exports.
-            // Otherwise the image-generator preview can be tagged as legacy NTSC.
-            composition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
-            composition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
-            composition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
+            colorPolicy.apply(to: composition)
             composition.frameDuration = CMTime(
                 seconds: 1 / projectFrameRate,
                 preferredTimescale: ProjectTime.defaultTimescale
@@ -589,7 +631,7 @@ nonisolated enum ProjectCompositionBuilder {
                 primaryTimelineTrack: project.tracks.first(where: { $0.role == .primaryVideo }),
                 timelineTracks: project.tracks
             )
-            if purpose == .finalExport {
+            if purpose == .finalExport, colorPolicy == .sdr {
                 try CaptionOverlayRenderer.apply(
                     cues: project.captionTrack?.captionCues ?? [],
                     to: composition,
@@ -739,6 +781,10 @@ nonisolated enum ProjectCompositionBuilder {
             : true
         if purpose == .finalExport,
            record.playbackMode == .cachedProxy || !isPlayable {
+            let report = try await FFmpegMediaProbe.inspect(url: url)
+            if report.isHDR {
+                throw ProjectExporter.ExportError.encodingFailed("This HDR source cannot be decoded at full quality. Trimato has not substituted its playback proxy.")
+            }
             let intermediateURL = try await ProjectRenderMediaManager.createIntermediate(
                 sourceURL: url,
                 duration: record.duration.seconds,
@@ -773,7 +819,9 @@ nonisolated enum ProjectCompositionBuilder {
         cache: inout [UUID: CachedCompositionTrack]
     ) async throws -> AVAssetTrack? {
         if let cached = cache[assetID] { return cached.track }
-        let track = try await asset.loadTracks(withMediaType: mediaType).first
+        let track = mediaType == .audio
+            ? try await AudioProcessingFormat.selectedTrack(in: asset)
+            : try await asset.loadTracks(withMediaType: mediaType).first
         cache[assetID] = track.map(CachedCompositionTrack.available) ?? .unavailable
         return track
     }

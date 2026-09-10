@@ -45,7 +45,7 @@ struct AudioEditorRevisionTests {
             if frequency == 1000 { settings.midGainDecibels = gain }
             if frequency == 8000 { settings.highGainDecibels = gain }
             let output = try await ClipFilterRenderer.render(source: source, filters: [], audio: true, duration: 2,
-                segments: [segment(2)], audioSettings: settings, highPrecision: true)
+                segments: [segment(2)], audioSettings: settings)
             defer { try? FileManager.default.removeItem(at: output) }
             let processed = try await samples(output)
             let change = 10 * log10(power(processed, start: 0.5, end: 1.5) / power(original, start: 0.5, end: 1.5))
@@ -94,7 +94,7 @@ struct AudioEditorRevisionTests {
             var filter = ClipFilter(kind: kind)
             filter.values["amount"] = 60
             filter.values["room"] = 2
-            let output = try await ClipFilterRenderer.render(source: source, filters: [filter], audio: true, duration: 3, highPrecision: true)
+            let output = try await ClipFilterRenderer.render(source: source, filters: [filter], audio: true, duration: 3)
             defer { try? FileManager.default.removeItem(at: output) }
             let data = try await samples(output)
             let actualDuration = try await AVURLAsset(url: output).load(.duration).seconds
@@ -109,7 +109,7 @@ struct AudioEditorRevisionTests {
         defer { try? FileManager.default.removeItem(at: source) }
         var filter = ClipFilter(kind: .limitPeaks)
         filter.values["ceiling"] = -9
-        let output = try await ClipFilterRenderer.render(source: source, filters: [filter], audio: true, duration: 2, highPrecision: true)
+        let output = try await ClipFilterRenderer.render(source: source, filters: [filter], audio: true, duration: 2)
         defer { try? FileManager.default.removeItem(at: output) }
         let peak = try await samples(output).map { abs($0) }.max() ?? 1
         #expect(peak < 0.37 && peak > 0.3)
@@ -120,7 +120,7 @@ struct AudioEditorRevisionTests {
         let original = try await samples(source)
         var filter = ClipFilter(kind: .softenS)
         filter.values["amount"] = 90
-        let output = try await ClipFilterRenderer.render(source: source, filters: [filter], audio: true, duration: 2, highPrecision: true)
+        let output = try await ClipFilterRenderer.render(source: source, filters: [filter], audio: true, duration: 2)
         defer { try? FileManager.default.removeItem(at: output) }
         let processed = try await samples(output)
         #expect(power(processed, start: 0.5, end: 1.5) < power(original, start: 0.5, end: 1.5) * 0.9)
@@ -129,7 +129,7 @@ struct AudioEditorRevisionTests {
             return Float(0.006 * (2 * (hashed - floor(hashed)) - 1))
         }
         defer { try? FileManager.default.removeItem(at: noise) }
-        let reduced = try await ClipFilterRenderer.render(source: noise, filters: [ClipFilter(kind: .backgroundNoise)], audio: true, duration: 2, highPrecision: true)
+        let reduced = try await ClipFilterRenderer.render(source: noise, filters: [ClipFilter(kind: .backgroundNoise)], audio: true, duration: 2)
         defer { try? FileManager.default.removeItem(at: reduced) }
         #expect(power(try await samples(reduced), start: 0.5, end: 1.5) < power(try await samples(noise), start: 0.5, end: 1.5) * 0.9)
     }
@@ -174,7 +174,7 @@ struct AudioEditorRevisionTests {
             var effect = ClipFilter(kind: .reverb)
             effect.values["amount"] = amount
             effect.values["room"] = 2
-            let output = try await ClipFilterRenderer.render(source: source, filters: [effect], audio: true, duration: 2, highPrecision: true)
+            let output = try await ClipFilterRenderer.render(source: source, filters: [effect], audio: true, duration: 2)
             defer { try? FileManager.default.removeItem(at: output) }
             let signal = try await samples(output)
             energies.append(power(signal, start: 1.02, end: 1.2))

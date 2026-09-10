@@ -454,6 +454,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 }
                 let item = AVPlayerItem(asset: result.composition)
                 item.videoComposition = result.videoComposition
+                item.appliesPerFrameHDRDisplayMetadata = false
                 item.audioMix = result.audioMix
                 mixProcessors = result.mixProcessors
                 mixBindings = result.mixBindings
@@ -640,6 +641,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     ) -> AVPlayerItem {
         let item = AVPlayerItem(asset: result.composition)
         item.videoComposition = result.videoComposition
+        item.appliesPerFrameHDRDisplayMetadata = false
         item.audioMix = result.audioMix
         return item
     }

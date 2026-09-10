@@ -93,8 +93,12 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
         }
     }
 
+    var supportsHDR: Bool {
+        [.original, .hevcMP4, .hevcMovie, .proRes422LT, .proRes422, .proRes422HQ].contains(self)
+    }
+
     var requiresCustomVideoWriter: Bool {
-        self == .proRes422LT || self == .proRes422HQ
+        self == .proRes422LT || self == .proRes422 || self == .proRes422HQ
     }
 
     var supportsFastStart: Bool {
@@ -156,14 +160,16 @@ final class ExportFormatSelectionModel: ObservableObject {
     @Published var captionDelivery: CaptionDelivery
     let hasCaptions: Bool
     let hasDescriptions: Bool
+    let outputSummary: String?
     @Published var exportDescriptions = true
 
     fileprivate var formatChanged: ((ExportFormat) -> Void)?
 
-    init(selectedFormat: ExportFormat, hasCaptions: Bool, hasDescriptions: Bool = false) {
+    init(selectedFormat: ExportFormat, hasCaptions: Bool, hasDescriptions: Bool = false, outputSummary: String? = nil) {
         self.selectedFormat = selectedFormat
         self.captionDelivery = selectedFormat.isAudioOnly ? .webVTT : .burnedIn
         self.hasCaptions = hasCaptions
+        self.outputSummary = outputSummary
         self.hasDescriptions = hasDescriptions
     }
 }
@@ -180,6 +186,9 @@ private struct ExportFormatAccessoryView: View {
                 }
             }
             .frame(width: 330)
+            if !model.selectedFormat.isAudioOnly, let summary = model.outputSummary {
+                Text(summary).frame(width: 330, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+            }
             if model.hasCaptions {
                 Picker("Captions", selection: $model.captionDelivery) {
                     ForEach(CaptionDelivery.allCases) { delivery in
@@ -212,14 +221,17 @@ final class ExportSavePanel {
         formats: [ExportFormat],
         hasCaptions: Bool = false,
         hasDescriptions: Bool = false,
+        outputSummary: String? = nil,
         originalExtension: String? = nil,
         originalContentType: UTType? = nil
     ) {
         precondition(!formats.isEmpty)
+        let outputSummary = outputSummary ?? (formats.contains { !$0.isAudioOnly && $0 != .original }
+            ? "Converted exports do not include spatial audio or editable Cinematic focus information." : nil)
         self.formats = formats
         self.originalExtension = originalExtension
         self.originalContentType = originalContentType
-        self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0], hasCaptions: hasCaptions, hasDescriptions: hasDescriptions)
+        self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0], hasCaptions: hasCaptions, hasDescriptions: hasDescriptions, outputSummary: outputSummary)
 
         panel.title = title
         panel.prompt = "Export"
@@ -231,7 +243,7 @@ final class ExportSavePanel {
             model: formatModel,
             formats: formats
         ))
-        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 74 : 36) + (hasDescriptions ? 32 : 0))
+        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 74 : 36) + (hasDescriptions ? 32 : 0) + (outputSummary == nil ? 0 : 110))
         panel.accessoryView = accessory
 
         panel.nameFieldStringValue = formats[0].filename(

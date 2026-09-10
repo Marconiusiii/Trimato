@@ -542,23 +542,32 @@ final class ProjectController: ObservableObject {
             return
         }
 
-        let formats = ExportFormat.projectFormats.filter { format in
-            (format.isAudioOnly && project.hasTimelineAudio) ||
-                (!format.isAudioOnly && project.hasTimelineVideo)
-        }
         guard let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        let savePanel = ExportSavePanel(
-            title: "Export Project",
-            baseName: project.name,
-            formats: formats,
-            hasCaptions: project.captionTrack?.captionCues.isEmpty == false,
-            hasDescriptions: project.descriptionTranscriptTrack?.captionCues.isEmpty == false
-        )
         isPresentingExportPanel = true
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.isPresentingExportPanel = false }
+            let policy: VideoColorPolicy
+            do {
+                policy = try await VideoColorPolicy.resolve(project: self.project, urls: urls,
+                                                           preserveHDR: AppPreferences.preserveHDR())
+            } catch {
+                self.presentedError = ProjectPresentedError(title: "Export Could Not Be Prepared", message: error.localizedDescription)
+                return
+            }
+            let formats = ExportFormat.projectFormats.filter { format in
+                (format.isAudioOnly && self.project.hasTimelineAudio) ||
+                    (!format.isAudioOnly && self.project.hasTimelineVideo && (policy == .sdr || format.supportsHDR))
+            }
+            let summary = self.project.hasTimelineVideo
+                ? "\(policy == .hlg ? "HDR video" : "SDR video"). Edited exports use stereo audio and do not include spatial audio or editable Cinematic focus information."
+                : nil
+            let savePanel = ExportSavePanel(
+                title: "Export Project", baseName: self.project.name, formats: formats,
+                hasCaptions: self.project.captionTrack?.captionCues.isEmpty == false,
+                hasDescriptions: self.project.descriptionTranscriptTrack?.captionCues.isEmpty == false,
+                outputSummary: summary)
             let selection = await savePanel.selection(parentWindow: parentWindow)
-            self.isPresentingExportPanel = false
             guard let selection else { return }
             self.startProjectExport(
                 format: selection.format,

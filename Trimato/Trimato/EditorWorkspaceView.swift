@@ -388,6 +388,7 @@ struct EditorWorkspaceView: View {
 }
 
 struct ProjectViewerView: View {
+    @AppStorage(AppPreferenceKey.preserveHDR) private var preserveHDR = true
     private enum AccessibilityTarget: Hashable {
         case videoFrame
         case playhead
@@ -507,6 +508,7 @@ struct ProjectViewerView: View {
                   ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
             requestPreparation()
         }
+        .onChange(of: preserveHDR) { _, _ in requestPreparation() }
         .onChange(of: controller.activeTimelineTrackID) { _, trackID in
             viewModel.selectEditPointTrack(trackID, in: controller.project)
         }

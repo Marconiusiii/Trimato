@@ -6,14 +6,13 @@ nonisolated enum ClipFilterRenderer {
     @concurrent
     static func render(source: URL, filters: [ClipFilter], audio: Bool, duration: Double,
                        segments: [SourceSegment]? = nil, audioSettings: AudioClipSettings? = nil,
-                       highPrecision: Bool = false,
                        voiceSegments: [SourceSegment]? = nil,
                        progress: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> URL {
         if audio, let voice = audioSettings?.voice, voice.isActive {
             var originalSettings = audioSettings
             originalSettings?.voice = nil
             let processed = try await render(source: source, filters: filters, audio: true, duration: duration,
-                                             audioSettings: originalSettings, highPrecision: true, progress: progress)
+                                             audioSettings: originalSettings, progress: progress)
             defer { try? FileManager.default.removeItem(at: processed) }
             return try await VoiceAudioProcessor.render(source: processed, settings: voice,
                 segments: segments ?? voiceSegments, trimOutput: segments != nil)
@@ -22,18 +21,22 @@ nonisolated enum ClipFilterRenderer {
         let active = ClipFilterKind.allCases.compactMap { kind in filters.first { $0.kind == kind && $0.enabled && $0.kind.isAudio == audio } }
         if let segments, !active.isEmpty {
             // Process the same source and history as the project renderer, then select the edited ranges.
-            let processed = try await render(source: source, filters: filters, audio: audio, duration: duration, highPrecision: highPrecision, progress: progress)
+            let processed = try await render(source: source, filters: filters, audio: audio, duration: duration, progress: progress)
             defer { try? FileManager.default.removeItem(at: processed) }
             return try await render(source: processed, filters: [], audio: audio, duration: duration,
-                                    segments: segments, audioSettings: audioSettings, highPrecision: highPrecision, progress: progress)
+                                    segments: segments, audioSettings: audioSettings, progress: progress)
         }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TrimatoClipFilters", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let report = try await FFmpegMediaProbe.inspect(url: source)
+        if !audio, report.isHDR, !active.isEmpty {
+            return try await HDRVideoRenderer.render(source: source, filters: active, progress: progress)
+        }
         try ProjectRenderMediaManager.requireAvailableSpace(in: directory, duration: report.duration,
                                                            width: report.videoStream?.width, height: report.videoStream?.height, hasVideo: !audio)
         let output = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
-        let graph = (audio ? ["aresample=48000"] : []) + active.map(\.graph)
+        let sampleRate = Int(report.audioStream?.sampleRate ?? "") ?? 48_000
+        let graph = (audio ? ["aformat=sample_fmts=fltp"] : []) + active.map { $0.graph(sampleRate: sampleRate) }
         var graphText = graph.joined(separator: ",")
         if audio, let settings = audioSettings, let gain = FFmpegTimelineEffectRenderer.audioFilter(for: settings) {
             graphText = [graphText, gain].filter { !$0.isEmpty }.joined(separator: ",")
@@ -67,9 +70,12 @@ nonisolated enum ClipFilterRenderer {
         } else {
             arguments += ["-map", audio ? "0:a:0" : "0:v:0", audio ? "-af" : "-vf", graphText.isEmpty ? (audio ? "anull" : "null") : graphText]
         }
-        if audio { arguments += ["-vn", "-c:a", highPrecision ? "pcm_f32le" : "pcm_s16le", "-ar", "48000"] }
-        else { arguments += ["-an", "-c:v", "prores_ks", "-profile:v", report.hasAlpha ? "4" : "1",
+        if audio { arguments += ["-vn", "-c:a", "pcm_f32le", "-ar", String(sampleRate)] }
+        else { arguments += ["-an", "-c:v", "prores_ks", "-profile:v", report.hasAlpha ? "4" : report.isHDR ? "3" : "1",
                              "-pix_fmt", report.hasAlpha ? "yuva444p10le" : "yuv422p10le"] }
+        if !audio, report.isHDR {
+            arguments += ["-color_primaries", "bt2020", "-colorspace", "bt2020nc", "-color_trc", report.videoStream?.colorTransfer ?? "arib-std-b67"]
+        }
         if !audio, report.hasAlpha { arguments += ["-alpha_mode", "premultiplied"] }
         arguments += ["-sn", "-dn", "-progress", "pipe:1", "-nostats", output.path]
         do {

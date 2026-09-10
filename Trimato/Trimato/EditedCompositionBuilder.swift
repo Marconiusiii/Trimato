@@ -42,7 +42,10 @@ enum EditedCompositionBuilder {
         sourceRanges: [CMTimeRange],
         into composition: AVMutableComposition
     ) async throws {
-        guard let sourceTrack = try await asset.loadTracks(withMediaType: mediaType).first,
+        let selected = mediaType == .audio
+            ? try await AudioProcessingFormat.selectedTrack(in: asset)
+            : try await asset.loadTracks(withMediaType: mediaType).first
+        guard let sourceTrack = selected,
               let compositionTrack = composition.addMutableTrack(
                 withMediaType: mediaType,
                 preferredTrackID: kCMPersistentTrackID_Invalid

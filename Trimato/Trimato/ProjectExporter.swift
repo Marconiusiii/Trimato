@@ -1,4 +1,5 @@
 import AVFoundation
+import VideoToolbox
 import Foundation
 
 enum ProjectExporter {
@@ -33,17 +34,22 @@ enum ProjectExporter {
         timeRange: ProjectTimeRange? = nil,
         format: ExportFormat = .h264MP4,
         to outputURL: URL,
-        progress: @escaping @MainActor @Sendable (Double) -> Void
+        progress: @escaping @MainActor @Sendable (Double) -> Void,
+        preserveHDR: Bool = AppPreferences.preserveHDR()
     ) async throws {
         let result = try await ProjectCompositionBuilder.build(
             project: project,
             mediaURLs: mediaURLs,
-            purpose: .finalExport
+            purpose: .finalExport,
+            preserveHDR: preserveHDR
         )
         defer {
             for url in result.temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }
         }
         let validatedRange = try validatedTimeRange(timeRange, projectDuration: project.duration)
+
+        let colorPolicy: VideoColorPolicy = result.videoComposition?.colorTransferFunction == AVVideoTransferFunction_ITU_R_2100_HLG ? .hlg : .sdr
+        try colorPolicy.validate(format: format)
 
         if format.isAudioOnly {
             try await AudioOnlyExporter.export(
@@ -61,7 +67,7 @@ enum ProjectExporter {
             throw ExportError.incompatibleFormat(format.title)
         }
 
-        if format.requiresCustomVideoWriter {
+        if format.requiresCustomVideoWriter || (colorPolicy == .hlg && [.hevcMP4, .hevcMovie].contains(format)) {
             try await CustomMovieExporter.export(
                 asset: result.composition,
                 videoComposition: result.videoComposition,
@@ -161,6 +167,7 @@ enum ProjectExporter {
         let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return false }
         return !normalized.contains("operation could not be completed")
+            && !normalized.contains("unknown error occurred")
             && !normalized.contains("osstatus error")
             && !normalized.contains("error code")
             && !normalized.contains("code=")
@@ -178,7 +185,8 @@ enum ProjectExporter {
     }
 }
 
-enum CustomMovieExporter {
+nonisolated enum CustomMovieExporter {
+    @concurrent
     static func export(
         asset: AVAsset,
         videoComposition: AVVideoComposition?,
@@ -186,23 +194,33 @@ enum CustomMovieExporter {
         timeRange: CMTimeRange?,
         format: ExportFormat,
         to outputURL: URL,
-        progress: @escaping @MainActor @Sendable (Double) -> Void
+        progress: @escaping @MainActor @Sendable (Double) -> Void,
+        preserveAlpha: Bool = false
     ) async throws {
-        let videoCodec: AVVideoCodecType
+        var videoCodec: AVVideoCodecType
         switch format {
+        case .proRes422: videoCodec = .proRes422
+        case .hevcMP4, .hevcMovie: videoCodec = .hevc
         case .proRes422LT: videoCodec = .proRes422LT
         case .proRes422HQ: videoCodec = .proRes422HQ
         default: throw ProjectExporter.ExportError.incompatibleFormat(format.title)
         }
 
+        if preserveAlpha { videoCodec = .proRes4444 }
+
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
-        guard let firstVideoTrack = videoTracks.first else {
+        guard !videoTracks.isEmpty else {
             throw ProjectExporter.ExportError.incompatibleFormat(format.title)
         }
-        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-        let naturalSize = try await firstVideoTrack.load(.naturalSize)
-        let preferredTransform = try await firstVideoTrack.load(.preferredTransform)
-        let renderSize = videoComposition?.renderSize ?? naturalSize
+        let sourcePolicy = try await VideoColorPolicy.resolve(asset: asset, preserveHDR: AppPreferences.preserveHDR())
+        let colorPolicy: VideoColorPolicy = videoComposition.map {
+            $0.colorTransferFunction == AVVideoTransferFunction_ITU_R_2100_HLG ? .hlg : .sdr
+        } ?? sourcePolicy
+        let effectiveComposition: AVVideoComposition
+        if let videoComposition { effectiveComposition = videoComposition }
+        else { effectiveComposition = try await VideoColorPolicy.composition(for: asset, policy: colorPolicy) }
+        let audioTracks = try await AudioProcessingFormat.exportTracks(in: asset)
+        let renderSize = effectiveComposition.renderSize
 
         let fileManager = FileManager.default
         let replacementDirectory = try fileManager.url(
@@ -221,29 +239,25 @@ enum CustomMovieExporter {
         let videoOutput = AVAssetReaderVideoCompositionOutput(
             videoTracks: videoTracks,
             videoSettings: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_64RGBAHalf,
             ]
         )
-        videoOutput.videoComposition = videoComposition
+        videoOutput.videoComposition = effectiveComposition
         guard reader.canAdd(videoOutput) else {
             throw ProjectExporter.ExportError.incompatibleFormat(format.title)
         }
         reader.add(videoOutput)
 
-        let audioSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 2,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: false,
-        ]
+        let audioFormat = try await AudioProcessingFormat.inspect(tracks: audioTracks, stereoMix: audioMix != nil)
+        let audioSettings: [String: Any] = videoCodec == .hevc
+            ? [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: audioFormat.sampleRate,
+               AVNumberOfChannelsKey: audioFormat.channels, AVEncoderBitRateKey: audioFormat.aacBitRate]
+            : audioFormat.pcmSettings(bitDepth: 24)
         let audioOutput: AVAssetReaderAudioMixOutput?
         if audioTracks.isEmpty {
             audioOutput = nil
         } else {
-            let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: audioSettings)
+            let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: audioFormat.floatPCMSettings)
             output.audioMix = audioMix
             guard reader.canAdd(output) else {
                 throw ProjectExporter.ExportError.incompatibleFormat(format.title)
@@ -252,13 +266,24 @@ enum CustomMovieExporter {
             audioOutput = output
         }
 
-        let writer = try AVAssetWriter(outputURL: temporaryURL, fileType: .mov)
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
+        let writer = try AVAssetWriter(outputURL: temporaryURL, fileType: format.fileType ?? .mov)
+        var videoSettings: [String: Any] = [
             AVVideoCodecKey: videoCodec,
+            AVVideoColorPropertiesKey: colorPolicy.properties,
             AVVideoWidthKey: max(Int(renderSize.width.rounded()), 1),
             AVVideoHeightKey: max(Int(renderSize.height.rounded()), 1),
-        ])
-        if videoComposition == nil { videoInput.transform = preferredTransform }
+        ]
+        if videoCodec == .hevc {
+            let frameRate = 1 / effectiveComposition.frameDuration.seconds
+            videoSettings[AVVideoCompressionPropertiesKey] = [
+                AVVideoProfileLevelKey: kVTProfileLevel_HEVC_Main10_AutoLevel,
+                AVVideoAverageBitRateKey: max(Int(renderSize.width * renderSize.height * frameRate * 0.2), 1_000_000),
+                AVVideoExpectedSourceFrameRateKey: frameRate,
+                kVTCompressionPropertyKey_HDRMetadataInsertionMode as String: kVTHDRMetadataInsertionMode_Auto,
+                kVTCompressionPropertyKey_PreserveDynamicHDRMetadata as String: false,
+            ] as [String: Any]
+        }
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         guard writer.canAdd(videoInput) else {
             throw ProjectExporter.ExportError.incompatibleFormat(format.title)
         }
@@ -276,6 +301,10 @@ enum CustomMovieExporter {
             audioInput = nil
         }
 
+        defer {
+            if reader.status == .reading { reader.cancelReading() }
+            if writer.status == .writing { writer.cancelWriting() }
+        }
         guard writer.startWriting(), reader.startReading() else {
             let underlying = writer.error ?? reader.error
             throw ProjectExporter.ExportError.encodingFailed(
@@ -297,6 +326,10 @@ enum CustomMovieExporter {
 
         while !videoFinished || !audioFinished {
             try Task.checkCancellation()
+            if writer.status == .failed || reader.status == .failed {
+                throw ProjectExporter.ExportError.encodingFailed(
+                    (writer.error ?? reader.error).map(ProjectExporter.failureDetail(for:)) ?? "The movie encoder stopped before finishing.")
+            }
             var appendedSample = false
             if !videoFinished, videoInput.isReadyForMoreMediaData {
                 if let sample = videoOutput.copyNextSampleBuffer() {
@@ -308,7 +341,7 @@ enum CustomMovieExporter {
                     }
                     let elapsed = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
                         - CMTimeGetSeconds(sessionStart)
-                    progress(min(max(elapsed / duration, 0), 1))
+                    await progress(min(max(elapsed / duration, 0), 1))
                     appendedSample = true
                 } else {
                     videoInput.markAsFinished()
@@ -346,7 +379,7 @@ enum CustomMovieExporter {
                     ?? "The movie file could not be completed."
             )
         }
-        progress(1)
+        await progress(1)
 
         if fileManager.fileExists(atPath: outputURL.path) {
             _ = try fileManager.replaceItemAt(outputURL, withItemAt: temporaryURL)
@@ -378,7 +411,7 @@ enum AudioOnlyExporter {
             )
             return
         }
-        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        let tracks = try await AudioProcessingFormat.exportTracks(in: asset)
         guard !tracks.isEmpty else { throw ProjectExporter.ExportError.noAudio }
 
         let fileManager = FileManager.default
@@ -395,17 +428,10 @@ enum AudioOnlyExporter {
 
         let reader = try AVAssetReader(asset: asset)
         if let timeRange { reader.timeRange = timeRange }
-        let pcmBitDepth = format == .wav ? 16 : 24
-        let pcmSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 2,
-            AVLinearPCMBitDepthKey: pcmBitDepth,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: false,
-        ]
-        let readerOutput = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: pcmSettings)
+        let sourceFormat = try await AudioProcessingFormat.inspect(tracks: tracks, stereoMix: audioMix != nil)
+        let audioFormat = sourceFormat
+        let pcmSettings = audioFormat.pcmSettings(bitDepth: format == .wav ? 16 : 24)
+        let readerOutput = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: audioFormat.floatPCMSettings)
         readerOutput.audioMix = audioMix
         guard reader.canAdd(readerOutput) else {
             throw ProjectExporter.ExportError.incompatibleFormat(format.title)
@@ -425,16 +451,16 @@ enum AudioOnlyExporter {
             writerFileType = .m4a
             writerSettings = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitRateKey: 192_000,
+                AVSampleRateKey: audioFormat.sampleRate,
+                AVNumberOfChannelsKey: audioFormat.channels,
+                AVEncoderBitRateKey: audioFormat.aacBitRate,
             ]
         case .m4aAppleLossless:
             writerFileType = .m4a
             writerSettings = [
                 AVFormatIDKey: kAudioFormatAppleLossless,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 2,
+                AVSampleRateKey: audioFormat.sampleRate,
+                AVNumberOfChannelsKey: audioFormat.channels,
                 AVEncoderBitDepthHintKey: 24,
             ]
         case .flac:

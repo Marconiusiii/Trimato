@@ -3,6 +3,7 @@ import Foundation
 nonisolated enum AppPreferenceKey {
     static let processingSounds = "processingSounds"
     static let exportCompletionSound = "exportCompletionSound"
+    static let preserveHDR = "preserveHDR"
     static let appearance = "appearance"
     static let importedFileHandling = "importedFileHandling"
     static let autoSaveEnabled = "autoSaveEnabled"
@@ -48,6 +49,10 @@ nonisolated enum TimecodeVerbosity: String, CaseIterable, Identifiable, Sendable
 }
 
 nonisolated enum AppPreferences {
+    static func preserveHDR(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: AppPreferenceKey.preserveHDR) as? Bool ?? true
+    }
+
     static let defaultAutoSaveMinutes = 5
     static let autoSaveMinutesRange = 1...120
 

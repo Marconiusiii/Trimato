@@ -93,7 +93,9 @@ nonisolated struct ClipFilter: Codable, Hashable, Identifiable, Sendable {
         guard [0, 90, 180, 270].contains(rotation) else { throw MediaSourceError.unreadable("Choose a supported rotation.") }
     }
 
-    var graph: String {
+    var graph: String { graph(sampleRate: 48_000) }
+
+    func graph(sampleRate: Int) -> String {
         switch kind {
         case .brightnessContrast: "format=yuv420p,lutyuv=y='clip((val-128)*\(value("contrast"))+128+\(value("brightness") * 255),0,255)'"
         case .colorAdjustment: "hue=s=\(value("saturation")),colorbalance=rm=\(value("warmth") * 0.3):bm=\(-value("warmth") * 0.3):gm=\(value("tint") * 0.3)"
@@ -105,21 +107,21 @@ nonisolated struct ClipFilter: Codable, Hashable, Identifiable, Sendable {
         case .backgroundNoise: "afftdn=nr=\(value("amount"))"
         case .evenVolume: "acompressor=threshold=\(pow(10, value("threshold") / 20)):ratio=\(value("ratio")):attack=20:release=250,alimiter=limit=0.891251:level=false"
         case .matchLoudness: "loudnorm=I=\(value("target")):TP=\(value("peak")):LRA=11"
-        case .reverb: reverbGraph
+        case .reverb: reverbGraph(sampleRate: sampleRate)
         case .echo: value("amount") == 0 ? "anull" : "aecho=1:1:\(value("delay")):\(value("amount") / 100)"
         case .softenS: "deesser=i=\(value("amount") / 100):m=0.8:f=0.5"
-        case .limitPeaks: "aresample=192000,alimiter=limit=\(pow(10, value("ceiling") / 20)):level=false:latency=true,aresample=48000"
+        case .limitPeaks: "aresample=\(max(sampleRate, 192_000)),alimiter=limit=\(pow(10, value("ceiling") / 20)):level=false:latency=true,aresample=\(sampleRate)"
         }
     }
     var reverbDecay: Double { [0.35, 0.8, 1.6][min(max(Int(value("room")), 0), 2)] }
-    private var reverbGraph: String {
+    private func reverbGraph(sampleRate: Int) -> String {
         guard value("amount") > 0 else { return "anull" }
         let key = "r" + id.uuidString.replacingOccurrences(of: "-", with: "")
         // A deterministic broadband impulse response gives a diffuse room decay,
         // rather than labeling a handful of discrete echoes as reverb.
         let noise = "2*(sin(n*12.9898)*43758.5453-floor(sin(n*12.9898)*43758.5453))-1"
         let impulse = "if(lt(t,0.012),0,(\(noise))*exp(-6.907755*t/\(reverbDecay)))"
-        return "asplit=2[\(key)d][\(key)w];aevalsrc='\(impulse)':s=48000:d=\(reverbDecay)[\(key)i];[\(key)w][\(key)i]afir=dry=1:wet=1:irnorm=2:irgain=1:irfmt=mono:minp=64:maxp=512[\(key)r];[\(key)d][\(key)r]amix=inputs=2:duration=first:normalize=0:weights='1 \(value("amount") / 100)'"
+        return "asplit=2[\(key)d][\(key)w];aevalsrc='\(impulse)':s=\(sampleRate):d=\(reverbDecay)[\(key)i];[\(key)w][\(key)i]afir=dry=1:wet=1:irnorm=2:irgain=1:irfmt=mono:minp=64:maxp=512[\(key)r];[\(key)d][\(key)r]amix=inputs=2:duration=first:normalize=0:weights='1 \(value("amount") / 100)'"
     }
 
     private var orientationGraph: String {

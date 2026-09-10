@@ -5,15 +5,13 @@ struct FFmpegClipExporter {
     static func arguments(
         sourceURL: URL,
         timeRange: CMTimeRange,
-        outputURL: URL,
-        useVideoToolbox: Bool = true
+        outputURL: URL
     ) -> [String] {
         arguments(
             sourceURL: sourceURL,
             sourceRanges: [timeRange],
             hasAudio: true,
-            outputURL: outputURL,
-            useVideoToolbox: useVideoToolbox
+            outputURL: outputURL
         )
     }
 
@@ -22,8 +20,7 @@ struct FFmpegClipExporter {
         sourceRanges: [CMTimeRange],
         hasAudio: Bool,
         outputURL: URL,
-        format: ExportFormat = .h264MP4,
-        useVideoToolbox: Bool = true
+        format: ExportFormat = .h264MP4
     ) -> [String] {
         guard sourceRanges.count != 1 else {
             let timeRange = sourceRanges[0]
@@ -38,7 +35,7 @@ struct FFmpegClipExporter {
             if !format.isAudioOnly { result += ["-map", "0:v:0"] }
             if hasAudio { result += ["-map", "0:a:0?"] }
             result += ["-sn", "-dn"]
-            result += encodingArguments(format: format, useVideoToolbox: useVideoToolbox, hasAudio: hasAudio)
+            result += encodingArguments(format: format, hasAudio: hasAudio)
             if format.supportsFastStart { result += ["-movflags", "+faststart"] }
             result += ["-progress", "pipe:1", "-nostats", outputURL.path]
             return result
@@ -76,7 +73,7 @@ struct FFmpegClipExporter {
         if hasVideo { result += ["-map", "[v]"] }
         if hasAudio { result += ["-map", "[a]"] }
         result += ["-sn", "-dn"]
-        result += encodingArguments(format: format, useVideoToolbox: useVideoToolbox, hasAudio: hasAudio)
+        result += encodingArguments(format: format, hasAudio: hasAudio)
         if format.supportsFastStart { result += ["-movflags", "+faststart"] }
         result += ["-progress", "pipe:1", "-nostats", outputURL.path]
         return result
@@ -84,27 +81,24 @@ struct FFmpegClipExporter {
 
     private static func encodingArguments(
         format: ExportFormat,
-        useVideoToolbox: Bool,
         hasAudio: Bool
     ) -> [String] {
         switch format {
         case .h264MP4, .h264QuickTime:
-            var result = useVideoToolbox
-                ? ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-tag:v", "avc1"]
-                : ["-c:v", "mpeg4", "-q:v", "3", "-tag:v", "mp4v"]
-            if hasAudio { result += ["-c:a", "aac"] }
+            var result = ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-tag:v", "avc1"]
+            if hasAudio { result += ["-c:a", "aac", "-b:a", "320k"] }
             return result
         case .hevcMP4, .hevcMovie:
             var result = ["-c:v", "hevc_videotoolbox", "-allow_sw", "1", "-tag:v", "hvc1"]
-            if hasAudio { result += ["-c:a", "aac"] }
+            if hasAudio { result += ["-c:a", "aac", "-b:a", "320k"] }
             return result
         case .proRes422LT, .proRes422, .proRes422HQ:
             let profile = format == .proRes422LT ? "1" : format == .proRes422 ? "2" : "3"
             var result = ["-c:v", "prores_ks", "-profile:v", profile, "-pix_fmt", "yuv422p10le"]
-            if hasAudio { result += ["-c:a", "pcm_s16le"] }
+            if hasAudio { result += ["-c:a", "pcm_s24le"] }
             return result
         case .m4a:
-            return ["-vn", "-c:a", "aac", "-b:a", "192k"]
+            return ["-vn", "-c:a", "aac", "-b:a", "320k"]
         case .m4aAppleLossless:
             return ["-vn", "-c:a", "alac"]
         case .flac:
@@ -148,6 +142,14 @@ struct FFmpegClipExporter {
         if format.isAudioOnly && !hasAudio {
             throw ProjectExporter.ExportError.noAudio
         }
+        if !format.isAudioOnly {
+            let report = try await FFmpegMediaProbe.inspect(url: sourceURL)
+            if report.isHDR {
+                try await ClipExporter.export(asset: AVURLAsset(url: sourceURL), sourceRanges: sourceRanges,
+                    sourceContentType: nil, format: format, to: outputURL, progress: progress)
+                return
+            }
+        }
         let fileManager = FileManager.default
         let replacementDirectory = try fileManager.url(
             for: .itemReplacementDirectory,
@@ -164,32 +166,14 @@ struct FFmpegClipExporter {
         do {
             _ = try await FFmpegRunner.run(
                 tool: .ffmpeg,
-                arguments: arguments(
-                    sourceURL: sourceURL,
-                    sourceRanges: sourceRanges,
-                    hasAudio: hasAudio,
-                    outputURL: temporaryURL,
-                    format: format
-                ),
+                arguments: arguments(sourceURL: sourceURL, sourceRanges: sourceRanges,
+                                     hasAudio: hasAudio, outputURL: temporaryURL, format: format),
                 progress: progress,
                 expectedDuration: duration
             )
-        } catch let error as FFmpegCommandError
-            where error.isVideoToolboxUnavailable && (format == .h264MP4 || format == .h264QuickTime) {
-            try Task.checkCancellation()
-            _ = try await FFmpegRunner.run(
-                tool: .ffmpeg,
-                arguments: arguments(
-                    sourceURL: sourceURL,
-                    sourceRanges: sourceRanges,
-                    hasAudio: hasAudio,
-                    outputURL: temporaryURL,
-                    format: format,
-                    useVideoToolbox: false
-                ),
-                progress: progress,
-                expectedDuration: duration
-            )
+        } catch let error as FFmpegCommandError where error.isVideoToolboxUnavailable {
+            throw ProjectExporter.ExportError.encodingFailed(
+                "The selected video encoder is unavailable. Try another export format. Trimato has not substituted a different codec.")
         }
         try Task.checkCancellation()
 

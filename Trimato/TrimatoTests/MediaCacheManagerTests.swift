@@ -87,7 +87,7 @@ struct MediaCacheManagerTests {
 
         #expect(arguments.contains(source.path))
         #expect(arguments.contains("prores_ks"))
-        #expect(arguments.contains("pcm_s16le"))
+        #expect(arguments.contains("pcm_f32le"))
         #expect(!arguments.contains("-vf"))
     }
 
@@ -112,6 +112,6 @@ struct MediaCacheManagerTests {
         #expect(!proxyArguments.contains("0:v:0"))
         #expect(intermediateArguments.contains("-vn"))
         #expect(!intermediateArguments.contains("prores_ks"))
-        #expect(intermediateArguments.contains("pcm_s16le"))
+        #expect(intermediateArguments.contains("pcm_f32le"))
     }
 }

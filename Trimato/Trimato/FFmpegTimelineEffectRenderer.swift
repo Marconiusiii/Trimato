@@ -7,6 +7,8 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         segments: [SourceSegment],
         settings: AudioClipSettings,
         stereo: Bool = false,
+        sourceChannels: Int = 2,
+        sampleRate: Int? = nil,
         progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         let directory = FileManager.default.temporaryDirectory
@@ -20,8 +22,10 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         }
         let inputs = usable.indices.map { "[s\($0)]" }.joined()
         var final = "\(inputs)concat=n=\(usable.count):v=0:a=1"
-        final += ",aresample=48000"
+        final += ",aformat=sample_fmts=fltp"
+        if let sampleRate { final += ",aresample=\(sampleRate)" }
         if let effects = audioFilter(for: settings) { final += ",\(effects)" }
+        if stereo, sourceChannels == 1 { final += ",pan=stereo|c0=c0|c1=c0" }
         if stereo { final += ",aformat=sample_fmts=fltp:channel_layouts=stereo" }
         final += "[outa]"
         chains.append(final)
@@ -29,7 +33,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
             "-hide_banner", "-nostdin", "-y", "-i", sourceURL.path,
             "-filter_complex", chains.joined(separator: ";"),
             "-map", "[outa]", "-vn", "-sn", "-dn",
-            "-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le", "-progress", "pipe:1", "-nostats", outputURL.path,
+            "-c:a", "pcm_f32le", "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {
             _ = try await FFmpegRunner.run(
@@ -69,8 +73,20 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         let outputURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
         let leadingReport = try await FFmpegMediaProbe.inspect(url: leadingURL)
         let trailingReport = try await FFmpegMediaProbe.inspect(url: trailingURL)
+        let isHDR = leadingReport.isHDR || trailingReport.isHDR
+        var leadingURL = leadingURL
+        var trailingURL = trailingURL
+        var colorConversions: [URL] = []
+        defer { for url in colorConversions { try? FileManager.default.removeItem(at: url) } }
+        if isHDR {
+            for (index, report) in [leadingReport, trailingReport].enumerated() where report.videoStream?.colorTransfer != "arib-std-b67" {
+                let converted = try await HDRVideoRenderer.render(source: index == 0 ? leadingURL : trailingURL)
+                colorConversions.append(converted)
+                if index == 0 { leadingURL = converted } else { trailingURL = converted }
+            }
+        }
         let hasAlpha = leadingReport.hasAlpha || trailingReport.hasAlpha
-        let graph: String
+        var graph: String
         if type == .fadeOutIn {
             graph = videoFadeOutInGraph(
                 leadingStart: max(leadingEnd.seconds - half, 0),
@@ -95,6 +111,11 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         } else {
             throw ProjectTimelineError.transitionNotAvailable("The transition media is no longer available.")
         }
+        if isHDR {
+            graph = graph.replacingOccurrences(of: "format=yuv444p", with: "format=yuv444p16le")
+                .replacingOccurrences(of: "format=yuva444p", with: "format=yuva444p16le")
+                .replacingOccurrences(of: "[outv]", with: ",setparams=range=limited:color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc[outv]")
+        }
         var arguments = ["-hide_banner", "-nostdin", "-y"]
         if leadingReport.hasAlpha, leadingReport.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
         arguments += ["-i", leadingURL.path]
@@ -106,6 +127,9 @@ nonisolated enum FFmpegTimelineEffectRenderer {
             "-video_track_timescale", "60000", "-t", number(duration.seconds),
             "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
+        if isHDR {
+            arguments.insert(contentsOf: ["-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc"], at: arguments.count - 1)
+        }
         do {
             _ = try await FFmpegRunner.run(
                 tool: .ffmpeg,
@@ -124,13 +148,13 @@ nonisolated enum FFmpegTimelineEffectRenderer {
     static func renderAudioTransition(
         leadingURL: URL,
         trailingURL: URL,
-        projectReferenceURL: URL? = nil,
         leadingClip: TimelineClip,
         trailingClip: TimelineClip,
         type: AudioTransitionType,
         duration: ProjectTime,
         muteLeading: Bool = false,
         muteTrailing: Bool = false,
+        sampleRate: Int? = nil,
         progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         guard let leadingEnd = leadingClip.segments.last?.sourceRange.end,
@@ -138,7 +162,14 @@ nonisolated enum FFmpegTimelineEffectRenderer {
             throw ProjectTimelineError.transitionNotAvailable("The transition media is no longer available.")
         }
         let half = duration.seconds / 2
-        let audioFormat = AudioTransitionFormat(sampleRate: 48000, channelLayout: "stereo")
+        let leadingReport = try await FFmpegMediaProbe.inspect(url: leadingURL)
+        let trailingReport = try await FFmpegMediaProbe.inspect(url: trailingURL)
+        let sources = [leadingReport.audioStream, trailingReport.audioStream].compactMap { $0 }.map {
+            AudioProcessingFormat(sampleRate: Double($0.sampleRate ?? "") ?? 0, channels: $0.channels ?? 0)
+        }
+        let selected = try AudioProcessingFormat.select(sources, stereoMix: sampleRate != nil)
+        let audioFormat = AudioTransitionFormat(sampleRate: sampleRate ?? Int(selected.sampleRate),
+                                                channelLayout: selected.channels == 1 ? "mono" : "stereo")
         var graph: String
         if type == .fadeOutIn {
             graph = audioFadeOutInGraph(
@@ -160,6 +191,12 @@ nonisolated enum FFmpegTimelineEffectRenderer {
                 curve: .linear
             )
         }
+        if selected.channels == 2 {
+            // Duplicate mono at unity gain, matching the project mixer and voice metering.
+            for (index, report) in [leadingReport, trailingReport].enumerated() where report.audioStream?.channels == 1 {
+                graph = graph.replacingOccurrences(of: "[\(index):a:0]", with: "[\(index):a:0]pan=stereo|c0=c0|c1=c0,")
+            }
+        }
         if muteLeading { graph = graph.replacingOccurrences(of: "[a0];", with: ",volume=0[a0];") }
         if muteTrailing { graph = graph.replacingOccurrences(of: "[a1];", with: ",volume=0[a1];") }
         let directory = FileManager.default.temporaryDirectory
@@ -170,7 +207,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
             "-hide_banner", "-nostdin", "-y",
             "-i", leadingURL.path, "-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outa]", "-vn", "-sn", "-dn",
-            "-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le", "-t", number(duration.seconds),
+            "-c:a", "pcm_f32le", "-t", number(duration.seconds),
             "-progress", "pipe:1", "-nostats", outputURL.path,
         ]
         do {
@@ -419,7 +456,7 @@ nonisolated struct AudioTransitionFormat: Equatable {
         if let sampleRate {
             filters.append("aresample=\(sampleRate)")
         }
-        var constraints: [String] = []
+        var constraints: [String] = ["sample_fmts=fltp"]
         if let sampleRate {
             constraints.append("sample_rates=\(sampleRate)")
         }
@@ -433,7 +470,7 @@ nonisolated struct AudioTransitionFormat: Equatable {
     }
 
     var constraintsSuffix: String {
-        var constraints: [String] = []
+        var constraints: [String] = ["sample_fmts=fltp"]
         if let sampleRate {
             constraints.append("sample_rates=\(sampleRate)")
         }

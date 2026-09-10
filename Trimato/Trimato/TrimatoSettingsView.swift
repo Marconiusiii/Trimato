@@ -32,6 +32,9 @@ struct TrimatoSettingsView: View {
             AudioRecordingSettingsView(capture: capture)
                 .tabItem { Label("Audio", systemImage: "waveform") }
 
+            VideoSettingsView()
+                .tabItem { Label("Video", systemImage: "video") }
+
             AccessibilitySettingsView()
                 .tabItem { Label("Accessibility", systemImage: "accessibility") }
 
@@ -214,5 +217,18 @@ private struct AccessibilitySettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(20)
+    }
+}
+
+private struct VideoSettingsView: View {
+    @AppStorage(AppPreferenceKey.preserveHDR) private var preserveHDR = true
+
+    var body: some View {
+        Form {
+            Toggle("Preserve HDR", isOn: $preserveHDR)
+            Text("Keep HDR brightness and color when exporting HDR video as HEVC or ProRes. Turn this off to convert HDR video to SDR.")
+            Text("Project exports use stereo audio. Spatial audio and editable Cinematic focus information are not included.")
+        }
+        .formStyle(.grouped)
     }
 }

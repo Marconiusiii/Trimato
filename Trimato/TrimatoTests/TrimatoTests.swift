@@ -227,17 +227,8 @@ struct TrimatoTests {
         #expect(arguments.contains("aac"))
         #expect(arguments.last == "/tmp/output.mp4")
 
-        let fallbackArguments = FFmpegClipExporter.arguments(
-            sourceURL: URL(fileURLWithPath: "/tmp/source.mkv"),
-            timeRange: CMTimeRange(
-                start: .zero,
-                duration: CMTime(seconds: 1, preferredTimescale: 600)
-            ),
-            outputURL: URL(fileURLWithPath: "/tmp/output.mp4"),
-            useVideoToolbox: false
-        )
-        #expect(fallbackArguments.contains("mpeg4"))
-        #expect(fallbackArguments.contains("mp4v"))
+        #expect(!arguments.contains("mpeg4"))
+        #expect(!arguments.contains("mp4v"))
     }
 
     @Test func ffmpegBuildsAConcatenatedFilterForEditedRanges() {

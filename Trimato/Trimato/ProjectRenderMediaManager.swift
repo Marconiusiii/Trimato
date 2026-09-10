@@ -30,7 +30,7 @@ nonisolated enum ProjectRenderMediaManager {
         } else {
             result += ["-vn"]
         }
-        if hasAudio { result += ["-c:a", "pcm_s16le"] }
+        if hasAudio { result += ["-c:a", "pcm_f32le"] }
         result += ["-progress", "pipe:1", "-nostats", outputURL.path]
         return result
     }

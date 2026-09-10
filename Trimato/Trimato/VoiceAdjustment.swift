@@ -91,8 +91,10 @@ nonisolated enum VoiceAudioProcessor {
             }
             gain += correction
         }
+        let tracks = try await AVURLAsset(url: input).loadTracks(withMediaType: .audio)
+        let rate = Int(try await AudioProcessingFormat.inspect(tracks: tracks, stereoMix: false).sampleRate)
         // Oversample the limiter and compensate its lookahead so timing stays intact.
-        let graph = "[0:a:0]volume=\(gain)dB,aresample=192000,alimiter=limit=0.891251:level=false:latency=true,aresample=48000[out]"
+        let graph = "[0:a:0]volume=\(gain)dB,aresample=\(max(rate, 192_000)),alimiter=limit=0.891251:level=false:latency=true,aresample=\(rate)[out]"
         let output = try await process(source: input, graph: graph)
         guard trimOutput, let segments else { return output }
         defer { try? FileManager.default.removeItem(at: output) }
@@ -107,7 +109,7 @@ nonisolated enum VoiceAudioProcessor {
         do {
             _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
                 "-hide_banner", "-nostdin", "-y", "-i", source.path, "-filter_complex", graph,
-                "-map", "[out]", "-c:a", "pcm_f32le", "-ar", "48000", output.path
+                "-map", "[out]", "-c:a", "pcm_f32le", output.path
             ])
             try Task.checkCancellation()
             return output

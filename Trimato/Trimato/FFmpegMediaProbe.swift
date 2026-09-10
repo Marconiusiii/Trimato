@@ -51,6 +51,10 @@ nonisolated struct FFmpegMediaProbe {
         struct Stream: Decodable, Equatable {
             let codecType: String?
             let codecName: String?
+            let codecTag: String?
+            let colorPrimaries: String?
+            let colorSpace: String?
+            let sideData: [SideData]?
             let codecLongName: String?
             let pixelFormat: String?
             let colorTransfer: String?
@@ -62,10 +66,23 @@ nonisolated struct FFmpegMediaProbe {
             let channels: Int?
             let channelLayout: String?
 
+            struct SideData: Decodable, Equatable {
+                let type: String?
+                let dolbyVisionProfile: Int?
+                enum CodingKeys: String, CodingKey {
+                    case type = "side_data_type"
+                    case dolbyVisionProfile = "dv_profile"
+                }
+            }
+
             init(
                 codecType: String? = nil,
                 codecName: String? = nil,
                 codecLongName: String? = nil,
+                codecTag: String? = nil,
+                colorPrimaries: String? = nil,
+                colorSpace: String? = nil,
+                sideData: [SideData]? = nil,
                 pixelFormat: String? = nil,
                 colorTransfer: String? = nil,
                 width: Int? = nil,
@@ -78,6 +95,10 @@ nonisolated struct FFmpegMediaProbe {
             ) {
                 self.codecType = codecType
                 self.codecName = codecName
+                self.codecTag = codecTag
+                self.colorPrimaries = colorPrimaries
+                self.colorSpace = colorSpace
+                self.sideData = sideData
                 self.codecLongName = codecLongName
                 self.pixelFormat = pixelFormat
                 self.colorTransfer = colorTransfer
@@ -93,6 +114,10 @@ nonisolated struct FFmpegMediaProbe {
             enum CodingKeys: String, CodingKey {
                 case codecType = "codec_type"
                 case codecName = "codec_name"
+                case codecTag = "codec_tag_string"
+                case colorPrimaries = "color_primaries"
+                case colorSpace = "color_space"
+                case sideData = "side_data_list"
                 case codecLongName = "codec_long_name"
                 case pixelFormat = "pix_fmt"
                 case colorTransfer = "color_transfer"
