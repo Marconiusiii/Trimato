@@ -4,7 +4,58 @@ import Testing
 
 @MainActor @Suite(.serialized)
 struct MultiSourceSpatialTests {
-    static let userProject = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Movies/proClips/proClips.trimato/project.json")
+    nonisolated static let userProject = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Movies/proClips/proClips.trimato/project.json")
+
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: userProject.path)), arguments: [ExportFormat.h264MP4, .hevcMP4])
+    func savedProjectStereoMP4CoversTheExactExportDuration(format: ExportFormat) async throws {
+        let project = try JSONDecoder().decode(TrimatoProject.self, from: Data(contentsOf: Self.userProject))
+        let urls = Dictionary(uniqueKeysWithValues: project.media.map { ($0.id, URL(fileURLWithPath: $0.originalPath)) })
+        let result = try await ProjectCompositionBuilder.build(project: project, mediaURLs: urls,
+            purpose: .finalExport, preserveHDR: format == .hevcMP4, audioMode: .highQualityStereo)
+        defer { for url in result.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }
+        let video = try #require(result.videoComposition)
+        let duration = try await result.composition.load(.duration)
+        print("Stereo export timing: project=\(project.duration.seconds), composition=\(duration.seconds), instructions=\(video.instructions.last?.timeRange.end.seconds ?? -1)")
+        #expect(video.isValid(for: result.composition, timeRange: CMTimeRange(start: .zero, duration: duration), validationDelegate: nil))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-mp4-regression-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appendingPathComponent("full.mp4")
+        try await ProjectExporter.export(project: project, mediaURLs: urls, format: format, to: output,
+            audioMode: .highQualityStereo, progress: { _ in }, preserveHDR: format == .hevcMP4)
+        let exported = AVURLAsset(url: output)
+        #expect(abs(try await exported.load(.duration).seconds - project.duration.seconds) < 1.0 / 24)
+        let videoTracks = try await exported.loadTracks(withMediaType: .video)
+        #expect(videoTracks.count == 1)
+        let picture = try #require(videoTracks.first)
+        let size = try await picture.load(.naturalSize)
+        #expect(Int(size.width) == project.format.width)
+        #expect(Int(size.height) == project.format.height)
+        if format == .hevcMP4 {
+            #expect(try await VideoColorPolicy.resolve(asset: exported, preserveHDR: true) == .hlg)
+        }
+        #expect(try await exported.loadTracks(withMediaType: .audio).count == 1)
+        let audio = try await SpatialAudioProcessingTests.samples(exported, index: 0)
+        #expect(audio.channels == 2)
+        #expect(audio.values.contains { abs($0) > 0.0001 })
+        let selection = ProjectTimeRange(start: ProjectTime(seconds: 1.125), duration: ProjectTime(seconds: 2.375))
+        let selectedOutput = directory.appendingPathComponent("selection.mp4")
+        try await ProjectExporter.export(project: project, mediaURLs: urls, timeRange: selection,
+            format: format, to: selectedOutput, audioMode: .highQualityStereo, progress: { _ in }, preserveHDR: format == .hevcMP4)
+        let selectedAsset = AVURLAsset(url: selectedOutput)
+        #expect(abs(try await selectedAsset.load(.duration).seconds - selection.duration.seconds) < 1.0 / 24)
+        let selectedAudio = try await SpatialAudioProcessingTests.samples(selectedAsset, index: 0)
+        #expect(selectedAudio.channels == 2)
+        #expect(selectedAudio.values.contains { abs($0) > 0.0001 })
+    }
+
+    @Test func invalidVideoCompositionHasAnExplanationAndTechnicalDetails() {
+        let error = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.invalidVideoComposition.rawValue)
+        let message = ProjectExporter.userFacingMessage(for: error)
+        #expect(message.contains("video timeline could not be prepared"))
+        #expect(message.contains("-11841"))
+        #expect(!message.contains("couldn’t be completed"))
+    }
 
     @Test(.enabled(if: FileManager.default.fileExists(atPath: userProject.path)))
     func savedCinematicProjectPreviewsAndExportsBothAudioChoices() async throws {

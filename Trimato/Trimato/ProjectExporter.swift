@@ -98,7 +98,7 @@ enum ProjectExporter {
                 asset: result.composition,
                 videoComposition: result.videoComposition,
                 audioMix: result.audioMix,
-                timeRange: validatedRange?.cmTimeRange,
+                timeRange: validatedRange?.cmTimeRange ?? CMTimeRange(start: .zero, duration: project.duration.cmTime),
                 format: format,
                 to: outputURL,
                 progress: progress
@@ -118,9 +118,8 @@ enum ProjectExporter {
         }
         session.audioMix = result.audioMix
         session.shouldOptimizeForNetworkUse = format == .h264MP4
-        if let validatedRange {
-            session.timeRange = validatedRange.cmTimeRange
-        }
+        session.timeRange = validatedRange?.cmTimeRange
+            ?? CMTimeRange(start: .zero, duration: project.duration.cmTime)
 
         let temporaryDirectory = try FileManager.default.url(
             for: .itemReplacementDirectory,
@@ -159,6 +158,10 @@ enum ProjectExporter {
 
     nonisolated static func failureDetail(for error: Error) -> String {
         let nsError = error as NSError
+        if nsError.domain == AVFoundationErrorDomain,
+           nsError.code == AVError.Code.invalidVideoComposition.rawValue {
+            return "The video timeline could not be prepared for export. Your project and original media have not been changed.\n\nTechnical details: AVFoundationErrorDomain -11841 (invalid video composition)."
+        }
         if let reason = nsError.localizedFailureReason, isUsefulFailureDetail(reason) {
             return reason
         }
@@ -192,7 +195,9 @@ enum ProjectExporter {
     private nonisolated static func isUsefulFailureDetail(_ detail: String) -> Bool {
         let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return false }
-        return !normalized.contains("operation could not be completed")
+        return !normalized.contains("operation couldn’t be completed")
+            && !normalized.contains("operation couldn't be completed")
+            && !normalized.contains("operation could not be completed")
             && !normalized.contains("unknown error occurred")
             && !normalized.contains("osstatus error")
             && !normalized.contains("error code")

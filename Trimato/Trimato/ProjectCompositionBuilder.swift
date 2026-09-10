@@ -206,7 +206,12 @@ nonisolated enum ProjectCompositionBuilder {
                         for track in spatialResult.composition.tracks(withMediaType: .audio) where track.trackID != destination.trackID {
                             spatialResult.composition.removeTrack(track)
                         }
-                        try destination.insertTimeRange(try await audio.load(.timeRange), of: audio, at: .zero)
+                        // The rendered master ends on an audio sample boundary. A rounded-up
+                        // sample must not extend the movie past its video instructions.
+                        let available = try await audio.load(.timeRange)
+                        let range = CMTimeRange(start: available.start,
+                            duration: CMTimeMinimum(available.duration, project.duration.cmTime))
+                        try destination.insertTimeRange(range, of: audio, at: .zero)
                         return ProjectCompositionResult(composition: spatialResult.composition,
                             videoComposition: spatialResult.videoComposition, audioMix: nil,
                             temporaryMediaURLs: spatialResult.temporaryMediaURLs)
