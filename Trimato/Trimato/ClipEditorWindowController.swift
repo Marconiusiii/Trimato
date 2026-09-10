@@ -381,6 +381,9 @@ final class ClipPlacementCommandContext: ObservableObject {
         guard let clip = project.timelineClip(id: id) else { throw ProjectTimelineError.clipNotFound }
         let result = try await ProjectCompositionBuilder.build(project: project, mediaURLs: controller.resolvedMediaURLs())
         defer { for url in result.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }
+        guard result.spatialAudio == nil else {
+            throw SpatialAudioError.unsupported("Voice processing previews are not supported for Spatial Audio yet.")
+        }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-voice-mix-\(UUID()).wav")
         do {
             try await AudioOnlyExporter.export(asset: result.composition, audioMix: result.audioMix,

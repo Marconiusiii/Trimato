@@ -119,6 +119,8 @@ nonisolated struct ProjectPreviewInput: Equatable {
 @MainActor
 final class ProjectPlayerViewModel: ObservableObject {
     private var mixProcessors: [TrackMixProcessor] = []
+    private var hasSpatialAudio = false
+    private var spatialMixBlocked = false
     private var mixBindings: [CMPersistentTrackID: ProjectMixBinding] = [:]
     private var latestMixProject: TrimatoProject?
     private var soloTrackIDs: Set<UUID> = []
@@ -132,6 +134,24 @@ final class ProjectPlayerViewModel: ObservableObject {
         if !validSolo.isEmpty {
             for index in listeningProject.tracks.indices where listeningProject.tracks[index].kind == .audio && !validSolo.contains(listeningProject.tracks[index].id) {
                 listeningProject.tracks[index].isMuted = true
+            }
+        }
+        if hasSpatialAudio {
+            do {
+                try SpatialAudioPlan.validateControls(listeningProject)
+                if spatialMixBlocked {
+                    errorMessage = nil
+                    currentPreviewFailure = nil
+                    presentedPreviewFailure = nil
+                }
+                spatialMixBlocked = false
+            } catch {
+                spatialMixBlocked = true
+                player.pause()
+                errorMessage = error.localizedDescription
+                currentPreviewFailure = ProjectPreviewFailure(title: "Spatial Audio Preview Unavailable",
+                    message: error.localizedDescription, transitionID: nil)
+                return
             }
         }
         let ranges = listeningProject.descriptionDucking.ranges(in: listeningProject)
@@ -165,7 +185,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     @Published private(set) var outMarker: ProjectTime?
 
     var canControlPlayback: Bool {
-        Self.canControlPlayback(hasPreparedItem: hasPreparedPlayerItem, isPreparing: isPreparing)
+        !spatialMixBlocked && Self.canControlPlayback(hasPreparedItem: hasPreparedPlayerItem, isPreparing: isPreparing)
     }
 
     nonisolated static func canControlPlayback(hasPreparedItem: Bool, isPreparing: Bool) -> Bool {
@@ -452,10 +472,12 @@ final class ProjectPlayerViewModel: ObservableObject {
                     Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
                     return
                 }
-                let item = AVPlayerItem(asset: result.composition)
-                item.videoComposition = result.videoComposition
+                let item = AVPlayerItem(asset: result.playbackAsset)
+                item.videoComposition = result.playbackVideoComposition
                 item.appliesPerFrameHDRDisplayMetadata = false
                 item.audioMix = result.audioMix
+                hasSpatialAudio = result.spatialAudio != nil
+                spatialMixBlocked = false
                 mixProcessors = result.mixProcessors
                 mixBindings = result.mixBindings
                 player.replaceCurrentItem(with: item)
@@ -478,8 +500,10 @@ final class ProjectPlayerViewModel: ObservableObject {
                 preparationProgress = 1
                 isPreparing = false
                 isInitialPreparationPending = false
-                currentPreviewFailure = nil
-                presentedPreviewFailure = nil
+                if !spatialMixBlocked {
+                    currentPreviewFailure = nil
+                    presentedPreviewFailure = nil
+                }
             } catch is CancellationError {
                 Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
                 if self.preparationID == preparationID {
@@ -548,6 +572,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         let previouslyHadPreparedPlayerItem = hasPreparedPlayerItem
         let previousMixProcessors = mixProcessors
         let previousMixBindings = mixBindings
+        let previousSpatialAudio = hasSpatialAudio
+        let previousSpatialMixBlocked = spatialMixBlocked
         var replacedPlayerItem = false
         var stagingPlayer: AVPlayer?
         do {
@@ -596,6 +622,8 @@ final class ProjectPlayerViewModel: ObservableObject {
 
             let committedItem = Self.makeTransitionPreviewItem(from: result)
             player.replaceCurrentItem(with: committedItem)
+            hasSpatialAudio = result.spatialAudio != nil
+            spatialMixBlocked = false
             mixProcessors = result.mixProcessors
             mixBindings = result.mixBindings
             updateMix(project: latestMixProject ?? project, refreshEnvelopes: true)
@@ -628,6 +656,8 @@ final class ProjectPlayerViewModel: ObservableObject {
                 player.replaceCurrentItem(with: previousPlayerItem)
                 mixProcessors = previousMixProcessors
                 mixBindings = previousMixBindings
+                hasSpatialAudio = previousSpatialAudio
+                spatialMixBlocked = previousSpatialMixBlocked
                 hasPreparedPlayerItem = previouslyHadPreparedPlayerItem
             }
             Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
@@ -639,8 +669,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     static func makeTransitionPreviewItem(
         from result: ProjectCompositionResult
     ) -> AVPlayerItem {
-        let item = AVPlayerItem(asset: result.composition)
-        item.videoComposition = result.videoComposition
+        let item = AVPlayerItem(asset: result.playbackAsset)
+        item.videoComposition = result.playbackVideoComposition
         item.appliesPerFrameHDRDisplayMetadata = false
         item.audioMix = result.audioMix
         return item

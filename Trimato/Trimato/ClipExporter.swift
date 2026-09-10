@@ -48,6 +48,10 @@ struct ClipExporter {
         to outputURL: URL
     ) async throws {
         guard !sourceRanges.isEmpty else { throw ClipExportError.unavailable }
+        if let spatial = try await SpatialAudioPlan.clip(asset: asset, ranges: sourceRanges) {
+            try await spatial.export(includeSourceVideo: true, to: outputURL, progress: { _ in })
+            return
+        }
         let exportAsset: AVAsset
         if sourceRanges.count == 1, let range = sourceRanges.first {
             exportAsset = asset
@@ -78,9 +82,23 @@ struct ClipExporter {
         sourceContentType: UTType?,
         format: ExportFormat,
         to outputURL: URL,
+        preserveSpatialAudio: Bool = true,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
         guard !sourceRanges.isEmpty else { throw ClipExportError.unavailable }
+        if preserveSpatialAudio, let spatial = try await SpatialAudioPlan.clip(asset: asset, ranges: sourceRanges) {
+            try spatial.validate(format: format)
+            if format == .original {
+                try await spatial.export(includeSourceVideo: true, to: outputURL, progress: progress)
+            } else {
+                let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
+                defer { try? FileManager.default.removeItem(at: temporary) }
+                try await export(asset: asset, sourceRanges: sourceRanges, sourceContentType: sourceContentType,
+                    format: format, to: temporary, preserveSpatialAudio: false, progress: { progress($0 * 0.9) })
+                try await spatial.export(video: AVURLAsset(url: temporary), to: outputURL, progress: { progress(0.9 + $0 * 0.1) })
+            }
+            return
+        }
         if format == .original {
             guard let sourceContentType else { throw ClipExportError.unsupportedFileType }
             try await export(

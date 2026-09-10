@@ -157,6 +157,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
     private var mediaDuration: CMTime = .zero
     private var mediaSource: MediaSource?
+    private var hasSpatialAudio = false
     private var editTimeline: ClipEditTimeline?
     private var basePlaybackAsset: AVAsset?
     private var activeAudioPreviewURL: URL?
@@ -422,6 +423,8 @@ final class VideoPlayerViewModel: ObservableObject {
                 guard self.loadID == operationID else {
                     throw CancellationError()
                 }
+                self.hasSpatialAudio = try await SpatialAudioPlan.detect(in: source.originalAsset)
+                let editingAsset = self.hasSpatialAudio ? source.originalAsset : source.playbackAsset
                 self.mediaSource = source
                 self.hasVideo = source.hasVideo
                 self.proxyURL = preparedSource == nil && source.usesProxy ? source.playbackURL : nil
@@ -457,10 +460,10 @@ final class VideoPlayerViewModel: ObservableObject {
                     : ClipEditTimeline(sourceRanges: requestedRanges)
                 let playbackAsset: AVAsset
                 if requestedRanges.isEmpty {
-                    playbackAsset = source.playbackAsset
+                    playbackAsset = editingAsset
                 } else {
-                    playbackAsset = try await EditedCompositionBuilder.build(
-                        asset: source.playbackAsset,
+                    playbackAsset = try await EditedCompositionBuilder.playbackAsset(
+                        asset: editingAsset,
                         sourceRanges: timeline.sourceRanges
                     )
                 }
@@ -484,7 +487,7 @@ final class VideoPlayerViewModel: ObservableObject {
                     self.prepareWaveform(asset: source.playbackAsset)
                 } else {
                     self.mediaProgress = nil
-                    self.mediaStatus = source.usesProxy
+                    self.mediaStatus = source.usesProxy && !self.hasSpatialAudio
                         ? "Ready using a playback proxy"
                         : "Ready"
                 }
@@ -803,7 +806,7 @@ final class VideoPlayerViewModel: ObservableObject {
         var sourceRanges = editTimeline.sourceRanges(in: editedExportRange)
         if let previewURL = activeAudioPreviewURL {
             let filteredAsset = AVURLAsset(url: previewURL)
-            mediaSource = .native(url: previewURL, asset: filteredAsset, contentType: .quickTimeMovie, mode: .nativePlaybackMP4Export, hasVideo: filteredPreviewIsAudio == false, hasAudio: filteredPreviewIsAudio == true)
+            mediaSource = .native(url: previewURL, asset: filteredAsset, contentType: .quickTimeMovie, mode: .nativePlaybackMP4Export, hasVideo: filteredPreviewIsAudio == false, hasAudio: filteredPreviewIsAudio == true || hasSpatialAudio)
             sourceRanges = [editedExportRange ?? CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 60000))]
         }
         guard !sourceRanges.isEmpty else {
@@ -819,12 +822,14 @@ final class VideoPlayerViewModel: ObservableObject {
            ClipExporter.canPassthrough(asset: mediaSource.originalAsset, sourceContentType: sourceContentType) {
             formats.insert(.original, at: 0)
         }
+        if hasSpatialAudio { formats.removeAll { !$0.supportsSpatialAudio } }
         let baseName = mediaSource.originalURL.deletingPathExtension().lastPathComponent + "-trimmed"
         guard let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         let savePanel = ExportSavePanel(
             title: "Export Clip",
             baseName: baseName,
             formats: formats,
+            outputSummary: hasSpatialAudio ? "Spatial Audio and its stereo compatibility track are preserved. Editable Cinematic focus information is not included." : nil,
             originalExtension: mediaSource.originalURL.pathExtension,
             originalContentType: mediaSource.contentType
         )
@@ -1185,8 +1190,8 @@ final class VideoPlayerViewModel: ObservableObject {
         editID = operationID
         editTask = Task { @MainActor in
             do {
-                let composition = try await EditedCompositionBuilder.build(
-                    asset: mediaSource.playbackAsset,
+                let composition = try await EditedCompositionBuilder.playbackAsset(
+                    asset: self.hasSpatialAudio ? mediaSource.originalAsset : mediaSource.playbackAsset,
                     sourceRanges: updatedTimeline.sourceRanges
                 )
                 try Task.checkCancellation()

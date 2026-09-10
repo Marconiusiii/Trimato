@@ -48,6 +48,30 @@ enum ProjectExporter {
         }
         let validatedRange = try validatedTimeRange(timeRange, projectDuration: project.duration)
 
+        if let spatial = result.spatialAudio {
+            try spatial.validate(format: format)
+            // Render only picture. The original encoded audio is attached afterwards.
+            for track in result.composition.tracks(withMediaType: .audio) { result.composition.removeTrack(track) }
+            let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            let policy: VideoColorPolicy = result.videoComposition?.colorTransferFunction == AVVideoTransferFunction_ITU_R_2100_HLG ? .hlg : .sdr
+            try policy.validate(format: format)
+            if format == .h264QuickTime {
+                guard let session = AVAssetExportSession(asset: result.composition, presetName: AVAssetExportPresetHighestQuality) else {
+                    throw ExportError.incompatibleFormat(format.title)
+                }
+                session.videoComposition = result.videoComposition
+                try await session.export(to: temporary, as: .mov)
+            } else {
+                try await CustomMovieExporter.export(asset: result.composition, videoComposition: result.videoComposition,
+                    audioMix: nil, timeRange: nil, format: format, to: temporary, progress: { progress($0 * 0.9) })
+            }
+            try Task.checkCancellation()
+            try await spatial.export(video: AVURLAsset(url: temporary), range: validatedRange?.cmTimeRange,
+                                     to: outputURL, progress: { progress(0.9 + $0 * 0.1) })
+            return
+        }
+
         let colorPolicy: VideoColorPolicy = result.videoComposition?.colorTransferFunction == AVVideoTransferFunction_ITU_R_2100_HLG ? .hlg : .sdr
         try colorPolicy.validate(format: format)
 

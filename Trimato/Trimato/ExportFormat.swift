@@ -97,6 +97,10 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
         [.original, .hevcMP4, .hevcMovie, .proRes422LT, .proRes422, .proRes422HQ].contains(self)
     }
 
+    var supportsSpatialAudio: Bool {
+        [.original, .hevcMovie, .h264QuickTime, .proRes422LT, .proRes422, .proRes422HQ].contains(self)
+    }
+
     var requiresCustomVideoWriter: Bool {
         self == .proRes422LT || self == .proRes422 || self == .proRes422HQ
     }
@@ -227,7 +231,7 @@ final class ExportSavePanel {
     ) {
         precondition(!formats.isEmpty)
         let outputSummary = outputSummary ?? (formats.contains { !$0.isAudioOnly && $0 != .original }
-            ? "Converted exports do not include spatial audio or editable Cinematic focus information." : nil)
+            ? "Converted exports do not include editable Cinematic focus information." : nil)
         self.formats = formats
         self.originalExtension = originalExtension
         self.originalContentType = originalContentType

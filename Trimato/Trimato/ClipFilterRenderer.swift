@@ -8,10 +8,30 @@ nonisolated enum ClipFilterRenderer {
                        segments: [SourceSegment]? = nil, audioSettings: AudioClipSettings? = nil,
                        voiceSegments: [SourceSegment]? = nil,
                        progress: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> URL {
+        let asset = AVURLAsset(url: source)
+        let spatial = try await SpatialAudioPlan.detect(in: asset)
+        if audio, spatial { throw SpatialAudioError.unsupported("Audio filter processing for Spatial Audio is not supported yet.") }
+        let rendered = try await renderProcessed(source: source, filters: filters, audio: audio, duration: duration,
+            segments: segments, audioSettings: audioSettings, voiceSegments: voiceSegments, progress: progress)
+        guard spatial, !audio else { return rendered }
+        defer { try? FileManager.default.removeItem(at: rendered) }
+        let sourceDuration = try await asset.load(.duration)
+        let ranges = segments?.map { $0.sourceRange.cmTimeRange } ?? [CMTimeRange(start: .zero, duration: sourceDuration)]
+        guard let plan = try await SpatialAudioPlan.clip(asset: asset, ranges: ranges) else { throw SpatialAudioError.invalidMovie }
+        let output = rendered.deletingLastPathComponent().appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
+        try await plan.export(video: AVURLAsset(url: rendered), to: output, progress: { _ in })
+        return output
+    }
+
+    @concurrent
+    private static func renderProcessed(source: URL, filters: [ClipFilter], audio: Bool, duration: Double,
+                       segments: [SourceSegment]? = nil, audioSettings: AudioClipSettings? = nil,
+                       voiceSegments: [SourceSegment]? = nil,
+                       progress: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> URL {
         if audio, let voice = audioSettings?.voice, voice.isActive {
             var originalSettings = audioSettings
             originalSettings?.voice = nil
-            let processed = try await render(source: source, filters: filters, audio: true, duration: duration,
+            let processed = try await renderProcessed(source: source, filters: filters, audio: true, duration: duration,
                                              audioSettings: originalSettings, progress: progress)
             defer { try? FileManager.default.removeItem(at: processed) }
             return try await VoiceAudioProcessor.render(source: processed, settings: voice,
@@ -21,9 +41,9 @@ nonisolated enum ClipFilterRenderer {
         let active = ClipFilterKind.allCases.compactMap { kind in filters.first { $0.kind == kind && $0.enabled && $0.kind.isAudio == audio } }
         if let segments, !active.isEmpty {
             // Process the same source and history as the project renderer, then select the edited ranges.
-            let processed = try await render(source: source, filters: filters, audio: audio, duration: duration, progress: progress)
+            let processed = try await renderProcessed(source: source, filters: filters, audio: audio, duration: duration, progress: progress)
             defer { try? FileManager.default.removeItem(at: processed) }
-            return try await render(source: processed, filters: [], audio: audio, duration: duration,
+            return try await renderProcessed(source: processed, filters: [], audio: audio, duration: duration,
                                     segments: segments, audioSettings: audioSettings, progress: progress)
         }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TrimatoClipFilters", isDirectory: true)

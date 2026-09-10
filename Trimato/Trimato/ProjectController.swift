@@ -548,7 +548,9 @@ final class ProjectController: ObservableObject {
             guard let self else { return }
             defer { self.isPresentingExportPanel = false }
             let policy: VideoColorPolicy
+            let spatial: SpatialAudioPlan?
             do {
+                spatial = try await SpatialAudioPlan.project(self.project, urls: urls)
                 policy = try await VideoColorPolicy.resolve(project: self.project, urls: urls,
                                                            preserveHDR: AppPreferences.preserveHDR())
             } catch {
@@ -556,11 +558,11 @@ final class ProjectController: ObservableObject {
                 return
             }
             let formats = ExportFormat.projectFormats.filter { format in
-                (format.isAudioOnly && self.project.hasTimelineAudio) ||
-                    (!format.isAudioOnly && self.project.hasTimelineVideo && (policy == .sdr || format.supportsHDR))
+                (spatial == nil || format.supportsSpatialAudio) && ((format.isAudioOnly && self.project.hasTimelineAudio) ||
+                    (!format.isAudioOnly && self.project.hasTimelineVideo && (policy == .sdr || format.supportsHDR)))
             }
             let summary = self.project.hasTimelineVideo
-                ? "\(policy == .hlg ? "HDR video" : "SDR video"). Edited exports use stereo audio and do not include spatial audio or editable Cinematic focus information."
+                ? "\(policy == .hlg ? "HDR video" : "SDR video"). \(spatial == nil ? "Stereo audio." : "Spatial Audio and its stereo compatibility track are preserved.") Editable Cinematic focus information is not included."
                 : nil
             let savePanel = ExportSavePanel(
                 title: "Export Project", baseName: self.project.name, formats: formats,

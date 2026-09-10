@@ -6,9 +6,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct IPhoneMediaTests {
-    static let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    nonisolated static let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("appStore/test_videos")
-    static let available = FileManager.default.fileExists(atPath: sources.appendingPathComponent("4K_30fps.MOV").path)
+    nonisolated static let available = FileManager.default.fileExists(atPath: sources.appendingPathComponent("4K_30fps.MOV").path)
 
     @Test(.enabled(if: available), arguments: ["4K_30fps.MOV", "4K_60fps.mov", "4K_120fps.MOV"])
     func spatialAudioRecordingsExportHDR(name: String) async throws {
@@ -43,14 +43,14 @@ struct IPhoneMediaTests {
         let project = try await project(source: source)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-iphone-validation")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        for (format, hdr) in [(ExportFormat.h264MP4, false), (.proRes422LT, true), (.proRes422, true), (.proRes422HQ, true)] {
+        for (format, hdr) in [(ExportFormat.h264QuickTime, false), (.proRes422LT, true), (.proRes422, true), (.proRes422HQ, true)] {
             let output = directory.appendingPathComponent("4K_30-\(format.rawValue).\(format.fileExtension)")
             try await ProjectExporter.export(project: project, mediaURLs: [project.media[0].id: source],
                 format: format, to: output, progress: { _ in }, preserveHDR: hdr)
             let report = try await FFmpegMediaProbe.inspect(url: output)
             #expect(report.videoStream?.colorTransfer == (hdr ? "arib-std-b67" : "bt709"))
             #expect(report.videoStream?.width == 3840)
-            if hdr { #expect(report.audioStream?.sampleFormat == "s32") }
+            #expect(try await SpatialAudioPlan.detect(in: AVURLAsset(url: output)))
         }
     }
 
@@ -127,7 +127,7 @@ struct IPhoneMediaTests {
         }
     }
 
-    private func project(source: URL, selectionDuration: Double? = 1) async throws -> TrimatoProject {
+    func project(source: URL, selectionDuration: Double? = 1) async throws -> TrimatoProject {
         let report = try await FFmpegMediaProbe.inspect(url: source)
         let stream = try #require(report.videoStream)
         let rateParts = (stream.averageFrameRate ?? "30/1").split(separator: "/").compactMap { Double($0) }

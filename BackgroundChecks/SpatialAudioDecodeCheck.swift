@@ -36,7 +36,7 @@ struct SpatialAudioDecodeCheck {
                     guard before.channels == after.channels, before.rate == after.rate,
                           after.samples.count == expectedCount,
                           before.samples.count >= offset + after.samples.count else {
-                        throw Failure.invalid("Changed audio length or format: \(file), \(codec)")
+                        throw Failure.invalid("Changed audio length or format: \(file), \(codec); original \(before.samples.count / before.channels) frames at \(before.rate) Hz, output \(after.samples.count / after.channels) frames at \(after.rate) Hz; expected \(expectedCount / before.channels) frames")
                     }
                     var maximum = 0.0, squaredError = 0.0
                     for index in after.samples.indices {

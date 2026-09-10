@@ -1,6 +1,13 @@
 import AVFoundation
 
 enum EditedCompositionBuilder {
+    static func playbackAsset(asset: AVAsset, sourceRanges: [CMTimeRange]) async throws -> AVAsset {
+        if let spatial = try await SpatialAudioPlan.clip(asset: asset, ranges: sourceRanges) {
+            return try await spatial.movie(includeSourceVideo: true).0
+        }
+        return try await build(asset: asset, sourceRanges: sourceRanges)
+    }
+
     static func build(asset: AVAsset, sourceRanges: [CMTimeRange]) async throws -> AVMutableComposition {
         let composition = AVMutableComposition()
         try await insertFirstTrack(

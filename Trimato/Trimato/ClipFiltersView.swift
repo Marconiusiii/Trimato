@@ -551,6 +551,10 @@ struct FilterAuditionView: View {
                     }
                     try await work.play(url, position: position)
                 } else {
+                    if try await SpatialAudioPlan.detect(in: AVURLAsset(url: url)) {
+                        try await work.play(url, position: position)
+                        return
+                    }
                     let edited = try await EditedCompositionBuilder.build(asset: AVURLAsset(url: source),
                         sourceRanges: context.segments.map { CMTimeRange(start: $0.sourceRange.start.cmTime, duration: $0.duration.cmTime) })
                     for track in try await edited.loadTracks(withMediaType: .video) { edited.removeTrack(track) }

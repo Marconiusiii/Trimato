@@ -8,6 +8,11 @@ nonisolated struct ProjectCompositionResult {
     let temporaryMediaURLs: [URL]
     var mixProcessors: [TrackMixProcessor] = []
     var mixBindings: [CMPersistentTrackID: ProjectMixBinding] = [:]
+    var spatialAudio: SpatialAudioPlan? = nil
+    var spatialPlaybackAsset: AVAsset? = nil
+    var spatialVideoComposition: AVMutableVideoComposition? = nil
+    var playbackAsset: AVAsset { spatialPlaybackAsset ?? composition }
+    var playbackVideoComposition: AVMutableVideoComposition? { spatialPlaybackAsset == nil ? videoComposition : spatialVideoComposition }
 }
 
 nonisolated struct ProjectMixBinding {
@@ -183,7 +188,23 @@ nonisolated enum ProjectCompositionBuilder {
         preserveHDR: Bool = AppPreferences.preserveHDR()
     ) async throws -> ProjectCompositionResult {
         try await MediaJobContext.$priority.withValue(purpose == .preview ? .interactive : .background) {
-            try await buildComposition(project: project, mediaURLs: mediaURLs, purpose: purpose, progress: progress, preserveHDR: preserveHDR)
+            let spatial = try await SpatialAudioPlan.project(project, urls: mediaURLs)
+            var result = try await buildComposition(project: project, mediaURLs: mediaURLs, purpose: purpose, progress: progress, preserveHDR: preserveHDR)
+            do {
+                result.spatialAudio = spatial
+                if let spatial, purpose == .preview {
+                    let (movie, mapping) = try await spatial.movie(video: result.composition)
+                    result.spatialPlaybackAsset = movie
+                    result.spatialVideoComposition = try SpatialAudioPlan.remap(result.videoComposition, tracks: mapping)
+                    result = ProjectCompositionResult(composition: result.composition, videoComposition: result.videoComposition,
+                        audioMix: nil, temporaryMediaURLs: result.temporaryMediaURLs, spatialAudio: spatial,
+                        spatialPlaybackAsset: movie, spatialVideoComposition: result.spatialVideoComposition)
+                }
+                return result
+            } catch {
+                for url in result.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) }
+                throw error
+            }
         }
     }
 

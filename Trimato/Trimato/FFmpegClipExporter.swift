@@ -142,6 +142,11 @@ struct FFmpegClipExporter {
         if format.isAudioOnly && !hasAudio {
             throw ProjectExporter.ExportError.noAudio
         }
+        if try await SpatialAudioPlan.detect(in: AVURLAsset(url: sourceURL)) {
+            try await ClipExporter.export(asset: AVURLAsset(url: sourceURL), sourceRanges: sourceRanges,
+                sourceContentType: nil, format: format, to: outputURL, progress: progress)
+            return
+        }
         if !format.isAudioOnly {
             let report = try await FFmpegMediaProbe.inspect(url: sourceURL)
             if report.isHDR {

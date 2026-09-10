@@ -147,6 +147,9 @@ private struct MixerPlaybackControls: View {
     @StateObject private var keyboard = SettingsSliderKeyboard(identifier: "trimato.mixer.playhead")
     var body: some View {
         VStack(spacing: 10) {
+            if let message = player.errorMessage {
+                Text(message).textSelection(.enabled)
+            }
             MixerPlayheadSlider(value: Binding(get: { player.playbackFraction }, set: { player.seek(toFraction: $0) }),
                 step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel)
                 .tint(EditorTheme.playhead)

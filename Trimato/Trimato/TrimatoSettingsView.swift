@@ -227,7 +227,7 @@ private struct VideoSettingsView: View {
         Form {
             Toggle("Preserve HDR", isOn: $preserveHDR)
             Text("Keep HDR brightness and color when exporting HDR video as HEVC or ProRes. Turn this off to convert HDR video to SDR.")
-            Text("Project exports use stereo audio. Spatial audio and editable Cinematic focus information are not included.")
+            Text("Supported QuickTime exports preserve iPhone Spatial Audio and its stereo playback alternative. Spatial audio processing and mixing are not supported. Converted exports do not include editable Cinematic focus information.")
         }
         .formStyle(.grouped)
     }
