@@ -196,7 +196,7 @@ In and Out are general selection markers:
 - Export Clip exports the complete edited timeline when both markers are clear.
 - An incomplete or reversed selection must be corrected or cleared before export.
 
-After a clip-editor deletion, the playhead moves to the new edit point and the markers are cleared. In a Trimato project, the resulting source ranges are saved with the media or timeline clip. Project changes participate in the standard Undo and Redo commands.
+After a clip-editor deletion, the playhead moves to the new edit point and the markers are cleared. Source edits remain temporary until placed in the timeline. The project saves each timeline clip’s ranges, and project changes participate in the standard Undo and Redo commands.
 
 The primary video and audio tracks retain magnetic editing, so operations that remove time close the resulting space on that track. Additional tracks can also contain independently positioned clips and gaps for music, effects, and layered material. Clips on different tracks can begin and end independently. The Track picker chooses the video or audio track presented as a native chronological Timeline clips list, while the Editor playhead remains shared across the complete project. Timeline clips is for reviewing and arranging the project. Clip Editor changes a source edit, Transition Editor changes transition timing, and Editor provides project playback and direct playhead-based editing.
 
