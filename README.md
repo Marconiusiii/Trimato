@@ -27,6 +27,8 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Reach the displayed Video frame as a VoiceOver image above the Editor playhead slider.
 - Mix whole audio tracks with Volume, Mute, Solo, Pan, Stereo balance, Stereo width, and Channel routing. Adjust the combined output with Master Volume.
 - Preview and export the complete arranged project as H.264 or HEVC MP4, H.264 or HEVC QuickTime, ProRes 422 LT, ProRes 422, ProRes 422 HQ, M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, or 24-bit WAV.
+- Preserve HDR brightness and color in compatible HEVC and ProRes exports, or choose SDR conversion in Settings > Video.
+- Retain source audio sample rates during clip processing and choose lossless audio formats for the finished mix. Project audio is currently stereo; Spatial Audio preservation is a separate prototype.
 - Open audio and video files from the File menu, Finder, drag and drop, or Command-O.
 - Play, pause, seek, and move forward or backward one frame at a time.
 - Display the playhead as timecode or a frame number.
@@ -242,6 +244,43 @@ Video exports include H.264 MP4, HEVC MP4, H.264 QuickTime, HEVC QuickTime, ProR
 
 An audio-only clip or project offers only audio output formats because it has no picture to encode. A mixed project offers both video and audio output formats. In an audio-only project, adding the first video clip establishes the automatic project resolution and frame rate.
 
+### HDR and high-resolution video
+
+Open Settings > Video and leave Preserve HDR on to retain HDR brightness and color from supported sources. It is on by default. Choose HEVC MP4, HEVC movie, or a ProRes format for HDR output. HDR processing supports video filters, transitions, and burned-in captions. HEVC HDR output uses 10-bit video with regenerated Dolby Vision metadata; ProRes retains HLG HDR.
+
+Turn Preserve HDR off to convert HDR video to standard dynamic range (SDR), including when you need H.264 output. HDR project exports offer compatible formats; an incompatible HDR export request fails instead of silently switching to SDR. Original format is a standalone passthrough option and does not apply the HDR-to-SDR conversion setting.
+
+Use File > Project Settings to choose the intended dimensions and frame rate. For example, use 3840 by 2160 at 120 fps to retain that resolution and nominal rate from a matching iPhone recording. Adding a 4K or 120 fps clip to a lower-resolution or lower-rate project does not upgrade the project automatically. Variable-frame-rate recordings are conformed to the project's fixed frame grid; their exact original frame timing is not preserved.
+
+HDR preservation does not make video encoding lossless. H.264, HEVC, and ProRes exports can change picture data. Export uses original media rather than playback proxies, but output quality also depends on the project format, filters, and chosen codec.
+
+### Audio quality and export choices
+
+Clip audio processing uses 32-bit floating-point intermediates and retains the source sample rate. Project mixing uses the highest sample rate among its source audio, converting lower-rate sources to that common rate. It does not impose a blanket 44.1 or 48 kHz limit. Project output is stereo; a standalone mono audio export can remain mono. These capabilities apply to audio-only editing as well as video soundtracks.
+
+| Export choice | Audio result |
+|---|---|
+| M4A Apple Lossless, FLAC, or WAV audio, 24-bit | Lossless compression or uncompressed storage of the rendered audio, with 24-bit output in the native audio export path. |
+| WAV audio, 16-bit | Uncompressed audio with lower sample precision than 24-bit output. |
+| ProRes 422 LT, 422, or 422 HQ movie | Video with uncompressed 24-bit PCM audio. |
+| M4A AAC audio, H.264, or HEVC video | Compressed AAC audio; audio is re-encoded and is not lossless. |
+
+Choose Apple Lossless, FLAC, or 24-bit WAV to avoid an additional lossy audio encoding stage. Choose ProRes when you need uncompressed audio inside a video file. A lossless output format does not restore information already absent from a compressed source, undo audio effects, or preserve spatial channels through the current stereo mixer. Unsupported multichannel sources without a usable mono or stereo track are rejected rather than automatically downmixed.
+
+### iPhone Spatial Audio and Cinematic recordings
+
+iPhone recordings can contain both a spatial audio track and a stereo compatibility track. The current app edits and exports the stereo track. The spatial recording remains in the original file, but normal project exports do not preserve its spatial sound. Original format should not be treated as a guarantee that every alternate audio track or metadata item survives a clip export.
+
+Cinematic picture can be edited, but exported projects do not retain editable focus and depth information. Cinematic mode does not imply a particular resolution or frame rate; inspect the actual clip properties with Get Info.
+
+### Spatial Audio preservation prototype
+
+A separate prototype preserves the original AAC stereo and APAC spatial audio tracks, channel layouts, fallback relationships, and metadata for full-length and trimmed single-source movies. It can also pair that preserved audio with Trimato's rendered HDR video. It is not yet connected to normal app preview or export.
+
+Twelve samples from the supplied iPhone 16 Pro recordings passed packet and container checks and twenty-four native decoded-audio comparisons. Full-length decoded audio was identical to the originals; spatial trims differed only by tiny floating-point rounding. The user confirmed that all supplied listening samples sounded good. The Cinematic recording's five-channel spatial track decoded successfully, although Apple's Audio Mix inspection API reported incomplete information for both the original and exports.
+
+Spatial filters, fades, volume changes, narration/music mixing, and multiple-source assembly are not implemented by this prototype. Head-tracked playback has not been verified. See the [prototype instructions and validation details](BackgroundChecks/SpatialAudioPreservation.md).
+
 ## Mixed media and project format
 
 Each project that contains video has one resolution and frame rate. Automatic from First Clip uses the first video clip placed on the primary timeline, not the first file imported into the Project Browser. An earlier audio-only timeline clip does not establish a visual format. A project created directly from a standalone video uses that clip's displayed dimensions and nominal frame rate; a project created from standalone audio remains automatic until video is added. Later clips retain their own source properties while Trimato conforms them to the project during preview and export.
@@ -280,7 +319,7 @@ When AVFoundation cannot play a source, Trimato uses its bundled FFmpeg and ffpr
 - WMV
 - FLV
 
-Format recognition does not guarantee that every possible codec or media feature inside a container can be edited. Trimato currently rejects HDR and alpha-channel sources when a safe MP4 conversion would not preserve those properties.
+Format recognition does not guarantee that every codec or media feature inside a container can be edited. Supported HDR media uses the HDR processing path described above. If a source requires a fallback conversion that would discard HDR or transparency, Trimato rejects that conversion. This is distinct from deliberately turning Preserve HDR off for SDR output.
 
 The bundled tools have networking, encrypted-stream protocols, and HLS support disabled. They can access only local files and local process pipes.
 
@@ -316,7 +355,7 @@ Accessibility is part of Trimato's editing model rather than an additional mode.
 - Get Info opens a standard macOS window titled for the focused item. Each field is exposed to VoiceOver as one qualified label and value, and the window closes with the standard window controls or Command-W.
 - Quick transition sheets return VoiceOver focus to the Editor after applying or canceling so repeated playback and editing remain in context.
 - Timeline list items expose names and positions without continuously speaking start, end, and duration values. Press Command-I for exact timing and other information about the focused item.
-- Settings has General, Accessibility, and Storage panes. Accessibility includes Timecode Feedback controls for Live, On Demand, or Off feedback and Default, Short, or Frames verbosity. In On Demand mode, press T in Editor or Clip Editor to hear the current time.
+- Settings has General, Audio, Video, Accessibility, and Storage panes. Video contains Preserve HDR. Accessibility includes Timecode Feedback controls for Live, On Demand, or Off feedback and Default, Short, or Frames verbosity. In On Demand mode, press T in Editor or Clip Editor to hear the current time.
 - Import preparation appears in a native modal sheet so the inactive editor does not remain in the active VoiceOver context.
 - Import, export, transition, generator, and filter operations use separate progress windows with cancellation and restrained spoken percentage announcements.
 - In, Out, navigation, editing, completion, and failure actions provide spoken feedback.

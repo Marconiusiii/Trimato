@@ -38,6 +38,12 @@
     <h2>A project cannot export offline media</h2>
     <p>A playback proxy is not a replacement or backup for its original source. Relink every offline source used by the timeline, then choose Export Project again.</p>
 
+    <h2>Exported iPhone audio sounds less spacious</h2>
+    <p>Normal project exports use the recording's stereo compatibility track and do not preserve Spatial Audio. The original recording retains its spatial track. Choosing a lossless format prevents another lossy encoding stage but does not restore spatial sound. <a href="saving-and-exporting.html#spatial-audio">Read the Spatial Audio export limits.</a></p>
+
+    <h2>HDR export or H.264 is unavailable</h2>
+    <p>With Preserve HDR on in Settings &gt; Video, choose HEVC or ProRes for HDR output. To create SDR video, including H.264, turn Preserve HDR off. If a required source conversion cannot retain HDR, Trimato reports the problem rather than exporting an SDR playback proxy as HDR. <a href="saving-and-exporting.html#hdr">Review HDR export settings.</a></p>
+
     <h2>Blade at playhead is unavailable</h2>
     <p>Move the project playhead inside a timeline clip, away from its beginning or end, then activate Blade at playhead again.</p>
 

@@ -43,10 +43,12 @@ Native AVFoundation operations require access to macOS media services. These too
 
 The September 10, 2026 run produced twelve movies and passed twenty-four native decoded-audio comparisons. All full-length decoded audio was identical. Stereo trims were identical; the largest spatial trim difference was approximately `2.98e-8` in normalized Float32 samples.
 
+The user subsequently listened to the supplied samples and confirmed that they all sounded good. This listening result is separate from the automated comparisons; head-tracked playback was not specifically assessed.
+
 Apple's `CNAssetSpatialAudioInfo` recognizes the 30 fps and 120 fps originals and all their exported variants. The Cinematic original and all its variants return `CNCinematicErrorDomain:3` (incomplete information). Its five-channel APAC audio still decodes successfully and passes the same sample comparisons. Matching that original API limitation is recorded separately from successful spatial recognition.
 
 ## Limits
 
-This establishes preservation for these single-source recordings, including audio paired with independently rendered HDR video. It does not implement spatial filtering, crossfades, gain changes, mixed narration/music, multiple-source assembly, or normal app integration. It does not certify head-tracked playback, subjective listening quality, video appearance, or editable Cinematic focus/depth behavior. The HDR variants reuse the previous Trimato render and retain its existing video frame-timing limitations.
+This establishes preservation for these single-source recordings, including audio paired with independently rendered HDR video. It does not implement spatial filtering, crossfades, gain changes, mixed narration/music, multiple-source assembly, or normal app integration. The listening approval applies to the supplied samples, not all possible sources or playback devices. Head-tracked playback, video appearance, and editable Cinematic focus/depth behavior remain unverified. The HDR variants reuse the previous Trimato render and retain its existing video frame-timing limitations.
 
 Apple documents alternate audio groups in [TN3177](https://developer.apple.com/documentation/technotes/tn3177-understanding-alternate-audio-track-groups-in-movie-files) and the export/audio-mix restriction in [audioTrackGroupHandling](https://developer.apple.com/documentation/avfoundation/avassetexportsession/audiotrackgrouphandling).

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="description" content="Save a Trimato project and export a complete or marked range as video or audio.">
+    <meta name="description" content="Save and export video or audio, preserve HDR, choose audio quality, and understand Spatial Audio and Cinematic export limits.">
     <title>Save and export</title>
     <link rel="stylesheet" href="trimato-help.css">
 </head>
@@ -35,6 +35,38 @@
     <p>Every video export uses the project's resolution and frame rate. Mixed source dimensions are proportionally fitted without stretching or automatic cropping. Narrower sources are pillarboxed, wider sources are letterboxed, and unused parts of the project frame are black.</p>
     <p>An audio-only timeline section inside a video project uses black picture for that section unless a video cutaway supplies the picture.</p>
     <p>The exported file uses the project frame rate. When a clip uses a different frame rate, its speed and audio length stay the same.</p>
+
+    <h2 id="hdr">Preserve HDR or export SDR video</h2>
+    <ol>
+        <li>Open Trimato &gt; Settings &gt; Video.</li>
+        <li>Leave Preserve HDR on to retain HDR brightness and color from supported recordings. It is on by default.</li>
+        <li>Export as HEVC MP4, HEVC movie, ProRes 422 LT, ProRes 422, or ProRes 422 HQ.</li>
+    </ol>
+    <p>HDR output supports video filters, transitions, and burned-in captions. HEVC HDR exports use 10-bit video with Dolby Vision metadata; ProRes exports retain HLG HDR.</p>
+    <p>Turn Preserve HDR off to convert HDR video to standard dynamic range, or SDR. Use this when you need H.264 output. HDR project exports offer compatible formats; an incompatible HDR format request fails instead of silently converting the picture. The standalone Original format option passes through supported media and does not apply SDR conversion.</p>
+    <p>Open File &gt; Project Settings to match the intended resolution and frame rate. A 4K recording placed in a 1080p project exports at 1080p. A 120 fps recording placed in a 30 fps project exports at 30 fps. Variable-frame-rate sources use the project's fixed frame grid rather than their exact original frame timing.</p>
+    <p>Preserving HDR does not make video encoding lossless. The project format, filters, and export codec still affect the finished picture.</p>
+
+    <h2 id="audio-quality">Choose audio quality</h2>
+    <p>For audio-only work or a video soundtrack, choose the output format to suit the next editing or delivery step.</p>
+    <table>
+        <caption>Audio export choices</caption>
+        <thead><tr><th scope="col">Format</th><th scope="col">When to choose it</th></tr></thead>
+        <tbody>
+            <tr><th scope="row">M4A Apple Lossless or FLAC</th><td>Keep the rendered audio without lossy compression.</td></tr>
+            <tr><th scope="row">WAV audio, 24-bit</th><td>Save uncompressed audio for further editing.</td></tr>
+            <tr><th scope="row">WAV audio, 16-bit</th><td>Use when delivery requires 16-bit uncompressed audio.</td></tr>
+            <tr><th scope="row">ProRes 422 LT, 422, or 422 HQ movie</th><td>Keep uncompressed 24-bit audio inside the video file.</td></tr>
+            <tr><th scope="row">M4A AAC audio, H.264, or HEVC video</th><td>Use compressed AAC audio for delivery. This re-encodes audio and is not lossless.</td></tr>
+        </tbody>
+    </table>
+    <p>Clip processing retains the source audio sample rate. A project mixes at the highest sample rate among its source audio, converting lower-rate sources to that common rate. Project exports are stereo; standalone mono audio can remain mono. Unsupported multichannel sources without a usable mono or stereo track cannot be mixed.</p>
+    <p>A lossless format avoids an additional lossy encoding stage. It does not recover information missing from the original recording or undo changes made with filters, volume, or other mix controls.</p>
+
+    <h2 id="spatial-audio">Understand Spatial Audio and Cinematic limits</h2>
+    <p>iPhone Spatial Audio recordings can contain a stereo compatibility track alongside their spatial audio. Trimato currently uses the stereo track for editing and normal project export. The original file keeps its spatial audio, but the exported project does not preserve that spatial sound. Choosing a higher bitrate, a lossless audio format, or Original format does not guarantee spatial preservation.</p>
+    <p>Spatial Audio preservation is not yet available through the app's normal preview and export controls.</p>
+    <p>Cinematic video can be edited as picture, but project exports do not retain editable focus and depth information. Select the clip and press Command-I to check its actual dimensions and frame rate; Cinematic mode can use different recording settings.</p>
 
     <h2>Understand which media export uses</h2>
     <p>Playback proxies are used for responsive preview and editing, not as the final-quality sources for a project export. Trimato returns to the original source files and applies the source ranges, timeline arrangement, cutaways, audio choices, project resolution, and project frame rate saved in the project.</p>
