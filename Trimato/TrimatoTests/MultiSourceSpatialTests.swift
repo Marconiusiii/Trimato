@@ -49,6 +49,72 @@ struct MultiSourceSpatialTests {
         #expect(selectedAudio.values.contains { abs($0) > 0.0001 })
     }
 
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: userProject.path)),
+          arguments: [ExportFormat.h264QuickTime, .hevcMovie, .proRes422], [ExportAudioMode.highQualityStereo, .preserveSpatial])
+    func movieExportPathsHandleFractionalSamples(format: ExportFormat, audioMode: ExportAudioMode) async throws {
+        let saved = try JSONDecoder().decode(TrimatoProject.self, from: Data(contentsOf: Self.userProject))
+        var project = TrimatoProject(name: "Fractional endpoints")
+        project.format = saved.format
+        project.media = saved.media
+        for asset in saved.media {
+            _ = try project.append(asset: asset, segments: [SourceSegment(sourceRange: ProjectTimeRange(
+                start: ProjectTime(seconds: 0.12501), duration: ProjectTime(seconds: 0.50001)))])
+        }
+        let urls = Dictionary(uniqueKeysWithValues: project.media.map { ($0.id, URL(fileURLWithPath: $0.originalPath)) })
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for range: ProjectTimeRange? in [nil, ProjectTimeRange(start: ProjectTime(seconds: 0.25001), duration: ProjectTime(seconds: 0.75001))] {
+            let output = directory.appendingPathComponent(UUID().uuidString + ".mov")
+            try await ProjectExporter.export(project: project, mediaURLs: urls, timeRange: range, format: format,
+                to: output, audioMode: audioMode, progress: { _ in }, preserveHDR: format != .h264QuickTime)
+            let movie = AVURLAsset(url: output)
+            #expect(abs(try await movie.load(.duration).seconds - (range?.duration ?? project.duration).seconds) < 1.0 / 24)
+            #expect(try await movie.loadTracks(withMediaType: .video).count == 1)
+            #expect(try await movie.loadTracks(withMediaType: .audio).count == (audioMode == .preserveSpatial ? 2 : 1))
+            let samples = try await SpatialAudioProcessingTests.samples(movie, index: 0)
+            #expect(samples.channels == 2)
+            #expect(samples.values.contains { abs($0) > 0.0001 })
+            if range == nil, format == .h264QuickTime, audioMode == .highQualityStereo {
+                // The SDR intermediate exercises both standalone AVAssetExportSession formats
+                // without changing the user's HDR preference.
+                for clipFormat in [ExportFormat.h264MP4, .h264QuickTime] {
+                    let clipOutput = directory.appendingPathComponent(UUID().uuidString + "." + clipFormat.fileExtension)
+                    try await ClipExporter.export(asset: movie,
+                        sourceRanges: [CMTimeRange(start: CMTime(seconds: 0.12501, preferredTimescale: 600000),
+                                                   duration: CMTime(seconds: 0.50001, preferredTimescale: 600000))],
+                        sourceContentType: .quickTimeMovie, format: clipFormat, to: clipOutput,
+                        preserveSpatialAudio: false, progress: { _ in })
+                    let clip = AVURLAsset(url: clipOutput)
+                    #expect(abs(try await clip.load(.duration).seconds - 0.50001) < 1.0 / 24)
+                    #expect(try await clip.loadTracks(withMediaType: .audio).count == 1)
+                }
+            }
+        }
+    }
+
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: userProject.path)),
+          arguments: [ExportFormat.hevcMovie, .proRes422], [true, false])
+    func standaloneMoviePathsHandleFractionalEdits(format: ExportFormat, spatial: Bool) async throws {
+        let saved = try JSONDecoder().decode(TrimatoProject.self, from: Data(contentsOf: Self.userProject))
+        let record = try #require(saved.media.first)
+        let asset = AVURLAsset(url: URL(fileURLWithPath: record.originalPath))
+        let ranges = [CMTimeRange(start: CMTime(seconds: 0.12501, preferredTimescale: 600000), duration: CMTime(seconds: 0.50001, preferredTimescale: 600000)),
+                      CMTimeRange(start: CMTime(seconds: 1.12501, preferredTimescale: 600000), duration: CMTime(seconds: 0.75001, preferredTimescale: 600000))]
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appendingPathComponent("clip.mov")
+        try await ClipExporter.export(asset: asset, sourceRanges: ranges, sourceContentType: .quickTimeMovie,
+            format: format, to: output, preserveSpatialAudio: spatial, progress: { _ in })
+        let movie = AVURLAsset(url: output)
+        #expect(abs(try await movie.load(.duration).seconds - 1.25002) < 1.0 / 24)
+        #expect(try await movie.loadTracks(withMediaType: .audio).count == (spatial ? 2 : 1))
+        let audio = try await SpatialAudioProcessingTests.samples(movie, index: 0)
+        #expect(audio.channels == 2)
+        #expect(audio.values.contains { abs($0) > 0.0001 })
+    }
+
     @Test func invalidVideoCompositionHasAnExplanationAndTechnicalDetails() {
         let error = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.invalidVideoComposition.rawValue)
         let message = ProjectExporter.userFacingMessage(for: error)

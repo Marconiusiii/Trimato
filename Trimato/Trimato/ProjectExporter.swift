@@ -28,6 +28,19 @@ enum ProjectExporter {
         }
     }
 
+    /// Validate the exact interval that the encoder will read, before creating output.
+    nonisolated static func validateVideoExport(
+        asset: AVAsset, composition: AVVideoComposition, range: CMTimeRange
+    ) async throws {
+        guard range.isValid, range.start.isNumeric, range.duration.isNumeric,
+              range.start >= .zero, range.duration > .zero else { throw ExportRangeError.invalidRange }
+        let valid = try await composition.isValid(for: asset, timeRange: range, validationDelegate: nil)
+        guard valid else {
+            throw ExportError.encodingFailed(failureDetail(for: NSError(
+                domain: AVFoundationErrorDomain, code: AVError.Code.invalidVideoComposition.rawValue)))
+        }
+    }
+
     static func export(
         project: TrimatoProject,
         mediaURLs: [UUID: URL],
@@ -49,6 +62,8 @@ enum ProjectExporter {
             for url in result.temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }
         }
         let validatedRange = try validatedTimeRange(timeRange, projectDuration: project.duration)
+        let fullRange = CMTimeRange(start: .zero, duration: project.duration.cmTime)
+        let exportRange = validatedRange?.cmTimeRange ?? fullRange
 
         if let spatial = result.spatialAudio {
             try spatial.validate(format: format)
@@ -62,14 +77,17 @@ enum ProjectExporter {
                 guard let session = AVAssetExportSession(asset: result.composition, presetName: AVAssetExportPresetHighestQuality) else {
                     throw ExportError.incompatibleFormat(format.title)
                 }
-                session.videoComposition = result.videoComposition
+                guard let video = result.videoComposition else { throw ExportError.incompatibleFormat(format.title) }
+                try await validateVideoExport(asset: result.composition, composition: video, range: fullRange)
+                session.videoComposition = video
+                session.timeRange = fullRange
                 try await session.export(to: temporary, as: .mov)
             } else {
                 try await CustomMovieExporter.export(asset: result.composition, videoComposition: result.videoComposition,
-                    audioMix: nil, timeRange: nil, format: format, to: temporary, progress: { progress($0 * 0.9) })
+                    audioMix: nil, timeRange: fullRange, format: format, to: temporary, progress: { progress($0 * 0.9) })
             }
             try Task.checkCancellation()
-            try await spatial.export(video: AVURLAsset(url: temporary), range: validatedRange?.cmTimeRange,
+            try await spatial.export(video: AVURLAsset(url: temporary), range: exportRange,
                                      to: outputURL, progress: { progress(0.9 + $0 * 0.1) })
             return
         }
@@ -98,7 +116,7 @@ enum ProjectExporter {
                 asset: result.composition,
                 videoComposition: result.videoComposition,
                 audioMix: result.audioMix,
-                timeRange: validatedRange?.cmTimeRange ?? CMTimeRange(start: .zero, duration: project.duration.cmTime),
+                timeRange: exportRange,
                 format: format,
                 to: outputURL,
                 progress: progress
@@ -113,13 +131,13 @@ enum ProjectExporter {
         guard session.supportedFileTypes.contains(fileType) else {
             throw ExportError.incompatibleFormat(format.title)
         }
-        if !format.isAudioOnly {
-            session.videoComposition = result.videoComposition
+        if let video = result.videoComposition {
+            try await validateVideoExport(asset: result.composition, composition: video, range: exportRange)
+            session.videoComposition = video
         }
         session.audioMix = result.audioMix
         session.shouldOptimizeForNetworkUse = format == .h264MP4
-        session.timeRange = validatedRange?.cmTimeRange
-            ?? CMTimeRange(start: .zero, duration: project.duration.cmTime)
+        session.timeRange = exportRange
 
         let temporaryDirectory = try FileManager.default.url(
             for: .itemReplacementDirectory,
@@ -250,6 +268,9 @@ nonisolated enum CustomMovieExporter {
         let effectiveComposition: AVVideoComposition
         if let videoComposition { effectiveComposition = videoComposition }
         else { effectiveComposition = try await VideoColorPolicy.composition(for: asset, policy: colorPolicy) }
+        let assetDuration = try await asset.load(.duration)
+        let exportRange = timeRange ?? CMTimeRange(start: .zero, duration: assetDuration)
+        try await ProjectExporter.validateVideoExport(asset: asset, composition: effectiveComposition, range: exportRange)
         let audioTracks = try await AudioProcessingFormat.exportTracks(in: asset)
         let renderSize = effectiveComposition.renderSize
 
@@ -266,7 +287,7 @@ nonisolated enum CustomMovieExporter {
             .appendingPathExtension(format.fileExtension)
 
         let reader = try AVAssetReader(asset: asset)
-        if let timeRange { reader.timeRange = timeRange }
+        reader.timeRange = exportRange
         let videoOutput = AVAssetReaderVideoCompositionOutput(
             videoTracks: videoTracks,
             videoSettings: [

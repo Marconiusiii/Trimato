@@ -131,13 +131,14 @@ struct ClipExporter {
         }
         let colorPolicy = try await VideoColorPolicy.resolve(asset: composition, preserveHDR: AppPreferences.preserveHDR())
         try colorPolicy.validate(format: format)
+        let exportRange = CMTimeRange(start: .zero, duration: sourceRanges.reduce(.zero) { $0 + $1.duration })
         let videoComposition = try await VideoColorPolicy.composition(for: composition, policy: colorPolicy)
         if format.requiresCustomVideoWriter || (colorPolicy == .hlg && [.hevcMP4, .hevcMovie].contains(format)) {
             try await CustomMovieExporter.export(
                 asset: composition,
                 videoComposition: videoComposition,
                 audioMix: nil,
-                timeRange: nil,
+                timeRange: exportRange,
                 format: format,
                 to: outputURL,
                 progress: progress
@@ -150,7 +151,9 @@ struct ClipExporter {
               session.supportedFileTypes.contains(fileType) else {
             throw ProjectExporter.ExportError.incompatibleFormat(format.title)
         }
+        try await ProjectExporter.validateVideoExport(asset: composition, composition: videoComposition, range: exportRange)
         session.videoComposition = videoComposition
+        session.timeRange = exportRange
         session.shouldOptimizeForNetworkUse = format == .h264MP4
 
         let fileManager = FileManager.default
