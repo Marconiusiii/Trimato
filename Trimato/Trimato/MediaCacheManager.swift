@@ -204,18 +204,19 @@ actor MediaCacheManager {
         _ = try? await enforceLimits()
     }
 
-    func status() throws -> MediaCacheStatus {
+    func status() async throws -> MediaCacheStatus {
         try loadIndexIfNeeded()
         reconcileIndex()
         try saveIndex()
+        let analysis = try await MediaAnalysisCache.shared.status()
         return MediaCacheStatus(
-            byteCount: index.entries.values.reduce(0) { $0 + $1.byteCount },
-            fileCount: index.entries.count,
+            byteCount: index.entries.values.reduce(0) { $0 + $1.byteCount } + analysis.bytes,
+            fileCount: index.entries.count + analysis.count,
             location: try ProxyMediaManager.cacheDirectory()
         )
     }
 
-    func clear(_ scope: MediaCacheClearScope) throws -> MediaCacheClearResult {
+    func clear(_ scope: MediaCacheClearScope) async throws -> MediaCacheClearResult {
         try loadIndexIfNeeded()
         reconcileIndex()
         let protectedKeys = allProtectedKeys
@@ -239,10 +240,11 @@ actor MediaCacheManager {
         }
         try removeIncompleteFiles()
         try saveIndex()
+        let analysis = try await MediaAnalysisCache.shared.clear(scope)
         return MediaCacheClearResult(
-            removedByteCount: removedBytes,
-            removedFileCount: removedFiles,
-            retainedActiveFileCount: retainedActiveFiles
+            removedByteCount: removedBytes + analysis.removedByteCount,
+            removedFileCount: removedFiles + analysis.removedFileCount,
+            retainedActiveFileCount: retainedActiveFiles + analysis.retainedActiveFileCount
         )
     }
 
@@ -295,7 +297,7 @@ actor MediaCacheManager {
             protectedKeys: protectedKeys.union(inFlightKeys),
             totalByteCount: totalBytes,
             availableByteCount: availableBytes,
-            maximumByteCount: Self.maximumByteCount,
+            maximumByteCount: Self.maximumByteCount - MediaAnalysisCache.maximumByteCount,
             minimumAvailableByteCount: Self.minimumAvailableByteCount
         )
 

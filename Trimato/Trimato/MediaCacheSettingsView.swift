@@ -37,7 +37,7 @@ final class MediaCacheSettingsModel: ObservableObject {
             do {
                 status = try await MediaCacheManager.shared.status()
                 if announceCompletion {
-                    announce("Playback proxy storage updated")
+                    announce("Media cache storage updated")
                 }
             } catch {
                 errorMessage = error.localizedDescription
@@ -55,8 +55,8 @@ final class MediaCacheSettingsModel: ObservableObject {
                 status = try await MediaCacheManager.shared.status()
                 let retained = result.retainedActiveFileCount
                 announce(retained == 0
-                    ? "Playback proxies cleared"
-                    : "Playback proxies cleared. Proxies for open projects were retained")
+                    ? "Media cache cleared"
+                    : "Media cache cleared. Cached media still in use was retained")
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -82,16 +82,16 @@ struct MediaCacheSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Playback proxy storage")
+            Text("Media cache storage")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
                     LabeledContent("Storage used", value: formattedSize)
-                    LabeledContent("Proxy files", value: formattedFileCount)
+                    LabeledContent("Cache files", value: formattedFileCount)
                     LabeledContent("Storage limit", value: "10 GB")
                     LabeledContent("Stored in", value: "macOS Caches")
-                    Text("Trimato creates a reusable playback proxy only when macOS cannot play an original file directly. Compatible media may use no proxy storage.")
+                    Text("Trimato reuses frame indexes and audio waveforms when you reopen unchanged clips. Playback proxies are also cached when an original needs one.")
                         .foregroundStyle(EditorTheme.secondaryText)
                     Text("This total does not include projects, original media, exports, transition renders, audio previews, or export intermediates.")
                         .foregroundStyle(EditorTheme.secondaryText)
@@ -103,23 +103,23 @@ struct MediaCacheSettingsView: View {
                 }
             }
 
-            Text("Manage playback proxies")
+            Text("Manage media cache")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
-                    Button("Clear proxies not used recently…") {
+                    Button("Clear cache not used recently…") {
                         confirmation = .unused
                     }
                     .disabled(model.isWorking || model.isRefreshing)
-                    Text("Removes playback proxies that have not been used in the last seven days.")
+                    Text("Removes cached analysis and playback proxies not used in the last seven days.")
                         .foregroundStyle(EditorTheme.secondaryText)
 
-                    Button("Clear all playback proxies…") {
+                    Button("Clear all cached media…") {
                         confirmation = .all
                     }
                     .disabled(model.isWorking || model.isRefreshing)
-                    Text("Removes every playback proxy except those required by an open project or editor.")
+                    Text("Removes cached analysis and playback proxies, keeping active preparation and proxies required by an open project or editor.")
                         .foregroundStyle(EditorTheme.secondaryText)
                 }
             }
@@ -127,7 +127,7 @@ struct MediaCacheSettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(20)
         .operationProgress(model.isWorking || model.isRefreshing ? OperationProgress(
-            title: model.isWorking ? "Clearing playback proxies" : "Refreshing storage usage"
+            title: model.isWorking ? "Clearing media cache" : "Refreshing storage usage"
         ) : nil, outcome: model.errorMessage == nil ? .completed : .failed)
         .onAppear {
             model.refresh()
@@ -148,7 +148,7 @@ struct MediaCacheSettingsView: View {
         }
         .applicationMessage(model.errorMessage.map {
             ApplicationMessageDescriptor(
-                title: "Playback Proxy Storage Could Not Be Changed",
+                title: "Media Cache Could Not Be Changed",
                 message: $0
             )
         }) {
@@ -175,19 +175,19 @@ private enum CacheConfirmation: String, Identifiable {
     var scope: MediaCacheClearScope { self == .unused ? .unused : .all }
 
     var title: String {
-        self == .unused ? "Clear proxies not used recently?" : "Clear all playback proxies?"
+        self == .unused ? "Clear cache not used recently?" : "Clear all cached media?"
     }
 
     var actionTitle: String {
-        self == .unused ? "Clear proxies" : "Clear all proxies"
+        self == .unused ? "Clear cache" : "Clear all cached media"
     }
 
     var message: String {
         switch self {
         case .unused:
-            "Playback proxies not used in the last seven days will be removed. Original media and Trimato projects will not be changed."
+            "Cached analysis and playback proxies not used in the last seven days will be removed. Original media and Trimato projects will not be changed."
         case .all:
-            "All playback proxies not required by open projects will be removed. Original media and Trimato projects will not be changed."
+            "Cached analysis and unused playback proxies will be removed. Active preparation and proxies needed by open projects are kept. Original media and Trimato projects will not be changed."
         }
     }
 }

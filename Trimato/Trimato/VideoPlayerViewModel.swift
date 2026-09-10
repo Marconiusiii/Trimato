@@ -437,7 +437,6 @@ final class VideoPlayerViewModel: ObservableObject {
                 try Task.checkCancellation()
                 var sourceFrameTimestamps = source.frameTimestamps
                 if source.hasVideo && sourceFrameTimestamps.isEmpty {
-                    self.beginFrameIndexing()
                     do {
                         sourceFrameTimestamps = try await FFmpegMediaProbe.frameTimestamps(
                             url: source.playbackURL,
@@ -449,10 +448,13 @@ final class VideoPlayerViewModel: ObservableObject {
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
-                        sourceFrameTimestamps = []
+                        throw error
                     }
                     try Task.checkCancellation()
                 }
+                self.mediaSource = MediaSource(originalURL: source.originalURL, playbackURL: source.playbackURL,
+                    originalAsset: source.originalAsset, playbackAsset: source.playbackAsset, contentType: source.contentType,
+                    mode: source.mode, frameTimestamps: sourceFrameTimestamps, hasVideo: source.hasVideo, hasAudio: source.hasAudio)
                 let requestedRanges = sourceSegments?.map(\.sourceRange.cmTimeRange)
                     .filter { $0.isValid && $0.duration > .zero } ?? []
                 let timeline = requestedRanges.isEmpty
@@ -610,7 +612,7 @@ final class VideoPlayerViewModel: ObservableObject {
         let start = max(0, inMarker?.seconds ?? 0)
         let end = min(duration, outMarker?.seconds ?? duration)
         guard end > start else { return }
-        item.forwardPlaybackEndTime = CMTime(seconds: end, preferredTimescale: 60000)
+        updatePlaybackBounds()
         jklIndex = 1
         let position = player.currentTime().seconds
         if Self.shouldRestartPlayback(position: position, end: end) || position < start {
@@ -682,24 +684,35 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func setInMarker(at time: CMTime) {
         inMarker = time
+        updatePlaybackBounds()
         refreshPlacementSourceSegments()
     }
 
     func setOutMarker(at time: CMTime) {
         outMarker = time
+        updatePlaybackBounds()
         refreshPlacementSourceSegments()
     }
 
+    func updatePlaybackBounds(respectingMarkers: Bool = true) {
+        player.currentItem?.forwardPlaybackEndTime = respectingMarkers ? (outMarker ?? .invalid) : .invalid
+        player.currentItem?.reversePlaybackEndTime = respectingMarkers ? (inMarker ?? .invalid) : .invalid
+    }
+
     func clearIn() {
-        guard inMarker != nil else { return }
+        let hadMarker = inMarker != nil
         inMarker = nil
+        updatePlaybackBounds()
+        guard hadMarker else { return }
         refreshPlacementSourceSegments()
         announce("In marker cleared")
     }
 
     func clearOut() {
-        guard outMarker != nil else { return }
+        let hadMarker = outMarker != nil
         outMarker = nil
+        updatePlaybackBounds()
+        guard hadMarker else { return }
         refreshPlacementSourceSegments()
         announce("Out marker cleared")
     }
@@ -1026,6 +1039,7 @@ final class VideoPlayerViewModel: ObservableObject {
             jklIndex = forward ? 1 : -1
         }
         let rate: Float = forward ? 1.0 : -1.0
+        updatePlaybackBounds(respectingMarkers: false)
         if player.rate != rate { player.rate = rate }
     }
 
@@ -1093,6 +1107,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private func scheduleScrubAudio(returningTo target: CMTime) {
         guard frameStepPosition == target else { return }
         isScrubbing = true
+        updatePlaybackBounds(respectingMarkers: false)
         player.play()
         scrubTask = Task { [weak self] in
             guard let self else { return }
@@ -1141,6 +1156,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func applyJKLRate() {
+        updatePlaybackBounds()
         guard jklIndex != 0 else { player.pause(); return }
         let speed = jklSpeeds[min(abs(jklIndex) - 1, jklSpeeds.count - 1)]
         player.rate = jklIndex > 0 ? speed : -speed
@@ -1515,14 +1531,13 @@ final class VideoPlayerViewModel: ObservableObject {
            ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
             let timestamps: [CMTime]
             if hasNativeVideo {
-                beginFrameIndexing()
-                timestamps = (try? await FFmpegMediaProbe.frameTimestamps(
+                timestamps = try await FFmpegMediaProbe.frameTimestamps(
                     url: url,
                     duration: nativeDuration,
                     progress: { [weak self] progress in
                         self?.updateFrameIndexProgress(progress)
                     }
-                )) ?? []
+                )
             } else {
                 timestamps = []
             }
@@ -1553,7 +1568,6 @@ final class VideoPlayerViewModel: ObservableObject {
         try FFmpegMediaProbe.validateForMP4Conversion(report)
         let timestamps: [CMTime]
         if report.videoStream != nil {
-            beginFrameIndexing()
             timestamps = try await FFmpegMediaProbe.frameTimestamps(
                 url: url,
                 duration: report.duration,
@@ -1618,6 +1632,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func updateFrameIndexProgress(_ progress: Double) {
+        if progress == 0 { beginFrameIndexing() }
         mediaProgress = progress
     }
 

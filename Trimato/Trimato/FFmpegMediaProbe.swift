@@ -243,6 +243,19 @@ nonisolated struct FFmpegMediaProbe {
         duration: Double? = nil,
         progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> [CMTime] {
+        let data = try await MediaAnalysisCache.shared.value(source: url, kind: "frame-index-v2") {
+            let timestamps = try await uncachedFrameTimestamps(url: url, duration: duration, progress: progress)
+            guard !timestamps.isEmpty else { throw AnalysisError.emptyFrameIndex }
+            return try JSONEncoder().encode(timestamps.map { FrameStamp(value: $0.value, timescale: $0.timescale) })
+        }
+        return try JSONDecoder().decode([FrameStamp].self, from: data).map { CMTime(value: $0.value, timescale: $0.timescale) }
+    }
+
+    private struct FrameStamp: Codable { let value: Int64; let timescale: Int32 }
+
+    @concurrent
+    private static func uncachedFrameTimestamps(url: URL, duration: Double?, progress: (@MainActor @Sendable (Double) -> Void)?) async throws -> [CMTime] {
+        if let progress { await progress(0) }
         let progressReporter: FrameProgressReporter?
         if let duration, duration.isFinite, duration > 0, let progress {
             progressReporter = FrameProgressReporter(duration: duration, progress: progress)
@@ -254,18 +267,15 @@ nonisolated struct FFmpegMediaProbe {
             "-select_streams", "v:0",
             "-show_frames",
             "-show_entries", "frame=best_effort_timestamp_time",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-of", "default=noprint_wrappers=1",
             url.path
         ], outputLine: { line in
-            progressReporter?.receive(line)
+            if let time = Self.frameTimestamp(in: line) { progressReporter?.receive(String(time)) }
         })
         let seconds: [Double] = String(decoding: result.standardOutput, as: UTF8.self)
             .split(whereSeparator: \Character.isNewline)
-            .compactMap { raw -> Double? in
-                guard let seconds = Double(raw.trimmingCharacters(in: .whitespaces)),
-                      seconds.isFinite else { return nil }
-                return seconds
-            }
+            .compactMap { Self.frameTimestamp(in: String($0)) }
+        guard zip(seconds, seconds.dropFirst()).allSatisfy({ $0 < $1 }) else { throw AnalysisError.emptyFrameIndex }
         progressReporter?.finish()
         if let progress {
             await progress(1)
@@ -274,6 +284,12 @@ nonisolated struct FFmpegMediaProbe {
         return seconds.map { timestamp in
             CMTime(seconds: max(timestamp - first, 0), preferredTimescale: 1_000_000)
         }
+    }
+
+    static func frameTimestamp(in line: String) -> Double? {
+        let prefix = "best_effort_timestamp_time="
+        guard line.hasPrefix(prefix), let value = Double(line.dropFirst(prefix.count)), value.isFinite else { return nil }
+        return value
     }
 
     static func validateForMP4Conversion(_ report: Report) throws {

@@ -3,7 +3,7 @@ import AudioToolbox
 import CoreMedia
 import Foundation
 
-nonisolated struct AudioWaveformData: Equatable, Sendable {
+nonisolated struct AudioWaveformData: Codable, Equatable, Sendable {
     var samples: [Float]
     var duration: Double
 
@@ -39,15 +39,20 @@ nonisolated enum AudioWaveformAnalyzer {
         maximumCount: Int = 4_096,
         progress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
     ) async throws -> AudioWaveformData {
-        try await Task.detached(priority: .utility) {
-            try await analyzeSynchronously(
-                asset: asset,
-                maximumCount: maximumCount,
-                progress: progress
-            )
-        }.value
+        if let source = asset as? AVURLAsset {
+            let data = try await MediaAnalysisCache.shared.value(source: source.url, kind: "waveform-v1-\(maximumCount)") {
+                let waveform = try await analyzeSynchronously(asset: asset, maximumCount: maximumCount, progress: progress)
+                guard waveform.duration > 0, !waveform.samples.isEmpty else {
+                    throw MediaSourceError.unreadable("Trimato could not find audio samples for the waveform.")
+                }
+                return try JSONEncoder().encode(waveform)
+            }
+            return try JSONDecoder().decode(AudioWaveformData.self, from: data)
+        }
+        return try await analyzeSynchronously(asset: asset, maximumCount: maximumCount, progress: progress)
     }
 
+    @concurrent
     private static func analyzeSynchronously(
         asset: AVAsset,
         maximumCount: Int,
@@ -77,6 +82,7 @@ nonisolated enum AudioWaveformAnalyzer {
             throw reader.error ?? MediaSourceError.unreadable("Trimato could not begin waveform analysis.")
         }
 
+        defer { reader.cancelReading() }
         var peaks = Array(repeating: Float.zero, count: maximumCount)
         var lastReportedPercent = -1
         await progress(0)
@@ -125,7 +131,7 @@ nonisolated enum AudioWaveformAnalyzer {
                 peaks[bucket] = max(peaks[bucket], abs(floatPointer[index]))
             }
         }
-        if reader.status == .failed {
+        guard reader.status == .completed else {
             throw reader.error ?? MediaSourceError.unreadable("Waveform analysis stopped before it finished.")
         }
         let maximum = peaks.max() ?? 0

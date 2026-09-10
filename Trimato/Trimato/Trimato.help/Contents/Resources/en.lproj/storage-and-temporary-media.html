@@ -17,36 +17,40 @@
     <p>Keep every original file available. A playback proxy or temporary render is not a backup and cannot replace a missing original during final export.</p>
 
     <h2>Use original media directly</h2>
-    <p>Trimato uses an original file for playback when macOS can play it. Settings may report zero playback proxy storage during that project.</p>
+    <p>Trimato uses an original file for playback when macOS can play it. The media cache can still contain frame indexes and audio waveforms for those files.</p>
     <p>If the original can play but needs conversion for export, Trimato still uses the original while you edit and performs the required conversion during export.</p>
 
     <h2>Understand playback proxies</h2>
     <p>If macOS cannot play an original file directly, Trimato creates a playback proxy. A playback proxy is a compatible editing copy used for project preview and clip editing. It leaves the original unchanged.</p>
     <p>Playback proxies are stored in macOS Caches and can be reused after a project closes. Trimato can recreate a missing or cleared proxy when the original file is available.</p>
     <p>If the original file's size or modification date changes, Trimato stops using the old proxy and creates one that matches the changed original.</p>
-    <p>Trimato allows up to 10 GB for playback proxies. When the limit is exceeded, Trimato removes the least recently used proxies first. It also tries to keep at least 10 GB of disk space available before creating another proxy. Proxies being used by an open project or editor are retained.</p>
+    <p>Trimato allows up to 10 GB for cached analysis and playback proxies. When the limit is exceeded, Trimato removes the least recently used proxies first. It also tries to keep at least 10 GB of disk space available before creating another proxy. Proxies being used by an open project or editor are retained.</p>
     <p>macOS may remove cached files when storage is low. This is safe because Trimato can recreate them from the originals.</p>
 
-    <h2>Review playback proxy storage</h2>
+    <h2>Reuse clip analysis</h2>
+    <p>Trimato keeps completed video frame indexes and audio waveforms so reopening an unchanged clip does not repeat that analysis. Changed or replaced files are analyzed again. Cached analysis can also be reused after restarting Trimato.</p>
+
+    <h2>Review media cache storage</h2>
     <ol>
         <li>Choose Trimato &gt; Settings.</li>
-        <li>Move to Playback proxy storage.</li>
-        <li>Read Storage used, Proxy files, Storage limit, and Stored in.</li>
+        <li>Move to Media cache storage.</li>
+        <li>Read Storage used, Cache files, Storage limit, and Stored in.</li>
         <li>Activate Refresh storage usage when you want Trimato to read the folder again.</li>
     </ol>
     <p>The reported size does not include projects, original media, completed exports, transition previews, audio previews, or files prepared for export.</p>
 
-    <h2>Clear playback proxies</h2>
-    <dl>
-        <dt>Clear proxies not used recently</dt>
-        <dd>Removes playback proxies that have not been used in the last seven days.</dd>
-        <dt>Clear all playback proxies</dt>
-        <dd>Removes every playback proxy except those required by an open project or editor.</dd>
-    </dl>
-    <p>Both commands leave original media, projects, and completed exports unchanged. Trimato recreates a cleared proxy when it is needed again and the original remains available.</p>
+    <h2>Clear cached media</h2>
+    <table>
+        <thead><tr><th scope="col">Control</th><th scope="col">Result</th></tr></thead>
+        <tbody>
+            <tr><th scope="row">Clear cache not used recently</th><td>Removes cached analysis and playback proxies not used in the last seven days.</td></tr>
+            <tr><th scope="row">Clear all cached media</th><td>Removes cached analysis and unneeded proxies, keeping active preparation and proxies required by an open project or editor.</td></tr>
+        </tbody>
+    </table>
+    <p>Both commands leave original media, projects, and completed exports unchanged. Trimato recreates cleared analysis or proxies when needed, provided the original remains available.</p>
 
     <h2>Understand temporary files</h2>
-    <p>Transitions, filters, audio changes, and exports can create temporary files. These files do not count toward the playback proxy total.</p>
+    <p>Transitions, filters, audio changes, and exports can create temporary files. These files do not count toward the media cache total.</p>
 
     <h2>Know when temporary files are removed</h2>
     <ul>
@@ -60,7 +64,7 @@
     <h2>After an unexpected shutdown</h2>
     <p>If Trimato or macOS closes unexpectedly, macOS can remove files from the temporary folder later. Trimato removes older unfinished export files when it prepares another export.</p>
     <h2>Generated and filtered media</h2>
-    <p>Generated items and filters can use additional temporary space. Their files are not included in the playback proxy total.</p>
+    <p>Generated items and filters can use additional temporary space. Their files are not included in the media cache total.</p>
 </main>
 <footer><p><a href="troubleshooting.html">Related topic: Resolve common problems</a></p></footer>
 </body>

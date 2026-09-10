@@ -336,16 +336,18 @@ Trimato projects save editing instructions and references to source files. They 
 
 For media that AVFoundation cannot play, Trimato stores a playback proxy in the macOS Caches directory. A project can reuse a valid proxy after it is closed and reopened. Trimato compares the source file's size and modification date with the information saved for the proxy; if the source changes, Trimato discards the stale proxy and creates a new one.
 
+Video frame indexes and audio waveform analysis are also cached across editor openings and app launches. Unchanged sources reuse completed analysis; simultaneous requests share the same work. File identity, size, modification date, and analysis version determine whether a result can be reused. Failed or incomplete analysis is not cached, and indexing errors are reported instead of silently continuing with an empty frame index.
+
 Playback proxies are disposable. Trimato recreates a missing proxy when the project next needs it, provided the original source remains accessible. macOS may also remove files from its Caches directory when storage is constrained.
 
 Trimato manages the media cache automatically:
 
-- The cache has an automatic limit of 10 GB.
+- The cache has an automatic limit of 10 GB, including up to 256 MB reserved for frame indexes and waveform analysis.
 - Trimato removes the least recently used unprotected proxies when necessary.
 - Trimato requires enough storage for a new proxy while retaining at least 10 GB of available disk space.
 - Proxies required by open projects and editors are protected from manual and automatic removal.
-- Clear Unused Media Cache removes proxies not used in the last seven days.
-- Clear All Media Cache removes every proxy not required by an open project or editor.
+- Clear cache not used recently removes cached analysis and proxies not used in the last seven days.
+- Clear all cached media removes analysis and unneeded proxies, retaining active preparation and proxies required by an open project or editor.
 - Clearing the cache never deletes original media or Trimato project files.
 
 Project export returns to the original source files rather than rendering from playback proxies. When AVFoundation cannot use an original directly in the final composition, Trimato creates a temporary full-resolution ProRes render intermediate from that original, applies the saved timeline instructions and project format, writes the chosen output, and removes the intermediate after export.

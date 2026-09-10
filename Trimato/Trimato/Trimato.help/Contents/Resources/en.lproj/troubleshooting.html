@@ -59,13 +59,13 @@
         <li>Choose a position that does not overlap another cutaway.</li>
     </ul>
 
-    <h2>Clear playback proxies</h2>
-    <p>Playback proxies are compatible editing copies created only when macOS cannot play an original directly. Settings reports these proxies, not every temporary file Trimato uses.</p>
+    <h2>Clear cached media</h2>
+    <p>Playback proxies are compatible editing copies created only when macOS cannot play an original directly. Settings reports these proxies along with cached frame indexes and audio waveforms.</p>
     <ol>
         <li>Open Trimato Settings.</li>
-        <li>Read Storage used and Proxy files in Playback proxy storage.</li>
+        <li>Read Storage used and Cache files in Media cache storage.</li>
         <li>Activate Refresh storage usage if you want Trimato to read the folder again.</li>
-        <li>Activate Clear proxies not used recently to remove proxies not used in the last seven days, or activate Clear all playback proxies to remove every proxy not required by an open project or editor.</li>
+        <li>Activate Clear cache not used recently to remove analysis and proxies not used in the last seven days, or activate Clear all cached media to remove analysis and unneeded proxies. Active preparation and proxies needed by open projects or editors are kept.</li>
         <li>Confirm the action.</li>
     </ol>
     <p>These commands leave original media, Trimato projects, completed exports, and temporary renders unchanged. Trimato recreates a cleared proxy when it is next needed, provided the original remains available. <a href="storage-and-temporary-media.html">Learn more about playback proxies and temporary renders.</a></p>
