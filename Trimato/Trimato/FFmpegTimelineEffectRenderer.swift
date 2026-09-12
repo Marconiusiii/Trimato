@@ -11,8 +11,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         sampleRate: Int? = nil,
         progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TrimatoTimelineEffects", isDirectory: true)
+        let directory = try TemporaryMediaSession.directory(named: "TrimatoTimelineEffects")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let outputURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
         let usable = segments.filter { $0.duration.isPositive }
@@ -42,6 +41,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
                 progress: progress,
                 expectedDuration: usable.reduce(0) { $0 + $1.duration.seconds }
             )
+            try Task.checkCancellation()
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
@@ -67,8 +67,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
             throw ProjectTimelineError.transitionNotAvailable("The transition media is no longer available.")
         }
         let half = duration.seconds / 2
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TrimatoTimelineEffects", isDirectory: true)
+        let directory = try TemporaryMediaSession.directory(named: "TrimatoTimelineEffects")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let outputURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
         let leadingReport = try await FFmpegMediaProbe.inspect(url: leadingURL)
@@ -137,6 +136,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
                 progress: progress,
                 expectedDuration: duration.seconds
             )
+            try Task.checkCancellation()
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
@@ -199,8 +199,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         }
         if muteLeading { graph = graph.replacingOccurrences(of: "[a0];", with: ",volume=0[a0];") }
         if muteTrailing { graph = graph.replacingOccurrences(of: "[a1];", with: ",volume=0[a1];") }
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TrimatoTimelineEffects", isDirectory: true)
+        let directory = try TemporaryMediaSession.directory(named: "TrimatoTimelineEffects")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let outputURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
         let arguments = [
@@ -217,6 +216,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
                 progress: progress,
                 expectedDuration: duration.seconds
             )
+            try Task.checkCancellation()
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)

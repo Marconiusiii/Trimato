@@ -8,6 +8,7 @@ nonisolated enum ClipFilterRenderer {
                        segments: [SourceSegment]? = nil, audioSettings: AudioClipSettings? = nil,
                        voiceSegments: [SourceSegment]? = nil,
                        progress: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> URL {
+        for filter in filters { try filter.validate() }
         let asset = AVURLAsset(url: source)
         let spatial = try await SpatialAudioPlan.detect(in: asset)
         if audio, spatial { throw SpatialAudioError.unsupported("Audio filter processing for Spatial Audio is not supported yet.") }
@@ -32,7 +33,7 @@ nonisolated enum ClipFilterRenderer {
             var originalSettings = audioSettings
             originalSettings?.voice = nil
             let processed = try await renderProcessed(source: source, filters: filters, audio: true, duration: duration,
-                                             audioSettings: originalSettings, progress: progress)
+                                             audioSettings: originalSettings, voiceSegments: segments ?? voiceSegments, progress: progress)
             defer { try? FileManager.default.removeItem(at: processed) }
             return try await VoiceAudioProcessor.render(source: processed, settings: voice,
                 segments: segments ?? voiceSegments, trimOutput: segments != nil)
@@ -41,22 +42,33 @@ nonisolated enum ClipFilterRenderer {
         let active = ClipFilterKind.allCases.compactMap { kind in filters.first { $0.kind == kind && $0.enabled && $0.kind.isAudio == audio } }
         if let segments, !active.isEmpty {
             // Process the same source and history as the project renderer, then select the edited ranges.
-            let processed = try await renderProcessed(source: source, filters: filters, audio: audio, duration: duration, progress: progress)
+            let processed = try await renderProcessed(source: source, filters: filters, audio: audio, duration: duration, voiceSegments: segments, progress: progress)
             defer { try? FileManager.default.removeItem(at: processed) }
             return try await renderProcessed(source: processed, filters: [], audio: audio, duration: duration,
                                     segments: segments, audioSettings: audioSettings, progress: progress)
         }
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TrimatoClipFilters", isDirectory: true)
+        let directory = try TemporaryMediaSession.directory(named: "TrimatoClipFilters")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let report = try await FFmpegMediaProbe.inspect(url: source)
         if !audio, report.isHDR, !active.isEmpty {
             return try await HDRVideoRenderer.render(source: source, filters: active, progress: progress)
         }
-        try ProjectRenderMediaManager.requireAvailableSpace(in: directory, duration: report.duration,
-                                                           width: report.videoStream?.width, height: report.videoStream?.height, hasVideo: !audio)
+        try ProjectRenderMediaManager.requireAvailableSpace(in: directory,
+            duration: segments?.reduce(0) { $0 + $1.duration.seconds } ?? report.duration,
+            width: report.videoStream?.width, height: report.videoStream?.height, hasVideo: !audio,
+            sampleRate: Double(report.audioStream?.sampleRate ?? "") ?? 48_000,
+            channels: report.audioStream?.channels ?? 2,
+            frameRate: report.frameRate ?? 30, hasAlpha: report.hasAlpha)
         let output = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
         let sampleRate = Int(report.audioStream?.sampleRate ?? "") ?? 48_000
-        let graph = (audio ? ["aformat=sample_fmts=fltp"] : []) + active.map { $0.graph(sampleRate: sampleRate) }
+        var effects: [String] = []
+        for filter in active {
+            if filter.kind == .matchLoudness {
+                effects.append(try await ClipLoudnessNormalizer.graph(source: source, preceding: effects,
+                    filter: filter, segments: voiceSegments))
+            } else { effects.append(filter.graph(sampleRate: sampleRate)) }
+        }
+        let graph = (audio ? ["aformat=sample_fmts=fltp"] : []) + effects
         var graphText = graph.joined(separator: ",")
         if audio, let settings = audioSettings, let gain = FFmpegTimelineEffectRenderer.audioFilter(for: settings) {
             graphText = [graphText, gain].filter { !$0.isEmpty }.joined(separator: ",")

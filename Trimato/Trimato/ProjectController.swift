@@ -624,7 +624,18 @@ final class ProjectController: ObservableObject {
         )
         exportTask = Task { @MainActor in
             defer { outputURL.stopAccessingSecurityScopedResource() }
+            var mediaWasSaved = false
             do {
+                var companionFiles: [(URL, Data)] = []
+                if let sidecarFormat = captionDelivery.sidecarFormat {
+                    let data = try CaptionFileCodec.encode(sidecarCues, format: sidecarFormat)
+                    companionFiles.append((outputURL.deletingPathExtension().appendingPathExtension(sidecarFormat.fileExtension), data))
+                }
+                if exportDescriptions {
+                    let cues = CaptionFileCodec.cues(projectSnapshot.descriptionTranscriptTrack?.captionCues ?? [], within: exportRange)
+                    companionFiles.append((outputURL.deletingPathExtension().appendingPathExtension("descriptions.vtt"),
+                                           try CaptionFileCodec.encode(cues, format: .webVTT)))
+                }
                 try await ProjectExporter.export(
                     project: projectSnapshot,
                     mediaURLs: mediaURLs,
@@ -632,18 +643,11 @@ final class ProjectController: ObservableObject {
                     format: format,
                     to: outputURL, audioMode: audioMode
                 ) { [weak self] progress in
-                    self?.exportProgress = progress
+                    self?.exportProgress = min(progress, 0.99)
                 }
-                if let sidecarFormat = captionDelivery.sidecarFormat {
-                    let data = try CaptionFileCodec.encode(sidecarCues, format: sidecarFormat)
-                    let sidecarURL = outputURL.deletingPathExtension().appendingPathExtension(sidecarFormat.fileExtension)
-                    try RelatedExportFileWriter.write(data, to: sidecarURL, relatedTo: outputURL)
-                }
-                if exportDescriptions {
-                    let cues = CaptionFileCodec.cues(projectSnapshot.descriptionTranscriptTrack?.captionCues ?? [], within: exportRange)
-                    let data = try CaptionFileCodec.encode(cues, format: .webVTT)
-                    let sidecar = outputURL.deletingPathExtension().appendingPathExtension("descriptions.vtt")
-                    try RelatedExportFileWriter.write(data, to: sidecar, relatedTo: outputURL)
+                mediaWasSaved = true
+                for (url, data) in companionFiles {
+                    try RelatedExportFileWriter.write(data, to: url, relatedTo: outputURL)
                 }
                 isExporting = false
                 exportProgress = nil
@@ -653,15 +657,21 @@ final class ProjectController: ObservableObject {
             } catch is CancellationError {
                 isExporting = false
                 exportProgress = nil
-                announce("Export canceled")
+                if mediaWasSaved {
+                    presentedError = ProjectPresentedError(title: "Export Partly Completed",
+                        message: "The media file \(outputURL.lastPathComponent) was saved. Export was cancelled before all caption or description files were saved.")
+                    announce("Export partly completed")
+                } else { announce("Export canceled") }
             } catch {
                 isExporting = false
                 exportProgress = nil
                 presentedError = ProjectPresentedError(
-                    title: "Export Failed",
-                    message: error.localizedDescription
+                    title: mediaWasSaved ? "Export Partly Completed" : "Export Failed",
+                    message: mediaWasSaved
+                        ? "The media file \(outputURL.lastPathComponent) was saved, but a caption or description file could not be saved. \(error.localizedDescription)"
+                        : error.localizedDescription
                 )
-                announce("Export failed")
+                announce(mediaWasSaved ? "Export partly completed" : "Export failed")
             }
             exportTask = nil
         }

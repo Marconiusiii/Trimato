@@ -97,7 +97,14 @@ final class ProjectDocument: ReferenceFileDocument {
             packageURL.lastPathComponent: package,
             "Recordings": FileWrapper(directoryWithFileWrappers: [:])
         ])
-        try folder.write(to: folderURL, options: .atomic, originalContentsURL: nil)
+        let staging = try fileManager.url(for: .itemReplacementDirectory, in: .userDomainMask,
+            appropriateFor: folderURL, create: true)
+        defer { try? fileManager.removeItem(at: staging) }
+        let prepared = staging.appendingPathComponent(folderName, isDirectory: true)
+        try folder.write(to: prepared, options: .atomic, originalContentsURL: nil)
+        try Task.checkCancellation()
+        // A competing creation must fail, never replace a folder that appeared while preparing.
+        try fileManager.moveItem(at: prepared, to: folderURL)
         return packageURL
     }
 

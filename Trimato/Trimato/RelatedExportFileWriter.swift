@@ -2,6 +2,7 @@ import Foundation
 
 enum RelatedExportFileWriter {
     static func write(_ data: Data, to relatedURL: URL, relatedTo primaryURL: URL) throws {
+        try Task.checkCancellation()
         let presenter = RelatedExportFilePresenter(
             primaryURL: primaryURL,
             relatedURL: relatedURL
@@ -18,6 +19,7 @@ enum RelatedExportFileWriter {
             error: &coordinationError
         ) { coordinatedURL in
             do {
+                try Task.checkCancellation()
                 try data.write(to: coordinatedURL, options: .atomic)
             } catch {
                 writeError = error

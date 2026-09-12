@@ -34,21 +34,19 @@ import Foundation
             var voice = restored
             voice.matchingBypassed = !enabled
             voice.smoothingBypassed = !enabled
-            for highPrecision in [false, true] {
-                let output = try await ClipFilterRenderer.render(source: source, filters: [], audio: true,
-                    duration: 4, audioSettings: AudioClipSettings(voice: voice), highPrecision: highPrecision)
-                defer { try? FileManager.default.removeItem(at: output) }
-                let level = try await VoiceAudioProcessor.measure(output)
-                let difference = try await VoiceAudioProcessor.measure(output, segments: loud) - VoiceAudioProcessor.measure(output, segments: quiet)
-                if enabled {
-                    precondition(abs(level - (-23)) < 0.6, "Enabled matching did not reach its saved target")
-                    precondition(difference < originalDifference - 0.5, "Enabled smoothing did not reduce the level difference")
-                } else {
-                    precondition(abs(level - baseline) < 0.3, "Disabled matching changed loudness")
-                    precondition(abs(difference - originalDifference) < 0.3, "Disabled smoothing changed dynamics")
-                }
+            let output = try await ClipFilterRenderer.render(source: source, filters: [], audio: true,
+                duration: 4, audioSettings: AudioClipSettings(voice: voice))
+            defer { try? FileManager.default.removeItem(at: output) }
+            let level = try await VoiceAudioProcessor.measure(output)
+            let difference = try await VoiceAudioProcessor.measure(output, segments: loud) - VoiceAudioProcessor.measure(output, segments: quiet)
+            if enabled {
+                precondition(abs(level - (-23)) < 0.6, "Enabled matching did not reach its saved target")
+                precondition(difference < originalDifference - 0.5, "Enabled smoothing did not reduce the level difference")
+            } else {
+                precondition(abs(level - baseline) < 0.3, "Disabled matching changed loudness")
+                precondition(abs(difference - originalDifference) < 0.3, "Disabled smoothing changed dynamics")
             }
         }
-        print("Legacy decoding, saved bypass states, retained settings, and enabled/disabled matching and smoothing passed in standard and high-precision renders. No audio was played.")
+        print("Legacy decoding, saved bypass states, retained settings, and enabled/disabled matching and smoothing passed with source-rate rendering. No audio was played.")
     }
 }

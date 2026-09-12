@@ -29,7 +29,12 @@ nonisolated enum HDRVideoRenderer {
         let geometry = filters.reduce(CIImage(color: .black).cropped(to: extent)) { applyGeometry($1, to: $0) }
         composition.renderSize = geometry.extent.size
         policy.apply(to: composition)
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-hdr-\(UUID()).mov")
+        let directory = try TemporaryMediaSession.directory(named: "Processing")
+        try ProjectRenderMediaManager.requireAvailableSpace(in: directory,
+            duration: try await asset.load(.duration).seconds,
+            width: Int(composition.renderSize.width), height: Int(composition.renderSize.height), hasVideo: true,
+            frameRate: 1 / composition.frameDuration.seconds, hasAlpha: hasAlpha)
+        let output = directory.appendingPathComponent("trimato-hdr-\(UUID()).mov")
         do {
             try await CustomMovieExporter.export(asset: asset, videoComposition: composition, audioMix: nil,
                 timeRange: nil, format: .proRes422HQ, to: output, progress: { progress?($0) }, preserveAlpha: hasAlpha)

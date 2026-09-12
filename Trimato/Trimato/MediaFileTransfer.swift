@@ -32,6 +32,7 @@ nonisolated enum MediaFileTransfer {
 
     static func prepare(_ sources: [UUID: URL], in folder: URL,
                         progress: @escaping @Sendable (MediaTransferProgress) -> Void) async throws -> MediaTransferResult {
+        try Task.checkCancellation()
         let work = Task.detached(priority: .userInitiated) {
             var result = MediaTransferResult(destinations: [:], created: [], originals: [])
             var transferred: [String: URL] = [:]
@@ -71,6 +72,7 @@ nonisolated enum MediaFileTransfer {
                     let staging = folder.appendingPathComponent(".trimato-transfer-\(UUID()).tmp")
                     defer { try? FileManager.default.removeItem(at: staging) }
                     progress(.init(fraction: Double(index) / Double(max(sources.count, 1)), detail: "Copying \(source.lastPathComponent)"))
+                    try Task.checkCancellation()
                     try FileManager.default.copyItem(at: canonical, to: staging)
                     progress(.init(fraction: Double(index) / Double(max(sources.count, 1)), detail: "Verifying \(source.lastPathComponent)"))
                     guard try checksum(source) == checksum(staging) else {
@@ -98,10 +100,16 @@ nonisolated enum MediaFileTransfer {
     }
 
     static func removeOriginals(_ result: MediaTransferResult) async -> [String] {
+        if Task.isCancelled {
+            return result.removals.keys.map { "\($0.lastPathComponent): Removal was cancelled. The original has been kept." }
+        }
         let work = Task.detached(priority: .utility) {
             var failures: [String] = []
             for (url, destination) in result.removals {
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    failures.append("\(url.lastPathComponent): Removal was cancelled. The original has been kept.")
+                    continue
+                }
                 do {
                     guard try checksum(url) == checksum(destination) else {
                         throw MediaFileHandlingError(message: "The original changed after copying and has been kept.")
@@ -117,4 +125,3 @@ nonisolated enum MediaFileTransfer {
         } onCancel: { work.cancel() }
     }
 }
-

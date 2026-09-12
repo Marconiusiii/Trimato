@@ -47,6 +47,9 @@ struct ClipExporter {
         sourceContentType: UTType,
         to outputURL: URL
     ) async throws {
+        if let source = asset as? AVURLAsset {
+            try ExportFileCommit.protectSources([source.url], destination: outputURL)
+        }
         guard !sourceRanges.isEmpty else { throw ClipExportError.unavailable }
         if let spatial = try await SpatialAudioPlan.clip(asset: asset, ranges: sourceRanges) {
             try await spatial.export(includeSourceVideo: true, to: outputURL, progress: { _ in })
@@ -85,6 +88,9 @@ struct ClipExporter {
         preserveSpatialAudio: Bool = true,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
+        if let source = asset as? AVURLAsset {
+            try ExportFileCommit.protectSources([source.url], destination: outputURL)
+        }
         guard !sourceRanges.isEmpty else { throw ClipExportError.unavailable }
         if preserveSpatialAudio, let spatial = try await SpatialAudioPlan.clip(asset: asset, ranges: sourceRanges) {
             try spatial.validate(format: format)
@@ -170,7 +176,7 @@ struct ClipExporter {
 
         let progressTask = Task { @MainActor in
             while !Task.isCancelled {
-                progress(Double(session.progress))
+                progress(min(Double(session.progress), 0.99))
                 try? await Task.sleep(for: .milliseconds(200))
             }
         }
@@ -183,13 +189,11 @@ struct ClipExporter {
             throw ProjectExporter.ExportError.encodingFailed(ProjectExporter.failureDetail(for: error))
         }
         try Task.checkCancellation()
+        try await ExportOutputValidator.validate(temporaryURL, duration: exportRange.duration.seconds,
+            video: true, audio: !(try await composition.loadTracks(withMediaType: .audio)).isEmpty)
+        try ExportFileCommit.commit(temporaryURL, to: outputURL)
+        progressTask.cancel()
         progress(1)
-
-        if fileManager.fileExists(atPath: outputURL.path) {
-            _ = try fileManager.replaceItemAt(outputURL, withItemAt: temporaryURL)
-        } else {
-            try fileManager.moveItem(at: temporaryURL, to: outputURL)
-        }
     }
 
     private static func exportSingleRange(
@@ -225,11 +229,10 @@ struct ClipExporter {
         session.timeRange = timeRange
         try await session.export(to: temporaryURL, as: requestedType)
 
-        if fileManager.fileExists(atPath: outputURL.path) {
-            _ = try fileManager.replaceItemAt(outputURL, withItemAt: temporaryURL)
-        } else {
-            try fileManager.moveItem(at: temporaryURL, to: outputURL)
-        }
+        try await ExportOutputValidator.validate(temporaryURL, duration: timeRange.duration.seconds,
+            video: !(try await asset.loadTracks(withMediaType: .video)).isEmpty,
+            audio: !(try await asset.loadTracks(withMediaType: .audio)).isEmpty)
+        try ExportFileCommit.commit(temporaryURL, to: outputURL)
     }
 
     static func passthroughFileType(

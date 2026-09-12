@@ -44,16 +44,17 @@ nonisolated enum ProjectRenderMediaManager {
         hasVideo: Bool = true,
         hasAudio: Bool
     ) async throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TrimatoRenderIntermediates", isDirectory: true)
+        let directory = try TemporaryMediaSession.directory(named: "TrimatoRenderIntermediates")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        removeAbandonedIntermediates(in: directory)
+        let report = try await FFmpegMediaProbe.inspect(url: sourceURL)
         try requireAvailableSpace(
             in: directory,
             duration: duration,
             width: width,
             height: height,
-            hasVideo: hasVideo
+            hasVideo: hasVideo,
+            sampleRate: Double(report.audioStream?.sampleRate ?? "") ?? 48_000,
+            channels: report.audioStream?.channels ?? 2, frameRate: report.frameRate ?? 30
         )
         let outputURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
         do {
@@ -75,42 +76,42 @@ nonisolated enum ProjectRenderMediaManager {
         }
     }
 
-    private static func removeAbandonedIntermediates(in directory: URL) {
-        let fileManager = FileManager.default
-        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
-        guard let files = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        for file in files where file.pathExtension.lowercased() == "mov" {
-            guard let values = try? file.resourceValues(
-                forKeys: [.contentModificationDateKey]
-            ),
-                  let modified = values.contentModificationDate,
-                  modified < cutoff else { continue }
-            try? fileManager.removeItem(at: file)
-        }
-    }
-
     static func requireAvailableSpace(
         in directory: URL,
         duration: Double,
         width: Int?,
         height: Int?,
-        hasVideo: Bool
+        hasVideo: Bool,
+        sampleRate: Double = 48_000,
+        channels: Int = 2,
+        frameRate: Double = 30,
+        hasAlpha: Bool = false
     ) throws {
         let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         guard let available = values.volumeAvailableCapacityForImportantUsage else { return }
-        let estimatedIntermediate: Int64
-        if hasVideo {
-            let pixels = Double(max((width ?? 1_920) * (height ?? 1_080), 1))
-            let resolutionScale = max(pixels / Double(1_920 * 1_080), 0.25)
-            estimatedIntermediate = Int64(max(duration, 1) * 30_000_000 * resolutionScale)
-        } else {
-            estimatedIntermediate = Int64(max(duration, 1) * 192_000)
-        }
-        let required = MediaCacheManager.minimumAvailableByteCount + estimatedIntermediate
+        let estimate = try estimatedBytes(duration: duration, width: width, height: height,
+            hasVideo: hasVideo, sampleRate: sampleRate, channels: channels, frameRate: frameRate, hasAlpha: hasAlpha)
+        let (required, overflow) = MediaCacheManager.minimumAvailableByteCount.addingReportingOverflow(estimate)
+        guard !overflow else { throw ProjectRenderMediaError.insufficientDiskSpace }
         guard available >= required else { throw ProjectRenderMediaError.insufficientDiskSpace }
     }
+    static func estimatedBytes(duration: Double, width: Int?, height: Int?, hasVideo: Bool,
+                               sampleRate: Double = 48_000, channels: Int = 2,
+                               frameRate: Double = 30, hasAlpha: Bool = false) throws -> Int64 {
+        guard duration.isFinite, duration > 0, sampleRate.isFinite, sampleRate > 0,
+              channels > 0, frameRate.isFinite, frameRate > 0,
+              !hasVideo || ((width ?? 1920) > 0 && (height ?? 1080) > 0) else {
+            throw ProjectRenderMediaError.insufficientDiskSpace
+        }
+        let audioRate = sampleRate * Double(channels) * 4
+        let pixels = Double(width ?? 1920) * Double(height ?? 1080)
+        let videoRate = hasVideo ? 30_000_000 * max(pixels / (1920 * 1080), 0.25)
+            * max(frameRate / 30, 1) * (hasAlpha ? 2 : 1) : 0
+        let estimate = max(duration, 1) * (audioRate + videoRate) * 1.1
+        guard estimate.isFinite, estimate < Double(Int64.max) else {
+            throw ProjectRenderMediaError.insufficientDiskSpace
+        }
+        return Int64(estimate.rounded(.up))
+    }
+
 }

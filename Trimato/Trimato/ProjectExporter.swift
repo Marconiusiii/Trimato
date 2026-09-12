@@ -51,6 +51,7 @@ enum ProjectExporter {
         progress: @escaping @MainActor @Sendable (Double) -> Void,
         preserveHDR: Bool = AppPreferences.preserveHDR()
     ) async throws {
+        try ExportFileCommit.protectSources(Array(mediaURLs.values), destination: outputURL)
         let result = try await ProjectCompositionBuilder.build(
             project: project,
             mediaURLs: mediaURLs,
@@ -152,7 +153,7 @@ enum ProjectExporter {
 
         let progressTask = Task { @MainActor in
             while !Task.isCancelled {
-                progress(Double(session.progress))
+                progress(min(Double(session.progress), 0.99))
                 try? await Task.sleep(for: .milliseconds(200))
             }
         }
@@ -165,13 +166,11 @@ enum ProjectExporter {
             throw ExportError.encodingFailed(Self.failureDetail(for: error))
         }
         try Task.checkCancellation()
+        try await ExportOutputValidator.validate(temporaryURL, duration: exportRange.duration.seconds,
+            video: true, audio: !result.composition.tracks(withMediaType: .audio).isEmpty)
+        try ExportFileCommit.commit(temporaryURL, to: outputURL)
+        progressTask.cancel()
         progress(1)
-
-        if FileManager.default.fileExists(atPath: outputURL.path) {
-            _ = try FileManager.default.replaceItemAt(outputURL, withItemAt: temporaryURL)
-        } else {
-            try FileManager.default.moveItem(at: temporaryURL, to: outputURL)
-        }
     }
 
     nonisolated static func failureDetail(for error: Error) -> String {
@@ -393,7 +392,7 @@ nonisolated enum CustomMovieExporter {
                     }
                     let elapsed = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
                         - CMTimeGetSeconds(sessionStart)
-                    await progress(min(max(elapsed / duration, 0), 1))
+                    await progress(min(max(elapsed / duration, 0), 0.99))
                     appendedSample = true
                 } else {
                     videoInput.markAsFinished()
@@ -431,13 +430,9 @@ nonisolated enum CustomMovieExporter {
                     ?? "The movie file could not be completed."
             )
         }
+        try await ExportOutputValidator.validate(temporaryURL, duration: duration, video: true, audio: audioOutput != nil)
+        try ExportFileCommit.commit(temporaryURL, to: outputURL)
         await progress(1)
-
-        if fileManager.fileExists(atPath: outputURL.path) {
-            _ = try fileManager.replaceItemAt(outputURL, withItemAt: temporaryURL)
-        } else {
-            try fileManager.moveItem(at: temporaryURL, to: outputURL)
-        }
     }
 }
 
@@ -450,6 +445,9 @@ enum AudioOnlyExporter {
         to outputURL: URL,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
+        if let source = asset as? AVURLAsset {
+            try ExportFileCommit.protectSources([source.url], destination: outputURL)
+        }
         guard format.isAudioOnly else {
             throw ProjectExporter.ExportError.incompatibleFormat(format.title)
         }
@@ -528,6 +526,10 @@ enum AudioOnlyExporter {
         }
         writer.add(writerInput)
 
+        defer {
+            if reader.status == .reading { reader.cancelReading() }
+            if writer.status == .writing { writer.cancelWriting() }
+        }
         guard writer.startWriting(), reader.startReading() else {
             let underlyingError = writer.error ?? reader.error
             throw ProjectExporter.ExportError.encodingFailed(
@@ -559,7 +561,7 @@ enum AudioOnlyExporter {
             }
             let elapsed = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
                 - CMTimeGetSeconds(timeRange?.start ?? .zero)
-            progress(min(max(elapsed / duration, 0), 1))
+            progress(min(max(elapsed / duration, 0), 0.99))
         }
         try Task.checkCancellation()
         if reader.status == .failed {
@@ -576,13 +578,9 @@ enum AudioOnlyExporter {
                     ?? "The audio file could not be completed."
             )
         }
+        try await ExportOutputValidator.validate(temporaryURL, duration: duration, video: false, audio: true)
+        try ExportFileCommit.commit(temporaryURL, to: outputURL)
         progress(1)
-
-        if fileManager.fileExists(atPath: outputURL.path) {
-            _ = try fileManager.replaceItemAt(outputURL, withItemAt: temporaryURL)
-        } else {
-            try fileManager.moveItem(at: temporaryURL, to: outputURL)
-        }
     }
 
     private static func exportFLAC(

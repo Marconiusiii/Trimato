@@ -206,7 +206,7 @@ nonisolated struct SpatialAudioRenderPlan: Sendable {
 
     @concurrent
     func render() async throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TrimatoSpatial-" + UUID().uuidString)
+        let directory = (try TemporaryMediaSession.directory(named: "Processing")).appendingPathComponent("TrimatoSpatial-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         var sources: [URL: [PCMFile]] = [:]
@@ -302,7 +302,7 @@ nonisolated struct SpatialAudioRenderPlan: Sendable {
         let audio = movie.tracks(withMediaType: .audio)
         guard audio.count == 2 else { throw SpatialAudioError.processingFailure(#line) }
         for (index, track) in audio.enumerated() { track.alternateGroupID = 1; track.isEnabled = index == 0 }
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-spatial-processed-" + UUID().uuidString + ".mov")
+        let output = (try TemporaryMediaSession.directory(named: "Processing")).appendingPathComponent("trimato-spatial-processed-" + UUID().uuidString + ".mov")
         do {
             guard let session = AVAssetExportSession(asset: movie, presetName: AVAssetExportPresetPassthrough) else { throw SpatialAudioError.processingFailure(#line) }
             session.audioTrackGroupHandling = .preserveAlternateTracks

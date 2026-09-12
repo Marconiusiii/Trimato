@@ -42,7 +42,7 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .tone: "Adjust low, middle, and high frequencies or reduce rumble and hiss."
         case .backgroundNoise: "Reduce steady background noise. Strong reduction can affect speech."
         case .evenVolume: "Compress louder passages and limit peaks to reduce changes in volume."
-        case .matchLoudness: "Adjust the whole clip toward a target perceived loudness, measured in LUFS."
+        case .matchLoudness: "Adjust the retained edit toward a target perceived loudness, measured in LUFS."
         case .reverb: "Add the sound of a room. The effect ends at the clip’s Out point."
         case .echo: "Add a delayed repeat. The effect ends at the clip’s Out point."
         case .softenS: "Reduce sharp S and sh sounds in speech."

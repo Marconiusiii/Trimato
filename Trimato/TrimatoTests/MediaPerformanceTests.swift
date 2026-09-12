@@ -12,7 +12,7 @@ struct MediaPerformanceTests {
             Float(0.1 * sin(2 * .pi * 220 * time))
         }
         defer { try? FileManager.default.removeItem(at: source) }
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TrimatoClipFilters")
+        let directory = try TemporaryMediaSession.directory(named: "TrimatoClipFilters")
         func files() -> Set<String> {
             Set((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
         }

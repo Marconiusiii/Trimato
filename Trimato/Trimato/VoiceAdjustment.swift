@@ -105,7 +105,7 @@ nonisolated enum VoiceAudioProcessor {
 
     @concurrent
     private static func process(source: URL, graph: String) async throws -> URL {
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-voice-\(UUID()).wav")
+        let output = (try TemporaryMediaSession.directory(named: "Processing")).appendingPathComponent("trimato-voice-\(UUID()).wav")
         do {
             _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
                 "-hide_banner", "-nostdin", "-y", "-i", source.path, "-filter_complex", graph,
@@ -143,7 +143,7 @@ nonisolated enum VoiceReferenceAudio {
         }
         let result = try await ProjectCompositionBuilder.build(project: showOnly(project), mediaURLs: urls)
         defer { for url in result.temporaryMediaURLs { try? FileManager.default.removeItem(at: url) } }
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-reference-\(UUID()).wav")
+        let output = (try TemporaryMediaSession.directory(named: "Processing")).appendingPathComponent("trimato-reference-\(UUID()).wav")
         do {
             try await AudioOnlyExporter.export(asset: result.composition, audioMix: result.audioMix,
                 timeRange: CMTimeRange(start: ProjectTime(seconds: start).cmTime, duration: ProjectTime(seconds: end - start).cmTime),

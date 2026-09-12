@@ -263,15 +263,16 @@ nonisolated struct SpatialAudioPlan: Sendable {
         defer { try? FileManager.default.removeItem(at: directory) }
         let temporary = directory.appendingPathComponent("spatial.mov")
         let reporter = Task { @MainActor in
-            while !Task.isCancelled { progress(Double(session.progress)); try? await Task.sleep(for: .milliseconds(200)) }
+            while !Task.isCancelled { progress(min(Double(session.progress), 0.99)); try? await Task.sleep(for: .milliseconds(200)) }
         }
         defer { reporter.cancel() }
         try await session.export(to: temporary, as: .mov)
         try Task.checkCancellation()
         try await validatePreservedAudio(in: AVURLAsset(url: temporary))
-        if FileManager.default.fileExists(atPath: output.path) {
-            _ = try FileManager.default.replaceItemAt(output, withItemAt: temporary)
-        } else { try FileManager.default.moveItem(at: temporary, to: output) }
+        try await ExportOutputValidator.validate(temporary, duration: session.timeRange.duration.seconds,
+            video: !(try await movie.loadTracks(withMediaType: .video)).isEmpty, audio: true)
+        try ExportFileCommit.commit(temporary, to: output)
+        reporter.cancel()
         await progress(1)
     }
 }

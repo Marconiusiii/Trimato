@@ -122,6 +122,7 @@ struct FFmpegClipExporter {
         to outputURL: URL,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
+        try ExportFileCommit.protectSources([sourceURL], destination: outputURL)
         try await export(
             sourceURL: sourceURL,
             sourceRanges: [timeRange],
@@ -174,7 +175,7 @@ struct FFmpegClipExporter {
                 tool: .ffmpeg,
                 arguments: arguments(sourceURL: sourceURL, sourceRanges: sourceRanges,
                                      hasAudio: hasAudio, outputURL: temporaryURL, format: format),
-                progress: progress,
+                progress: { progress(min($0, 0.99)) },
                 expectedDuration: duration
             )
         } catch let error as FFmpegCommandError where error.isVideoToolboxUnavailable {
@@ -183,10 +184,9 @@ struct FFmpegClipExporter {
         }
         try Task.checkCancellation()
 
-        if fileManager.fileExists(atPath: outputURL.path) {
-            _ = try fileManager.replaceItemAt(outputURL, withItemAt: temporaryURL)
-        } else {
-            try fileManager.moveItem(at: temporaryURL, to: outputURL)
-        }
+        try await ExportOutputValidator.validate(temporaryURL, duration: duration,
+            video: !format.isAudioOnly, audio: hasAudio || format.isAudioOnly)
+        try ExportFileCommit.commit(temporaryURL, to: outputURL)
+        progress(1)
     }
 }

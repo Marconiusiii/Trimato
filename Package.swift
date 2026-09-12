@@ -3,7 +3,7 @@ import Foundation
 import PackageDescription
 
 // Compile the production file-operation code without launching the macOS app.
-let sources = ["MediaFileTransfer.swift", "ImportedFileHandling.swift", "MediaFileReference.swift", "TrackMixSettings.swift", "TrackMixProcessor.swift", "MixerPlayheadSlider.swift", "MixerCommands.swift", "AudioValueSlider.swift", "SettingsSliderKeyboard.swift", "MixerValue.swift", "RecordingPreviewRange.swift", "MediaJobScheduler.swift", "SerialMediaWorker.swift"]
+let sources = ["ExportFileCommit.swift", "RelatedExportFileWriter.swift", "TemporaryMediaSession.swift", "MediaFileTransfer.swift", "ImportedFileHandling.swift", "MediaFileReference.swift", "TrackMixSettings.swift", "TrackMixProcessor.swift", "MixerPlayheadSlider.swift", "MixerCommands.swift", "AudioValueSlider.swift", "SettingsSliderKeyboard.swift", "MixerValue.swift", "RecordingPreviewRange.swift", "MediaJobScheduler.swift", "SerialMediaWorker.swift"]
 let sourceDirectory = "Trimato/Trimato"
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let excluded = (try? FileManager.default.contentsOfDirectory(atPath:
