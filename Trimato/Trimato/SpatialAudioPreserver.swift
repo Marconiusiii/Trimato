@@ -171,8 +171,41 @@ nonisolated struct SpatialAudioPlan: Sendable {
                 guard let target = movie.addMutableTrack(withMediaType: .video, copySettingsFrom: track, options: nil) else {
                     throw SpatialAudioError.invalidMovie
                 }
-                let available = try await track.load(.timeRange)
-                try target.insertTimeRange(available, of: track, at: available.start, copySampleData: false)
+                if let compositionTrack = track as? AVCompositionTrack {
+                    // Inserting a multi-source composition into a movie in one call
+                    // can silently retain only its first segment. Copy each source
+                    // edit explicitly, retaining its timeline position and speed.
+                    for segment in try await compositionTrack.load(.segments) where !segment.isEmpty {
+                        try Task.checkCancellation()
+                        guard let segment = segment as? AVCompositionTrackSegment,
+                              let url = segment.sourceURL else {
+                            throw SpatialAudioError.videoAssemblyFailed
+                        }
+                        let sourceAsset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+                        guard try await sourceAsset.load(.providesPreciseDurationAndTiming),
+                              let sourceTrack = try await sourceAsset.loadTracks(withMediaType: .video)
+                                .first(where: { $0.trackID == segment.sourceTrackID }) else {
+                            throw SpatialAudioError.videoAssemblyFailed
+                        }
+                        let edit = segment.timeMapping
+                        try target.insertTimeRange(edit.source, of: sourceTrack, at: edit.target.start, copySampleData: false)
+                        if edit.source.duration != edit.target.duration {
+                            target.scaleTimeRange(CMTimeRange(start: edit.target.start, duration: edit.source.duration),
+                                                  toDuration: edit.target.duration)
+                        }
+                        let copied = try await target.load(.timeRange)
+                        guard abs((copied.end - edit.target.end).seconds) < 0.001 else {
+                            throw SpatialAudioError.videoAssemblyFailed
+                        }
+                    }
+                } else {
+                    let available = try await track.load(.timeRange)
+                    try target.insertTimeRange(available, of: track, at: available.start, copySampleData: false)
+                    let copied = try await target.load(.timeRange)
+                    guard abs((copied.end - available.end).seconds) < 0.001 else {
+                        throw SpatialAudioError.videoAssemblyFailed
+                    }
+                }
                 mapping[track.trackID] = target
             }
         }
@@ -214,7 +247,8 @@ nonisolated struct SpatialAudioPlan: Sendable {
         return withUnsafeBytes(of: &layout) { Data($0.prefix(12)) }
     }
 
-    static func remap(_ composition: AVMutableVideoComposition?, tracks: [CMPersistentTrackID: AVAssetTrack]) throws -> AVMutableVideoComposition? {
+    static func remap(_ composition: AVMutableVideoComposition?, tracks: [CMPersistentTrackID: AVAssetTrack],
+                      playbackDuration: CMTime) throws -> AVMutableVideoComposition? {
         guard let composition else { return nil }
         let result = composition.mutableCopy() as! AVMutableVideoComposition
         result.instructions = try composition.instructions.map { item in
@@ -247,6 +281,13 @@ nonisolated struct SpatialAudioPlan: Sendable {
             return copy
         }
         if let track = tracks[result.sourceTrackIDForFrameTiming] { result.sourceTrackIDForFrameTiming = track.trackID }
+        // Spatial audio is rounded to whole audio samples. Even a fractional
+        // sample beyond the last picture instruction invalidates AVPlayer video.
+        if let last = result.instructions.last as? AVMutableVideoCompositionInstruction,
+           playbackDuration > last.timeRange.end,
+           (playbackDuration - last.timeRange.end).seconds < 0.001 {
+            last.timeRange.duration = playbackDuration - last.timeRange.start
+        }
         return result
     }
 
@@ -280,10 +321,12 @@ nonisolated struct SpatialAudioPlan: Sendable {
 nonisolated enum SpatialAudioError: LocalizedError {
     case unsupported(String)
     case invalidMovie
+    case videoAssemblyFailed
     case processingFailure(Int)
     var errorDescription: String? {
         switch self {
         case .unsupported(let reason): "\(reason) Spatial Audio has not been converted to stereo."
+        case .videoAssemblyFailed: "Trimato could not assemble all of the project's video for playback with spatial audio."
         case .invalidMovie, .processingFailure: "Trimato could not preserve this recording's spatial audio tracks and metadata. No stereo substitute was exported."
         }
     }

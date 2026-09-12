@@ -278,7 +278,20 @@ nonisolated enum ProjectCompositionBuilder {
                 if let spatial, purpose == .preview {
                     let (movie, mapping) = try await spatial.movie(video: result.composition)
                     result.spatialPlaybackAsset = movie
-                    result.spatialVideoComposition = try SpatialAudioPlan.remap(result.videoComposition, tracks: mapping)
+                    let playbackDuration = try await movie.load(.duration)
+                    result.spatialVideoComposition = try SpatialAudioPlan.remap(result.videoComposition, tracks: mapping,
+                        playbackDuration: playbackDuration)
+                    if let video = result.spatialVideoComposition {
+                        let range = CMTimeRange(start: .zero, duration: playbackDuration)
+                        let valid: Bool
+                        if #available(macOS 15, *) {
+                            valid = video.isValid(for: try await movie.load(.tracks), assetDuration: playbackDuration,
+                                timeRange: range, validationDelegate: nil)
+                        } else {
+                            valid = try await video.isValid(for: movie, timeRange: range, validationDelegate: nil)
+                        }
+                        guard valid else { throw SpatialAudioError.videoAssemblyFailed }
+                    }
                     result = ProjectCompositionResult(composition: result.composition, videoComposition: result.videoComposition,
                         audioMix: nil, temporaryMediaURLs: result.temporaryMediaURLs, spatialAudio: spatial,
                         spatialPlaybackAsset: movie, spatialVideoComposition: result.spatialVideoComposition)

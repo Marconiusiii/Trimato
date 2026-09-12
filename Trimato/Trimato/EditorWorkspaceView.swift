@@ -449,6 +449,7 @@ struct ProjectViewerView: View {
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
     @AccessibilityFocusState private var focusedAccessibilityTarget: AccessibilityTarget?
     @State private var pendingProjectPlayheadFocus = false
+    @State private var controlsHeight: CGFloat = 240
 
     init(controller: ProjectController, openClipEditor: @escaping (EditorSelection) -> Void,
          workspacePaneLinks: Namespace.ID, viewModel: ProjectPlayerViewModel) {
@@ -473,10 +474,13 @@ struct ProjectViewerView: View {
             Divider()
 
             videoArea
-                .frame(minHeight: 180)
-                .layoutPriority(1)
+                .frame(minHeight: 60, maxHeight: .infinity)
             controlsArea
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
         }
+        .frame(minHeight: controlsHeight + 92)
         .accessibilityIdentifier("trimato.editor.root")
         .background(EditorAccessibilityFocusBridge(scope: focusScope))
         .focusedObject(viewModel)
@@ -649,7 +653,7 @@ struct ProjectViewerView: View {
     }
 
     private var controlsArea: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 6) {
             if let notice = viewModel.audioNotice {
                 Text(notice).fixedSize(horizontal: false, vertical: true)
             }
@@ -673,50 +677,50 @@ struct ProjectViewerView: View {
             playbackGroup
 
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 14)
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
         .background(EditorTheme.controlSurface)
     }
 
     private var moveAndEditGroup: some View {
         GroupBox {
-            HStack(spacing: 20) {
+            HStack(spacing: 8) {
                 Button { viewModel.goToStart() } label: { Image(systemName: "backward.end.fill") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .accessibilityLabel("Go to beginning")
                     .accessibilityIdentifier("trimato.editor.go-to-beginning")
                     .accessibilityFocused($focusedAccessibilityTarget, equals: .goToBeginning)
                 Button { viewModel.goToPreviousEdit() } label: { Image(systemName: "chevron.left.2") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .accessibilityLabel("Previous edit point")
                     .accessibilityIdentifier("trimato.editor.previous-edit")
                     .accessibilityFocused($focusedAccessibilityTarget, equals: .previousEdit)
                 Button { controller.splitClipAtPlayhead() } label: { Image(systemName: "scissors") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .accessibilityLabel("Blade at playhead")
                     .accessibilityHint("Splits the primary timeline clip beneath the playhead")
                     .accessibilityIdentifier("trimato.editor.blade")
                     .accessibilityFocused($focusedAccessibilityTarget, equals: .blade)
                 Button { viewModel.goToNextEdit() } label: { Image(systemName: "chevron.right.2") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .accessibilityLabel("Next edit point")
                     .accessibilityIdentifier("trimato.editor.next-edit")
                     .accessibilityFocused($focusedAccessibilityTarget, equals: .nextEdit)
                 Button { viewModel.goToEnd() } label: { Image(systemName: "forward.end.fill") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .accessibilityLabel("Go to end")
                     .accessibilityIdentifier("trimato.editor.go-to-end")
                     .accessibilityFocused($focusedAccessibilityTarget, equals: .goToEnd)
                 Button { viewModel.goToVideoEnd() } label: { Image(systemName: "film.stack") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .accessibilityLabel("Go to end of video")
                     .accessibilityIdentifier("trimato.editor.go-to-video-end")
                     .accessibilityFocused($focusedAccessibilityTarget, equals: .goToVideoEnd)
             }
-            .font(.title2)
+            .font(.body)
             .foregroundStyle(EditorTheme.accent)
-            .padding(.top, 4)
+            .padding(.top, 2)
         } label: {
             Text("Move and Edit").accessibilityHidden(true)
         }
@@ -752,7 +756,7 @@ struct ProjectViewerView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 4)
+            .padding(.top, 2)
         } label: {
             Text("Markers").accessibilityHidden(true)
         }
@@ -765,29 +769,18 @@ struct ProjectViewerView: View {
 
     private var playbackGroup: some View {
         GroupBox {
-            VStack(spacing: 8) {
-                Button { viewModel.toggleTimecodeDisplay() } label: {
-                    VStack(spacing: 2) {
-                        Text(viewModel.showingFrames
-                             ? String(format: "%06d", viewModel.currentFrame)
-                             : viewModel.displayTimecode)
-                            .font(.system(.title, design: .monospaced).weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(EditorTheme.accent)
-                        Text(viewModel.showingFrames ? "FRAMES" : "TIMECODE")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(EditorTheme.secondaryText)
+            VStack(spacing: 4) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        projectTimecode.fixedSize()
+                        Spacer(minLength: 0)
+                        transportControls.fixedSize()
                     }
-                    .frame(maxWidth: .infinity)
-                    .accessibilityHidden(true)
+                    VStack(spacing: 4) {
+                        projectTimecode
+                        transportControls
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Project timecode")
-                .accessibilityValue(viewModel.accessibilityTimecodeLabel)
-                .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
-                .accessibilityIdentifier("trimato.editor.timecode")
-                .accessibilityFocused($focusedAccessibilityTarget, equals: .timecode)
-
                 if viewModel.isPlaying, viewModel.playbackRate != 1 {
                     Text(viewModel.playbackRate < 0
                          ? "\(Int(abs(viewModel.playbackRate))) times backward"
@@ -800,48 +793,8 @@ struct ProjectViewerView: View {
                         .accessibilityHidden(true)
                 }
 
-                HStack(spacing: 20) {
-                    Button { viewModel.stepBackward() } label: {
-                        Image(systemName: "backward.frame.fill").font(.title2)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Step backward one frame")
-                    .accessibilityIdentifier("trimato.editor.step-backward")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .stepBackward)
-                    Button { viewModel.seekBackward() } label: {
-                        Image(systemName: "gobackward.10").font(.title2)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Skip back 10 seconds")
-                    .accessibilityIdentifier("trimato.editor.skip-backward")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .skipBackward)
-                    Button { viewModel.togglePlayback() } label: {
-                        Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 30))
-                            .frame(width: 38)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
-                    .accessibilityIdentifier("trimato.editor.play-pause")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .playPause)
-                    Button { viewModel.seekForward() } label: {
-                        Image(systemName: "goforward.10").font(.title2)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Skip forward 10 seconds")
-                    .accessibilityIdentifier("trimato.editor.skip-forward")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .skipForward)
-                    Button { viewModel.stepForward() } label: {
-                        Image(systemName: "forward.frame.fill").font(.title2)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Step forward one frame")
-                    .accessibilityIdentifier("trimato.editor.step-forward")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .stepForward)
-                }
-                .foregroundStyle(EditorTheme.accent)
             }
-            .padding(.top, 4)
+            .padding(.top, 2)
         } label: {
             Text("Playback").accessibilityHidden(true)
         }
@@ -850,6 +803,71 @@ struct ProjectViewerView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Playback")
         .accessibilityIdentifier("trimato.editor.playback")
+    }
+
+    private var projectTimecode: some View {
+        Button { viewModel.toggleTimecodeDisplay() } label: {
+            VStack(spacing: 2) {
+                Text(viewModel.showingFrames
+                     ? String(format: "%06d", viewModel.currentFrame)
+                     : viewModel.displayTimecode)
+                    .font(.system(.headline, design: .monospaced).weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(EditorTheme.accent)
+                Text(viewModel.showingFrames ? "Frames" : "Timecode")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(EditorTheme.secondaryText)
+            }
+            .accessibilityHidden(true)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Project timecode")
+        .accessibilityValue(viewModel.accessibilityTimecodeLabel)
+        .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
+        .accessibilityIdentifier("trimato.editor.timecode")
+        .accessibilityFocused($focusedAccessibilityTarget, equals: .timecode)
+    }
+
+    private var transportControls: some View {
+        HStack(spacing: 8) {
+            Button { viewModel.stepBackward() } label: {
+                Image(systemName: "backward.frame.fill").font(.body)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Step backward one frame")
+            .accessibilityIdentifier("trimato.editor.step-backward")
+            .accessibilityFocused($focusedAccessibilityTarget, equals: .stepBackward)
+            Button { viewModel.seekBackward() } label: {
+                Image(systemName: "gobackward.10").font(.body)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Skip back 10 seconds")
+            .accessibilityIdentifier("trimato.editor.skip-backward")
+            .accessibilityFocused($focusedAccessibilityTarget, equals: .skipBackward)
+            Button { viewModel.togglePlayback() } label: {
+                Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.body)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
+            .accessibilityIdentifier("trimato.editor.play-pause")
+            .accessibilityFocused($focusedAccessibilityTarget, equals: .playPause)
+            Button { viewModel.seekForward() } label: {
+                Image(systemName: "goforward.10").font(.body)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Skip forward 10 seconds")
+            .accessibilityIdentifier("trimato.editor.skip-forward")
+            .accessibilityFocused($focusedAccessibilityTarget, equals: .skipForward)
+            Button { viewModel.stepForward() } label: {
+                Image(systemName: "forward.frame.fill").font(.body)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Step forward one frame")
+            .accessibilityIdentifier("trimato.editor.step-forward")
+            .accessibilityFocused($focusedAccessibilityTarget, equals: .stepForward)
+        }
+        .foregroundStyle(EditorTheme.accent)
     }
 }
 

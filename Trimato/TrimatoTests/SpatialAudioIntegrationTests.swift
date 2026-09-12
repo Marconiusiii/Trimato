@@ -8,6 +8,69 @@ import Testing
 struct SpatialAudioIntegrationTests {
     static let directory = URL(fileURLWithPath: "/tmp/trimato-spatial-app-integration")
 
+    @Test
+    func spatialPreviewCoversFractionalAudioSampleTail() throws {
+        let asset = AVMutableComposition()
+        let track = try #require(asset.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid))
+        let instruction = AVMutableVideoCompositionInstruction()
+        let pictureDuration = CMTime(value: 12_457_172, timescale: 600_000)
+        let audioDuration = CMTime(value: 996_574, timescale: 48_000)
+        instruction.timeRange = CMTimeRange(start: .zero, duration: pictureDuration)
+        instruction.layerInstructions = [AVMutableVideoCompositionLayerInstruction(assetTrack: track)]
+        let composition = AVMutableVideoComposition()
+        composition.instructions = [instruction]
+        let remapped = try #require(try SpatialAudioPlan.remap(composition, tracks: [track.trackID: track], playbackDuration: audioDuration))
+        #expect(remapped.instructions.last?.timeRange.end == audioDuration)
+        #expect(composition.instructions.last?.timeRange.end == pictureDuration)
+        // A substantial missing picture range must still fail validation, not be padded away.
+        let incomplete = try #require(try SpatialAudioPlan.remap(composition, tracks: [track.trackID: track],
+            playbackDuration: pictureDuration + CMTime(seconds: 1, preferredTimescale: 600_000)))
+        #expect(incomplete.instructions.last?.timeRange.end == pictureDuration)
+    }
+
+    @Test(.enabled(if: IPhoneMediaTests.available))
+    func spatialPreviewRetainsEveryVideoEdit() async throws {
+        let first = AVURLAsset(url: IPhoneMediaTests.sources.appendingPathComponent("4K_30fps.MOV"))
+        let second = AVURLAsset(url: IPhoneMediaTests.sources.appendingPathComponent("4K_60fps.mov"))
+        let a = try #require(try await first.loadTracks(withMediaType: .video).first)
+        let b = try #require(try await second.loadTracks(withMediaType: .video).first)
+        let video = AVMutableComposition()
+        let track = try #require(video.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid))
+        func time(_ seconds: Double) -> CMTime { CMTime(seconds: seconds, preferredTimescale: 600_000) }
+        let halfSecond = CMTimeRange(start: time(1), duration: time(0.5))
+        try track.insertTimeRange(halfSecond, of: a, at: .zero)
+        // Different source, an intentional gap, a speed change, then a repeated source.
+        try track.insertTimeRange(halfSecond, of: b, at: time(1))
+        track.scaleTimeRange(CMTimeRange(start: time(1), duration: time(0.5)), toDuration: time(1))
+        try track.insertTimeRange(CMTimeRange(start: time(2), duration: time(0.5)), of: a, at: time(2))
+        let plan = SpatialAudioPlan(source: first, ranges: [CMTimeRange(start: .zero, duration: time(3))])
+        let (preview, mapping) = try await plan.movie(video: video)
+        try await assertSpatial(preview, matches: first)
+        let copied = try #require(mapping[track.trackID])
+        #expect(abs(try await copied.load(.timeRange).end.seconds - 2.5) < 0.001)
+
+        func pixels(_ asset: AVAsset, at seconds: Double) async throws -> [UInt8] {
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.maximumSize = CGSize(width: 64, height: 36)
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            let image = try await generator.image(at: time(seconds)).image
+            let context = try #require(CGContext(data: nil, width: 64, height: 36, bitsPerComponent: 8,
+                bytesPerRow: 64 * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 64, height: 36))
+            let bytes = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+            return (0..<(64 * 36 * 4)).filter { $0 % 4 != 3 }.map { bytes[$0] }
+        }
+        for position in [0.25, 1.25, 1.75, 2.25] {
+            let expected = try await pixels(video, at: position)
+            let actual = try await pixels(preview, at: position)
+            #expect(expected.contains { $0 > 20 })
+            #expect(actual.contains { $0 > 20 }, "Missing picture at \(position) seconds")
+            let difference = zip(expected, actual).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }
+            #expect(Double(difference) / Double(expected.count) < 2, "Wrong picture at \(position) seconds")
+        }
+    }
+
     @Test(.enabled(if: IPhoneMediaTests.available), arguments: ["4K_30fps.MOV", "4K_60fps.mov", "4K_120fps.MOV"])
     func appExportsAndPreviewsPreserveSpatialAudio(name: String) async throws {
         let source = IPhoneMediaTests.sources.appendingPathComponent(name)
