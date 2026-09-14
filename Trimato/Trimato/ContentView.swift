@@ -11,6 +11,7 @@ struct ContentView: View {
     private let isPreparingSource: Bool
     private let isPreparingClipPreview: Bool
     private let entryCompleted: () -> Void
+    @State private var showingSilenceTrim = false
     @StateObject private var entryFocus = ClipEditorEntryFocus()
     @FocusState private var playheadKeyboardFocused: Bool
     @AccessibilityFocusState private var playheadVoiceOverFocused: Bool
@@ -104,6 +105,7 @@ struct ContentView: View {
             guard url.isFileURL else { return }
             viewModel.load(url: url)
         }
+        .sheet(isPresented: $showingSilenceTrim) { TrimSilencesView(viewModel: viewModel) }
         .operationProgress(viewModel.isExporting ? OperationProgress(
             title: "Exporting Clip", progress: viewModel.exportProgress, cancel: viewModel.cancelExport
         ) : nil, outcome: viewModel.exportErrorMessage == nil ? .completed : .failed)
@@ -136,13 +138,8 @@ struct ContentView: View {
                     VideoPlayerView(player: viewModel.player)
                         .accessibilityHidden(true)
                 } else {
-                    AudioWaveformView(
-                        samples: viewModel.waveformSamples,
-                        playbackFraction: viewModel.duration > 0
-                            ? viewModel.currentTime / viewModel.duration
-                            : 0,
-                        isLoading: viewModel.isPreparingWaveform
-                    )
+                    ClipLiveWaveform(clock: viewModel.playbackClock, samples: viewModel.waveformSamples,
+                        duration: viewModel.duration, isLoading: viewModel.isPreparingWaveform)
                 }
             } else if !viewModel.isLoadingMedia {
                 VStack(spacing: 16) {
@@ -170,14 +167,8 @@ struct ContentView: View {
 
     private var controlsArea: some View {
         VStack(spacing: 10) {
-            Slider(
-                value: Binding(
-                    get: { viewModel.duration > 0 ? viewModel.currentTime / viewModel.duration : 0 },
-                    set: { viewModel.seek(to: $0) }
-                ),
-                in: 0...1,
-                step: viewModel.playbackFractionStep
-            )
+            ClipLivePlayhead(clock: viewModel.playbackClock, duration: viewModel.duration,
+                step: viewModel.playbackFractionStep, seek: viewModel.seek)
             .disabled(viewModel.duration <= 0)
             .tint(EditorTheme.playhead)
             .accessibilityLabel("Clip playhead")
@@ -187,6 +178,8 @@ struct ContentView: View {
             .accessibilityFocused($playheadVoiceOverFocused)
 
             playbackControls
+            Button("Trim Silences…") { showingSilenceTrim = true }
+                .disabled(!viewModel.canTrimSilences)
             if !compact { ClipMarkerControlsView(viewModel: viewModel) }
         }
         .padding(.horizontal, 20)
@@ -200,9 +193,7 @@ struct ContentView: View {
             VStack(spacing: 8) {
                 Button { viewModel.toggleTimecodeDisplay() } label: {
                     VStack(spacing: 2) {
-                        Text(viewModel.showingFrames
-                             ? String(format: "%06d", viewModel.currentFrame)
-                             : viewModel.displayTimecode)
+                        ClipLiveTimecode(clock: viewModel.playbackClock, showingFrames: viewModel.showingFrames)
                             .font(.system(.title, design: .monospaced).weight(.semibold))
                             .monospacedDigit()
                             .foregroundStyle(EditorTheme.accent)
@@ -449,5 +440,35 @@ private struct ClipEditorEntryFocusBridge: NSViewRepresentable {
             super.viewDidMoveToWindow()
             owner?.attach(window)
         }
+    }
+}
+
+private struct ClipLiveTimecode: View {
+    @ObservedObject var clock: ClipPlaybackClock
+    let showingFrames: Bool
+    var body: some View {
+        Text(showingFrames ? String(format: "%06d", clock.frame) : clock.timecode)
+    }
+}
+
+private struct ClipLivePlayhead: View {
+    @ObservedObject var clock: ClipPlaybackClock
+    let duration: Double
+    let step: Double
+    let seek: (Double) -> Void
+    var body: some View {
+        Slider(value: Binding(get: { duration > 0 ? clock.time / duration : 0 }, set: seek),
+            in: 0...1, step: step)
+    }
+}
+
+private struct ClipLiveWaveform: View {
+    @ObservedObject var clock: ClipPlaybackClock
+    let samples: [Float]
+    let duration: Double
+    let isLoading: Bool
+    var body: some View {
+        AudioWaveformView(samples: samples, playbackFraction: duration > 0 ? clock.time / duration : 0,
+            isLoading: isLoading)
     }
 }

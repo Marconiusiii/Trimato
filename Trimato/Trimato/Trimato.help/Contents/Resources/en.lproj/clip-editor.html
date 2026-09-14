@@ -58,6 +58,18 @@
     <p>Match Loudness adjusts the retained edit toward your chosen Playback loudness. It keeps the result quieter if reaching that target would exceed the selected Peak ceiling. Later effects, clip volume, and track mixing can change the final level. Use Limit loud peaks to limit the clip after its other filters, and listen to the complete mix before exporting.</p>
     <p>Video choices are Brightness and Contrast, Color Adjustment, Black and White, Sharpen, Reduce Video Noise, and Crop and Orientation. Audio choices are Reduce Background Noise, Even Out Volume, Match Loudness, Reverb, Echo, Soften harsh S sounds, and Limit loud peaks. Reverb offers small, medium, and large rooms with an Amount slider. Reverb and echo stop at the clip’s Out point.</p>
     <p>Open a filter’s context menu and choose Edit Filter to change it, Enable Filter or Disable Filter to switch its effect on or off, or Remove Filter to remove it. Use Reset in the filter editor to restore its starting values. A disabled filter remains in the list but does not change the clip.</p>
+    <h2>Trim silences</h2>
+    <p>In Audio Clip Editor or Video Clip Editor, activate Trim Silences. The clip must contain audio. Analyze marked selection only starts enabled when In and Out points are set. Turn it off to analyze the whole edited clip.</p>
+    <ul>
+        <li>Silence threshold sets how quiet the audio must be, in decibels. A more negative value preserves quieter sounds.</li>
+        <li>Minimum pause sets the shortest quiet interval to trim, in seconds.</li>
+        <li>Pause to retain keeps some silence around each cut, shared between its two sides. It must be shorter than Minimum pause.</li>
+    </ul>
+    <p>Activate Analyze to find pauses and prepare a preview. The result gives the number of cuts and the time to be removed. Play Preview plays the result before audio effects and filters; Pause Preview stops playback temporarily. Video preview shows the matching picture. Cancel Analysis stops the work without changing the clip. Changing a setting clears the preview so you can analyze again.</p>
+    <p>Warning: Trimming silences from video removes both the silent audio and the matching video. This creates jump cuts, where the picture abruptly changes between the remaining sections. Preview the result before applying the edits. You can undo the operation; the original media file is unchanged.</p>
+    <p>Quiet speech, breaths, and intentional pauses can qualify as silence. Lower the threshold or increase the minimum pause if too much would be removed. Both stereo channels must be quiet. An entirely silent selection is left unchanged.</p>
+    <p>Apply keeps the cuts in the clip draft. Existing In and Out points follow the shortened edit. Use Edit &gt; Undo to undo Trim Silences, or Redo to reapply it. Update Clip saves a timeline instance; Add to Timeline places the retained edit; Export Clip saves a separate file.</p>
+    <p>Updating a shortened timeline clip can move later clips earlier on that track. Other tracks, captions, and descriptions are not automatically shortened to match. Check project timing after updating. An update that conflicts with existing placement may be rejected; the draft remains available.</p>
 <h2>Export</h2>
     <p>The Export section at the bottom contains Export Clip, Update Clip, and Add to Timeline. Export Clip saves a separate media file. Update Clip saves edits to the timeline clip and appears when editing a timeline clip. Add to Timeline places the edited media in the project.</p>
 </main>

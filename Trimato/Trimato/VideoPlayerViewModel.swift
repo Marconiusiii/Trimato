@@ -121,18 +121,28 @@ final class VideoPlayerViewModel: ObservableObject {
 
     let player = AVPlayer()
 
-    @Published var displayTimecode: String = "00:00:00.000"
+    let playbackClock = ClipPlaybackClock()
+    var displayTimecode: String {
+        get { playbackClock.timecode }
+        set { playbackClock.timecode = newValue }
+    }
     @Published var isPlaying: Bool = false
     @Published var playbackRate: Float = 0
     @Published var duration: Double = 0
-    @Published var currentTime: Double = 0
+    var currentTime: Double {
+        get { playbackClock.time }
+        set { playbackClock.time = newValue }
+    }
     @Published private(set) var sourceFilename: String?
     @Published private(set) var hasMedia = false
     @Published private(set) var hasVideo = false
     @Published private(set) var waveformSamples: [Float] = []
     @Published private(set) var isPreparingWaveform = false
     @Published var showingFrames: Bool = false
-    @Published var currentFrame: Int = 0
+    var currentFrame: Int {
+        get { playbackClock.frame }
+        set { playbackClock.frame = newValue }
+    }
     @Published private(set) var accessibilityTimecodeLabel: String = "0 seconds, 0 milliseconds"
     @Published private(set) var inMarker: CMTime?
     @Published private(set) var outMarker: CMTime?
@@ -156,6 +166,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
     private var mediaDuration: CMTime = .zero
+    private var silenceEditGeneration = UUID()
     private var mediaSource: MediaSource?
     private var hasSpatialAudio = false
     private var editTimeline: ClipEditTimeline?
@@ -408,6 +419,7 @@ final class VideoPlayerViewModel: ObservableObject {
         accessibilityTimecodeLabel = "0 seconds, 0 milliseconds"
         announcedImportProgress = 0
         let operationID = UUID()
+        silenceEditGeneration = UUID()
         loadID = operationID
         loadTask = Task { @MainActor in
             var preparedProxyURL: URL?
@@ -534,6 +546,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func closeMedia() {
+        silenceEditGeneration = UUID()
         waitingForClipPreview = false
         preparePlayback = nil
         pendingPlaybackStart = nil
@@ -715,6 +728,78 @@ final class VideoPlayerViewModel: ObservableObject {
         guard hadMarker else { return }
         refreshPlacementSourceSegments()
         announce("Out marker cleared")
+    }
+
+    var silenceTrimFrameRate: Double { hasVideo ? Double(frameRate) : 0 }
+
+    var canTrimSilences: Bool {
+        hasMedia && mediaSource?.hasAudio == true && !isLoadingMedia && !isApplyingEdit && !isExporting
+    }
+
+    func silenceTrimInput(markedOnly: Bool) throws -> (URL, ClipEditTimeline, CMTimeRange, AVAsset) {
+        guard canTrimSilences, let mediaSource, let editTimeline else { throw SilenceTrimError.noAudio }
+        let range: CMTimeRange
+        if markedOnly {
+            guard let marked = Self.validExportRange(inMarker: inMarker, outMarker: outMarker) else {
+                throw ClipEditError.invalidSelection
+            }
+            range = marked
+        } else { range = CMTimeRange(start: .zero, duration: editTimeline.duration) }
+        return (mediaSource.originalURL, editTimeline, range,
+                hasSpatialAudio ? mediaSource.originalAsset : mediaSource.playbackAsset)
+    }
+
+    private struct SilenceEditSnapshot {
+        let timeline: ClipEditTimeline
+        let asset: AVAsset
+        let inMarker: CMTime?
+        let outMarker: CMTime?
+        let time: CMTime
+        let sourceURL: URL
+        let generation: UUID
+    }
+
+    func applySilenceTrim(_ plan: SilenceTrimPlan, previewAsset: AVAsset,
+                          expectedTimeline: ClipEditTimeline, undoManager: UndoManager?) throws {
+        guard let undoManager else { throw SilenceTrimError.undoUnavailable }
+        guard canTrimSilences, editTimeline == expectedTimeline, let source = mediaSource else {
+            throw SilenceTrimError.changedClip
+        }
+        restoreSilenceEdit(SilenceEditSnapshot(timeline: ClipEditTimeline(sourceRanges: plan.sourceRanges),
+            asset: previewAsset, inMarker: inMarker.map(plan.remap), outMarker: outMarker.map(plan.remap),
+            time: inMarker.map(plan.remap) ?? .zero, sourceURL: source.originalURL, generation: silenceEditGeneration),
+            undoManager: undoManager)
+    }
+
+    private func restoreSilenceEdit(_ snapshot: SilenceEditSnapshot, undoManager: UndoManager?) {
+        guard let source = mediaSource, source.originalURL == snapshot.sourceURL,
+              silenceEditGeneration == snapshot.generation,
+              let current = editTimeline, let basePlaybackAsset else { return }
+        let previous = SilenceEditSnapshot(timeline: current, asset: basePlaybackAsset,
+            inMarker: inMarker, outMarker: outMarker, time: player.currentTime(), sourceURL: source.originalURL, generation: silenceEditGeneration)
+        undoManager?.registerUndo(withTarget: self) { [weak undoManager] target in
+            guard target.editTimeline == snapshot.timeline else { return }
+            target.restoreSilenceEdit(previous, undoManager: undoManager)
+        }
+        undoManager?.setActionName("Trim Silences")
+        player.pause(); cancelScrub()
+        editTimeline = snapshot.timeline
+        projectSourceSegments = snapshot.timeline.sourceRanges.map { SourceSegment(sourceRange: ProjectTimeRange($0)) }
+        editedFrameTimestamps = EditedCompositionBuilder.editedFrameTimestamps(
+            sourceTimestamps: source.frameTimestamps, sourceRanges: snapshot.timeline.sourceRanges)
+        mediaDuration = snapshot.timeline.duration
+        duration = mediaDuration.seconds
+        inMarker = snapshot.inMarker; outMarker = snapshot.outMarker
+        refreshPlacementSourceSegments(); refreshWaveformSamples()
+        removeActiveAudioPreview()
+        self.basePlaybackAsset = snapshot.asset
+        player.replaceCurrentItem(with: AVPlayerItem(asset: snapshot.asset))
+        player.seek(to: snapshot.time, toleranceBefore: .zero, toleranceAfter: .zero)
+        currentTime = snapshot.time.seconds
+        currentFrame = Int(currentTime * Double(frameRate))
+        displayTimecode = Self.formatTimecode(snapshot.time)
+        refreshAccessibilityTimecode()
+        announce("Clip edit updated")
     }
 
     func deleteSelection() {
@@ -1304,7 +1389,7 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private func setupTimeObserver() {
         timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(value: 1, timescale: 60), queue: .main
+            forInterval: CMTime(value: 1, timescale: 30), queue: .main
         ) { [weak self] time in
             guard let self else { return }
             let formatted = Self.formatTimecode(time)
@@ -1701,4 +1786,12 @@ final class VideoPlayerViewModel: ObservableObject {
         return String(format: "%02d:%02d:%02d.%03d",
                       totalSec / 3600, (totalSec / 60) % 60, totalSec % 60, ms)
     }
+}
+
+/// Only the changing playback display observes this clock. Playback controls and
+/// the surrounding editor must not rebuild for every AVPlayer time callback.
+@MainActor final class ClipPlaybackClock: ObservableObject {
+    @Published var time = 0.0
+    @Published var frame = 0
+    @Published var timecode = "00:00:00.000"
 }

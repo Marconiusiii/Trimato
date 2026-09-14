@@ -32,10 +32,19 @@ enum EditedCompositionBuilder {
         var result: [CMTime] = []
         var editedCursor = CMTime.zero
 
+        func lowerBound(_ time: CMTime) -> Int {
+            var lower = 0
+            var upper = sourceTimestamps.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if CMTimeCompare(sourceTimestamps[middle], time) < 0 { lower = middle + 1 }
+                else { upper = middle }
+            }
+            return lower
+        }
+
         for range in sourceRanges {
-            for timestamp in sourceTimestamps where
-                CMTimeCompare(timestamp, range.start) >= 0 &&
-                CMTimeCompare(timestamp, range.end) < 0 {
+            for timestamp in sourceTimestamps[lowerBound(range.start)..<lowerBound(range.end)] {
                 result.append(CMTimeAdd(editedCursor, CMTimeSubtract(timestamp, range.start)))
             }
             editedCursor = CMTimeAdd(editedCursor, range.duration)
