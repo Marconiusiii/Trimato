@@ -1,7 +1,7 @@
 import CoreMedia
 import Foundation
 
-enum ClipEditError: LocalizedError, Equatable {
+nonisolated enum ClipEditError: LocalizedError, Equatable, Sendable {
     case invalidSelection
     case entireClip
     case nothingToTrim
@@ -18,7 +18,7 @@ enum ClipEditError: LocalizedError, Equatable {
     }
 }
 
-struct ClipEditTimeline: Equatable {
+nonisolated struct ClipEditTimeline: Equatable, Sendable {
     private(set) var sourceRanges: [CMTimeRange]
 
     init(sourceDuration: CMTime) {

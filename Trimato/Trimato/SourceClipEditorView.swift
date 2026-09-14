@@ -308,6 +308,8 @@ struct SourceClipEditorView: View {
             Text("No clip changes to update.")
         }
         HStack {
+            ContextualHelpButton(topic: .clipEditor)
+            Spacer()
             if commandContext.isTimelineEntry {
                 Button("Update Clip") { commandContext.performUpdate() }
                     .disabled(!commandContext.canUpdate)

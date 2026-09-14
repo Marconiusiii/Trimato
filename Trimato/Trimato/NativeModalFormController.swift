@@ -287,6 +287,7 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
 }
 
 struct NativeModalActions: View {
+    var helpTopic: TrimatoHelp.Topic? = nil
     let primaryTitle: String
     var primaryEnabled = true
     let cancel: () -> Void
@@ -294,6 +295,7 @@ struct NativeModalActions: View {
 
     var body: some View {
         HStack {
+            if let helpTopic { ContextualHelpButton(topic: helpTopic) }
             Spacer()
             Button("Cancel", action: cancel)
                 .keyboardShortcut(.cancelAction)

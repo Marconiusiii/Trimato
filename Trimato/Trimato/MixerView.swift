@@ -133,6 +133,10 @@ struct MixerView: View {
                 session.controller.setMasterVolume($0); session.refresh()
             }), range: -60...12, step: 0.5, unit: "dB", identifier: "trimato.mixer.master",
                 spokenValue: MixerValue.decibels, onEditingChanged: session.controller.mixerAdjustmentEditing)
+            HStack {
+                ContextualHelpButton(topic: .mixer)
+                Spacer()
+            }
         }
         .padding(20)
         .frame(minWidth: 640, idealWidth: 760)

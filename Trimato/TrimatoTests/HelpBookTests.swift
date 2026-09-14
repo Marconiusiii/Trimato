@@ -30,12 +30,12 @@ struct HelpBookTests {
 
         let bookIdentifier = try #require(helpInfo["CFBundleIdentifier"] as? String)
         #expect(bookIdentifier == "com.marconius.trimato.help")
-        #expect(helpInfo["CFBundleShortVersionString"] as? String == "1.3.0")
-        #expect(appInfo["CFBundleHelpBookName"] as? String == bookIdentifier)
+        #expect(helpInfo["CFBundleShortVersionString"] as? String == "$(MARKETING_VERSION)")
+        #expect(appInfo["CFBundleHelpBookName"] as? String == "TRIMATO_HELP_BOOK_IDENTIFIER")
         #expect(indexPage.contains(
             "<meta name=\"AppleTitle\" content=\"\(bookIdentifier)\">"
         ))
-        #expect(helpInfo["CFBundleVersion"] as? String == "14")
+        #expect(helpInfo["CFBundleVersion"] as? String == "$(CURRENT_PROJECT_VERSION)")
         #expect(quickStart.contains("<a name=\"trimato-quickstart-guide\"></a>"))
         #expect(quickStart.contains("<h1 id=\"trimato-quickstart\">Trimato QuickStart guide</h1>"))
         #expect(quickStart.contains("<link rel=\"stylesheet\" href=\"trimato-help.css\">"))

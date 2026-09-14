@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Add and edit transitions</title>
+    <link rel="stylesheet" href="trimato-help.css">
+</head>
+<body>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
+<main>
+    <a name="trimato-transitions"></a>
+    <h1>Add and edit transitions</h1>
+    <h2>Add and edit transitions</h2>
+    <ol>
+        <li>Move the Editor playhead onto a clip, or focus the clip in Timeline clips.</li>
+        <li>Press Command-T.</li>
+        <li>For Fade, choose Fade In {clip name}, Fade Out {clip name}, or both. Both controls name the selected clip. Other transition types retain the Intro and Outro side controls.</li>
+        <li>If the video clip has audio, choose Fade Audio or Crossfade Audio to apply the matching audio transition.</li>
+        <li>Enter the duration in seconds, then activate Add.</li>
+    </ol>
+    <p>The duration begins at 1.0 seconds and accepts fractional seconds such as 1.25. Trimato checks that the selected clip and any neighboring clip have enough media for the transition.</p>
+
+    <h3>Use Quick Fade</h3>
+    <ol>
+        <li>Move the Editor playhead onto a clip or to a shared cut between clips.</li>
+        <li>Press F to open Quick Fade.</li>
+        <li>Choose Fade In {clip name}, Fade Out {clip name}, or both. Fade Audio includes the matching linked audio for each selected fade.</li>
+        <li>Enter the duration in seconds, then apply the fade.</li>
+    </ol>
+    <p>At a shared cut from clip A to clip B, Fade In B applies at the beginning of B and Fade Out A applies at the end of A. Selecting both places both fades around that cut. Within a clip, at the start of the timeline, or at its final endpoint, both controls name the same clip. This behavior is the same on video and audio tracks.</p>
+    <p>A progress bar will appear. Choose Cancel if you want to stop.</p>
+
+    <h3>Use Quick Cross Dissolve or Quick Cross Fade</h3>
+    <ol>
+        <li>Move the Editor playhead to an edit with an outgoing and incoming clip.</li>
+        <li>Press X. A video track opens Quick Cross Dissolve. An audio track opens Quick Cross Fade.</li>
+        <li>Confirm the displayed outgoing and incoming clip names.</li>
+        <li>In a video context, choose Crossfade Audio when the clips’ audio should cross fade too.</li>
+        <li>Enter the duration in seconds, then apply the transition.</li>
+    </ol>
+    <p>A progress bar will appear. Choose Cancel if you want to stop.</p>
+
+    <h3>Transition types</h3>
+    <dl>
+        <dt>Fade In</dt>
+        <dd>Gradually changes the selected video from black to the clip.</dd>
+        <dt>Fade Out</dt>
+        <dd>Gradually changes the selected video from the clip to black.</dd>
+        <dt>Audio Fade In</dt>
+        <dd>Gradually raises the clip audio from silence.</dd>
+        <dt>Audio Fade Out</dt>
+        <dd>Gradually lowers the clip audio to silence.</dd>
+        <dt>Cross Dissolve</dt>
+        <dd>Fades the incoming picture over the outgoing picture across their shared edit. Crossfade Audio blends both clips’ audio at the same time.</dd>
+        <dt>Cross Fade</dt>
+        <dd>Lowers the outgoing audio while raising the incoming audio across their shared edit.</dd>
+        <dt>Fade Out/Fade In</dt>
+        <dd>Fades outgoing video through black into incoming video, or fades outgoing audio through silence into incoming audio. Unlike a cross dissolve or cross fade, the two sources do not overlap.</dd>
+        <dt>Wipe Left</dt>
+        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves left.</dd>
+        <dt>Wipe Right</dt>
+        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves right.</dd>
+        <dt>Wipe Up</dt>
+        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves upward.</dd>
+        <dt>Wipe Down</dt>
+        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves downward.</dd>
+    </dl>
+    <p>Wipes affect video only. Audio-only projects offer audio fades and cross fades without video transition choices. Each transition appears as its own Timeline clips item. Activate it to edit or delete the transition without changing the source edit.</p>
+    <p>Trimato creates temporary render files so it can play transitions and adjusted audio. These files support the current preview and are normally removed when the preview changes or the project closes. <a href="storage-and-temporary-media.html">Learn about temporary renders and cleanup.</a></p>
+
+    <h2>Change an existing transition</h2>
+    <p>Open a transition from Timeline Clips to change its name, type, or duration. Update Transition saves the changes. Delete Transition removes that transition while keeping the clips.</p>
+</main>
+<footer><p><a href="clip-editor.html">Edit a clip.</a></p></footer>
+</body>
+</html>

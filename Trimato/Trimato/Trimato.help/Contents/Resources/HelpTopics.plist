@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>trimato-trim-silences</key>
+	<string>trim-silences.html</string>
+	<key>trimato-filters</key>
+	<string>filters.html</string>
+	<key>trimato-transitions</key>
+	<string>transitions.html</string>
+	<key>trimato-generator</key>
+	<string>generator.html</string>
+	<key>trimato-mixer</key>
+	<string>mixer.html</string>
+	<key>trimato-clip-editor</key>
+	<string>clip-editor.html</string>
+</dict>
+</plist>

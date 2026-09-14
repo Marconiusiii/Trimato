@@ -187,7 +187,7 @@ struct EditRecordedVoiceFilterView: View {
             }
             FilterAuditionView(context: context, work: work, candidate: nil, voice: voice,
                 voiceMatching: !smoothingOnly, beforePlayback: { work.cancel(); beforePlayback() })
-            NativeModalActions(primaryTitle: "Apply", primaryEnabled: true, cancel: cancel, primary: { work.cancel(); apply(voice) })
+            NativeModalActions(helpTopic: .filters, primaryTitle: "Apply", primaryEnabled: true, cancel: cancel, primary: { work.cancel(); apply(voice) })
         }
         .padding(20).frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)
@@ -290,8 +290,7 @@ struct AddClipFilterView: View {
                 .focused($pickerKeyboardFocused)
                 .accessibilityFocused($pickerVoiceOverFocused)
                 switch selection {
-                case .filter(let kind):
-                    Text(kind.description)
+                case .filter:
                     ClipFilterParameters(filter: $draft)
                 case .voiceMatching:
                     if let context = voiceContext {
@@ -299,7 +298,6 @@ struct AddClipFilterView: View {
                             track: nil, validateTake: context.validateVoice, applyTrack: { _ in }, beforePlayback: beforePlayback)
                     }
                 case .voiceSmoothing:
-                    Text("Reduce differences between louder and quieter words in this recording.")
                     VoiceSmoothingControls(settings: $voiceDraft)
                 }
             }
@@ -310,7 +308,7 @@ struct AddClipFilterView: View {
                     voiceMatching: selection == .voiceMatching,
                     beforePlayback: { voiceWork.cancel(); beforePlayback() })
                 }
-            NativeModalActions(
+            NativeModalActions(helpTopic: .filters,
                 primaryTitle: "Add",
                 primaryEnabled: !available.isEmpty &&
                     (selection != .voiceMatching || voiceDraft.targetLoudness != nil) &&
@@ -371,7 +369,6 @@ struct EditClipFilterView: View {
             Text(filter.kind.title).font(.headline).accessibilityAddTraits(.isHeader)
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("Enable \(filter.kind.title)", isOn: $filter.enabled)
-                Text(filter.kind.description)
                 ClipFilterParameters(filter: $filter)
             }
             if let context {
@@ -386,7 +383,7 @@ struct EditClipFilterView: View {
                 filter.enabled = enabled
             }
 
-            NativeModalActions(
+            NativeModalActions(helpTopic: .filters,
                 primaryTitle: "Apply",
                 primaryEnabled: true,
                 cancel: cancel,

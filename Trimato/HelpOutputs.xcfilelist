@@ -1,0 +1,26 @@
+// Generated Help descendants are explicit sandbox outputs. Keep aligned with HelpInputs.xcfilelist.
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Info.plist
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/HelpTopics.plist
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/clip-editor.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/index.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/keyboard-shortcuts.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/mixer.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/playback-and-markers.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/projects-and-media.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/quickstart.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/recording.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/saving-and-exporting.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/storage-and-temporary-media.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/timeline-editing.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/trim-silences.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/trimato-help.css
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/troubleshooting.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/voiceover.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/workspace.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/Trimato.cshelpindex
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/filters.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/transitions.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/generator.html

@@ -23,15 +23,17 @@ struct TrimSilencesView: View {
             Form {
                 Toggle("Only between In and Out", isOn: $markedOnly)
                     .disabled(viewModel.inMarker == nil || viewModel.outMarker == nil)
-                Stepper("Quiet level (dB)", value: $settings.thresholdDB,
-                    in: -90...0, step: 1,
-                    format: .number.precision(.fractionLength(0...2)))
-                Stepper("Shortest pause to trim (seconds)", value: $settings.minimumPause,
-                    in: 0.05...Double.infinity, step: 0.05,
-                    format: .number.precision(.fractionLength(0...2)))
-                Stepper("Keep this much of each pause (seconds)", value: $settings.retainedPause,
-                    in: 0...Double.infinity, step: 0.05,
-                    format: .number.precision(.fractionLength(0...2)))
+                AudioValueSlider(label: "Quiet level", value: $settings.thresholdDB,
+                    range: -90...0, step: 1, unit: "dB", identifier: "trimato.silence.quiet-level",
+                    preservesStep: true, spokenValue: { "\($0.formatted(.number.precision(.fractionLength(0)))) dB" })
+                AudioValueSlider(label: "Shortest pause to trim", value: $settings.minimumPause,
+                    range: 0.05...max(10, settings.minimumPause.rounded(.up) + 1), step: 0.05,
+                    unit: "seconds", identifier: "trimato.silence.shortest-pause",
+                    preservesStep: true, spokenValue: Self.seconds)
+                AudioValueSlider(label: "Keep this much of each pause", value: $settings.retainedPause,
+                    range: 0...max(10, settings.retainedPause.rounded(.up) + 1), step: 0.05,
+                    unit: "seconds", identifier: "trimato.silence.retained-pause",
+                    preservesStep: true, spokenValue: Self.seconds)
             }.formStyle(.columns)
                 .disabled(busy)
             Button(busy ? "Cancel Search" : "Find Pauses") {
@@ -57,7 +59,9 @@ struct TrimSilencesView: View {
                 playing.toggle()
             }.disabled(previewAsset == nil || busy)
             HStack {
-                Button("Help") { TrimatoHelp.open(.trimSilences) }
+                Button("Help") {
+                    if let error = TrimatoHelp.open(.trimSilences) { message = error }
+                }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Trim Pauses") { apply() }
@@ -89,6 +93,10 @@ struct TrimSilencesView: View {
             if notification.object as? AVPlayerItem === player.currentItem { playing = false }
         }
         .onDisappear { task?.cancel(); player.pause(); player.replaceCurrentItem(with: nil) }
+    }
+
+    nonisolated private static func seconds(_ value: Double) -> String {
+        "\(value.formatted(.number.precision(.fractionLength(0...2)))) seconds"
     }
 
     private func invalidate() {

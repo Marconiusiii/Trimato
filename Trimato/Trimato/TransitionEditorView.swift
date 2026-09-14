@@ -59,7 +59,7 @@ struct TransitionEditorView: View {
                     .foregroundStyle(.red)
             }
 
-            NativeModalActions(
+            NativeModalActions(helpTopic: .transitions,
                 primaryTitle: "Update Transition",
                 cancel: cancel,
                 primary: applyUpdate

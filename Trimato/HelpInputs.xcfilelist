@@ -1,0 +1,26 @@
+// Include every Help source and directory so the Xcode script stays sandboxed.
+$(SRCROOT)/Trimato/Trimato.help
+$(SRCROOT)/Trimato/Trimato.help/Contents
+$(SRCROOT)/Trimato/Trimato.help/Contents/Info.plist
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/HelpTopics.plist
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/clip-editor.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/index.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/keyboard-shortcuts.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/mixer.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/playback-and-markers.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/projects-and-media.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/quickstart.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/recording.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/saving-and-exporting.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/storage-and-temporary-media.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/timeline-editing.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/trim-silences.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/trimato-help.css
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/troubleshooting.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/voiceover.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/workspace.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/filters.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/transitions.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/generator.html

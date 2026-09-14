@@ -282,11 +282,15 @@ struct GeneratorView: View {
 
             placementControls
                 .disabled(session.progress != nil)
-            Button(session.progress == nil ? "Cancel" : "Cancel Preparation", role: .cancel) {
-                session.cancelPreparation()
-                close()
+            HStack {
+                ContextualHelpButton(topic: .generator)
+                Spacer()
+                Button(session.progress == nil ? "Cancel" : "Cancel Preparation", role: .cancel) {
+                    session.cancelPreparation()
+                    close()
+                }
+                .keyboardShortcut(.cancelAction)
             }
-            .keyboardShortcut(.cancelAction)
         }
         .operationProgress(session.progress.map { OperationProgress(
             title: "Preparing Generator", progress: $0, cancel: session.cancelPreparation

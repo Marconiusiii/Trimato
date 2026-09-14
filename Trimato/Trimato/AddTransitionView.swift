@@ -51,7 +51,7 @@ struct AddTransitionView: View {
                     .foregroundStyle(.red)
             }
 
-            NativeModalActions(
+            NativeModalActions(helpTopic: .transitions,
                 primaryTitle: "Add",
                 primaryEnabled: addIntro || addOutro,
                 cancel: cancel,

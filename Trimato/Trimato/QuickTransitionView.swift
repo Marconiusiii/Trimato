@@ -51,7 +51,7 @@ struct QuickTransitionView: View {
                     .foregroundStyle(.red)
             }
 
-            NativeModalActions(
+            NativeModalActions(helpTopic: .transitions,
                 primaryTitle: request.mode == .quickFade ? "Apply Fade" : applyButtonTitle,
                 primaryEnabled: request.mode != .quickFade || addIntro || addOutro,
                 cancel: finished,
