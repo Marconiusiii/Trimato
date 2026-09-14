@@ -61,14 +61,22 @@ enum TrimatoHelp {
     }
 
     /// Returns an actionable message if registration or the native Help request fails.
-    static func open(_ topic: Topic, in application: Bundle = .main) -> String? {
+    static func open(
+        _ topic: Topic,
+        in application: Bundle = .main,
+        registerBook: (URL) -> OSStatus = { AHRegisterHelpBookWithURL($0 as CFURL) },
+        lookupAnchor: (String, String) -> OSStatus = {
+            AHLookupAnchor($0 as CFString, $1 as CFString)
+        }
+    ) -> String? {
         do {
             let target = try destination(for: topic, in: application)
-            guard AHRegisterHelpBookWithURL(application.bundleURL as CFURL) == noErr else {
+            guard registerBook(application.bundleURL) == noErr else {
                 return "Trimato could not register its Help content. Close Help and try again."
             }
-            guard AHGotoPage(target.bookIdentifier as CFString, target.page as CFString,
-                             topic.rawValue as CFString) == noErr else {
+            // Resolve through the validated Help index instead of asking the
+            // viewer to interpret a relative HTML path inside a localized book.
+            guard lookupAnchor(target.bookIdentifier, topic.rawValue) == noErr else {
                 return "Trimato could not open this Help topic. Close Help and try again."
             }
             return nil
