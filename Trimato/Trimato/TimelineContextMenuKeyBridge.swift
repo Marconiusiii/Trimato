@@ -43,6 +43,21 @@ nonisolated enum NativeContextMenuShortcut {
     }
 }
 
+/// A VoiceOver shortcut is consumed even if its target disappears. It must
+/// never fall through to a different clip's keyboard responder.
+@MainActor
+enum TimelineContextMenuRouting {
+    static func present(voiceOver: Bool, accessibilityFocus: TimelineElementSelection?,
+                        keyboardFocus: TimelineElementSelection?,
+                        show: (TimelineElementSelection?) -> Bool) -> Bool {
+        if voiceOver {
+            if let accessibilityFocus { _ = show(accessibilityFocus) }
+            return true
+        }
+        return show(keyboardFocus)
+    }
+}
+
 nonisolated enum TimelineKeyAction: Equatable {
     case toggleMovement, beginMovement, finishMovement, cancelMovement, delete
     case openEditor, earlier, later, copy, paste, moveAfter, previewBefore, previewAfter
@@ -66,11 +81,11 @@ nonisolated enum TimelineKeyAction: Equatable {
         }
     }
 
-    static func target(voiceOver: Bool, accessibilityFocus: TimelineElementSelection?, keyboardFocus: TimelineElementSelection?, editingText: Bool) -> TimelineElementSelection? {
+    static func target(voiceOver: Bool, accessibilityFocus: TimelineElementSelection?, keyboardFocus: TimelineElementSelection?, editingText: Bool, mouseFocus: TimelineElementSelection? = nil) -> TimelineElementSelection? {
         // VoiceOver and the keyboard responder can legitimately be on different
         // controls. An unrelated text responder must not steal this clip's Space.
         if voiceOver { return accessibilityFocus }
-        return editingText ? nil : keyboardFocus
+        return mouseFocus ?? (editingText ? nil : keyboardFocus)
     }
 }
 
@@ -118,6 +133,7 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
     let movingClipID: UUID?
     var isMoving: Bool { movingClipID != nil }
     var allowsNudging: (TimelineElementSelection) -> Bool = { _ in false }
+    var contains: (TimelineElementSelection) -> Bool = { _ in true }
     let perform: (TimelineKeyAction, TimelineElementSelection) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -167,30 +183,53 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
                 return handleMouse(event, in: window)
             }
             if event.type == .keyDown, NSWorkspace.shared.isVoiceOverEnabled,
-               NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags),
-               let target = TimelineAccessibilityFocus.selection(), let content = window.contentView,
-               TimelineCollectionView.showContextMenu(for: target, in: content) {
-                consumedKeys.insert(event.keyCode)
-                return nil
+               NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags) {
+                let accessibilityFocus = TimelineAccessibilityFocus.selection()
+                let keyboardFocus = TimelineAccessibilityFocus.selection(from: window.firstResponder)
+                if accessibilityFocus != nil || keyboardFocus != nil {
+                    _ = TimelineContextMenuRouting.present(voiceOver: true,
+                        accessibilityFocus: accessibilityFocus, keyboardFocus: keyboardFocus) { target in
+                        guard let target, let content = window.contentView else { return false }
+                        return TimelineCollectionView.showContextMenu(for: target, in: content)
+                    }
+                    consumedKeys.insert(event.keyCode)
+                    return nil
+                }
             }
-            return handleKey(event, voiceOver: NSWorkspace.shared.isVoiceOverEnabled,
+            let voiceOver = NSWorkspace.shared.isVoiceOverEnabled
+            if !voiceOver, mouseSource == nil, TimelineAccessibilityFocus.selection(from: window.firstResponder) == nil {
+                return event.type == .keyUp && consumedKeys.remove(event.keyCode) != nil ? nil : event
+            }
+            return handleKey(event, voiceOver: voiceOver,
                              editingText: (window.firstResponder as? NSTextView)?.isEditable == true,
-                             currentAccessibilityFocus: TimelineAccessibilityFocus.selection())
+                             currentAccessibilityFocus: TimelineAccessibilityFocus.selection(),
+                             currentKeyboardFocus: TimelineAccessibilityFocus.selection(from: window.firstResponder),
+                             useLiveKeyboardFocus: true)
         }
 
-        func handleKey(_ event: NSEvent, voiceOver: Bool, editingText: Bool, currentAccessibilityFocus: TimelineElementSelection? = nil) -> NSEvent? {
+        func handleKey(_ event: NSEvent, voiceOver: Bool, editingText: Bool, currentAccessibilityFocus: TimelineElementSelection? = nil,
+                       currentKeyboardFocus: TimelineElementSelection? = nil,
+                       useLiveKeyboardFocus: Bool = false) -> NSEvent? {
             guard let bridge else { return event }
             if event.type == .keyUp { return consumedKeys.remove(event.keyCode) != nil ? nil : event }
-            let target = mouseSource ?? TimelineKeyAction.target(
+            // VoiceOver's mouse cursor may remain over another clip. It must not
+            // override accessibility focus, even during a remembered mouse press.
+            let target = TimelineKeyAction.target(
                 voiceOver: voiceOver,
                 accessibilityFocus: voiceOver
                     ? currentAccessibilityFocus
                     : bridge.accessibilitySelection,
-                keyboardFocus: bridge.keyboardSelection,
-                editingText: editingText
+                keyboardFocus: useLiveKeyboardFocus ? currentKeyboardFocus : bridge.keyboardSelection,
+                editingText: editingText,
+                mouseFocus: mouseSource
             )
             guard let target,
-                  let action = TimelineKeyAction.resolve(keyCode: event.keyCode, modifiers: event.modifierFlags, isMoving: bridge.isMoving || mouseSource != nil, allowsNudging: bridge.allowsNudging(target)) else { return event }
+                  let action = TimelineKeyAction.resolve(keyCode: event.keyCode, modifiers: event.modifierFlags, isMoving: bridge.isMoving || (mouseSource != nil && (!voiceOver || mouseSource == target)), allowsNudging: bridge.allowsNudging(target)) else { return event }
+            guard bridge.contains(target) else {
+                if voiceOver { consumedKeys.insert(event.keyCode); return nil }
+                return event
+            }
+            if voiceOver, mouseSource != target || action == .toggleMovement || action == .finishMovement { clearMousePress() }
             if case .transition = target, action != .openEditor, action != .delete { return event }
             consumedKeys.insert(event.keyCode)
             if !event.isARepeat || action == .earlier || action == .later {
@@ -291,6 +330,7 @@ struct TimelineCollectionActions {
     let movePlayheadToCaption: (UUID) -> Void
     let delete: (TimelineElementSelection) -> Void
     let deleteMedia: (UUID) -> Void
+    var accessibilityFocus: ((TimelineElementSelection, Bool) -> Void)? = nil
 }
 
 struct TimelineClipsCollection: NSViewRepresentable {
@@ -370,6 +410,19 @@ struct TimelineClipsCollection: NSViewRepresentable {
                     configure(timelineItem, with: models[indexPath.item])
                 }
             }
+            let selectedPaths = Self.selectionPaths(models: models, movingClipID: movingClipID)
+            if collectionView?.selectionIndexPaths != selectedPaths {
+                let identities = models.map(\.selection)
+                // Native selection can trigger focus callbacks. Apply it after
+                // the representable update, and discard obsolete track state.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.models.map(\.selection) == identities,
+                          Self.selectionPaths(models: self.models, movingClipID: self.movingClipID) == selectedPaths else { return }
+                    if self.collectionView?.selectionIndexPaths != selectedPaths {
+                        self.collectionView?.selectionIndexPaths = selectedPaths
+                    }
+                }
+            }
             if previousFocusRequest != source.focusRequest, source.focusRequest > 0 {
                 previousFocusRequest = source.focusRequest
                 if let target = source.focusTarget {
@@ -395,6 +448,13 @@ struct TimelineClipsCollection: NSViewRepresentable {
             } else {
                 previousListFocusRequest = source.listFocusRequest
             }
+        }
+
+        static func selectionPaths(models: [TimelineCollectionItemModel], movingClipID: UUID?) -> Set<IndexPath> {
+            let index: Int?
+            if let movingClipID { index = models.firstIndex { $0.selection == .clip(movingClipID) } }
+            else { index = models.firstIndex(where: \.isSelected) }
+            return index.map { [IndexPath(item: $0, section: 0)] } ?? []
         }
 
         func numberOfSections(in collectionView: NSCollectionView) -> Int { 1 }
@@ -439,15 +499,26 @@ struct TimelineClipsCollection: NSViewRepresentable {
         private func configure(_ item: TimelineCollectionItem, with model: TimelineCollectionItemModel) {
             item.configure(model: model,
                            activate: { [weak self] selection in self?.actions?.activate(selection) },
-                           focus: { [weak self] selection in self?.actions?.focus(selection) },
-                           menu: { [weak self] selection in self?.makeMenu(for: selection) ?? NSMenu() })
+                           focus: { [weak self] selection in
+                               DispatchQueue.main.async { [weak self] in
+                                   guard let self, self.models.contains(where: { $0.selection == selection }) else { return }
+                                   self.actions?.focus(selection)
+                               }
+                           },
+                           menu: { [weak self] selection in self?.makeMenu(for: selection) ?? NSMenu() },
+                           accessibilityFocus: { [weak self] selection, focused in
+                               DispatchQueue.main.async { [weak self] in
+                                   guard let self, self.models.contains(where: { $0.selection == selection }) else { return }
+                                   self.actions?.accessibilityFocus?(selection, focused)
+                               }
+                           })
         }
 
         private func select(_ target: TimelineElementSelection) {
             guard let collectionView,
                   let index = models.firstIndex(where: { $0.selection == target }) else { return }
             let path = IndexPath(item: index, section: 0)
-            collectionView.selectItems(at: [path], scrollPosition: .centeredHorizontally)
+            collectionView.selectionIndexPaths = [path]
             collectionView.scrollToItems(at: [path], scrollPosition: .centeredHorizontally)
             // A missing offscreen item receives focus in willDisplay. Never force
             // nested layout from selection while SwiftUI may be rendering the host.
@@ -561,13 +632,15 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
     func configure(model: TimelineCollectionItemModel,
                    activate: @escaping (TimelineElementSelection) -> Void,
                    focus: @escaping (TimelineElementSelection) -> Void,
-                   menu: @escaping (TimelineElementSelection) -> NSMenu) {
+                   menu: @escaping (TimelineElementSelection) -> NSMenu,
+                   accessibilityFocus: ((TimelineElementSelection, Bool) -> Void)? = nil) {
         button.isEnabled = true
         button.title = [model.title, model.subtitle].compactMap { $0 }.joined(separator: "\n")
         eventAnchor.element = model.selection
         button.selection = model.selection
         button.activate = activate
         button.focus = focus
+        button.accessibilityFocus = accessibilityFocus
         button.menuProvider = menu
         button.image = model.sourceMissing ? NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil) : nil
         button.imagePosition = model.sourceMissing ? .imageLeading : .noImage
@@ -595,6 +668,7 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
         button.selection = nil
         button.activate = nil
         button.focus = nil
+        button.accessibilityFocus = nil
         button.menuProvider = nil
         button.setAccessibilityLabel(title)
         button.setAccessibilityValue(nil)
@@ -628,6 +702,7 @@ final class TimelineCollectionButton: NSButton, NSMenuDelegate {
     var selection: TimelineElementSelection?
     var activate: ((TimelineElementSelection) -> Void)?
     var focus: ((TimelineElementSelection) -> Void)?
+    var accessibilityFocus: ((TimelineElementSelection, Bool) -> Void)?
     var menuProvider: ((TimelineElementSelection) -> NSMenu)? {
         didSet {
             if menuProvider == nil { menu = nil }
@@ -663,6 +738,7 @@ final class TimelineCollectionButton: NSButton, NSMenuDelegate {
     override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
         // Keep AppKit's native focus handoff used by the VoiceOver-verified build.
         super.setAccessibilityFocused(accessibilityFocused)
+        if let selection { accessibilityFocus?(selection, accessibilityFocused) }
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -689,11 +765,21 @@ final class TimelineCollectionButton: NSButton, NSMenuDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags),
-              showClipMenu() else {
+        guard NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags) else {
             super.keyDown(with: event)
             return
         }
+        let voiceOver = NSWorkspace.shared.isVoiceOverEnabled
+        let handled = TimelineContextMenuRouting.present(voiceOver: voiceOver,
+            accessibilityFocus: voiceOver ? TimelineAccessibilityFocus.selection() : nil,
+            keyboardFocus: selection) { target in
+                if voiceOver {
+                    guard let target, let content = window?.contentView else { return false }
+                    return TimelineCollectionView.showContextMenu(for: target, in: content)
+                }
+                return showClipMenu()
+            }
+        if !handled { super.keyDown(with: event) }
     }
 
 }
@@ -715,11 +801,23 @@ private final class TimelineCollectionView: NSCollectionView {
         guard NativeContextMenuShortcut.matches(
             keyCode: event.keyCode,
             modifiers: event.modifierFlags
-        ), let menu = contextMenuProvider?(nil) else {
+        ) else {
             super.keyDown(with: event)
             return
         }
-        _ = menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: bounds.maxY), in: self)
+        let voiceOver = NSWorkspace.shared.isVoiceOverEnabled
+        let handled = TimelineContextMenuRouting.present(voiceOver: voiceOver,
+            accessibilityFocus: voiceOver ? TimelineAccessibilityFocus.selection() : nil,
+            keyboardFocus: nil) { target in
+                if voiceOver {
+                    guard let target, let content = window?.contentView else { return false }
+                    return Self.showContextMenu(for: target, in: content)
+                }
+                guard let menu = contextMenuProvider?(target) else { return false }
+                _ = menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: bounds.maxY), in: self)
+                return true
+            }
+        if !handled { super.keyDown(with: event) }
     }
 }
 

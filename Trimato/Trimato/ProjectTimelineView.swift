@@ -120,6 +120,7 @@ struct ProjectTimelineView: View {
                 guard case .clip(let id) = element else { return false }
                 return controller.canNudgeTimelineClip(id: id)
             },
+            contains: { target in timelineCollectionItems.contains { $0.selection == target } },
             perform: performTimelineKey
         ))
         .onChange(of: keyboardFocusedElement) { _, element in
@@ -205,7 +206,9 @@ struct ProjectTimelineView: View {
     }
 
     private func deleteFocusedTimelineElement() {
-        switch focusedElement {
+        let target = NSWorkspace.shared.isVoiceOverEnabled
+            ? TimelineAccessibilityFocus.selection() : keyboardFocusedElement
+        switch target {
         case .clip(let id):
             deleteTimelineClip(id)
         case .transition(let id):
@@ -240,7 +243,8 @@ struct ProjectTimelineView: View {
                 canMoveClip: { destination, id in controller.canMoveClip(to: destination, targetID: id) },
                 movePlayheadToCaption: controller.movePlayheadToCaption,
                 delete: deleteTimelineElement,
-                deleteMedia: beginDeletingMedia
+                deleteMedia: beginDeletingMedia,
+                accessibilityFocus: focusNativeAccessibilityElement
             )
         )
         .frame(minHeight: 88)
@@ -295,7 +299,8 @@ struct ProjectTimelineView: View {
                     subtitle: nil,
                     accessibilityValue: clipAccessibilityValue(clip),
                     accessibilityHint: "Enter opens Clip Editor. Space toggles selection for moving.",
-                    isSelected: controller.movingTimelineClipID == clip.id || controller.selection == .timelineClip(clip.id),
+                    isSelected: controller.movingTimelineClipID.map { $0 == clip.id }
+                        ?? (controller.selection == .timelineClip(clip.id)),
                     isTransition: false,
                     sourceMissing: controller.mediaFiles.missingIDs.contains(clip.assetID)
                 )
@@ -306,7 +311,7 @@ struct ProjectTimelineView: View {
                     subtitle: transitionContextDescription(transition),
                     accessibilityValue: "",
                     accessibilityHint: "Enter opens the transition editor.",
-                    isSelected: controller.selection == .transition(transition.id),
+                    isSelected: controller.movingTimelineClipID == nil && controller.selection == .transition(transition.id),
                     isTransition: true
                 )
             case .caption(let cue):
@@ -316,7 +321,7 @@ struct ProjectTimelineView: View {
                     subtitle: nil,
                     accessibilityValue: "",
                     accessibilityHint: cue.isDescription ? "Enter opens Describer." : "Enter edits the caption.",
-                    isSelected: controller.selectedCaptionCueID == cue.id,
+                    isSelected: controller.movingTimelineClipID == nil && controller.selectedCaptionCueID == cue.id,
                     isTransition: false,
                     isDescription: cue.isDescription
                 )
@@ -325,8 +330,12 @@ struct ProjectTimelineView: View {
     }
 
     private func focusNativeTimelineElement(_ selection: TimelineElementSelection) {
-        focusedElement = selection
         keyboardFocusedElement = selection
+    }
+
+    private func focusNativeAccessibilityElement(_ selection: TimelineElementSelection, _ focused: Bool) {
+        if focused { focusedElement = selection }
+        else if focusedElement == selection { focusedElement = nil }
     }
 
     private func deleteTimelineElement(_ selection: TimelineElementSelection) {
