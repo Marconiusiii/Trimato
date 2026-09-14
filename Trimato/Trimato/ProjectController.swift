@@ -643,7 +643,9 @@ final class ProjectController: ObservableObject {
                     format: format,
                     to: outputURL, audioMode: audioMode
                 ) { [weak self] progress in
-                    self?.exportProgress = min(progress, 0.99)
+                    guard let self else { return }
+                    let value = min(progress, 0.99)
+                    if self.exportProgress != value { self.exportProgress = value }
                 }
                 mediaWasSaved = true
                 for (url, data) in companionFiles {

@@ -1195,8 +1195,12 @@ final class ProjectPlayerViewModel: ObservableObject {
             currentTime = time
             playheadChanged?(time)
         }
-        currentFrame = max(Int((time.seconds * projectFrameRate).rounded(.towardZero)), 0)
-        displayTimecode = ProjectTimecodeFormatter.string(time)
+        // AVPlayer can report the same position while paused or waiting. Publishing
+        // unchanged display values would rebuild the Editor and its native slider.
+        let frame = max(Int((time.seconds * projectFrameRate).rounded(.towardZero)), 0)
+        if currentFrame != frame { currentFrame = frame }
+        let timecode = ProjectTimecodeFormatter.string(time)
+        if displayTimecode != timecode { displayTimecode = timecode }
         if !isPlaying, !isScrubbing, !isSteppingFrames {
             refreshAccessibilityTimecode()
         }
