@@ -1,5 +1,16 @@
 import Combine
+import AppKit
 import SwiftUI
+
+nonisolated struct ClipReadyAnnouncementPolicy {
+    private var announced = false
+
+    mutating func message(ready: Bool, outcome: OperationProgressOutcome) -> String? {
+        guard ready, outcome == .completed, !announced else { return nil }
+        announced = true
+        return "Clip Ready"
+    }
+}
 
 @MainActor
 final class SecurityScopedResourceAccess {
@@ -81,12 +92,14 @@ struct StandaloneClipEditorView: View {
     let request: ExternalMediaOpenRequest
     @Environment(\.newDocument) private var newDocument
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.controlActiveState) private var windowActivity
     @StateObject private var viewModel: VideoPlayerViewModel
     @StateObject private var commandContext: StandaloneClipCommandContext
     @State private var loadedRequestID: UUID?
     @State private var resourceAccess: SecurityScopedResourceAccess?
     @State private var creationTask: Task<Void, Never>?
     @State private var pendingProject: TrimatoProject?
+    @State private var readyAnnouncement = ClipReadyAnnouncementPolicy()
 
     init(request: ExternalMediaOpenRequest) {
         self.request = request
@@ -100,7 +113,8 @@ struct StandaloneClipEditorView: View {
             ContentView(
                 viewModel: viewModel,
                 allowsFileOpening: false,
-                editorHeading: editorName
+                editorHeading: editorName,
+                entryCompleted: announceClipReady
             )
 
             Divider()
@@ -151,6 +165,7 @@ struct StandaloneClipEditorView: View {
                 return
             }
             loadedRequestID = request.id
+            readyAnnouncement = ClipReadyAnnouncementPolicy()
             do {
                 let url = try request.resolvedURL()
                 let access = SecurityScopedResourceAccess(url: url)
@@ -192,6 +207,18 @@ struct StandaloneClipEditorView: View {
         }
     }
 
+    private func announceClipReady() {
+        guard windowActivity == .key, let application = NSApp, application.isActive,
+              let window = application.keyWindow, window.attachedSheet == nil,
+              !AudioCaptureSession.suppressesAnnouncements,
+              let message = readyAnnouncement.message(
+                ready: viewModel.hasMedia && viewModel.duration > 0 && !viewModel.isPreparingMedia,
+                outcome: viewModel.mediaPreparationOutcome
+              ) else { return }
+        NSAccessibility.post(element: window, notification: .announcementRequested,
+            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
+
     private func finishProjectPresentation() {
         guard !commandContext.isCreatingProject, let project = pendingProject else { return }
         pendingProject = nil
@@ -216,7 +243,8 @@ struct StandaloneClipEditorView: View {
             title: "Preparing Clip",
             progress: viewModel.mediaProgress,
             detail: detail,
-            cancel: viewModel.cancelMediaLoad
+            cancel: viewModel.cancelMediaLoad,
+            announceCompletion: false
         )
     }
 }
