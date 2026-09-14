@@ -7,6 +7,87 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
+    @Test func accessibilityFocusRequestTargetsTheClipWithoutTabNavigation() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: [.titled], backing: .buffered, defer: true)
+        let first = TimelineCollectionButton(frame: NSRect(x: 0, y: 0, width: 150, height: 60))
+        let second = TimelineCollectionButton(frame: NSRect(x: 160, y: 0, width: 150, height: 60))
+        let firstID = UUID(), secondID = UUID()
+        first.selection = .clip(firstID)
+        second.selection = .clip(secondID)
+        first.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(firstID))
+        second.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(secondID))
+        window.contentView?.addSubview(first)
+        window.contentView?.addSubview(second)
+        var target: TimelineElementSelection?
+        first.focus = { target = $0 }
+        second.focus = { target = $0 }
+        #expect(window.makeFirstResponder(first))
+        try #require(second.cell).setAccessibilityFocused(true)
+        #expect(window.firstResponder === second)
+        #expect(target == .clip(secondID))
+        #expect(TimelineAccessibilityFocus.selection(from: second.cell) == .clip(secondID))
+        first.setAccessibilityFocused(true)
+        #expect(window.firstResponder === first)
+        #expect(target == .clip(firstID))
+    }
+
+    @Test func timelineSpaceResolvesNativeButtonCellAndDropsMovement() throws {
+        let clip = TimelineElementSelection.clip(UUID())
+        let button = TimelineCollectionButton(frame: .zero)
+        guard case .clip(let id) = clip else { return }
+        button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(id))
+        let cell = try #require(button.cell)
+        #expect(cell.controlView === button)
+        #expect(TimelineAccessibilityFocus.selection(from: button) == clip)
+        #expect(TimelineAccessibilityFocus.selection(from: cell) == clip)
+
+        let coordinator = TimelineKeyboardBridge.Coordinator()
+        var moving = false
+        var actions: [TimelineKeyAction] = []
+        coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: nil, keyboardSelection: nil, movingClipID: nil) { action, target in
+            #expect(target == clip)
+            actions.append(action)
+            if action == .toggleMovement { moving.toggle() }
+        }
+        func key(_ type: NSEvent.EventType, _ code: UInt16) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
+        }
+        let space = try key(.keyDown, 49)
+        #expect(coordinator.handleKey(space, voiceOver: true, editingText: true,
+            currentAccessibilityFocus: TimelineAccessibilityFocus.selection(from: cell)) == nil)
+        #expect(moving)
+        let perform = try #require(coordinator.bridge).perform
+        coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: nil, keyboardSelection: nil,
+            movingClipID: id, perform: perform)
+        #expect(coordinator.handleKey(try key(.keyUp, 49), voiceOver: true, editingText: true) == nil)
+        #expect(coordinator.handleKey(try key(.keyDown, 124), voiceOver: true, editingText: true,
+            currentAccessibilityFocus: TimelineAccessibilityFocus.selection(from: cell)) == nil)
+        #expect(coordinator.handleKey(space, voiceOver: true, editingText: true,
+            currentAccessibilityFocus: TimelineAccessibilityFocus.selection(from: cell)) == nil)
+        #expect(!moving)
+        #expect(actions == [.toggleMovement, .later, .toggleMovement])
+    }
+
+    @Test func timelineCellLookupDoesNotReuseAClipAfterFocusLeavesOrButtonIsReused() throws {
+        let button = TimelineCollectionButton(frame: .zero)
+        let firstID = UUID()
+        button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(firstID))
+        let cell = try #require(button.cell)
+        #expect(TimelineAccessibilityFocus.selection(from: cell) == .clip(firstID))
+        let nextID = UUID()
+        button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(nextID))
+        #expect(TimelineAccessibilityFocus.selection(from: cell) == .clip(nextID))
+        button.setAccessibilityIdentifier("trimato.timeline.empty")
+        #expect(TimelineAccessibilityFocus.selection(from: cell) == nil)
+        let editorButton = NSButton(title: "Play", target: nil, action: nil)
+        editorButton.setAccessibilityIdentifier("trimato.editor.play-pause")
+        #expect(TimelineAccessibilityFocus.selection(from: try #require(editorButton.cell)) == nil)
+        #expect(TimelineAccessibilityFocus.selection(from: NSButtonCell()) == nil)
+        #expect(TimelineAccessibilityFocus.selection(from: nil) == nil)
+    }
+
     @Test func appendingMarkedVideoPreservesEditorContextAndDoesNotRequestFocusMovement() throws {
         let asset = fixtureAsset(name: "Marked video", duration: 4)
         var project = TrimatoProject()

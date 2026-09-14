@@ -91,24 +91,8 @@ enum TimelineKeyboardFocus {
     static var scopes: [UUID: TimelineInputScope] = [:]
 
     static var isInTimeline: Bool {
-        guard scopes.values.contains(where: { $0.view?.window?.isKeyWindow == true }),
-              let focused = NSApp.accessibilityFocusedUIElement as? NSObject else { return false }
-        let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
-        let parentSelector = NSSelectorFromString("accessibilityParent")
-        var element: NSObject? = focused
-        for _ in 0..<12 {
-            guard let current = element else { return false }
-            if current.responds(to: identifierSelector),
-               let identifier = current.value(forKey: "accessibilityIdentifier") as? String,
-               TimelineElementAccessibilityIdentifier.selection(from: identifier) != nil {
-                return true
-            }
-            guard current.responds(to: parentSelector),
-                  let parent = current.value(forKey: "accessibilityParent") as? NSObject,
-                  parent !== current else { return false }
-            element = parent
-        }
-        return false
+        scopes.values.contains(where: { $0.view?.window?.isKeyWindow == true }) &&
+            TimelineAccessibilityFocus.selection() != nil
     }
 }
 
@@ -676,6 +660,11 @@ final class TimelineCollectionButton: NSButton, NSMenuDelegate {
         return accepted
     }
 
+    override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        // Keep AppKit's native focus handoff used by the VoiceOver-verified build.
+        super.setAccessibilityFocused(accessibilityFocused)
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         guard let selection, let prepared = menuProvider?(selection) else { return }
@@ -737,12 +726,22 @@ private final class TimelineCollectionView: NSCollectionView {
 @MainActor
 enum TimelineAccessibilityFocus {
     static func selection() -> TimelineElementSelection? {
-        guard let focused = NSApp.accessibilityFocusedUIElement as? NSObject else { return nil }
+        selection(from: NSApp.accessibilityFocusedUIElement as? NSObject)
+    }
+
+    static func selection(from focused: NSObject?) -> TimelineElementSelection? {
         let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
         let parentSelector = NSSelectorFromString("accessibilityParent")
         var element: NSObject? = focused
         for _ in 0..<12 {
             guard let current = element else { return nil }
+            // AppKit can report the native button cell as focused. Its owning
+            // button carries the clip identifier; the cell's accessibility
+            // parent can skip that button and lead straight to the collection.
+            if let cell = current as? NSCell, let control = cell.controlView {
+                element = control
+                continue
+            }
             if current.responds(to: identifierSelector),
                let identifier = current.value(forKey: "accessibilityIdentifier") as? String,
                let selection = TimelineElementAccessibilityIdentifier.selection(from: identifier) {
