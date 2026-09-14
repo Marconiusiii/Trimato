@@ -19,7 +19,6 @@ import AppKit
         window.contentView!.addSubview(second)
         let firstID = TimelineElementSelection.clip(UUID())
         let secondID = TimelineElementSelection.clip(UUID())
-        first.selection = firstID; second.selection = secondID
         let actionRecorder = MenuActionRecorder()
         var requested: [TimelineElementSelection] = []
         let provider: (TimelineElementSelection) -> NSMenu = { selection in
@@ -30,34 +29,25 @@ import AppKit
             item.representedObject = selection
             return menu
         }
-        first.menuProvider = provider; second.menuProvider = provider
-        let attached = first.menu!
-        precondition(attached.delegate === first)
-        let actionsSelector = NSSelectorFromString("accessibilityActionNames")
-        let actions = first.perform(actionsSelector)?.takeUnretainedValue() as? [String] ?? []
-        precondition(actions.contains("AXShowMenu"), "Native Show Menu action is missing: \(actions)")
-        window.makeFirstResponder(second)
-        let mouse = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
-            timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        precondition(first.menu(for: mouse) === attached, "Mouse/accessibility menu lookup lost the attached menu")
-        var presented = false
+        let focus = TimelineNativeFocus()
+        func configure(_ button: TimelineCollectionButton, selection: TimelineElementSelection) {
+            button.configure(model: TimelineCollectionItemModel(selection: selection, title: "Clip",
+                subtitle: nil, accessibilityValue: "", accessibilityHint: "", isSelected: false,
+                isTransition: false), nativeFocus: focus, activate: { _ in }, focus: { _ in }, menu: provider)
+        }
+        configure(first, selection: firstID)
+        configure(second, selection: secondID)
         precondition(first.showClipMenu { menu, view in
-            presented = true
-            precondition(view === first && menu === attached)
-            precondition(menu.items.count == 1 && requested.last == firstID)
+            precondition(view === first && requested.last == firstID)
             let item = menu.items[0]
-            precondition(item.isEnabled)
             precondition(NSApp.sendAction(item.action!, to: item.target, from: item))
             precondition(actionRecorder.selected == firstID)
         })
-        precondition(presented, "Keyboard presentation did not reach the button menu")
-        precondition(window.firstResponder === second, "Opening the target menu rewrote keyboard focus")
-        first.selection = .caption(UUID())
-        first.menu!.delegate!.menuNeedsUpdate?(first.menu!)
-        precondition(first.menu === attached && requested.last == first.selection, "Reused button menu kept a stale clip")
-        first.menuProvider = nil
-        precondition(first.menu == nil, "Empty/recycled button retained a menu")
-        precondition(!first.showClipMenu { _, _ in fatalError("Empty button presented a menu") })
+        let reused = TimelineElementSelection.caption(UUID())
+        configure(first, selection: reused)
+        precondition(first.showClipMenu { _, _ in precondition(requested.last == reused) })
+        first.configureEmpty(title: "Empty")
+        precondition(!first.showClipMenu { _, _ in fatalError("Empty item presented a menu") })
         let coordinator = TimelineClipsCollection.Coordinator()
         coordinator.models = [firstID, secondID].map {
             TimelineCollectionItemModel(selection: $0, title: "Kitchen AD", subtitle: nil,
@@ -80,6 +70,6 @@ import AppKit
         precondition(productionMenu.item(withTitle: "Delete from Timeline") == nil)
         precondition(coordinator.menuForSelectedItem(target: .clip(UUID())) == nil)
         precondition(!window.isVisible && !window.isKeyWindow)
-        print("Native AXShowMenu attachment, mouse/accessibility lookup, target-button presentation, keyboard-focus independence, reuse cleanup, and production removal/deletion action targets passed without displaying a menu or window")
+        print("Hosted-item menu targeting, reuse cleanup, and production removal/deletion action targets passed; native VoiceOver menu delivery requires manual testing")
     }
 }

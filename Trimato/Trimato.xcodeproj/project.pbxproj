@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		82A11E012FC0000000B67C04 /* Generated Trimato.help in Resources */ = {isa = PBXBuildFile; fileRef = 82A11E022FC0000000B67C04 /* Generated Trimato.help */; };
+		82A11E012FC0000000B67C04 /* GeneratedHelp/Trimato.help in Resources */ = {isa = PBXBuildFile; fileRef = 82A11E022FC0000000B67C04 /* GeneratedHelp/Trimato.help */; };
 		82F6E0032FC0000000B67C04 /* ThirdParty/FFmpeg/COPYING.LGPLv2.1 in Resources */ = {isa = PBXBuildFile; fileRef = 82F6E0022FC0000000B67C04 /* ThirdParty/FFmpeg/COPYING.LGPLv2.1 */; };
 /* End PBXBuildFile section */
 
@@ -29,10 +29,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		82A11E022FC0000000B67C04 /* Generated Trimato.help */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GeneratedHelp/Trimato.help; sourceTree = DERIVED_FILE_DIR; };
 		82306B612FAAAF1000B67C04 /* Trimato.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Trimato.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		82306B6E2FAAAF1100B67C04 /* TrimatoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrimatoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		82306B782FAAAF1100B67C04 /* TrimatoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrimatoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		82A11E022FC0000000B67C04 /* GeneratedHelp/Trimato.help */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GeneratedHelp/Trimato.help; sourceTree = DERIVED_FILE_DIR; };
 		82F6E0022FC0000000B67C04 /* ThirdParty/FFmpeg/COPYING.LGPLv2.1 */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdParty/FFmpeg/COPYING.LGPLv2.1; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -101,6 +101,7 @@
 				82306B7B2FAAAF1100B67C04 /* TrimatoUITests */,
 				82F6E0022FC0000000B67C04 /* ThirdParty/FFmpeg/COPYING.LGPLv2.1 */,
 				82306B622FAAAF1000B67C04 /* Products */,
+				828B4FB33058890D00F883DD /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -112,6 +113,14 @@
 				82306B782FAAAF1100B67C04 /* TrimatoUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		828B4FB33058890D00F883DD /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				82A11E022FC0000000B67C04 /* GeneratedHelp/Trimato.help */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -237,7 +246,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				82F6E0032FC0000000B67C04 /* ThirdParty/FFmpeg/COPYING.LGPLv2.1 in Resources */,
-				82A11E012FC0000000B67C04 /* Generated Trimato.help in Resources */,
+				82A11E012FC0000000B67C04 /* GeneratedHelp/Trimato.help in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -262,14 +271,19 @@
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
-			files = ();
+			files = (
+			);
+			inputFileListPaths = (
+				"$(SRCROOT)/HelpInputs.xcfilelist",
+			);
 			inputPaths = (
 				"$(SRCROOT)/build-help.py",
 				"$(SRCROOT)/Trimato/Trimato.help",
 			);
 			name = "Generate and Validate Help";
-			inputFileListPaths = ("$(SRCROOT)/HelpInputs.xcfilelist");
-			outputFileListPaths = ("$(SRCROOT)/HelpOutputs.xcfilelist");
+			outputFileListPaths = (
+				"$(SRCROOT)/HelpOutputs.xcfilelist",
+			);
 			outputPaths = (
 				"$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help",
 				"$(DERIVED_FILE_DIR)/GeneratedHelp/TrimatoHelpInfo.h",
@@ -280,7 +294,6 @@
 			shellPath = /bin/sh;
 			shellScript = "/usr/bin/python3 \"$SRCROOT/build-help.py\" --source \"$SRCROOT/Trimato/Trimato.help\" --output \"$DERIVED_FILE_DIR/GeneratedHelp\" --version \"$MARKETING_VERSION\" --build \"$CURRENT_PROJECT_VERSION\" --staging \"$TEMP_DIR/TrimatoHelpStaging\"\n";
 		};
-
 		82FF6A012FB0000100B67C04 /* Prepare FFmpeg Tools */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -493,7 +506,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 5;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 4FL3XZDQ9P;
 				ENABLE_APP_SANDBOX = YES;
@@ -503,12 +516,12 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Trimato/Info.plist;
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREFIX_HEADER = "$(DERIVED_FILE_DIR)/GeneratedHelp/TrimatoHelpInfo.h";
 				INFOPLIST_KEY_CFBundleDisplayName = Trimato;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright 2026 Marco Salsiccia. All rights reserved.";
+				INFOPLIST_PREFIX_HEADER = "$(DERIVED_FILE_DIR)/GeneratedHelp/TrimatoHelpInfo.h";
+				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -535,7 +548,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 5;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 4FL3XZDQ9P;
 				ENABLE_APP_SANDBOX = YES;
@@ -545,12 +558,12 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Trimato/Info.plist;
-				INFOPLIST_PREPROCESS = YES;
-				INFOPLIST_PREFIX_HEADER = "$(DERIVED_FILE_DIR)/GeneratedHelp/TrimatoHelpInfo.h";
 				INFOPLIST_KEY_CFBundleDisplayName = Trimato;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright 2026 Marco Salsiccia. All rights reserved.";
+				INFOPLIST_PREFIX_HEADER = "$(DERIVED_FILE_DIR)/GeneratedHelp/TrimatoHelpInfo.h";
+				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

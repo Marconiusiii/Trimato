@@ -1418,6 +1418,10 @@ final class ProjectController: ObservableObject {
             announce("Clip movement cancelled because the project changed")
             return
         }
+        guard preview != baseline else {
+            announce("Dropped \(name)")
+            return
+        }
         apply(preview, undoingTo: baseline, actionName: "Move Timeline Clip")
         if let track = project.tracks.first(where: { $0.clips.contains { $0.id == id } }) {
             activeTimelineTrackID = track.id

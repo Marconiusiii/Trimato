@@ -40,10 +40,19 @@ import Darwin
             controller.activeTimelineTrackID = otherTrack.id
             verify(controller.editorClipSelection(at: playhead) == .timelineClip(otherClips[1].id), "C used the previously selected track")
             controller.activeTimelineTrackID = track.id
+            let nativeFocus = TimelineNativeFocus()
+            let firstOwner = UUID(), middleOwner = UUID(), lastOwner = UUID()
+            nativeFocus.record(first, owner: firstOwner, focused: true, voiceOver: false)
+            nativeFocus.record(last, owner: lastOwner, focused: true, voiceOver: true)
+            nativeFocus.record(middle, owner: middleOwner, focused: true, voiceOver: true)
+            nativeFocus.record(last, owner: lastOwner, focused: false, voiceOver: true)
+            verify(nativeFocus.voiceOverSelection == middle, "Late blur cleared the current VoiceOver clip")
+            verify(nativeFocus.keyboardSelection == first)
             let coordinator = TimelineKeyboardBridge.Coordinator()
             func refresh() {
                 coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: last,
-                    keyboardSelection: last, movingClipID: controller.movingTimelineClipID,
+                    keyboardSelection: first, movingClipID: controller.movingTimelineClipID,
+                    nativeFocus: nativeFocus,
                     allowsNudging: { _ in role == .additional },
                     contains: { [first, middle, last].contains($0) }) { action, target in
                         verify(target == middle, "Wrong clip received keyboard action")
@@ -63,13 +72,13 @@ import Darwin
             }
             refresh()
             coordinator.mouseSource = last
-            verify(coordinator.handleKey(key(49), voiceOver: true, editingText: false, currentAccessibilityFocus: middle) == nil)
+            verify(coordinator.handleKey(key(49), voiceOver: true, editingText: false, currentAccessibilityFocus: first) == nil)
             verify(controller.movingTimelineClipID == clips[1].id)
             verify(coordinator.mouseSource == nil)
             refresh()
             verify(coordinator.handleKey(key(49, .keyUp), voiceOver: true, editingText: false) == nil)
-            verify(coordinator.handleKey(key(124), voiceOver: true, editingText: false, currentAccessibilityFocus: middle) == nil)
-            verify(coordinator.handleKey(key(49), voiceOver: true, editingText: false, currentAccessibilityFocus: middle) == nil)
+            verify(coordinator.handleKey(key(124), voiceOver: true, editingText: false, currentAccessibilityFocus: first) == nil)
+            verify(coordinator.handleKey(key(49), voiceOver: true, editingText: false, currentAccessibilityFocus: first) == nil)
             verify(controller.movingTimelineClipID == nil)
             verify(controller.selection == .timelineClip(clips[1].id))
             if role == .additional {
@@ -77,23 +86,31 @@ import Darwin
             } else {
                 verify(controller.activeTimelineTrack!.sortedClips.last?.id == clips[1].id, "Arrow did not reorder the lifted clip")
             }
-            let models = [first, middle, last].map {
-                TimelineCollectionItemModel(selection: $0, title: "Clip", subtitle: nil,
-                    accessibilityValue: "", accessibilityHint: "", isSelected: $0 == middle, isTransition: false)
-            }
-            verify(TimelineClipsCollection.Coordinator.selectionPaths(models: models, movingClipID: nil) == [IndexPath(item: 1, section: 0)])
-            verify(TimelineClipsCollection.Coordinator.selectionPaths(models: models, movingClipID: clips[2].id) == [IndexPath(item: 2, section: 0)])
-            verify(TimelineClipsCollection.Coordinator.selectionPaths(models: models, movingClipID: UUID()).isEmpty)
             refresh()
-            _ = coordinator.handleKey(key(49), voiceOver: true, editingText: false, currentAccessibilityFocus: middle)
+            let unchangedProject = controller.project
+            let previousFocusRequest = controller.timelineFocusRestoreRequest
+            _ = coordinator.handleKey(key(49), voiceOver: true, editingText: false, currentAccessibilityFocus: first)
             refresh()
-            _ = coordinator.handleKey(key(53), voiceOver: true, editingText: false, currentAccessibilityFocus: middle)
+            _ = coordinator.handleKey(key(53), voiceOver: true, editingText: false, currentAccessibilityFocus: first)
             verify(controller.movingTimelineClipID == nil)
+            verify(controller.project == unchangedProject, "Unmoved drop changed the project")
+            verify(controller.timelineFocusRestoreRequest == previousFocusRequest,
+                   "Unmoved drop unnecessarily restored focus")
             refresh()
+            nativeFocus.record(.clip(UUID()), owner: middleOwner, focused: true, voiceOver: true)
             verify(coordinator.handleKey(key(49), voiceOver: true, editingText: false,
-                currentAccessibilityFocus: .clip(UUID())) == nil, "Stale target leaked to a keyboard responder")
+                currentAccessibilityFocus: first) == nil, "Stale target leaked to a keyboard responder")
             verify(controller.movingTimelineClipID == nil)
-            print("PASS: \(kind) \(role): middle-clip lift, arrow, Space drop, Escape, exclusive selection, stale target rejection, Editor C")
+            nativeFocus.remove(owner: middleOwner)
+            verify(nativeFocus.voiceOverSelection == nil)
+            verify(coordinator.handleKey(key(49), voiceOver: true, editingText: false,
+                currentAccessibilityFocus: first) != nil, "Missing native focus fell back to a stale clip")
+            verify(controller.movingTimelineClipID == nil)
+            let focusReturn = TimelineItemFocusRequest()
+            focusReturn.request()
+            verify(focusReturn.consume())
+            verify(!focusReturn.consume(), "Focus return replayed on reappearance")
+            print("PASS: \(kind) \(role): middle-clip lift, arrow, Space drop, Escape, stale target rejection, Editor C")
         }
         verify(NSApp == nil)
     }

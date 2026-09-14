@@ -7,34 +7,25 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
-    @Test func accessibilityFocusRequestTargetsTheClipWithoutTabNavigation() throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
-            styleMask: [.titled], backing: .buffered, defer: true)
-        let first = TimelineCollectionButton(frame: NSRect(x: 0, y: 0, width: 150, height: 60))
-        let second = TimelineCollectionButton(frame: NSRect(x: 160, y: 0, width: 150, height: 60))
-        let firstID = UUID(), secondID = UUID()
-        first.selection = .clip(firstID)
-        second.selection = .clip(secondID)
-        first.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(firstID))
-        second.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(secondID))
-        window.contentView?.addSubview(first)
-        window.contentView?.addSubview(second)
-        var target: TimelineElementSelection?
-        first.focus = { target = $0 }
-        second.focus = { target = $0 }
-        #expect(window.makeFirstResponder(first))
-        try #require(second.cell).setAccessibilityFocused(true)
-        #expect(window.firstResponder === second)
-        #expect(target == .clip(secondID))
-        #expect(TimelineAccessibilityFocus.selection(from: second.cell) == .clip(secondID))
-        first.setAccessibilityFocused(true)
-        #expect(window.firstResponder === first)
-        #expect(target == .clip(firstID))
+    @Test func nativeVoiceOverFocusIsIndependentOfKeyboardSelection() {
+        let focus = TimelineNativeFocus()
+        let first = TimelineElementSelection.clip(UUID())
+        let second = TimelineElementSelection.clip(UUID())
+        let firstOwner = UUID(), secondOwner = UUID()
+        focus.record(first, owner: firstOwner, focused: true, voiceOver: false)
+        focus.record(second, owner: secondOwner, focused: true, voiceOver: true)
+        #expect(focus.keyboardSelection == first)
+        #expect(focus.voiceOverSelection == second)
+        focus.record(first, owner: firstOwner, focused: false, voiceOver: true)
+        #expect(focus.voiceOverSelection == second)
+        focus.remove(owner: secondOwner)
+        #expect(focus.voiceOverSelection == nil)
+        #expect(focus.keyboardSelection == first)
     }
 
-    @Test func timelineSpaceResolvesNativeButtonCellAndDropsMovement() throws {
+    @Test func keyboardCellLookupAndInjectedMovementRouting() throws {
         let clip = TimelineElementSelection.clip(UUID())
-        let button = TimelineCollectionButton(frame: .zero)
+        let button = NSButton(frame: .zero)
         guard case .clip(let id) = clip else { return }
         button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(id))
         let cell = try #require(button.cell)
@@ -71,7 +62,7 @@ struct ProjectPlaybackTests {
     }
 
     @Test func timelineCellLookupDoesNotReuseAClipAfterFocusLeavesOrButtonIsReused() throws {
-        let button = TimelineCollectionButton(frame: .zero)
+        let button = NSButton(frame: .zero)
         let firstID = UUID()
         button.setAccessibilityIdentifier(TimelineElementAccessibilityIdentifier.clip(firstID))
         let cell = try #require(button.cell)

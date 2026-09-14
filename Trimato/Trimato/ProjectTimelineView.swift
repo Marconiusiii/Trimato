@@ -34,6 +34,7 @@ struct ProjectTimelineView: View {
     var openCaptionEditor: (CaptionCue) -> Void = { _ in }
     let workspacePaneLinks: Namespace.ID
 
+    @State private var nativeTimelineFocus = TimelineNativeFocus()
     @State private var keyboardFocusedElement: TimelineElementSelection?
     @State private var focusedElement: TimelineElementSelection?
     @State private var renamedClipName = ""
@@ -116,6 +117,7 @@ struct ProjectTimelineView: View {
             accessibilitySelection: focusedElement,
             keyboardSelection: keyboardFocusedElement,
             movingClipID: controller.movingTimelineClipID,
+            nativeFocus: nativeTimelineFocus,
             allowsNudging: { element in
                 guard case .clip(let id) = element else { return false }
                 return controller.canNudgeTimelineClip(id: id)
@@ -207,7 +209,7 @@ struct ProjectTimelineView: View {
 
     private func deleteFocusedTimelineElement() {
         let target = NSWorkspace.shared.isVoiceOverEnabled
-            ? TimelineAccessibilityFocus.selection() : keyboardFocusedElement
+            ? nativeTimelineFocus.voiceOverSelection : nativeTimelineFocus.keyboardSelection
         switch target {
         case .clip(let id):
             deleteTimelineClip(id)
@@ -243,9 +245,9 @@ struct ProjectTimelineView: View {
                 canMoveClip: { destination, id in controller.canMoveClip(to: destination, targetID: id) },
                 movePlayheadToCaption: controller.movePlayheadToCaption,
                 delete: deleteTimelineElement,
-                deleteMedia: beginDeletingMedia,
-                accessibilityFocus: focusNativeAccessibilityElement
-            )
+                deleteMedia: beginDeletingMedia
+            ),
+            nativeFocus: nativeTimelineFocus
         )
         .frame(minHeight: 88)
     }
@@ -330,12 +332,8 @@ struct ProjectTimelineView: View {
     }
 
     private func focusNativeTimelineElement(_ selection: TimelineElementSelection) {
+        focusedElement = selection
         keyboardFocusedElement = selection
-    }
-
-    private func focusNativeAccessibilityElement(_ selection: TimelineElementSelection, _ focused: Bool) {
-        if focused { focusedElement = selection }
-        else if focusedElement == selection { focusedElement = nil }
     }
 
     private func deleteTimelineElement(_ selection: TimelineElementSelection) {
