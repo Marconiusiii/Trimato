@@ -26,7 +26,7 @@ nonisolated enum SilenceTrimError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noAudio: "This clip has no audio to analyze."
-        case .invalidSettings: "Choose a valid silence threshold and pause lengths."
+        case .invalidSettings: "Check Quiet level and the pause lengths. Keep this much of each pause must be less than Shortest pause to trim."
         case .entirelySilent: "The selection is entirely silent. No changes were applied."
         case .changedClip: "The clip changed. Analyze it again before applying silence trimming."
         case .undoUnavailable: "Undo is unavailable in this editing window. No changes were applied."
