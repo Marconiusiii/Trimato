@@ -41,6 +41,8 @@ import Darwin
             verify(controller.editorClipSelection(at: playhead) == .timelineClip(otherClips[1].id), "C used the previously selected track")
             controller.activeTimelineTrackID = track.id
             let nativeFocus = TimelineNativeFocus()
+            let commands = WorkspaceVoiceOverCommandFocus()
+            nativeFocus.commandFocusProvider = { commands }
             let firstOwner = UUID(), middleOwner = UUID(), lastOwner = UUID()
             nativeFocus.record(first, owner: firstOwner, focused: true, voiceOver: false)
             nativeFocus.record(last, owner: lastOwner, focused: true, voiceOver: true)
@@ -89,6 +91,28 @@ import Darwin
             refresh()
             let unchangedProject = controller.project
             let previousFocusRequest = controller.timelineFocusRestoreRequest
+            // Video Frame can take VoiceOver focus while keyboard focus and
+            // the Timeline's last observed clip remain unchanged.
+            let editorOwner = UUID()
+            commands.claim(.editor(editorOwner))
+            verify(nativeFocus.voiceOverSelection == nil, "Timeline retained commands after Editor entry")
+            verify(nativeFocus.keyboardSelection == first, "Handoff moved keyboard focus")
+            for code: UInt16 in [49, 123, 124, 53, 36] {
+                verify(coordinator.handleKey(key(code), voiceOver: true, editingText: false,
+                    currentAccessibilityFocus: first) != nil, "Timeline consumed an Editor key")
+            }
+            verify(controller.project == unchangedProject)
+            verify(controller.movingTimelineClipID == nil)
+            nativeFocus.record(middle, owner: middleOwner, focused: false, voiceOver: true)
+            verify(commands.owner == .editor(editorOwner), "Late Timeline blur cleared Editor ownership")
+            commands.release(.editor(editorOwner))
+            verify(nativeFocus.voiceOverSelection == nil, "Leaving Editor revived stale Timeline focus")
+            nativeFocus.record(middle, owner: middleOwner, focused: true, voiceOver: true)
+            commands.release(.editor(editorOwner))
+            verify(nativeFocus.voiceOverSelection == middle, "Late Editor blur cleared Timeline ownership")
+            let anotherWindow = WorkspaceVoiceOverCommandFocus()
+            anotherWindow.claim(.editor(UUID()))
+            verify(nativeFocus.voiceOverSelection == middle, "Another window changed Timeline ownership")
             _ = coordinator.handleKey(key(49), voiceOver: true, editingText: false, currentAccessibilityFocus: first)
             refresh()
             _ = coordinator.handleKey(key(53), voiceOver: true, editingText: false, currentAccessibilityFocus: first)
@@ -110,7 +134,7 @@ import Darwin
             focusReturn.request()
             verify(focusReturn.consume())
             verify(!focusReturn.consume(), "Focus return replayed on reappearance")
-            print("PASS: \(kind) \(role): middle-clip lift, arrow, Space drop, Escape, stale target rejection, Editor C")
+            print("PASS: \(kind) \(role): lift, move, drop, Escape, Editor handoff, delayed blur, window isolation, Editor C")
         }
         verify(NSApp == nil)
     }

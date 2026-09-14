@@ -447,7 +447,7 @@ struct ProjectViewerView: View {
     let workspacePaneLinks: Namespace.ID
     @ObservedObject var viewModel: ProjectPlayerViewModel
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
-    @AccessibilityFocusState private var focusedAccessibilityTarget: AccessibilityTarget?
+    @AccessibilityFocusState(for: .voiceOver) private var focusedAccessibilityTarget: AccessibilityTarget?
     @State private var pendingProjectPlayheadFocus = false
     @State private var controlsHeight: CGFloat = 240
 
@@ -552,11 +552,13 @@ struct ProjectViewerView: View {
             restoreProjectPlayheadFocus()
         }
         .onChange(of: focusedAccessibilityTarget) { _, target in
+            focusScope.recordVoiceOverFocus(target != nil)
             if target != nil { controller.setProjectInfoTarget(.editor) }
             if target == .playhead {
                 viewModel.refreshAccessibilityValueForFocus()
             }
         }
+        .onDisappear { focusScope.recordVoiceOverFocus(false) }
         // Timeline edits rebuild playback in the background. They must never
         // present a sheet or announce preparation over the active Clip Editor.
         .onChange(of: viewModel.isPreparing) { _, preparing in

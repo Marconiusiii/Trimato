@@ -92,15 +92,30 @@ nonisolated enum TimelineKeyAction: Equatable {
 
 @MainActor
 final class TimelineNativeFocus {
-    private(set) var voiceOverSelection: TimelineElementSelection?
+    private var observedVoiceOverSelection: TimelineElementSelection?
     private var voiceOverOwner: UUID?
     private(set) var keyboardSelection: TimelineElementSelection?
     private var keyboardOwner: UUID?
+    var commandFocusProvider: () -> WorkspaceVoiceOverCommandFocus? = { nil }
+
+    var voiceOverSelection: TimelineElementSelection? {
+        if let commands = commandFocusProvider() {
+            guard let voiceOverOwner, commands.owner == .timeline(voiceOverOwner) else { return nil }
+        }
+        return observedVoiceOverSelection
+    }
 
     func record(_ selection: TimelineElementSelection, owner: UUID, focused: Bool, voiceOver: Bool) {
         if voiceOver {
-            if focused { voiceOverOwner = owner; voiceOverSelection = selection }
-            else if voiceOverOwner == owner { voiceOverOwner = nil; voiceOverSelection = nil }
+            if focused {
+                voiceOverOwner = owner
+                observedVoiceOverSelection = selection
+                commandFocusProvider()?.claim(.timeline(owner))
+            } else if voiceOverOwner == owner {
+                voiceOverOwner = nil
+                observedVoiceOverSelection = nil
+                commandFocusProvider()?.release(.timeline(owner))
+            }
         } else {
             if focused { keyboardOwner = owner; keyboardSelection = selection }
             else if keyboardOwner == owner { keyboardOwner = nil; keyboardSelection = nil }
@@ -108,7 +123,11 @@ final class TimelineNativeFocus {
     }
 
     func remove(owner: UUID) {
-        if voiceOverOwner == owner { voiceOverOwner = nil; voiceOverSelection = nil }
+        if voiceOverOwner == owner {
+            voiceOverOwner = nil
+            observedVoiceOverSelection = nil
+            commandFocusProvider()?.release(.timeline(owner))
+        }
         if keyboardOwner == owner { keyboardOwner = nil; keyboardSelection = nil }
     }
 }
@@ -172,6 +191,9 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.bridge = self
         context.coordinator.scope.nativeFocus = nativeFocus
+        nativeFocus?.commandFocusProvider = { [weak view] in
+            view?.window.map { WorkspaceVoiceOverCommandFocus.forWindow($0) }
+        }
     }
 
     static func dismantleNSView(_ view: NSView, coordinator: Coordinator) { coordinator.stop() }
