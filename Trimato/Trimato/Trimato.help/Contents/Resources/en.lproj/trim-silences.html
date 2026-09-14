@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="description" content="Find and trim quiet pauses in audio and video clips, preview cuts, and save the shortened edit.">
+    <title>Trim silences from a clip</title>
+    <link rel="stylesheet" href="trimato-help.css">
+</head>
+<body>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
+<main>
+    <a name="trimato-trim-silences"></a>
+    <h1>Trim silences from a clip</h1>
+    <p>In Audio Clip Editor or Video Clip Editor, choose Trim Silences to find and shorten quiet pauses. The clip must contain audio.</p>
+
+    <h2>Choose the pauses to trim</h2>
+    <p>Only between In and Out starts enabled when both points are set. Turn it off to find pauses throughout the edited clip.</p>
+    <ul>
+        <li>Quiet level sets how quiet the audio must be to count as silence. It starts at -40 decibels (dB) and changes by 1 dB per step. Lower values preserve more quiet speech.</li>
+        <li>Shortest pause to trim leaves shorter pauses alone. It starts at 0.6 seconds and changes by 0.05 seconds per step.</li>
+        <li>Keep this much of each pause leaves breathing room around each cut, shared between its two sides. It starts at 0.15 seconds and changes by 0.05 seconds per step. Choose less than Shortest pause to trim.</li>
+    </ul>
+    <p>Use the arrow keys to adjust a focused stepper. Values include their units; you do not need to type units.</p>
+    <p>Quiet speech, breaths, and intentional pauses can qualify as silence. Lower Quiet level or increase Shortest pause to trim if too much would be removed. Both stereo channels must be quiet. An entirely silent selection is left unchanged.</p>
+
+    <h2>Find pauses and preview</h2>
+    <p>Choose Find Pauses to prepare a preview. The result gives the number of pauses and how much shorter the clip will become. Play Preview plays the result without audio effects and filters; Pause Preview pauses it. Video preview shows the matching picture.</p>
+    <p>Cancel Search stops the work without changing the clip. Changing a setting clears the previous result and preview. Choose Find Pauses again to check the new settings.</p>
+
+    <h2>Video jump cuts</h2>
+    <p>Warning: Trimming silences from video removes both the silent audio and the matching video. This creates jump cuts, where the picture abruptly changes between the remaining sections. Preview the result before choosing Trim Pauses. The original media file is unchanged.</p>
+
+    <h2>Keep or undo the edit</h2>
+    <p>Trim Pauses keeps the cuts in the clip draft. Cancel closes the sheet without applying them. Existing In and Out points follow the shortened edit. Use Edit &gt; Undo to undo Trim Silences, or Redo to reapply it while the operation remains in the undo history.</p>
+    <p>The shortened edit stays as one clip made from retained sections of the original recording. Individual removed pauses cannot currently be restored or adjusted separately. Finding pauses again checks only the remaining audio. Saved projects keep the retained sections; undo history is not saved with the project.</p>
+    <p>Update Clip saves a timeline instance; Add to Timeline places the retained edit; Export Clip saves a separate file.</p>
+
+    <h2>Check project timing</h2>
+    <p>Updating a shortened timeline clip can move later clips earlier on that track. Other tracks, captions, and descriptions are not automatically shortened to match. Check project timing after updating. An update that conflicts with existing placement may be rejected; the draft remains available.</p>
+</main>
+<footer><p><a href="clip-editor.html">Related topic: Edit a clip.</a></p></footer>
+</body>
+</html>

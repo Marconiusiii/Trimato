@@ -8,7 +8,7 @@ struct TrimSilencesView: View {
     @State private var settings = SilenceTrimSettings()
     @State private var markedOnly = false
     @State private var busy = false
-    @State private var message = "Choose the quiet level and pause lengths, then choose Find Pauses."
+    @State private var message = ""
     @State private var plan: SilenceTrimPlan?
     @State private var baseline: ClipEditTimeline?
     @State private var previewAsset: AVAsset?
@@ -19,68 +19,72 @@ struct TrimSilencesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Trim Silences").font(.title2).accessibilityAddTraits(.isHeader)
-                    if viewModel.hasVideo {
-                        Text("Trimming silences removes matching video and audio, creating jump cuts. Preview the result before choosing Trim Pauses.")
-                    }
-                    Form {
-                        Toggle("Only between In and Out", isOn: $markedOnly)
-                            .disabled(viewModel.inMarker == nil || viewModel.outMarker == nil)
-                        Stepper(value: $settings.thresholdDB, in: -90...0, step: 1) {
-                            Text("Quiet level: \(settings.thresholdDB.formatted(.number.precision(.fractionLength(0...2)))) dB")
-                        }
-                        Text("Audio quieter than this level can count as silence. Lower values preserve more quiet speech.")
-                        Stepper(value: $settings.minimumPause, in: 0.05...Double.infinity, step: 0.05) {
-                            Text("Shortest pause to trim: \(settings.minimumPause.formatted(.number.precision(.fractionLength(0...2)))) seconds")
-                        }
-                        Text("Shorter pauses are left alone.")
-                        Stepper(value: $settings.retainedPause, in: 0...Double.infinity, step: 0.05) {
-                            Text("Keep this much of each pause: \(settings.retainedPause.formatted(.number.precision(.fractionLength(0...2)))) seconds")
-                        }
-                        Text("Leaves breathing room around each cut, shared between its two sides. Choose less than the shortest pause to trim.")
-                    }.disabled(busy)
-                    Text(message).fixedSize(horizontal: false, vertical: true)
-                    if viewModel.hasVideo, previewAsset != nil {
-                        VideoPlayerView(player: player)
-                            .frame(height: 180)
-                            .accessibilityHidden(true)
-                    }
-                    if busy { ProgressView("Finding pauses and preparing preview…") }
-                    HStack {
-                        Button(busy ? "Cancel Search" : "Find Pauses") {
-                            if busy { cancel() } else { analyze() }
-                        }
-                        Button(playing ? "Pause Preview" : "Play Preview") {
-                            if playing { player.pause() }
-                            else {
-                                if player.currentTime().seconds >= (player.currentItem?.forwardPlaybackEndTime.seconds ?? .infinity) - 0.02 {
-                                    player.seek(to: previewStart)
-                                }
-                                player.play()
-                            }
-                            playing.toggle()
-                        }.disabled(previewAsset == nil || busy)
-                    }
-                    Text("Trim Pauses keeps the edits in this clip. Update Clip saves them to the timeline and may move later clips earlier on the same track. Other tracks are not shortened automatically.")
-                        .fixedSize(horizontal: false, vertical: true)
-                }.frame(maxWidth: .infinity, alignment: .leading)
+            Text("Trim Silences").font(.title2).accessibilityAddTraits(.isHeader)
+            Form {
+                Toggle("Only between In and Out", isOn: $markedOnly)
+                    .disabled(viewModel.inMarker == nil || viewModel.outMarker == nil)
+                Stepper("Quiet level (dB)", value: $settings.thresholdDB,
+                    in: -90...0, step: 1,
+                    format: .number.precision(.fractionLength(0...2)))
+                Stepper("Shortest pause to trim (seconds)", value: $settings.minimumPause,
+                    in: 0.05...Double.infinity, step: 0.05,
+                    format: .number.precision(.fractionLength(0...2)))
+                Stepper("Keep this much of each pause (seconds)", value: $settings.retainedPause,
+                    in: 0...Double.infinity, step: 0.05,
+                    format: .number.precision(.fractionLength(0...2)))
+            }.formStyle(.columns)
+                .disabled(busy)
+            Button(busy ? "Cancel Search" : "Find Pauses") {
+                if busy { cancel() } else { analyze() }
             }
+            if busy { ProgressView("Finding pauses and preparing preview…") }
+            if !message.isEmpty {
+                Text(message).fixedSize(horizontal: false, vertical: true)
+            }
+            if viewModel.hasVideo, previewAsset != nil {
+                VideoPlayerView(player: player)
+                    .frame(height: 180)
+                    .accessibilityHidden(true)
+            }
+            Button(playing ? "Pause Preview" : "Play Preview") {
+                if playing { player.pause() }
+                else {
+                    if player.currentTime().seconds >= (player.currentItem?.forwardPlaybackEndTime.seconds ?? .infinity) - 0.02 {
+                        player.seek(to: previewStart)
+                    }
+                    player.play()
+                }
+                playing.toggle()
+            }.disabled(previewAsset == nil || busy)
             HStack {
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Help") { TrimatoHelp.open(.trimSilences) }
                 Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Trim Pauses") { apply() }
                     .disabled(busy || (plan?.removedCount ?? 0) == 0 || previewAsset == nil)
             }
         }
-        .padding(20).frame(width: 520, height: viewModel.hasVideo ? 620 : 460)
+        .padding(20)
+        .frame(width: 520)
+        .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             viewModel.player.pause()
             markedOnly = viewModel.inMarker != nil && viewModel.outMarker != nil
         }
         .onChange(of: settings) { invalidate() }
         .onChange(of: markedOnly) { invalidate() }
+        .onChange(of: message) { _, result in
+            guard !result.isEmpty, !AudioCaptureSession.suppressesAnnouncements,
+                  let application = NSApp else { return }
+            NSAccessibility.post(
+                element: application,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: result,
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                ]
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
             if notification.object as? AVPlayerItem === player.currentItem { playing = false }
         }
@@ -90,7 +94,7 @@ struct TrimSilencesView: View {
     private func invalidate() {
         player.pause(); playing = false; plan = nil; previewAsset = nil; baseline = nil
         player.replaceCurrentItem(with: nil)
-        message = "Choose Find Pauses to check these settings."
+        message = ""
     }
 
     private func cancel() {
@@ -122,7 +126,7 @@ struct TrimSilencesView: View {
                 } else {
                     let pauses = result.removedCount == 1 ? "1 pause" : "\(result.removedCount) pauses"
                     let seconds = result.removedSeconds.formatted(.number.precision(.fractionLength(0...2)))
-                    message = "Found \(pauses). Trimming will make this clip \(seconds) seconds shorter. Preview plays without audio effects and filters."
+                    message = "Found \(pauses). Trimming will make this clip \(seconds) seconds shorter."
                 }
                 busy = false; task = nil
             } catch is CancellationError {

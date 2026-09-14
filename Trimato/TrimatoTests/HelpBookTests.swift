@@ -35,7 +35,7 @@ struct HelpBookTests {
         #expect(indexPage.contains(
             "<meta name=\"AppleTitle\" content=\"\(bookIdentifier)\">"
         ))
-        #expect(helpInfo["CFBundleVersion"] as? String == "13")
+        #expect(helpInfo["CFBundleVersion"] as? String == "14")
         #expect(quickStart.contains("<a name=\"trimato-quickstart-guide\"></a>"))
         #expect(quickStart.contains("<h1 id=\"trimato-quickstart\">Trimato QuickStart guide</h1>"))
         #expect(quickStart.contains("<link rel=\"stylesheet\" href=\"trimato-help.css\">"))
