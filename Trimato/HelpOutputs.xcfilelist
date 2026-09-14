@@ -24,3 +24,6 @@ $(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/Trima
 $(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/filters.html
 $(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/transitions.html
 $(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/generator.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/voicer.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/describer.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/captioner.html

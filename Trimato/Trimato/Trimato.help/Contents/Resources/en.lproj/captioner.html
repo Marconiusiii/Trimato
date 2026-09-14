@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Create and edit captions</title>
+    <link rel="stylesheet" href="trimato-help.css">
+</head>
+<body>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
+<main>
+    <a name="trimato-captioner"></a>
+    <h1>Create and edit captions</h1>
+
+    <p>Trimato keeps caption cues on one track named Captions. Each item is named Caption followed by the first line of its text.</p>
+    <p>If In and Out points are missing or Out is not after In, New Caption explains how to mark the passage. In the Editor, press I at the caption’s start and O at its end, then press Shift-Command-C again.</p>
+    <ol>
+        <li>Set the project In point at the beginning of a spoken passage and the Out point at its end.</li>
+        <li>Press Shift-Command-C or choose Timeline &gt; Captions &gt; New Caption.</li>
+        <li>Write the complete passage as spoken. Choose Insert Description to add a music description, sound description, or lyrics marks.</li>
+        <li>Choose Play Selection to hear the marked section.</li>
+        <li>Choose Add Caption.</li>
+    </ol>
+    <p>The draft passage is added at the marked times, the markers are cleared, and the Editor is ready for the next passage. Choose Cancel or press Command-W to close the caption window without saving it. Activate a caption in Timeline Clips to reopen it. Its context menu can move the project playhead to the caption, edit it, or delete it.</p>
+
+    <h2>Finalize written captions</h2>
+    <ol>
+        <li>Finish marking and writing the spoken passages you want to caption.</li>
+        <li>Choose Timeline &gt; Captions &gt; Finalize Captions.</li>
+        <li>Review any passage Trimato leaves as a draft, adjust its text or marked times, and finalize again.</li>
+    </ol>
+    <p>Finalizing divides each draft passage into timed cues with no more than two lines. It keeps the words, punctuation, and any line break you entered. Cues use a reading rate of 160 words per minute, stay onscreen for at least 40 project frames and no more than six seconds, and extend the marked Out point when more reading time is available. A cue will not cross the next caption or the end of the project. If a passage still needs editing, the results window identifies it and explains the timing problem. You can undo finalization in one step.</p>
+
+    <h2>Import a caption file</h2>
+    <p>Choose Import Files and select an SRT or WebVTT file. Imported cues join any captions already on the Captions track. Their supplied times are measured from the beginning of the project, and they do not need to be finalized.</p>
+
+</main>
+</body>
+</html>

@@ -24,3 +24,6 @@ $(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/workspace.html
 $(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/filters.html
 $(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/transitions.html
 $(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/generator.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/voicer.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/describer.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/captioner.html

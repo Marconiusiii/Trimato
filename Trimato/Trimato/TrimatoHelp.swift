@@ -12,6 +12,9 @@ enum TrimatoHelp {
         case transitions = "trimato-transitions"
         case generator = "trimato-generator"
         case mixer = "trimato-mixer"
+        case describer = "trimato-describer"
+        case voicer = "trimato-voicer"
+        case captioner = "trimato-captioner"
     }
 
     struct Destination {

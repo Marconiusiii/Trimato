@@ -225,6 +225,7 @@ struct CaptionEditorView: View {
             }
 
             HStack(spacing: 8) {
+                ContextualHelpButton(topic: .captioner)
                 Button("Play Selection", action: session.play)
                 Menu("Insert Description") {
                     Button("Music Description") { session.insert("[music description]") }

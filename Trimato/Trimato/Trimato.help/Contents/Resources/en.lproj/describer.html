@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Describer</title>
+    <link rel="stylesheet" href="trimato-help.css">
+</head>
+<body>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
+<main>
+    <a name="trimato-describer"></a>
+    <h1>Describer</h1>
+    <p>Choose a microphone and playback device in Settings &gt; Audio. Use Record Test and Play Test to check the recording.</p>
+    <p>Choose System Default to use the current macOS input or playback device, or select a specific device. Input and playback can use different devices. Choose the input channel for a multi-channel interface. Recordings retain the input sample rate and use the selected recording quality.</p>
+
+    <p>Describer and Voicer open in their own tool windows. Command-W closes the tool and returns to the project. Settings and Command-S remain available while the tool is open.</p>
+    <p>Mark an In and Out point in the Editor and press Shift-Command-D. Describer shows the video during recording and playback with Primary Audio. Adjust the In and Out times as needed, then record a description. Enter seconds or timecode such as 00:01:23.450; times display as hours, minutes, seconds, and milliseconds.</p>
+    <p>Type description text to create an entry on the Description Transcript track. Record a take to create a clip on an Audio Description track. You can save text, audio, or both.</p>
+    <p>Play with Primary Audio starts at In and stops at Out. These limits remain in place after an Audio Ducking change. During recording, Primary Audio stops at Out; turn Record off when your take is finished. A take that extends beyond Out keeps its full length for Play take and saving. Choose Speed up to fit or Trim at Out to shorten it to the marked range. Speed up to fit preserves pitch. A shorter take keeps its original length.</p>
+    <p>Turn on Audio Ducking to lower other project audio while an Audio Description clip plays. Audio Ducking Amount and Fade time appear when it is on. The default is -5 dB with a 0.25-second fade before and after each description. Changes apply automatically to preview playback and project export. Turning it off keeps the chosen amount for later use. Voice Over clips do not trigger ducking.</p>
+    <h2>Adjust a recorded voice</h2>
+    <p>Open the Voice tab in Describer or Voicer. Set Dialogue reference In and Dialogue reference Out to a passage of clear Primary Audio dialogue. These fields are separate from the recording markers. Use Play reference to hear the passage, then choose Match voice loudness to Primary Audio. Several seconds of dialogue give a more useful reference than a brief word. Added narration is excluded from the reference.</p>
+    <p>Turn on Even out voice to reduce differences between louder and quieter words. Adjust Voice level to raise or lower the result. Use Play take or Play with Primary Audio to hear the adjustments. Remove match removes loudness matching; Reset voice adjustments also turns off voice leveling and resets Voice level.</p>
+    <p>Choose Apply voice settings to the named track to adjust its existing recorded clips. Each clip is measured separately. Add to Project saves the current take with its voice adjustments. The original recording is kept, and the adjustments are used for project playback and export.</p>
+    <p>For recordings already in the project, open the audio clip in Audio Clip Editor and select its Voice tab. Use Update Clip to keep changes to that clip, or Apply voice settings to the named track to update existing narration on that track. Undo reverses an applied change.</p>
+    <h2>Save and export</h2>
+    <p>Save the project before adding a recording. Accepted recordings are stored in the Recordings folder alongside the Trimato project. Keep that folder with the project when moving or copying it. Cancel discards the current unsaved take.</p>
+    <p>Choose Timeline &gt; Export Description Transcript to export the text separately. During project export, select Export description transcript (WebVTT) to write a timed description file alongside the exported media. Caption export remains a separate choice. Description text never appears on the video.</p>
+</main>
+</body>
+</html>

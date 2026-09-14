@@ -473,6 +473,7 @@ struct ProjectRecordingView: View {
             }
             if session.busy { ProgressView("Preparing…").controlSize(.small) }
             HStack {
+                ContextualHelpButton(topic: session.isDescriber ? .describer : .voicer)
                 Button("Cancel") { session.controller?.dismissRecording() }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button(session.saveTitle) { session.save() }

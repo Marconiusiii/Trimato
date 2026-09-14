@@ -246,8 +246,10 @@ final class ProjectController: ObservableObject {
     }
 
     var canCreateCaption: Bool {
-        captionDraftRange != nil && !isExporting && !isImporting
+        captionDraftRange != nil && canRequestCaption
     }
+
+    var canRequestCaption: Bool { !isExporting && !isImporting }
 
     var canFinalizeCaptions: Bool {
         project.captionTrack?.captionCues.contains(where: \.isDraft) == true && !isExporting && !isImporting
@@ -267,10 +269,11 @@ final class ProjectController: ObservableObject {
     }
 
     func requestCaptionEditor() {
+        guard canRequestCaption else { return }
         guard canCreateCaption else {
             presentedError = ProjectPresentedError(
                 title: "Caption Needs In and Out Points",
-                message: "Mark an In point and an Out point in the Editor before adding a caption."
+                message: "In the Editor, press I at the caption’s start and O at its end, then press Command-Shift-C again. The Out point must be after the In point."
             )
             return
         }
@@ -459,13 +462,13 @@ final class ProjectController: ObservableObject {
 
     func saveProjectDocument() {
         projectSaveCoordinator?.save { [weak self] succeeded in
-            if succeeded { self?.announce("Project saved") }
+            if succeeded { self?.announce("Project saved", priority: .high) }
         }
     }
 
     func saveProjectDocumentAs() {
         projectSaveCoordinator?.saveAs { [weak self] succeeded in
-            if succeeded { self?.announce("Project saved") }
+            if succeeded { self?.announce("Project saved", priority: .high) }
         }
     }
 
@@ -2458,13 +2461,13 @@ final class ProjectController: ObservableObject {
         Task { await MediaCacheManager.shared.updateProtectedKeys(owner: owner, keys: keys) }
     }
 
-    private func announce(_ message: String?) {
+    private func announce(_ message: String?, priority: NSAccessibilityPriorityLevel = .medium) {
         guard let message, !message.isEmpty else { return }
         guard let application = NSApp else { return }
         NSAccessibility.post(
             element: (application.keyWindow as Any?) ?? application,
             notification: .announcementRequested,
-            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue]
+            userInfo: [.announcement: message, .priority: priority.rawValue]
         )
     }
 }

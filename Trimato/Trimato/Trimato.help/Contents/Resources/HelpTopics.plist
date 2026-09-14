@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>trimato-describer</key>
+	<string>describer.html</string>
+	<key>trimato-voicer</key>
+	<string>voicer.html</string>
+	<key>trimato-captioner</key>
+	<string>captioner.html</string>
 	<key>trimato-trim-silences</key>
 	<string>trim-silences.html</string>
 	<key>trimato-filters</key>
