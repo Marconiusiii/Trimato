@@ -135,7 +135,6 @@ struct WorkspaceCommands: Commands {
                     .keyboardShortcut(KeyEquivalent(Character(pane.shortcut)), modifiers: .command)
                     .disabled(state.controller == nil)
             }
-            Divider()
             Toggle("Portrait Video", isOn: Binding(
                 get: { portraitVideo },
                 set: { value in

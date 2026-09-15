@@ -371,6 +371,8 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Each editor has its own window; do not add automatic tab and merge commands.
+        NSWindow.allowsAutomaticWindowTabbing = false
         appearanceController.start()
     }
 
