@@ -705,10 +705,11 @@ struct ProjectViewerView: View {
             if let notice = viewModel.audioNotice {
                 Text(notice).fixedSize(horizontal: false, vertical: true)
             }
-            ProjectLivePlayhead(player: viewModel, voiceOverFocused: focusedAccessibilityTarget == .playhead)
+            ProjectLivePlayhead(player: viewModel)
             .disabled(!viewModel.canControlPlayback)
             .tint(EditorTheme.playhead)
             .accessibilityLabel("Project playhead")
+            .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier("trimato.editor.playhead")
             .accessibilityFocused($focusedAccessibilityTarget, equals: .playhead)
             .focused($paneCommandKeyboardTarget, equals: .playhead)
@@ -943,23 +944,15 @@ struct ProjectPreviewFailureSheet: View {
 private struct ProjectLivePlayhead: View {
     @ObservedObject var player: ProjectPlayerViewModel
     @ObservedObject private var clock: ProjectPlaybackClock
-    let voiceOverFocused: Bool
-    @State private var readout = ProjectPlayheadReadout()
-    init(player: ProjectPlayerViewModel, voiceOverFocused: Bool) {
+    init(player: ProjectPlayerViewModel) {
         self.player = player
-        self.voiceOverFocused = voiceOverFocused
         clock = player.playbackClock
     }
     var body: some View {
-        let timecode = player.spokenTimecode(at: clock.time)
         Slider(value: Binding(get: {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }), in: 0...1, step: player.playbackFractionStep)
-            .accessibilityValue(readout.value.isEmpty ? timecode : readout.value)
             .accessibilityAddTraits(player.isPlaying ? .updatesFrequently : [])
-            .onChange(of: voiceOverFocused) { _, focused in readout.setFocused(focused) }
-            .onChange(of: timecode, initial: true) { _, value in readout.update(value, playing: player.isPlaying) }
-            .onChange(of: player.isPlaying) { _, playing in readout.update(timecode, playing: playing) }
     }
 }
 

@@ -208,7 +208,7 @@ private struct MixerLivePlayhead: View {
         MixerPlayheadSlider(value: Binding(get: {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }),
-            step: player.playbackFractionStep, timecode: player.spokenTimecode(at: clock.time),
+            step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
             ready: player.canControlPlayback, playing: player.isPlaying)
     }
 }

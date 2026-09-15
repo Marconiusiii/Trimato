@@ -1295,6 +1295,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func refreshAccessibilityValueForFocus() {
+        guard !isPlaying else { return }
         let value = spokenTimecode(at: currentTime)
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
