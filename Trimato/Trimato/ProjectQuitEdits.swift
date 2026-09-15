@@ -86,7 +86,7 @@ struct QuitReviewWindow: View {
                 QuitReviewContent(coordinator: coordinator)
             }
         }
-        .onChange(of: state.coordinator == nil) { _, empty in
+        .onChange(of: state.coordinator == nil, initial: true) { _, empty in
             if empty { dismissWindow(id: "quit-review") }
         }
         .onDisappear {

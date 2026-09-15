@@ -1,4 +1,5 @@
 import AppKit
+import Accessibility
 import Combine
 import SwiftUI
 
@@ -125,6 +126,9 @@ struct WorkspaceCommands: Commands {
     @AppStorage(AppPreferenceKey.portraitVideo) private var portraitVideo = false
 
     var body: some Commands {
+        // Auxiliary scenes are opened by their own workflows, not the Window menu.
+        // Keep the separate native list of already-open document windows intact.
+        CommandGroup(replacing: .singleWindowList) { }
         CommandGroup(before: .windowArrangement) {
             ForEach(WorkspacePane.allCases) { pane in
                 Button(pane.title) { state.controller?.requestWorkspaceFocus(pane) }
@@ -135,10 +139,15 @@ struct WorkspaceCommands: Commands {
             Toggle("Portrait Video", isOn: Binding(
                 get: { portraitVideo },
                 set: { value in
-                    guard state.controller?.acceptsWorkspaceCommands == true else { return }
+                    guard state.controller?.acceptsWorkspaceCommands == true,
+                          value != portraitVideo else { return }
                     portraitVideo = value
+                    var announcement = AttributedString(value ? "Portrait mode" : "Landscape mode")
+                    announcement.accessibilitySpeechAnnouncementPriority = .high
+                    AccessibilityNotification.Announcement(announcement).post()
                 }
             ))
+            .keyboardShortcut("4", modifiers: .command)
             .disabled(state.controller == nil)
             Divider()
         }
