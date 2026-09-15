@@ -145,25 +145,83 @@ struct MixerView: View {
     }
 }
 
-private struct MixerPlaybackControls: View {
+// The surrounding controls observe semantic changes, never the live clock.
+@MainActor
+final class MixerPlaybackPresentation: ObservableObject {
+    struct State: Equatable {
+        var error: String?
+        var ready: Bool
+        var playing: Bool
+        var showingFrames: Bool
+        var timecode: String
+        var duration: Double
+        var step: Double
+
+        init(player: ProjectPlayerViewModel) {
+            error = player.errorMessage
+            ready = player.canControlPlayback
+            playing = player.isPlaying
+            showingFrames = player.showingFrames
+            timecode = player.accessibilityTimecodeLabel
+            duration = player.duration.seconds
+            step = player.playbackFractionStep
+        }
+    }
+
+    @Published private(set) var state: State
+    private var observation: AnyCancellable?
+
+    init(player: ProjectPlayerViewModel) {
+        state = State(player: player)
+        observation = player.objectWillChange.receive(on: RunLoop.main)
+            .sink { [weak self, weak player] _ in
+                guard let self, let player else { return }
+                let next = State(player: player)
+                if self.state != next { self.state = next }
+            }
+    }
+}
+
+private struct MixerLiveTimecode: View {
     @ObservedObject var player: ProjectPlayerViewModel
+    var body: some View {
+        Text(player.showingFrames ? String(player.currentFrame) : player.displayTimecode)
+    }
+}
+
+private struct MixerLivePlayhead: View {
+    @ObservedObject var player: ProjectPlayerViewModel
+    var body: some View {
+        MixerPlayheadSlider(value: Binding(get: { player.playbackFraction }, set: { player.seek(toFraction: $0) }),
+            step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
+            ready: player.canControlPlayback, prepareFocus: player.refreshAccessibilityValueForFocus)
+    }
+}
+
+private struct MixerPlaybackControls: View {
+    let player: ProjectPlayerViewModel
+    @StateObject private var presentation: MixerPlaybackPresentation
     let play: () -> Void
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @StateObject private var keyboard = SettingsSliderKeyboard(identifier: "trimato.mixer.playhead")
+    init(player: ProjectPlayerViewModel, play: @escaping () -> Void) {
+        self.player = player
+        self.play = play
+        _presentation = StateObject(wrappedValue: MixerPlaybackPresentation(player: player))
+    }
+
     var body: some View {
         VStack(spacing: 10) {
-            if let message = player.errorMessage {
+            if let message = presentation.state.error {
                 Text(message).textSelection(.enabled)
             }
-            MixerPlayheadSlider(value: Binding(get: { player.playbackFraction }, set: { player.seek(toFraction: $0) }),
-                step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
-                ready: player.canControlPlayback, prepareFocus: player.refreshAccessibilityValueForFocus)
+            MixerLivePlayhead(player: player)
                 .tint(EditorTheme.playhead)
                 .onAppear { keyboard.start() }
                 .onDisappear { keyboard.stop() }
             playbackControls
         }
-        .disabled(!player.canControlPlayback)
+        .disabled(!presentation.state.ready)
     }
 
     private var playbackControls: some View {
@@ -171,11 +229,11 @@ private struct MixerPlaybackControls: View {
             VStack(spacing: 8) {
                 Button { player.toggleTimecodeDisplay() } label: {
                     VStack(spacing: 2) {
-                        Text(player.showingFrames ? String(player.currentFrame) : player.displayTimecode)
+                        MixerLiveTimecode(player: player)
                             .font(.system(.title, design: .monospaced).weight(.semibold))
                             .monospacedDigit()
                             .foregroundStyle(EditorTheme.accent(for: accentChoice))
-                        Text(player.showingFrames ? "Frames" : "Timecode")
+                        Text(presentation.state.showingFrames ? "Frames" : "Timecode")
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(EditorTheme.secondaryText)
                     }
@@ -184,11 +242,11 @@ private struct MixerPlaybackControls: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Project timecode")
-                .accessibilityValue(player.accessibilityTimecodeLabel)
+                .accessibilityValue(presentation.state.timecode)
                 HStack(spacing: EditorTheme.actionSpacing) {
                     transportButton("Step backward one frame", image: "backward.frame.fill", action: player.stepBackward)
                     transportButton("Skip back 10 seconds", image: "gobackward.10", action: player.seekBackward)
-                    transportButton(player.isPlaying ? "Pause" : "Play", image: player.isPlaying ? "pause.fill" : "play.fill", primary: true, action: play)
+                    transportButton(presentation.state.playing ? "Pause" : "Play", image: presentation.state.playing ? "pause.fill" : "play.fill", primary: true, action: play)
                     transportButton("Skip forward 10 seconds", image: "goforward.10", action: player.seekForward)
                     transportButton("Step forward one frame", image: "forward.frame.fill", action: player.stepForward)
                 }
