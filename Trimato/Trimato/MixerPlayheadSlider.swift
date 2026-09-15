@@ -1,9 +1,16 @@
+import AppKit
 import SwiftUI
 
 struct MixerPlayheadSlider: View {
     @Binding var value: Double
     let step: Double
     let timecode: String
+    let ready: Bool
+    let prepareFocus: () -> Void
+    @Environment(\.controlActiveState) private var windowActivity
+    @FocusState private var keyboardFocused: Bool
+    @AccessibilityFocusState private var voiceOverFocused: Bool
+    @State private var needsInitialFocus = true
 
     var body: some View {
         // An inline Slider label makes macOS lay out labels for its frame steps.
@@ -12,6 +19,23 @@ struct MixerPlayheadSlider: View {
             Slider(value: $value, in: 0...1, step: step)
                 .accessibilityValue(timecode)
                 .accessibilityIdentifier("trimato.mixer.playhead")
+                .focused($keyboardFocused)
+                .accessibilityFocused($voiceOverFocused)
+        }
+        .task(id: ready && windowActivity == .key) {
+            guard needsInitialFocus, ready, windowActivity == .key else { return }
+            // Allow the native slider to join the active window before focusing it.
+            await Task.yield()
+            guard !Task.isCancelled, let application = NSApp, application.isActive,
+                  application.keyWindow?.attachedSheet == nil,
+                  application.modalWindow == nil else { return }
+            needsInitialFocus = false
+            prepareFocus()
+            keyboardFocused = true
+            voiceOverFocused = true
+        }
+        .onChange(of: voiceOverFocused) { _, focused in
+            if focused { prepareFocus() }
         }
     }
 }

@@ -156,7 +156,8 @@ private struct MixerPlaybackControls: View {
                 Text(message).textSelection(.enabled)
             }
             MixerPlayheadSlider(value: Binding(get: { player.playbackFraction }, set: { player.seek(toFraction: $0) }),
-                step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel)
+                step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
+                ready: player.canControlPlayback, prepareFocus: player.refreshAccessibilityValueForFocus)
                 .tint(EditorTheme.playhead)
                 .onAppear { keyboard.start() }
                 .onDisappear { keyboard.stop() }
