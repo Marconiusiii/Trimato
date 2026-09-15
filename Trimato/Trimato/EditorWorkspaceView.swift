@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct EditorWorkspaceView: View {
@@ -44,6 +45,8 @@ struct EditorWorkspaceView: View {
             .handlesTrimatoMediaOpening()
             .onAppear {
                 controller.installSaveCoordinator(projectWindowSaveCoordinator)
+                WorkspaceCommandState.shared.register(controller,
+                    windowChanges: projectWindowSaveCoordinator.objectWillChange.eraseToAnyPublisher())
                 projectWindowSaveCoordinator.onUndoManagerAvailable { [weak controller] undoManager in
                     controller?.installUndoManager(undoManager)
                 }
@@ -116,6 +119,7 @@ struct EditorWorkspaceView: View {
             .onDisappear {
                 controller.dismissRecording()
                 ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
+                WorkspaceCommandState.shared.unregister(controller)
             }
             .sheet(isPresented: Binding(
                 get: { controller.isShowingProjectSettings },

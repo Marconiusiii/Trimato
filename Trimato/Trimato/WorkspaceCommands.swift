@@ -1,10 +1,17 @@
 import AppKit
+import Combine
 import SwiftUI
 
 nonisolated enum WorkspacePane: String, CaseIterable, Identifiable, Sendable {
     case project, editor, timeline
     var id: Self { self }
-    var title: String { "Focus " + rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .project: "Project Source"
+        case .editor: "Editor"
+        case .timeline: "Timeline"
+        }
+    }
     var shortcut: String {
         switch self {
         case .project: "1"
@@ -42,26 +49,97 @@ nonisolated enum PortraitEditorLayout {
     }
 }
 
+/// Workspace commands belong to the key project window, even before one of its
+/// controls has received focus. Native window events and loading state drive updates.
+@MainActor
+final class WorkspaceCommandState: ObservableObject {
+    static let shared = WorkspaceCommandState()
+    @Published private(set) var controller: ProjectController?
+
+    private struct Registration {
+        weak var controller: ProjectController?
+        var observations: Set<AnyCancellable>
+    }
+    private var registrations: [ObjectIdentifier: Registration] = [:]
+    private var windowObservations = Set<AnyCancellable>()
+    private let acceptsCommands: @MainActor (ProjectController) -> Bool
+    private(set) var pendingRefresh: Task<Void, Never>?
+
+    init(notifications: NotificationCenter = .default,
+         acceptsCommands: @escaping @MainActor (ProjectController) -> Bool = { $0.acceptsWorkspaceCommands }) {
+        self.acceptsCommands = acceptsCommands
+        let events: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSWindow.willBeginSheetNotification, NSWindow.didEndSheetNotification,
+            NSWindow.willCloseNotification,
+            NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+        ]
+        for event in events {
+            notifications.publisher(for: event)
+                .sink { [weak self] _ in
+                    // AppKit window/application lifecycle notifications arrive on the main thread.
+                    MainActor.assumeIsolated { self?.scheduleRefresh() }
+                }
+                .store(in: &windowObservations)
+        }
+    }
+
+    func register(_ controller: ProjectController, windowChanges: AnyPublisher<Void, Never>) {
+        var observations = Set<AnyCancellable>()
+        let changes: [AnyPublisher<Void, Never>] = [
+            controller.$isImporting.map { _ in () }.eraseToAnyPublisher(),
+            controller.$isExporting.map { _ in () }.eraseToAnyPublisher(),
+            controller.$isPresentingExportPanel.map { _ in () }.eraseToAnyPublisher(),
+            controller.$applyingTransitionName.map { _ in () }.eraseToAnyPublisher(),
+            windowChanges,
+        ]
+        Publishers.MergeMany(changes)
+            .sink { [weak self] _ in self?.scheduleRefresh() }
+            .store(in: &observations)
+        registrations[ObjectIdentifier(controller)] = Registration(controller: controller, observations: observations)
+        scheduleRefresh()
+    }
+
+    func unregister(_ controller: ProjectController) {
+        registrations[ObjectIdentifier(controller)] = nil
+        scheduleRefresh()
+    }
+
+    private func scheduleRefresh() {
+        guard pendingRefresh == nil else { return }
+        pendingRefresh = Task { @MainActor [weak self] in
+            // objectWillChange precedes the new value, and window attachment can
+            // happen during a representable update. Read after those updates finish.
+            await Task.yield()
+            guard let self else { return }
+            self.pendingRefresh = nil
+            self.registrations = self.registrations.filter { $0.value.controller != nil }
+            let next = self.registrations.values.compactMap(\.controller).first(where: self.acceptsCommands)
+            if self.controller !== next { self.controller = next }
+        }
+    }
+}
+
 struct WorkspaceCommands: Commands {
-    @FocusedObject private var controller: ProjectController?
+    @ObservedObject private var state = WorkspaceCommandState.shared
     @AppStorage(AppPreferenceKey.portraitVideo) private var portraitVideo = false
 
     var body: some Commands {
         CommandGroup(before: .windowArrangement) {
             ForEach(WorkspacePane.allCases) { pane in
-                Button(pane.title) { controller?.requestWorkspaceFocus(pane) }
+                Button(pane.title) { state.controller?.requestWorkspaceFocus(pane) }
                     .keyboardShortcut(KeyEquivalent(Character(pane.shortcut)), modifiers: .command)
-                    .disabled(controller?.acceptsWorkspaceCommands != true)
+                    .disabled(state.controller == nil)
             }
             Divider()
             Toggle("Portrait Video", isOn: Binding(
                 get: { portraitVideo },
                 set: { value in
-                    guard controller?.acceptsWorkspaceCommands == true else { return }
+                    guard state.controller?.acceptsWorkspaceCommands == true else { return }
                     portraitVideo = value
                 }
             ))
-            .disabled(controller?.acceptsWorkspaceCommands != true)
+            .disabled(state.controller == nil)
             Divider()
         }
     }
