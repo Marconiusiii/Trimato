@@ -15,6 +15,7 @@ struct ContentView: View {
     @StateObject private var entryFocus = ClipEditorEntryFocus()
     @FocusState private var playheadKeyboardFocused: Bool
     @AccessibilityFocusState private var playheadVoiceOverFocused: Bool
+    @State private var entryCompletionPending = false
 
     init(
         viewModel: VideoPlayerViewModel,
@@ -55,17 +56,22 @@ struct ContentView: View {
         .background(ClipEditorEntryFocusBridge(owner: entryFocus, ready: entryFocusReady))
         .onChange(of: entryFocus.request) {
             viewModel.refreshAccessibilityValueForFocus()
+            entryCompletionPending = true
             playheadKeyboardFocused = true
             playheadVoiceOverFocused = true
-            Task { @MainActor in
-                await Task.yield()
-                entryCompleted()
-            }
         }
         .onChange(of: playheadVoiceOverFocused) { _, focused in
             if focused {
                 viewModel.refreshAccessibilityValueForFocus()
             }
+        }
+        .task(id: entryCompletionPending && playheadKeyboardFocused && playheadVoiceOverFocused && entryFocusReady) {
+            guard entryCompletionPending, playheadKeyboardFocused,
+                  playheadVoiceOverFocused, entryFocusReady else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            entryCompletionPending = false
+            entryCompleted()
         }
         .toolbar {
             ToolbarItemGroup {

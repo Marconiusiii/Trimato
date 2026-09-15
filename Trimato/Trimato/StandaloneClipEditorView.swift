@@ -1,5 +1,6 @@
 import Combine
 import AppKit
+import Accessibility
 import SwiftUI
 
 nonisolated struct ClipReadyAnnouncementPolicy {
@@ -9,6 +10,32 @@ nonisolated struct ClipReadyAnnouncementPolicy {
         guard ready, outcome == .completed, !announced else { return nil }
         announced = true
         return "Clip Ready"
+    }
+}
+
+@MainActor
+final class ClipLoadingPresentation: ObservableObject {
+    @Published private(set) var isPresented = false
+    private(set) var delayTask: Task<Void, Never>?
+
+    func begin() {
+        finish()
+        delayTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(2)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            self?.isPresented = true
+        }
+    }
+
+    func finish() {
+        delayTask?.cancel()
+        delayTask = nil
+        // Keep entry blocked until a visible progress window has returned focus.
+    }
+
+    func dismissed() {
+        isPresented = false
     }
 }
 
@@ -100,6 +127,7 @@ struct StandaloneClipEditorView: View {
     @State private var creationTask: Task<Void, Never>?
     @State private var pendingProject: TrimatoProject?
     @State private var readyAnnouncement = ClipReadyAnnouncementPolicy()
+    @StateObject private var loadingPresentation = ClipLoadingPresentation()
 
     init(request: ExternalMediaOpenRequest) {
         self.request = request
@@ -114,6 +142,7 @@ struct StandaloneClipEditorView: View {
                 viewModel: viewModel,
                 allowsFileOpening: false,
                 editorHeading: editorName,
+                isPreparingSource: loadingPresentation.isPresented,
                 entryCompleted: announceClipReady
             )
 
@@ -138,14 +167,21 @@ struct StandaloneClipEditorView: View {
         }
         .operationProgress(
             mediaPreparationOperation,
-            outcome: viewModel.mediaPreparationOutcome
+            outcome: viewModel.mediaPreparationOutcome,
+            completionPending: viewModel.isPreparingMedia,
+            dismissed: loadingPresentation.dismissed
         )
+        .onChange(of: viewModel.isPreparingMedia, initial: true) { _, preparing in
+            if preparing { loadingPresentation.begin() }
+            else { loadingPresentation.finish() }
+        }
         .operationProgress(commandContext.isCreatingProject ? OperationProgress(
             title: "Creating Project", cancel: { creationTask?.cancel() }
         ) : nil, outcome: commandContext.creationError == nil ? .completed : .failed,
                            completionPending: pendingProject != nil,
                            dismissed: finishProjectPresentation)
         .onDisappear {
+            loadingPresentation.finish()
             creationTask?.cancel()
             resourceAccess?.end()
         }
@@ -165,6 +201,7 @@ struct StandaloneClipEditorView: View {
                 return
             }
             loadedRequestID = request.id
+            loadingPresentation.finish()
             readyAnnouncement = ClipReadyAnnouncementPolicy()
             do {
                 let url = try request.resolvedURL()
@@ -215,8 +252,9 @@ struct StandaloneClipEditorView: View {
                 ready: viewModel.hasMedia && viewModel.duration > 0 && !viewModel.isPreparingMedia,
                 outcome: viewModel.mediaPreparationOutcome
               ) else { return }
-        NSAccessibility.post(element: window, notification: .announcementRequested,
-            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        var announcement = AttributedString(message)
+        announcement.accessibilitySpeechAnnouncementPriority = .high
+        AccessibilityNotification.Announcement(announcement).post()
     }
 
     private func finishProjectPresentation() {
@@ -235,16 +273,12 @@ struct StandaloneClipEditorView: View {
     }
 
     private var mediaPreparationOperation: OperationProgress? {
-        guard viewModel.isPreparingMedia else { return nil }
-        let detail = viewModel.mediaStatus.map { status in
-            viewModel.mediaFilename.isEmpty ? status : "\(viewModel.mediaFilename): \(status)"
-        }
+        guard viewModel.isPreparingMedia, loadingPresentation.isPresented else { return nil }
         return OperationProgress(
             title: "Preparing Clip",
-            progress: viewModel.mediaProgress,
-            detail: detail,
             cancel: viewModel.cancelMediaLoad,
-            announceCompletion: false
+            announceCompletion: false,
+            announcesUpdates: false
         )
     }
 }

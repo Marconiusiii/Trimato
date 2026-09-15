@@ -1,4 +1,5 @@
 import AppKit
+import Accessibility
 import Combine
 import SwiftUI
 
@@ -51,6 +52,7 @@ struct OperationProgress {
     var detail: String? = nil
     var cancel: (() -> Void)? = nil
     var announceCompletion = true
+    var announcesUpdates = true
 }
 
 private struct OperationProgressSnapshot: Equatable {
@@ -59,6 +61,7 @@ private struct OperationProgressSnapshot: Equatable {
     let detail: String?
     let canCancel: Bool
     let announceCompletion: Bool
+    let announcesUpdates: Bool
     let outcome: OperationProgressOutcome
     let completionPending: Bool
     let returnWindowNumber: Int?
@@ -103,6 +106,7 @@ private struct OperationProgressPresenter: ViewModifier {
             detail: operation?.detail,
             canCancel: operation?.cancel != nil,
             announceCompletion: operation?.announceCompletion ?? true,
+            announcesUpdates: operation?.announcesUpdates ?? true,
             outcome: outcome,
             completionPending: completionPending,
             returnWindowNumber: returnWindow?.windowNumber,
@@ -162,6 +166,7 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
     private var announcements = OperationProgressAnnouncements()
     private var wasCancelled = false
     private let postsAnnouncements: Bool
+    private let announcesUpdates: Bool
 
     init(operation: OperationProgress, postsAnnouncements: Bool = true) {
         title = operation.title
@@ -170,6 +175,7 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
         cancelAction = operation.cancel
         announceCompletion = operation.announceCompletion
         self.postsAnnouncements = postsAnnouncements
+        announcesUpdates = operation.announcesUpdates
         _ = announcements.update(progress: operation.progress)
     }
 
@@ -178,16 +184,18 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
     }
 
     func update(_ operation: OperationProgress) {
+        guard !isFinished else { return }
         let detailChanged = detail != operation.detail
         title = operation.title
         progress = operation.progress
         detail = operation.detail
         cancelAction = operation.cancel
         announceCompletion = operation.announceCompletion
-        if detailChanged, let detail = operation.detail {
-            speak(detail)
+        let milestone = announcements.update(progress: operation.progress)
+        if announcesUpdates {
+            if detailChanged, let detail = operation.detail { speak(detail) }
+            speak(milestone)
         }
-        speak(announcements.update(progress: operation.progress))
     }
 
     func cancel() {
@@ -215,7 +223,13 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
     }
 
     private func speak(_ message: String?) {
-        guard postsAnnouncements, let message, NSApp.isActive, let application = NSApp else { return }
+        guard postsAnnouncements, let message, let application = NSApp, application.isActive else { return }
+        if !announcesUpdates {
+            var announcement = AttributedString(message)
+            announcement.accessibilitySpeechAnnouncementPriority = .default
+            AccessibilityNotification.Announcement(announcement).post()
+            return
+        }
         NSAccessibility.post(
             element: application,
             notification: .announcementRequested,
