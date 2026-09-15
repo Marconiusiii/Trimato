@@ -148,6 +148,7 @@ struct MixerView: View {
 private struct MixerPlaybackControls: View {
     @ObservedObject var player: ProjectPlayerViewModel
     let play: () -> Void
+    @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @StateObject private var keyboard = SettingsSliderKeyboard(identifier: "trimato.mixer.playhead")
     var body: some View {
         VStack(spacing: 10) {
@@ -159,28 +160,62 @@ private struct MixerPlaybackControls: View {
                 .tint(EditorTheme.playhead)
                 .onAppear { keyboard.start() }
                 .onDisappear { keyboard.stop() }
-            Button { player.toggleTimecodeDisplay() } label: {
-                Text(player.accessibilityTimecodeLabel).font(.system(.title, design: .monospaced))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Project timecode")
-            .accessibilityValue(player.accessibilityTimecodeLabel)
-            HStack(spacing: 16) {
-                Button("Step backward one frame", systemImage: "backward.frame.fill", action: player.stepBackward)
-                Button("Skip back 10 seconds", systemImage: "gobackward.10", action: player.seekBackward)
-                Button(player.isPlaying ? "Pause" : "Play", systemImage: player.isPlaying ? "pause.fill" : "play.fill", action: play)
-                Button("Skip forward 10 seconds", systemImage: "goforward.10", action: player.seekForward)
-                Button("Step forward one frame", systemImage: "forward.frame.fill", action: player.stepForward)
-            }
-            .labelStyle(.iconOnly)
-            HStack {
-                Button("Go to Beginning", action: player.goToStart)
-                Button("Go to End", action: player.goToEnd)
-            }
+            playbackControls
         }
+        .disabled(!player.canControlPlayback)
+    }
+
+    private var playbackControls: some View {
+        GroupBox {
+            VStack(spacing: 8) {
+                Button { player.toggleTimecodeDisplay() } label: {
+                    VStack(spacing: 2) {
+                        Text(player.showingFrames ? String(player.currentFrame) : player.displayTimecode)
+                            .font(.system(.title, design: .monospaced).weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(EditorTheme.accent(for: accentChoice))
+                        Text(player.showingFrames ? "Frames" : "Timecode")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(EditorTheme.secondaryText)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Project timecode")
+                .accessibilityValue(player.accessibilityTimecodeLabel)
+                HStack(spacing: EditorTheme.actionSpacing) {
+                    transportButton("Step backward one frame", image: "backward.frame.fill", action: player.stepBackward)
+                    transportButton("Skip back 10 seconds", image: "gobackward.10", action: player.seekBackward)
+                    transportButton(player.isPlaying ? "Pause" : "Play", image: player.isPlaying ? "pause.fill" : "play.fill", primary: true, action: play)
+                    transportButton("Skip forward 10 seconds", image: "goforward.10", action: player.seekForward)
+                    transportButton("Step forward one frame", image: "forward.frame.fill", action: player.stepForward)
+                }
+                .foregroundStyle(EditorTheme.accent(for: accentChoice))
+                HStack {
+                    Button("Go to Beginning", action: player.goToStart)
+                    Button("Go to End", action: player.goToEnd)
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            Text("Playback").accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Playback")
-        .disabled(!player.canControlPlayback)
+        .accessibilityIdentifier("trimato.mixer.playback")
+    }
+
+    private func transportButton(_ title: String, image: String, primary: Bool = false,
+                                 action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: image)
+                .font(.system(size: primary ? 22 : 17, weight: primary ? .semibold : .medium))
+                .frame(width: primary ? 32 : 28, height: 24)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel(title)
     }
 }
 
