@@ -33,7 +33,7 @@ struct AddTransitionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Transition")
-                .font(.headline)
+                .font(EditorTheme.dialogTitle)
                 .accessibilityAddTraits(.isHeader)
             Text(clip?.displayName ?? "Timeline clip")
                 .foregroundStyle(EditorTheme.secondaryText)
@@ -59,7 +59,7 @@ struct AddTransitionView: View {
             )
 
         }
-        .padding(20)
+        .padding(EditorTheme.dialogPadding)
         .frame(width: 440)
         .pendingQuitDraft(QuitDraft(intro: addIntro, outro: addOutro, introVideo: introVideoType, outroVideo: outroVideoType,
                                     introAudio: introAudioType, outroAudio: outroAudioType, introDuration: introDuration,

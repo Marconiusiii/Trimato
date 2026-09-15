@@ -177,7 +177,7 @@ struct EditRecordedVoiceFilterView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if smoothingOnly {
-                Text("Even out voice").font(.headline).accessibilityAddTraits(.isHeader)
+                Text("Even out voice").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
                 VoiceSmoothingControls(settings: $voice)
             } else {
                 Toggle("Enable voice matching", isOn: Binding(get: { voice.matchingBypassed != true },
@@ -189,7 +189,7 @@ struct EditRecordedVoiceFilterView: View {
                 voiceMatching: !smoothingOnly, beforePlayback: { work.cancel(); beforePlayback() })
             NativeModalActions(helpTopic: .filters, primaryTitle: "Apply", primaryEnabled: true, cancel: cancel, primary: { work.cancel(); apply(voice) })
         }
-        .padding(20).frame(width: 620)
+        .padding(EditorTheme.dialogPadding).frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)
         .applicationMessage(work.message) { work.message = nil }
         .pendingQuitDraft(voice, pending: voice != context.audioSettings?.voice,
@@ -279,7 +279,7 @@ struct AddClipFilterView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Add Filter").font(.headline).accessibilityAddTraits(.isHeader)
+            Text("Add Filter").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
             if available.isEmpty {
                 Text("All available filters have been added to this clip.")
             } else {
@@ -321,7 +321,7 @@ struct AddClipFilterView: View {
                 }
             )
         }
-        .padding(20)
+        .padding(EditorTheme.dialogPadding)
         .frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)
         .applicationMessage(voiceWork.message) { voiceWork.message = nil }
@@ -366,7 +366,7 @@ struct EditClipFilterView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(filter.kind.title).font(.headline).accessibilityAddTraits(.isHeader)
+            Text(filter.kind.title).font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("Enable \(filter.kind.title)", isOn: $filter.enabled)
                 ClipFilterParameters(filter: $filter)
@@ -389,7 +389,7 @@ struct EditClipFilterView: View {
                 cancel: cancel,
                 primary: { previewWork.cancel(); apply(filter) }
             )
-        }.padding(20).frame(width: 620)
+        }.padding(EditorTheme.dialogPadding).frame(width: 620)
         .fixedSize(horizontal: false, vertical: true)
         .applicationMessage(previewWork.message) { previewWork.message = nil }
         .pendingQuitDraft(filter, pending: context?.filters.first(where: { $0.id == filter.id }) != filter, apply: {

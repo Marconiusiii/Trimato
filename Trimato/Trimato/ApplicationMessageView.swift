@@ -117,7 +117,7 @@ struct ApplicationMessageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(descriptor.title)
-                .font(.headline)
+                .font(EditorTheme.dialogTitle)
                 .accessibilityAddTraits(.isHeader)
             Text(descriptor.message)
                 .textSelection(.enabled)

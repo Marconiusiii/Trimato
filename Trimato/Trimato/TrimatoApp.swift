@@ -34,13 +34,13 @@ struct TrimatoApp: App {
         .windowResizability(.contentSize)
 
         Window("Save changes before quitting?", id: "quit-review") {
-            QuitReviewWindow()
+            QuitReviewWindow().editorAppearance()
         }
         .windowResizability(.contentSize)
         .defaultSize(width: 460, height: 190)
 
         DocumentGroup(newDocument: { ProjectDocument() }) { file in
-            EditorWorkspaceView(document: file.document)
+            EditorWorkspaceView(document: file.document).editorAppearance()
         }
         .commands { MixerUndoCommands() }
         .commands {
@@ -238,13 +238,13 @@ struct TrimatoApp: App {
         }
 
         WindowGroup("Recording", id: "recording", for: UUID.self) { $id in
-            if let id { RecordingWindowContent(id: id) }
+            if let id { RecordingWindowContent(id: id).editorAppearance() }
         }
         .windowResizability(.contentSize)
 
         WindowGroup("Clip Editor", for: ExternalMediaOpenRequest.self) { $request in
             if let request {
-                StandaloneClipEditorView(request: request)
+                StandaloneClipEditorView(request: request).editorAppearance()
             }
         }
         .defaultSize(width: 940, height: 760)
@@ -260,18 +260,18 @@ struct TrimatoApp: App {
 
         WindowGroup("Get Info", id: "get-info", for: ProjectInfoSnapshot.self) { $snapshot in
             if let snapshot {
-                ProjectInfoView(snapshot: snapshot)
+                ProjectInfoView(snapshot: snapshot).editorAppearance()
             }
         }
         .windowResizability(.contentSize)
         .commandsRemoved()
 
         Settings {
-            TrimatoSettingsView()
+            TrimatoSettingsView().editorAppearance()
         }
 
         Window("FFmpeg License", id: "ffmpeg-license") {
-            FFmpegLicenseView()
+            FFmpegLicenseView().editorAppearance()
         }
         .defaultSize(width: 720, height: 600)
         .commandsRemoved()

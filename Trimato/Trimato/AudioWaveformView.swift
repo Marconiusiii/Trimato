@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AudioWaveformView: View {
+    @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     let samples: [Float]
     let playbackFraction: Double
     let isLoading: Bool
@@ -22,7 +23,7 @@ struct AudioWaveformView: View {
                     }
                     context.stroke(
                         waveform,
-                        with: .color(EditorTheme.accent),
+                        with: .color(EditorTheme.accent(for: accentChoice)),
                         lineWidth: max(size.width / CGFloat(count), 1)
                     )
                 }

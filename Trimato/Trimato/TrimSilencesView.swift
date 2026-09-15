@@ -19,7 +19,7 @@ struct TrimSilencesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Trim Silences").font(.title2).accessibilityAddTraits(.isHeader)
+            Text("Trim Silences").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
             Form {
                 Toggle("Only between In and Out", isOn: $markedOnly)
                     .disabled(viewModel.inMarker == nil || viewModel.outMarker == nil)
@@ -58,17 +58,19 @@ struct TrimSilencesView: View {
                 }
                 playing.toggle()
             }.disabled(previewAsset == nil || busy)
-            HStack {
+            HStack(spacing: EditorTheme.actionSpacing) {
                 Button("Help") {
                     if let error = TrimatoHelp.open(.trimSilences) { message = error }
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Trim Pauses") { apply() }
+                    .buttonStyle(.borderedProminent)
+                    .editorPrimaryAction()
                     .disabled(busy || (plan?.removedCount ?? 0) == 0 || previewAsset == nil)
             }
         }
-        .padding(20)
+        .padding(EditorTheme.dialogPadding)
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {

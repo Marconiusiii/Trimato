@@ -234,7 +234,7 @@ struct GeneratorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Generator")
-                .font(.title2)
+                .font(EditorTheme.dialogTitle)
                 .accessibilityAddTraits(.isHeader)
             Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
 
@@ -296,7 +296,7 @@ struct GeneratorView: View {
             title: "Preparing Generator", progress: $0, cancel: session.cancelPreparation
         ) }, outcome: session.errorMessage == nil ? .completed : .failed,
                            dismissed: session.progressWindowDismissed)
-        .padding(20)
+        .padding(EditorTheme.dialogPadding)
         .frame(minWidth: 560, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .pendingQuitDraft(session.quitDraft, pending: session.editing == nil || session.hasPendingQuitEdits, validate: { _ = try session.validatedQuitDefinition() },

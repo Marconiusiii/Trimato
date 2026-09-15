@@ -96,6 +96,7 @@ private struct GeneralSettingsView: View {
     @AppStorage(AppPreferenceKey.processingSounds) private var processingSounds = true
     @AppStorage(AppPreferenceKey.exportCompletionSound) private var exportCompletionSound = true
     @AppStorage(AppPreferenceKey.appearance) private var appearance = AppAppearance.system
+    @AppStorage(AppPreferenceKey.accentColor) private var accentColor = EditorAccent.teal
     @AppStorage(AppPreferenceKey.importedFileHandling) private var importedFileHandling = ImportedFileHandling.keep
     @AppStorage(AppPreferenceKey.autoSaveEnabled) private var autoSaveEnabled = false
     @AppStorage(AppPreferenceKey.autoSaveMinutes)
@@ -118,6 +119,11 @@ private struct GeneralSettingsView: View {
                 ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
+
+            Picker("Accent color", selection: $accentColor) {
+                ForEach(EditorAccent.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.menu)
 
             Text("Saving")
                 .font(.headline)

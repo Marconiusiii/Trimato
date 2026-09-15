@@ -5,6 +5,7 @@ nonisolated enum AppPreferenceKey {
     static let exportCompletionSound = "exportCompletionSound"
     static let preserveHDR = "preserveHDR"
     static let appearance = "appearance"
+    static let accentColor = "accentColor"
     static let importedFileHandling = "importedFileHandling"
     static let autoSaveEnabled = "autoSaveEnabled"
     static let autoSaveMinutes = "autoSaveMinutes"

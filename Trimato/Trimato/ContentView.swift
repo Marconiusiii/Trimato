@@ -4,6 +4,7 @@ import AVFoundation
 import SwiftUI
 
 struct ContentView: View {
+    @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @ObservedObject private var viewModel: VideoPlayerViewModel
     private let allowsFileOpening: Bool
     private let editorHeading: String?
@@ -51,7 +52,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 640, minHeight: compact ? 280 : 480)
         .background(EditorTheme.workspace)
-        .tint(EditorTheme.accent)
+        .editorAppearance()
         .focusedObject(viewModel)
         .background(ClipEditorEntryFocusBridge(owner: entryFocus, ready: entryFocusReady))
         .onChange(of: entryFocus.request) {
@@ -202,9 +203,9 @@ struct ContentView: View {
                         ClipLiveTimecode(clock: viewModel.playbackClock, showingFrames: viewModel.showingFrames)
                             .font(.system(.title, design: .monospaced).weight(.semibold))
                             .monospacedDigit()
-                            .foregroundStyle(EditorTheme.accent)
-                        Text(viewModel.showingFrames ? "FRAMES" : "TIMECODE")
-                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(EditorTheme.accent(for: accentChoice))
+                        Text(viewModel.showingFrames ? "Frames" : "Timecode")
+                            .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(EditorTheme.secondaryText)
                     }
                     .frame(maxWidth: .infinity)
@@ -222,45 +223,45 @@ struct ContentView: View {
 
                 speedBadge
 
-                HStack(spacing: 20) {
+                HStack(spacing: EditorTheme.actionSpacing) {
                     Button { viewModel.stepBackward() } label: {
-                        Image(systemName: "backward.frame.fill").font(.title2)
+                        Image(systemName: "backward.frame.fill").font(.system(size: 17, weight: .medium)).frame(width: 28, height: 24)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .disabled(!viewModel.hasMedia)
                     .accessibilityLabel("Step backward one frame")
 
                     Button { viewModel.seekBackward() } label: {
-                        Image(systemName: "gobackward.10").font(.title2)
+                        Image(systemName: "gobackward.10").font(.system(size: 17, weight: .medium)).frame(width: 28, height: 24)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .disabled(!viewModel.hasMedia)
                     .accessibilityLabel("Skip back 10 seconds")
 
                     Button { viewModel.togglePlayPause() } label: {
                         Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 30))
-                            .frame(width: 38)
+                            .font(.system(size: 22, weight: .semibold))
+                            .frame(width: 32, height: 24)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .disabled(!viewModel.hasMedia)
                     .accessibilityLabel(viewModel.waitingForClipPreview ? "Cancel pending playback" : viewModel.isPlaying ? "Pause" : "Play")
 
                     Button { viewModel.seekForward() } label: {
-                        Image(systemName: "goforward.10").font(.title2)
+                        Image(systemName: "goforward.10").font(.system(size: 17, weight: .medium)).frame(width: 28, height: 24)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .disabled(!viewModel.hasMedia)
                     .accessibilityLabel("Skip forward 10 seconds")
 
                     Button { viewModel.stepForward() } label: {
-                        Image(systemName: "forward.frame.fill").font(.title2)
+                        Image(systemName: "forward.frame.fill").font(.system(size: 17, weight: .medium)).frame(width: 28, height: 24)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .disabled(!viewModel.hasMedia)
                     .accessibilityLabel("Step forward one frame")
                 }
-                .foregroundStyle(EditorTheme.accent)
+                .foregroundStyle(EditorTheme.accent(for: accentChoice))
                 .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
                 .padding(.bottom, 8)
             }
@@ -299,6 +300,7 @@ struct ClipExportControlsView: View {
                 viewModel.exportTrimmedClip()
             }
             .buttonStyle(.borderedProminent)
+            .editorPrimaryAction()
             .disabled(!viewModel.canExport)
 
             if !viewModel.isExporting, let exportStatus = viewModel.exportStatus {

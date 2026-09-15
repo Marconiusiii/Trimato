@@ -378,7 +378,7 @@ struct ProjectRecordingView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(session.purpose.toolTitle).font(.title2).accessibilityAddTraits(.isHeader)
+            Text(session.purpose.toolTitle).font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
             VideoPlayerView(player: session.player).frame(height: 140)
             LabeledContent("Clip name") {
                 TextField("", text: $session.name)
@@ -474,14 +474,16 @@ struct ProjectRecordingView: View {
             if session.busy { ProgressView("Preparing…").controlSize(.small) }
             HStack {
                 ContextualHelpButton(topic: session.isDescriber ? .describer : .voicer)
-                Button("Cancel") { session.controller?.dismissRecording() }.keyboardShortcut(.cancelAction)
                 Spacer()
+                Button("Cancel") { session.controller?.dismissRecording() }.keyboardShortcut(.cancelAction)
                 Button(session.saveTitle) { session.save() }
+                    .buttonStyle(.borderedProminent)
+                    .editorPrimaryAction()
                     .keyboardShortcut(.defaultAction)
                     .disabled(session.busy || voiceWork.busy || capture.isBusy || !session.validRange)
             }
         }
-        .padding(20)
+        .padding(EditorTheme.dialogPadding)
         .frame(width: 620)
         .interactiveDismissDisabled()
         .onChange(of: capture.state) { _, state in

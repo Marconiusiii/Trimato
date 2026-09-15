@@ -98,7 +98,7 @@ struct MixerView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Mixer").font(.title2).accessibilityAddTraits(.isHeader)
+            Text("Mixer").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
             MixerPlaybackControls(player: player, play: session.togglePlayback)
             Divider()
             Text("Track controls").font(.headline).accessibilityAddTraits(.isHeader)
@@ -138,7 +138,7 @@ struct MixerView: View {
                 Spacer()
             }
         }
-        .padding(20)
+        .padding(EditorTheme.dialogPadding)
         .frame(minWidth: 640, idealWidth: 760)
         .background(EditorTheme.controlSurface)
         .blocksEditingDuringQuit()

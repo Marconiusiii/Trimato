@@ -26,7 +26,7 @@ struct QuickTransitionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
-                .font(.headline)
+                .font(EditorTheme.dialogTitle)
                 .accessibilityAddTraits(.isHeader)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -59,7 +59,7 @@ struct QuickTransitionView: View {
             )
 
         }
-        .padding(20)
+        .padding(EditorTheme.dialogPadding)
         .frame(width: 430)
         .pendingQuitDraft(QuitDraft(intro: addIntro, outro: addOutro, audio: includeAudio, duration: durationText, fadeIn: fadeInDurationText, fadeOut: fadeOutDurationText),
             pending: request.mode != .quickFade || addIntro || addOutro,

@@ -41,7 +41,7 @@ struct MediaImportView: View {
         }
         .frame(width: 420)
         .padding(24)
-        .tint(EditorTheme.accent)
+        .editorAppearance()
         .background(EditorTheme.controlSurface)
         .interactiveDismissDisabled()
         .task {

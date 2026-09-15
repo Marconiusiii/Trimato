@@ -253,7 +253,7 @@ struct ProjectCreationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(heading)
-                .font(.title2)
+                .font(EditorTheme.dialogTitle)
                 .accessibilityAddTraits(.isHeader)
 
             if let externalError {

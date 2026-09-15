@@ -298,7 +298,7 @@ final class ExportSavePanel {
         let accessory = NSHostingView(rootView: ExportFormatAccessoryView(
             model: formatModel,
             formats: formats
-        ))
+        ).editorAppearance())
         accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 74 : 36) + (hasDescriptions ? 32 : 0) + (outputSummary == nil ? 0 : 110) + (offersAudioChoice ? 160 : 0) + (spatialUnavailableReason == nil ? 0 : 100))
         panel.accessoryView = accessory
 

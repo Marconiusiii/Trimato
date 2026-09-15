@@ -79,7 +79,7 @@ struct ProjectCreationSheetPresenter: NSViewRepresentable {
                 submitHandlerReady: { [weak self] submit in self?.submitProjectCreation = submit },
                 externalError: creationErrorMessage
             )
-            let hostingController = NSHostingController(rootView: rootView)
+            let hostingController = NSHostingController(rootView: rootView.editorAppearance())
             let panelViewController = ProjectCreationPanelViewController(
                 hostingController: hostingController,
                 cancel: { [weak self] in self?.cancelProjectCreation() },

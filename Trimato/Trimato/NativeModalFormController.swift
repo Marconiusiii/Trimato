@@ -15,6 +15,7 @@ final class NativeModalFocusRequest: ObservableObject {
 /// consistently in Trimato: a primary action that is also the window's real
 /// native default button.
 struct NativeDefaultButton: NSViewRepresentable {
+    @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     let title: String
     var isEnabled = true
     let action: () -> Void
@@ -34,6 +35,7 @@ struct NativeDefaultButton: NSViewRepresentable {
         button.keyEquivalent = "\r"
         button.keyEquivalentModifierMask = []
         button.isEnabled = isEnabled
+        button.bezelColor = NSColor(named: accentChoice.assetName + "Fill")
         return button
     }
 
@@ -41,6 +43,7 @@ struct NativeDefaultButton: NSViewRepresentable {
         context.coordinator.action = action
         button.title = title
         button.isEnabled = isEnabled
+        button.bezelColor = NSColor(named: accentChoice.assetName + "Fill")
         button.installAsDefaultButton()
     }
 
@@ -149,7 +152,7 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
         self.returnWindow = returnWindow
         self.returned = returned
         self.closed = closed
-        let hostingController = NSHostingController(rootView: rootView)
+        let hostingController = NSHostingController(rootView: rootView.editorAppearance())
         var styleMask: NSWindow.StyleMask = [.titled]
         if closable { styleMask.insert(.closable) }
         if resizable { styleMask.insert(.resizable) }
@@ -294,7 +297,7 @@ struct NativeModalActions: View {
     let primary: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: EditorTheme.actionSpacing) {
             if let helpTopic { ContextualHelpButton(topic: helpTopic) }
             Spacer()
             Button("Cancel", action: cancel)

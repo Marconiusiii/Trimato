@@ -53,6 +53,7 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
         window.title = "Mixer"
         window.contentViewController = NSHostingController(rootView:
             MixerView(session: session, player: session.player)
+                .editorAppearance()
                 .onExitCommand { [weak window] in
                     guard window?.attachedSheet == nil, NSApp.modalWindow == nil else { return }
                     window?.performClose(nil)

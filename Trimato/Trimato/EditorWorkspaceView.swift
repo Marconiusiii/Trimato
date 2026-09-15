@@ -420,6 +420,7 @@ struct EditorWorkspaceView: View {
 }
 
 struct ProjectViewerView: View {
+    @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @AppStorage(AppPreferenceKey.preserveHDR) private var preserveHDR = true
     private enum AccessibilityTarget: Hashable {
         case videoFrame
@@ -721,7 +722,7 @@ struct ProjectViewerView: View {
                     .accessibilityFocused($focusedAccessibilityTarget, equals: .goToVideoEnd)
             }
             .font(.body)
-            .foregroundStyle(EditorTheme.accent)
+            .foregroundStyle(EditorTheme.accent(for: accentChoice))
             .padding(.top, 2)
         } label: {
             Text("Move and Edit").accessibilityHidden(true)
@@ -815,7 +816,7 @@ struct ProjectViewerView: View {
                      : viewModel.displayTimecode)
                     .font(.system(.headline, design: .monospaced).weight(.semibold))
                     .monospacedDigit()
-                    .foregroundStyle(EditorTheme.accent)
+                    .foregroundStyle(EditorTheme.accent(for: accentChoice))
                 Text(viewModel.showingFrames ? "Frames" : "Timecode")
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(EditorTheme.secondaryText)
@@ -869,7 +870,7 @@ struct ProjectViewerView: View {
             .accessibilityIdentifier("trimato.editor.step-forward")
             .accessibilityFocused($focusedAccessibilityTarget, equals: .stepForward)
         }
-        .foregroundStyle(EditorTheme.accent)
+        .foregroundStyle(EditorTheme.accent(for: accentChoice))
     }
 }
 

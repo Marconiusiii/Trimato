@@ -28,6 +28,7 @@ struct ProjectCloseConfirmation: View {
                     .accessibilityFocused($cancelVoiceOverFocused)
                 Button(coordinator.isApplicationTerminating ? "Save and Quit" : "Save") { coordinator.chooseCloseDecision(.save) }
                     .keyboardShortcut(.defaultAction)
+                    .editorPrimaryAction()
                     .disabled(coordinator.isResolvingClose)
             }
         }

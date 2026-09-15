@@ -17,7 +17,7 @@ struct ProjectLauncherView: View {
         .padding(32)
         .frame(width: 560, height: 680)
         .background(EditorTheme.workspace)
-        .tint(EditorTheme.accent)
+        .editorAppearance()
         .background(ProjectCreationSheetPresenter(
             isPresented: navigation.isCreatingProject,
             projectCreated: openCreatedProject,
@@ -159,6 +159,7 @@ struct ProjectLauncherView: View {
 }
 
 private struct ProjectLauncherNativeActions: NSViewRepresentable {
+    @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     let newProject: () -> Void
     let trimClip: (NSWindow) -> Void
     let openProject: (NSWindow) -> Void
@@ -167,6 +168,7 @@ private struct ProjectLauncherNativeActions: NSViewRepresentable {
 
     func makeNSView(context: Context) -> ActionStack {
         let stack = ActionStack()
+        stack.newProjectButton.bezelColor = NSColor(named: accentChoice.assetName + "Fill")
         stack.owner = context.coordinator
         context.coordinator.stack = stack
         context.coordinator.configureActions(
@@ -178,6 +180,7 @@ private struct ProjectLauncherNativeActions: NSViewRepresentable {
     }
 
     func updateNSView(_ stack: ActionStack, context: Context) {
+        stack.newProjectButton.bezelColor = NSColor(named: accentChoice.assetName + "Fill")
         context.coordinator.configureActions(
             newProject: newProject,
             trimClip: trimClip,

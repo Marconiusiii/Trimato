@@ -675,6 +675,7 @@ final class TimelineItemFocusRequest: ObservableObject {
 /// One native button owns both native focus bindings. Observation only records
 /// identity; focus is written solely for an explicit editor/drop focus return.
 struct TimelineNativeButton: View {
+    @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     let model: TimelineCollectionItemModel?
     let emptyTitle: String
     let owner: UUID
@@ -700,13 +701,13 @@ struct TimelineNativeButton: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
             .buttonStyle(.bordered)
+            .editorAppearance()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: NSColor(named: model.isSelected ? "SelectionSurface" : "RaisedSurface") ?? .controlBackgroundColor))
+            .background(model.isSelected ? EditorTheme.selection(for: accentChoice) : EditorTheme.raisedSurface)
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color(nsColor: model.isSelected || model.isTransition
-                        ? NSColor(named: "AccentColor") ?? .controlAccentColor
-                        : NSColor(named: "Separator") ?? .separatorColor),
+                    .strokeBorder(model.isSelected || model.isTransition
+                        ? EditorTheme.accent(for: accentChoice) : EditorTheme.separator,
                         lineWidth: model.isSelected ? 3 : (model.isTransition ? 2 : 1))
                     .allowsHitTesting(false)
             }

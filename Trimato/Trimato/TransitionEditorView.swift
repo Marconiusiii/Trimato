@@ -36,7 +36,7 @@ struct TransitionEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Transition Editor")
-                .font(.headline)
+                .font(EditorTheme.dialogTitle)
                 .accessibilityAddTraits(.isHeader)
 
             if let contextDescription {
@@ -65,7 +65,7 @@ struct TransitionEditorView: View {
                 primary: applyUpdate
             )
         }
-        .padding(20)
+        .padding(EditorTheme.dialogPadding)
         .frame(width: 430)
         .pendingQuitDraft(QuitDraft(transition: draft, name: transitionName, duration: durationText),
             pending: draft != original || transitionName != original.displayName || durationText != TransitionDurationInput.string(for: original.duration),

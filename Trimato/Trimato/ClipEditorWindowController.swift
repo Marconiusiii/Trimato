@@ -555,7 +555,7 @@ final class ClipEditorWindowController: NSWindowController, NSWindowDelegate {
     ) {
         self.commandContext = commandContext
         commandContext.beginOpening()
-        let hostingController = NSHostingController(rootView: rootView)
+        let hostingController = NSHostingController(rootView: rootView.editorAppearance())
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],

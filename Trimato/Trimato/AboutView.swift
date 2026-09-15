@@ -47,7 +47,7 @@ struct AboutView: View {
         }
         .frame(width: 420)
         .padding(28)
-        .tint(EditorTheme.accent)
+        .editorAppearance()
         .background(EditorTheme.controlSurface)
     }
 }

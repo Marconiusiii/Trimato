@@ -61,7 +61,7 @@ struct NewTrackFromSourceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(kind.heading)
-                .font(.headline)
+                .font(EditorTheme.dialogTitle)
                 .accessibilityAddTraits(.isHeader)
 
             LabeledContent("Track Name") {
@@ -86,7 +86,7 @@ struct NewTrackFromSourceView: View {
             }
 
         }
-        .padding(20)
+        .padding(EditorTheme.dialogPadding)
         .frame(width: 420)
         .onAppear { trackNameFocused = true }
     }
