@@ -39,7 +39,7 @@ enum ProjectTimelineError: LocalizedError, Equatable {
         case .sourceAssetNotFound: "The source clip is no longer available in this project. Reopen it from Project Sources and try again."
         case .unsupportedPlacement: "This placement is not available for the selected track."
         case .cannotTrimAtPlayhead: "Move the project playhead inside the focused timeline clip before trimming its end."
-        case .absolutePositioningRequiresAdditionalTrack: "Absolute clip positioning is available only on additional video and audio tracks."
+        case .absolutePositioningRequiresAdditionalTrack: "Absolute positioning requires an additional video or audio track with Magnetic turned off."
         case .clipPositionOverlap(let trackName): "That position would overlap another clip on the \(trackName) track."
         case .clipPositionHasTransition: "Remove the clip's transition before changing its absolute position."
         case .clipNudgeBeforeTimeline: "The clip cannot be nudged before the start of the timeline."
@@ -123,6 +123,36 @@ extension TrimatoProject {
         let track = TimelineTrack(name: name, kind: kind)
         tracks.append(track)
         return track.id
+    }
+
+    private func validateAbsolutePlacement(_ clip: TimelineClip, on track: TimelineTrack, excluding excluded: Set<UUID> = []) throws {
+        guard clip.timelineStart >= .zero else { throw ProjectTimelineError.clipNudgeBeforeTimeline }
+        guard !track.clips.contains(where: {
+            $0.id != clip.id && !excluded.contains($0.id) &&
+                max($0.visibleTimelineStart, clip.visibleTimelineStart) < min($0.visibleTimelineEnd, clip.visibleTimelineEnd)
+        }) else { throw ProjectTimelineError.clipPositionOverlap(track.name) }
+    }
+
+    mutating func setTrackMagnetic(id: UUID, enabled: Bool) throws {
+        guard let index = tracks.firstIndex(where: { $0.id == id }) else { throw ProjectTimelineError.trackNotFound }
+        guard tracks[index].role == .additional, tracks[index].kind != .captions else {
+            throw ProjectTimelineError.protectedPrimaryTrack
+        }
+        guard tracks[index].magnetic != enabled else { return }
+        var candidate = self
+        let oldTracks = tracks
+        candidate.tracks[index].magnetic = enabled
+        if enabled {
+            var cursor = ProjectTime.zero
+            candidate.tracks[index].clips = tracks[index].sortedClips.map { clip in
+                var placed = clip
+                placed.timelineStart = cursor
+                cursor = cursor + clip.duration
+                return placed
+            }
+            try candidate.finishTrackPositionChanges(from: oldTracks, movingVideo: tracks[index].kind == .video)
+        }
+        self = candidate
     }
 
     mutating func renameTrack(id: UUID, to requestedName: String) throws {
@@ -225,6 +255,13 @@ extension TrimatoProject {
         incoming.timelineStart = playhead
         incoming.isIndependentAudio = tracks[trackIndex].role == .primaryAudio
         if tracks[trackIndex].kind == .audio, asset.hasVideo { incoming.name = "\(incoming.displayName) Audio" }
+        if !tracks[trackIndex].isMagnetic {
+            try validateAbsolutePlacement(incoming, on: tracks[trackIndex])
+            tracks[trackIndex].clips.append(incoming)
+            if tracks[trackIndex].kind == .video { resolveAutomaticFormat(from: asset) }
+            return incoming.id
+        }
+        incoming.timelineStart = min(playhead, tracks[trackIndex].end)
         if let containingIndex = tracks[trackIndex].clips.firstIndex(where: {
             playhead > $0.timelineStart && playhead < $0.timelineEnd
         }) {
@@ -281,6 +318,10 @@ extension TrimatoProject {
         }) {
             let original = tracks[trackIndex].clips[containingIndex]
             let remainder = original.timelineEnd - playhead
+            if !tracks[trackIndex].isMagnetic {
+                try validateAbsolutePlacement(incoming, on: tracks[trackIndex], excluding: [original.id])
+            }
+            let followingIDs = Set(tracks[trackIndex].clips.filter { $0.id != original.id && $0.timelineStart >= original.timelineEnd }.map(\.id))
             var replacement: [TimelineClip] = [incoming]
             if playhead > original.timelineStart {
                 var left = try split(original, at: playhead - original.timelineStart).0
@@ -289,7 +330,7 @@ extension TrimatoProject {
             }
             tracks[trackIndex].clips.replaceSubrange(containingIndex...containingIndex, with: replacement)
             let difference = incoming.duration - remainder
-            for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= original.timelineEnd {
+            for index in tracks[trackIndex].clips.indices where tracks[trackIndex].isMagnetic && followingIDs.contains(tracks[trackIndex].clips[index].id) {
                 tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart + difference
             }
         } else {
@@ -310,6 +351,10 @@ extension TrimatoProject {
     }
 
     mutating func updateTrackClip(id: UUID, segments: [SourceSegment]) throws {
+        if cutaways.contains(where: { $0.id == id }) {
+            try updateCutaway(id: id, segments: segments)
+            return
+        }
         if primaryTimeline.contains(where: { $0.id == id }) {
             try updateTimelineClip(id: id, segments: segments)
             return
@@ -322,8 +367,11 @@ extension TrimatoProject {
         }
         let oldEnd = tracks[trackIndex].clips[clipIndex].timelineEnd
         let difference = selected.reduce(.zero) { $0 + $1.duration } - tracks[trackIndex].clips[clipIndex].duration
-        tracks[trackIndex].clips[clipIndex].segments = selected
-        for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= oldEnd {
+        var updated = tracks[trackIndex].clips[clipIndex]
+        updated.segments = selected
+        if !tracks[trackIndex].isMagnetic { try validateAbsolutePlacement(updated, on: tracks[trackIndex]) }
+        tracks[trackIndex].clips[clipIndex] = updated
+        for index in tracks[trackIndex].clips.indices where index != clipIndex && tracks[trackIndex].isMagnetic && tracks[trackIndex].clips[index].timelineStart >= oldEnd {
             tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart + difference
         }
     }
@@ -352,10 +400,14 @@ extension TrimatoProject {
         }
         guard !retainedSegments.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
 
+        if cutaways.contains(where: { $0.id == id }) {
+            try updateCutaway(id: id, segments: retainedSegments)
+            return
+        }
         let oldEnd = clip.timelineEnd
         let removedDuration = clip.duration - retainedDuration
         tracks[trackIndex].clips[clipIndex].segments = retainedSegments
-        for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= oldEnd {
+        for index in tracks[trackIndex].clips.indices where tracks[trackIndex].isMagnetic && tracks[trackIndex].clips[index].timelineStart >= oldEnd {
             tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart - removedDuration
         }
         removeInvalidBetweenTransitions(on: [tracks[trackIndex].id])
@@ -372,7 +424,7 @@ extension TrimatoProject {
               let clipIndex = tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) else {
             throw ProjectTimelineError.clipNotFound
         }
-        guard tracks[trackIndex].role == .additional,
+        guard tracks[trackIndex].role == .additional, !tracks[trackIndex].isMagnetic,
               !cutaways.contains(where: { $0.id == id }) else {
             throw ProjectTimelineError.absolutePositioningRequiresAdditionalTrack
         }
@@ -411,7 +463,7 @@ extension TrimatoProject {
               let source = sourceTrack.clips.first(where: { $0.id == id }) else {
             throw ProjectTimelineError.clipNotFound
         }
-        guard sourceTrack.role == .additional else {
+        guard sourceTrack.role == .additional, !sourceTrack.isMagnetic else {
             throw ProjectTimelineError.absolutePositioningRequiresAdditionalTrack
         }
         let rate = format.frameRate ?? 30
@@ -490,6 +542,19 @@ extension TrimatoProject {
     }
 
     mutating func removeTrackClip(id: UUID) throws {
+        if cutaways.contains(where: { $0.id == id }) {
+            var candidate = self
+            let oldTracks = tracks
+            let linkedID = timelineClip(id: id)?.linkedClipID
+            candidate.cutaways.removeAll { $0.id == id }
+            try candidate.removeTrackClip(id: id)
+            if let linkedID, candidate.timelineClip(id: linkedID) != nil {
+                try candidate.removeTrackClip(id: linkedID)
+            }
+            try candidate.finishTrackPositionChanges(from: oldTracks, movingVideo: true)
+            self = candidate
+            return
+        }
         if primaryTimeline.contains(where: { $0.id == id }) {
             try removeClip(id: id)
             return
@@ -499,7 +564,7 @@ extension TrimatoProject {
             throw ProjectTimelineError.clipNotFound
         }
         let removed = tracks[trackIndex].clips.remove(at: clipIndex)
-        for index in tracks[trackIndex].clips.indices where tracks[trackIndex].clips[index].timelineStart >= removed.timelineEnd {
+        for index in tracks[trackIndex].clips.indices where tracks[trackIndex].isMagnetic && tracks[trackIndex].clips[index].timelineStart >= removed.timelineEnd {
             tracks[trackIndex].clips[index].timelineStart = tracks[trackIndex].clips[index].timelineStart - removed.duration
         }
         transitions.removeAll { $0.leadingClipID == id || $0.trailingClipID == id }
@@ -543,7 +608,13 @@ extension TrimatoProject {
             throw ProjectTimelineError.clipNotFound
         }
         destinationClips.insert(copied, at: targetIndex + 1)
-        tracks[targetTrackIndex].clips = arranged(destinationClips, preservingGapsOf: tracks[targetTrackIndex].sortedClips)
+        if tracks[targetTrackIndex].isMagnetic {
+            tracks[targetTrackIndex].clips = arranged(destinationClips, preservingGapsOf: tracks[targetTrackIndex].sortedClips)
+        } else {
+            copied.timelineStart = destinationClips[targetIndex].timelineEnd
+            try validateAbsolutePlacement(copied, on: tracks[targetTrackIndex])
+            tracks[targetTrackIndex].clips.append(copied)
+        }
         if tracks[targetTrackIndex].role == .primaryVideo,
            let linkedID = source.linkedClipID,
            let sourceAudio = timelineClip(id: linkedID),
@@ -575,17 +646,17 @@ extension TrimatoProject {
     }
 
     // Commit only after transition and linked-track validation succeeds.
-    mutating func moveTrackClip(id sourceID: UUID, to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID? = nil) throws {
+    mutating func moveTrackClip(id sourceID: UUID, to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID? = nil, playhead: ProjectTime? = nil) throws {
         var candidate = self
-        try candidate.performTrackMove(id: sourceID, to: destination, targetID: targetID, destinationTrackID: destinationTrackID)
+        try candidate.performTrackMove(id: sourceID, to: destination, targetID: targetID, destinationTrackID: destinationTrackID, playhead: playhead)
         self = candidate
     }
 
-    private mutating func performTrackMove(id sourceID: UUID, to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID?) throws {
+    private mutating func performTrackMove(id sourceID: UUID, to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID?, playhead: ProjectTime?) throws {
         ensureTrackModel()
         guard let sourceIndex = tracks.firstIndex(where: { $0.clips.contains { $0.id == sourceID } }),
               let targetIndex = tracks.firstIndex(where: { track in
-                  if let destinationTrackID, destination == .start || destination == .end { return track.id == destinationTrackID }
+                  if let destinationTrackID, destination == .start || destination == .end || destination == .playhead { return track.id == destinationTrackID }
                   return track.clips.contains { $0.id == targetID }
               }) else {
             throw ProjectTimelineError.clipNotFound
@@ -598,9 +669,35 @@ extension TrimatoProject {
         let sourceOrder = tracks[sourceIndex].sortedClips
         guard let clip = sourceOrder.first(where: { $0.id == sourceID }) else { throw ProjectTimelineError.clipNotFound }
         var remaining = sourceOrder.filter { $0.id != sourceID }
+        if !tracks[targetIndex].isMagnetic {
+            var placed = clip
+            let neighbors = tracks[targetIndex].clips.filter { $0.id != sourceID }
+            switch destination {
+            case .start: placed.timelineStart = .zero
+            case .end: placed.timelineStart = neighbors.map(\.timelineEnd).max() ?? .zero
+            case .playhead:
+                guard let playhead else { throw ProjectTimelineError.invalidPlayhead }
+                placed.timelineStart = playhead
+            case .before, .after:
+                guard let target = neighbors.first(where: { $0.id == targetID }) else { throw ProjectTimelineError.clipNotFound }
+                placed.timelineStart = destination == .before ? target.timelineStart - clip.duration : target.timelineEnd
+            }
+            try validateAbsolutePlacement(placed, on: tracks[targetIndex], excluding: [sourceID])
+            if sourceIndex != targetIndex && tracks[sourceIndex].isMagnetic {
+                for index in remaining.indices where tracks[sourceIndex].isMagnetic && remaining[index].timelineStart >= clip.timelineEnd {
+                    remaining[index].timelineStart = remaining[index].timelineStart - clip.duration
+                }
+            }
+            tracks[sourceIndex].clips = remaining
+            tracks[targetIndex].clips.append(placed)
+            try finishTrackPositionChanges(from: oldTracks, movingVideo: tracks[sourceIndex].kind == .video)
+            return
+        }
+        guard destination != .playhead else { throw ProjectTimelineError.absolutePositioningRequiresAdditionalTrack }
         var destinationOrder = sourceIndex == targetIndex ? remaining : tracks[targetIndex].sortedClips
         let insertion: Int
         switch destination {
+        case .playhead: throw ProjectTimelineError.absolutePositioningRequiresAdditionalTrack
         case .start: insertion = 0
         case .end: insertion = destinationOrder.count
         case .before, .after:
@@ -613,16 +710,20 @@ extension TrimatoProject {
         if sourceIndex == targetIndex {
             tracks[sourceIndex].clips = arranged(destinationOrder, preservingGapsOf: sourceOrder)
         } else {
-            for index in remaining.indices where remaining[index].timelineStart >= clip.timelineEnd {
+            for index in remaining.indices where tracks[sourceIndex].isMagnetic && remaining[index].timelineStart >= clip.timelineEnd {
                 remaining[index].timelineStart = remaining[index].timelineStart - clip.duration
             }
             tracks[sourceIndex].clips = remaining
             tracks[targetIndex].clips = arranged(destinationOrder, preservingGapsOf: oldTracks[targetIndex].sortedClips)
         }
 
+        try finishTrackPositionChanges(from: oldTracks, movingVideo: tracks[sourceIndex].kind == .video)
+    }
+
+    private mutating func finishTrackPositionChanges(from oldTracks: [TimelineTrack], movingVideo: Bool) throws {
         // Picture movement carries linked audio, including picture moved between
         // compatible tracks. Moving audio directly makes that audio independent.
-        if tracks[sourceIndex].kind == .video {
+        if movingVideo {
             let videoClips = tracks.filter { $0.kind == .video }.flatMap(\.clips)
             for video in videoClips {
                 guard let audioID = video.linkedClipID else { continue }
@@ -1081,6 +1182,29 @@ extension TrimatoProject {
         guard !selected.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
         guard let index = cutaways.firstIndex(where: { $0.id == id }) else {
             throw ProjectTimelineError.clipNotFound
+        }
+        if let trackIndex = tracks.firstIndex(where: { $0.isMagnetic && $0.clips.contains { $0.id == id } }),
+           let clipIndex = tracks[trackIndex].clips.firstIndex(where: { $0.id == id }) {
+            var candidate = self
+            let oldTracks = tracks
+            let clip = tracks[trackIndex].clips[clipIndex]
+            let difference = selected.reduce(.zero) { $0 + $1.duration } - clip.duration
+            candidate.cutaways[index].segments = selected
+            candidate.tracks[trackIndex].clips[clipIndex].segments = selected
+            for other in candidate.tracks[trackIndex].clips.indices where other != clipIndex && candidate.tracks[trackIndex].clips[other].timelineStart >= clip.timelineEnd {
+                candidate.tracks[trackIndex].clips[other].timelineStart = candidate.tracks[trackIndex].clips[other].timelineStart + difference
+            }
+            if let linkedID = clip.linkedClipID {
+                for audioTrack in candidate.tracks.indices {
+                    if let audioClip = candidate.tracks[audioTrack].clips.firstIndex(where: { $0.id == linkedID }) {
+                        candidate.tracks[audioTrack].clips[audioClip].segments = selected
+                    }
+                }
+            }
+            try candidate.finishTrackPositionChanges(from: oldTracks, movingVideo: true)
+            candidate.ensureCutawayTracks()
+            self = candidate
+            return
         }
         let updatedEnd = cutaways[index].start + selected.reduce(.zero) { $0 + $1.duration }
         guard updatedEnd <= duration else { throw ProjectTimelineError.cutawayDoesNotFit }

@@ -192,7 +192,6 @@ final class VideoPlayerViewModel: ObservableObject {
     private var loadID: UUID?
     private var announcedImportProgress = 0
     private var isSteppingFrames = false
-    private var stepEndTask: Task<Void, Never>?
     private var arrowHolding = false
     // JKL state: 0=paused, +N=forward at jklSpeeds[N-1], -N=backward at jklSpeeds[N-1]
     private var pendingPlaybackStart: UUID?
@@ -211,7 +210,6 @@ final class VideoPlayerViewModel: ObservableObject {
 
     deinit {
         scrubTask?.cancel()
-        stepEndTask?.cancel()
         exportTask?.cancel()
         loadTask?.cancel()
         waveformID = UUID()
@@ -618,6 +616,7 @@ final class VideoPlayerViewModel: ObservableObject {
             jklIndex = 0
             player.currentItem?.cancelPendingSeeks()
             player.pause()
+            updateStoppedPlayhead()
             return
         }
         if preparePlayback?() == false { waitingForClipPreview = true; return }
@@ -646,8 +645,6 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func stepForward() {
         guard hasMedia, !arrowHolding else { return }
-        stepEndTask?.cancel()
-        stepEndTask = nil
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         seekOneFrame(forward: true) { [weak self] target in
@@ -657,8 +654,6 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func stepBackward() {
         guard hasMedia, !arrowHolding else { return }
-        stepEndTask?.cancel()
-        stepEndTask = nil
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         seekOneFrame(forward: false) { [weak self] target in
@@ -1208,36 +1203,26 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func finishFrameStepping() {
-        switch AppPreferences.timecodeFeedback {
-        case .live:
-            scheduleStepEnd()
-        case .onDemand, .off:
-            isSteppingFrames = false
-            refreshAccessibilityTimecode()
-        }
+        isSteppingFrames = false
+        updateStoppedPlayhead()
     }
 
     private func cancelScrub(preservingFrameStepPosition: Bool = false) {
         scrubTask?.cancel()
         scrubTask = nil
         if isScrubbing { isScrubbing = false; player.pause() }
-        if !preservingFrameStepPosition { frameStepPosition = nil }
-    }
-
-    private func scheduleStepEnd() {
-        stepEndTask?.cancel()
-        stepEndTask = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            self.isSteppingFrames = false
-            self.accessibilityTimecodeLabel = self.buildAccessibilityLabel()
+        if !preservingFrameStepPosition {
+            frameStepPosition = nil
+            isSteppingFrames = false
         }
     }
 
     private func seekTo(seconds: Double) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
-                    toleranceBefore: .zero, toleranceAfter: .zero)
+                    toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            guard finished else { return }
+            Task { @MainActor [weak self] in self?.updateStoppedPlayhead() }
+        }
     }
 
     private func applyJKLRate() {
@@ -1352,7 +1337,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private func jump(to point: TimelinePoint) {
         guard hasMedia else { return }
         cancelScrub()
-        player.seek(to: point.time, toleranceBefore: .zero, toleranceAfter: .zero)
+        seekTo(seconds: point.time.seconds)
         announce("\(point.kind.spokenName), \(spokenTime(point.time))")
     }
 
@@ -1387,18 +1372,28 @@ final class VideoPlayerViewModel: ObservableObject {
 
     // MARK: - Private: observers & key monitor
 
+    private func updateDisplayedTime(_ time: CMTime) {
+        displayTimecode = Self.formatTimecode(time)
+        let seconds = CMTimeGetSeconds(time)
+        currentTime = seconds.isFinite ? max(seconds, 0) : 0
+        if frameRate > 0 { currentFrame = Int(currentTime * Double(frameRate)) }
+    }
+
+    private func updateStoppedPlayhead() {
+        guard player.rate == 0, !isScrubbing, !isSteppingFrames else { return }
+        updateDisplayedTime(effectivePlayheadTime)
+        refreshAccessibilityTimecode()
+    }
+
     private func setupTimeObserver() {
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(value: 1, timescale: 30), queue: .main
         ) { [weak self] time in
             guard let self else { return }
-            let formatted = Self.formatTimecode(time)
-            self.displayTimecode = formatted
-            let secs = CMTimeGetSeconds(time)
-            self.currentTime = secs.isFinite ? secs : 0
-            if self.frameRate > 0 { self.currentFrame = Int(self.currentTime * Double(self.frameRate)) }
-            if !self.isPlaying && !self.isScrubbing && !self.isSteppingFrames {
-                self.refreshAccessibilityTimecode()
+            if self.player.rate == 0, !self.isScrubbing, !self.isSteppingFrames {
+                self.updateStoppedPlayhead()
+            } else {
+                self.updateDisplayedTime(time)
             }
         }
     }
@@ -1407,8 +1402,10 @@ final class VideoPlayerViewModel: ObservableObject {
         rateObserver = player.publisher(for: \.rate)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] rate in
-                self?.isPlaying = rate != 0
-                self?.playbackRate = rate
+                guard let self else { return }
+                self.isPlaying = rate != 0
+                self.playbackRate = rate
+                if rate == 0 { self.updateStoppedPlayhead() }
             }
     }
 
@@ -1733,20 +1730,10 @@ final class VideoPlayerViewModel: ObservableObject {
     // MARK: - Private: accessibility & timecode formatting
 
     private func buildAccessibilityLabel() -> String {
-        switch AppPreferences.timecodeFeedback {
-        case .live:
-            return AppPreferences.spokenTimecode(
-                seconds: currentTime,
-                frameRate: effectiveFeedbackFrameRate
-            )
-        case .onDemand, .off:
-            return accessibilityTimecodeLabel.isEmpty
-                ? AppPreferences.spokenTimecode(
-                    seconds: currentTime,
-                    frameRate: effectiveFeedbackFrameRate
-                )
-                : accessibilityTimecodeLabel
-        }
+        AppPreferences.spokenTimecode(
+            seconds: currentTime,
+            frameRate: effectiveFeedbackFrameRate
+        )
     }
 
     private var effectiveFeedbackFrameRate: Double {
@@ -1754,18 +1741,14 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func refreshAccessibilityTimecode() {
+        guard player.rate == 0, !isScrubbing, !isSteppingFrames else { return }
         let value = buildAccessibilityLabel()
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
     }
 
     func refreshAccessibilityValueForFocus() {
-        let value = AppPreferences.spokenTimecode(
-            seconds: max(CMTimeGetSeconds(effectivePlayheadTime), 0),
-            frameRate: effectiveFeedbackFrameRate
-        )
-        guard accessibilityTimecodeLabel != value else { return }
-        accessibilityTimecodeLabel = value
+        updateStoppedPlayhead()
     }
 
     private func announceCurrentTimecodeOnDemand() {

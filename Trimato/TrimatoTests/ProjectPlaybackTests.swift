@@ -572,25 +572,21 @@ struct ProjectPlaybackTests {
         ) == "5 seconds, 0 milliseconds")
     }
 
-    @Test func nonlivePlayheadValueNeverFallsBackToAPercentage() {
+    @Test func stoppedPlayheadValueUsesCurrentTimeInsteadOfAPercentage() {
         let time = ProjectTime(seconds: 3.4)
 
         #expect(ProjectPlayerViewModel.accessibilityTimecodeValue(
             time: time,
             frameRate: 30,
-            feedback: .onDemand,
             verbosity: .short,
-            currentValue: "",
             navigationCallout: nil
         ) == "3.4 seconds")
         #expect(ProjectPlayerViewModel.accessibilityTimecodeValue(
             time: ProjectTime(seconds: 4.2),
             frameRate: 30,
-            feedback: .off,
             verbosity: .short,
-            currentValue: "3.4 seconds",
             navigationCallout: nil
-        ) == "3.4 seconds")
+        ) == "4.2 seconds")
     }
 
     @Test func frameSteppingUsesTheProjectRateAndStopsAtProjectBoundaries() {

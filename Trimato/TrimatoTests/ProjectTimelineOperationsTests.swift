@@ -88,6 +88,8 @@ struct ProjectTimelineOperationsTests {
         project.media = [audio]
         let sourceTrackID = project.createTrack(kind: .audio, name: "Music")
         let destinationTrackID = project.createTrack(kind: .audio, name: "Effects")
+        try project.setTrackMagnetic(id: sourceTrackID, enabled: true)
+        try project.setTrackMagnetic(id: destinationTrackID, enabled: true)
         let movingID = try project.append(asset: audio, segments: [
             SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 2)))
         ], toTrack: sourceTrackID)

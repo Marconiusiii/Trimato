@@ -106,7 +106,7 @@ extension TrimatoProject {
         let purpose = asset.recordingPurpose ?? .voiceOver
         let index: Int
         if let existing = tracks.firstIndex(where: { track in
-            track.kind == .audio && track.recordingPurpose == purpose && !track.clips.contains {
+            track.kind == .audio && !track.isMagnetic && track.recordingPurpose == purpose && !track.clips.contains {
                 max($0.timelineStart, start) < min($0.timelineEnd, start + asset.editedDuration)
             }
         }) {

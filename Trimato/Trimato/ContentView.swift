@@ -61,11 +61,6 @@ struct ContentView: View {
             playheadKeyboardFocused = true
             playheadVoiceOverFocused = true
         }
-        .onChange(of: playheadVoiceOverFocused) { _, focused in
-            if focused {
-                viewModel.refreshAccessibilityValueForFocus()
-            }
-        }
         .task(id: entryCompletionPending && playheadKeyboardFocused && playheadVoiceOverFocused && entryFocusReady) {
             guard entryCompletionPending, playheadKeyboardFocused,
                   playheadVoiceOverFocused, entryFocusReady else { return }

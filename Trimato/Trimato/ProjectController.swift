@@ -1105,8 +1105,12 @@ final class ProjectController: ObservableObject {
             }
         }
         guard !retainedSegments.isEmpty else { throw ProjectTimelineError.emptyIncomingClip }
-        project.tracks[trackIndex].clips[clipIndex].segments = retainedSegments
-        project.tracks[trackIndex].clips[clipIndex].timelineStart = playhead
+        if project.tracks[trackIndex].isMagnetic {
+            try project.updateTrackClip(id: id, segments: retainedSegments)
+        } else {
+            project.tracks[trackIndex].clips[clipIndex].segments = retainedSegments
+            project.tracks[trackIndex].clips[clipIndex].timelineStart = playhead
+        }
     }
 
     func addTrack(kind: TimelineTrackKind, name: String?) {
@@ -1433,7 +1437,7 @@ final class ProjectController: ObservableObject {
         guard let id = movingTimelineClipID, let preview = movementPreview,
               let track = preview.tracks.first(where: { $0.clips.contains { $0.id == id } }),
               let index = track.sortedClips.firstIndex(where: { $0.id == id }) else { return nil }
-        if track.role == .additional {
+        if track.role == .additional && !track.isMagnetic {
             return Self.nudgePositionDescription(clip: track.sortedClips[index], track: track, project: preview)
         }
         return "Position \(index + 1) of \(track.clips.count), \(track.name) track"
@@ -1480,8 +1484,9 @@ final class ProjectController: ObservableObject {
     func canMoveClip(to destination: TimelineMoveDestination, targetID: UUID) -> Bool {
         let sourceID = movingTimelineClipID ?? targetID
         guard let source = project.tracks.first(where: { $0.clips.contains { $0.id == sourceID } }),
-              let target = (destination == .start || destination == .end) ? activeTimelineTrack : project.tracks.first(where: { $0.clips.contains { $0.id == targetID } }),
+              let target = (destination == .start || destination == .end || destination == .playhead) ? activeTimelineTrack : project.tracks.first(where: { $0.clips.contains { $0.id == targetID } }),
               source.kind == target.kind else { return false }
+        if destination == .playhead { return !target.isMagnetic && target.role == .additional }
         return destination == .start || destination == .end || sourceID != targetID
     }
 
@@ -1489,7 +1494,7 @@ final class ProjectController: ObservableObject {
         guard let id = movingTimelineClipID, var preview = movementBaseline else { return false }
         guard project == movementBaseline else { cancelClipMovement(); return false }
         do {
-            try preview.moveTrackClip(id: id, to: destination, targetID: targetID, destinationTrackID: destinationTrackID)
+            try preview.moveTrackClip(id: id, to: destination, targetID: targetID, destinationTrackID: destinationTrackID, playhead: timelinePlayhead)
             guard preview != movementPreview else { return true }
             movementPreview = preview
             movementNudgeOrigin = preview
@@ -1503,7 +1508,7 @@ final class ProjectController: ObservableObject {
     }
 
     func moveClip(to destination: TimelineMoveDestination, targetID: UUID) {
-        let trackID = (destination == .start || destination == .end) ? activeTimelineTrackID : nil
+        let trackID = (destination == .start || destination == .end || destination == .playhead) ? activeTimelineTrackID : nil
         if movingTimelineClipID != nil {
             if previewClipMovement(to: destination, targetID: targetID, destinationTrackID: trackID) { finishClipMovement() }
         } else {
@@ -1514,8 +1519,9 @@ final class ProjectController: ObservableObject {
     func moveTimelineClip(id: UUID, to destination: TimelineMoveDestination, targetID: UUID, destinationTrackID: UUID? = nil) {
         do {
             let wasLinked = project.timelineClip(id: id)?.linkedClipID != nil
+            let playhead = timelinePlayhead
             try mutateProjectThrowing(actionName: "Move Timeline Clip") {
-                try $0.moveTrackClip(id: id, to: destination, targetID: targetID, destinationTrackID: destinationTrackID)
+                try $0.moveTrackClip(id: id, to: destination, targetID: targetID, destinationTrackID: destinationTrackID, playhead: playhead)
             }
             didMoveClip(id, becameIndependent: wasLinked && project.timelineClip(id: id)?.linkedClipID == nil)
         } catch {
@@ -1527,7 +1533,7 @@ final class ProjectController: ObservableObject {
         guard let id = movingTimelineClipID, let preview = movementPreview,
               let track = preview.tracks.first(where: { $0.clips.contains { $0.id == id } }),
               let index = track.sortedClips.firstIndex(where: { $0.id == id }) else { return }
-        if track.role == .additional {
+        if track.role == .additional && !track.isMagnetic {
             nudgeTimelineClip(id: id, by: offset)
             return
         }
@@ -1539,7 +1545,7 @@ final class ProjectController: ObservableObject {
     }
 
     func canNudgeTimelineClip(id: UUID) -> Bool {
-        project.tracks.contains { $0.role == .additional && $0.clips.contains { $0.id == id } }
+        project.tracks.contains { $0.role == .additional && !$0.isMagnetic && $0.clips.contains { $0.id == id } }
     }
 
     func moveFocusedTimelineClip(id: UUID, by offset: Int) {
@@ -1596,6 +1602,12 @@ final class ProjectController: ObservableObject {
         requestTimelineFocusRestore(to: .clip(id))
         let independence = becameIndependent ? ". Audio now moves independently of its video" : ""
         announce("\(track.sortedClips[index].displayName), position \(index + 1) of \(track.clips.count), \(track.name) track\(independence)")
+    }
+
+    func setTrackMagnetic(id: UUID, enabled: Bool) throws {
+        try mutateProjectThrowing(actionName: enabled ? "Enable Magnetic Track" : "Disable Magnetic Track") {
+            try $0.setTrackMagnetic(id: id, enabled: enabled)
+        }
     }
 
     func setActiveTrackMuted(_ muted: Bool) {

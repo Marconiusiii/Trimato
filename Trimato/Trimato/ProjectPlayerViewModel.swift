@@ -285,7 +285,6 @@ final class ProjectPlayerViewModel: ObservableObject {
     private let jklSpeeds: [Float] = [1, 2, 4, 8]
     private var arrowHolding = false
     private var scrubTask: Task<Void, Never>?
-    private var stepEndTask: Task<Void, Never>?
     private var frameStepPosition: ProjectTime?
     private var isScrubbing = false
     private var isSteppingFrames = false
@@ -333,7 +332,9 @@ final class ProjectPlayerViewModel: ObservableObject {
                     self.updateDisplayedTime(settlingTime)
                     return
                 }
-                let projectTime = ProjectTime(time)
+                let projectTime = self.player.rate == 0 && !self.isScrubbing
+                    ? (self.frameStepPosition ?? ProjectTime(self.player.currentTime()))
+                    : ProjectTime(time)
                 if let playbackID = self.captionPlaybackID,
                    let end = self.captionPlaybackEnd,
                    projectTime >= end {
@@ -350,7 +351,6 @@ final class ProjectPlayerViewModel: ObservableObject {
         preparationRequestTask?.cancel()
         buildTask?.cancel()
         scrubTask?.cancel()
-        stepEndTask?.cancel()
         captionPlaybackTask?.cancel()
         for url in temporaryMediaURLs { ProxyMediaManager.removeProxy(at: url) }
         if let timeObserver { player.removeTimeObserver(timeObserver) }
@@ -1139,6 +1139,10 @@ final class ProjectPlayerViewModel: ObservableObject {
     private func stop() {
         jklIndex = 0
         player.pause()
+        if !isScrubbing, !isSteppingFrames, hasPreparedPlayerItem {
+            updateDisplayedTime(captionPlaybackSettlingTime ?? ProjectTime(player.currentTime()))
+            refreshAccessibilityTimecode()
+        }
     }
 
     private func applyJKLRate() {
@@ -1159,8 +1163,6 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func stepFrame(forward: Bool) {
         guard canControlPlayback, !arrowHolding else { return }
-        stepEndTask?.cancel()
-        stepEndTask = nil
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         jklIndex = 0
@@ -1187,7 +1189,14 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func seekPrecisely(to time: ProjectTime) {
         let bounded = min(max(time, .zero), projectDuration)
-        player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            guard finished else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.player.rate == 0, !self.isScrubbing, !self.isSteppingFrames else { return }
+                self.updateDisplayedTime(ProjectTime(self.player.currentTime()))
+                self.refreshAccessibilityTimecode()
+            }
+        }
         updateDisplayedTime(bounded)
     }
 
@@ -1210,7 +1219,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         let changed = currentTime != time
         playbackClock.update(time, frameRate: projectFrameRate)
         if changed { playheadChanged?(time) }
-        if !isPlaying, !isScrubbing, !isSteppingFrames {
+        if player.rate == 0, !isScrubbing, !isSteppingFrames {
             refreshAccessibilityTimecode()
         }
     }
@@ -1221,7 +1230,15 @@ final class ProjectPlayerViewModel: ObservableObject {
         player.play()
         scrubTask = Task { [weak self] in
             guard let self else { return }
-            try? await Task.sleep(for: .milliseconds(200))
+            // Buffering time is not audible preview time. Wait for media progress,
+            // with a bounded escape if the player cannot advance.
+            let end = min(target + ProjectTime(seconds: 0.2), self.projectDuration)
+            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            while ProjectTime(self.player.currentTime()) < end, ContinuousClock.now < deadline {
+                do { try await Task.sleep(for: .milliseconds(20)) } catch { return }
+                guard !Task.isCancelled, self.isScrubbing,
+                      self.frameStepPosition == target else { return }
+            }
             guard !Task.isCancelled, self.isScrubbing,
                   self.frameStepPosition == target else { return }
             self.isScrubbing = false
@@ -1237,13 +1254,9 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func finishFrameStepping() {
-        switch AppPreferences.timecodeFeedback {
-        case .live:
-            scheduleStepEnd()
-        case .onDemand, .off:
-            isSteppingFrames = false
-            refreshAccessibilityTimecode()
-        }
+        isSteppingFrames = false
+        if let target = frameStepPosition { updateDisplayedTime(target) }
+        refreshAccessibilityTimecode()
     }
 
     private func cancelScrub(preservingFrameStepPosition: Bool = false) {
@@ -1259,32 +1272,15 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func cancelFrameStepping() {
-        stepEndTask?.cancel()
-        stepEndTask = nil
         isSteppingFrames = false
         cancelScrub()
     }
 
-    private func scheduleStepEnd() {
-        stepEndTask?.cancel()
-        stepEndTask = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            self.isSteppingFrames = false
-            self.refreshAccessibilityTimecode()
-        }
-    }
-
     private func refreshAccessibilityTimecode() {
-        guard !isPlaying else { return }
+        guard player.rate == 0, !isScrubbing, !isSteppingFrames else { return }
         let value = Self.accessibilityTimecodeValue(
-            time: currentTime,
-            frameRate: projectFrameRate,
-            feedback: AppPreferences.timecodeFeedback,
-            verbosity: AppPreferences.timecodeVerbosity,
-            currentValue: accessibilityTimecodeLabel,
-            navigationCallout: nil
+            time: currentTime, frameRate: projectFrameRate,
+            verbosity: AppPreferences.timecodeVerbosity, navigationCallout: nil
         )
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
@@ -1295,7 +1291,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func refreshAccessibilityValueForFocus() {
-        guard !isPlaying else { return }
+        guard player.rate == 0, !isScrubbing, !isSteppingFrames else { return }
         let value = spokenTimecode(at: currentTime)
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
@@ -1362,20 +1358,15 @@ final class ProjectPlayerViewModel: ObservableObject {
     nonisolated static func accessibilityTimecodeValue(
         time: ProjectTime,
         frameRate: Double,
-        feedback: TimecodeFeedback,
         verbosity: TimecodeVerbosity,
-        currentValue: String,
         navigationCallout: String?
     ) -> String {
         if let navigationCallout { return navigationCallout }
-        if feedback == .live || currentValue.isEmpty {
-            return AppPreferences.spokenTimecode(
-                seconds: time.seconds,
-                frameRate: frameRate,
-                verbosity: verbosity
-            )
-        }
-        return currentValue
+        return AppPreferences.spokenTimecode(
+            seconds: time.seconds,
+            frameRate: frameRate,
+            verbosity: verbosity
+        )
     }
 
     nonisolated static func frameStepDestination(

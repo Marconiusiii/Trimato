@@ -176,7 +176,7 @@ extension TrimatoProject {
 
     func recordingDestination(purpose: RecordingPurpose, start: ProjectTime, duration: ProjectTime) -> TimelineTrack? {
         tracks.first { track in
-            track.kind == .audio && track.recordingPurpose == purpose && !track.clips.contains {
+            track.kind == .audio && !track.isMagnetic && track.recordingPurpose == purpose && !track.clips.contains {
                 max($0.timelineStart, start) < min($0.timelineEnd, start + duration)
             }
         }

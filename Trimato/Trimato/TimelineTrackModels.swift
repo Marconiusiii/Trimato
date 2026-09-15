@@ -30,6 +30,9 @@ nonisolated struct TimelineTrack: Codable, Equatable, Hashable, Identifiable, Se
     var captionCues: [CaptionCue] = []
     var mix: TrackMixSettings = .neutral
     var isMuted = false
+    var magnetic = false
+
+    var isMagnetic: Bool { kind != .captions && (role != .additional || magnetic) }
     var recordingPurpose: RecordingPurpose? = nil
 
     var sortedClips: [TimelineClip] {
@@ -61,7 +64,7 @@ nonisolated enum TimelineElementSelection: Hashable, Sendable {
 // Decode older projects without requiring the newly saved mute setting.
 nonisolated extension TimelineTrack {
     private enum CodingKeys: String, CodingKey {
-        case id, name, kind, role, clips, captionCues, isMuted, recordingPurpose, mix
+        case id, name, kind, role, clips, captionCues, isMuted, recordingPurpose, mix, magnetic
     }
 
     init(from decoder: Decoder) throws {
@@ -74,12 +77,13 @@ nonisolated extension TimelineTrack {
         captionCues = try values.decodeIfPresent([CaptionCue].self, forKey: .captionCues) ?? []
         mix = (try values.decodeIfPresent(TrackMixSettings.self, forKey: .mix) ?? .neutral).normalized
         isMuted = try values.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        magnetic = try values.decodeIfPresent(Bool.self, forKey: .magnetic) ?? false
         recordingPurpose = try values.decodeIfPresent(RecordingPurpose.self, forKey: .recordingPurpose)
     }
 }
 
 nonisolated enum TimelineMoveDestination: CaseIterable {
-    case start, before, after, end
+    case start, before, after, end, playhead
 
     var title: String {
         switch self {
@@ -87,6 +91,7 @@ nonisolated enum TimelineMoveDestination: CaseIterable {
         case .before: "Before"
         case .after: "After"
         case .end: "End"
+        case .playhead: "Playhead"
         }
     }
 }

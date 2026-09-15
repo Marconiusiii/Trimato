@@ -53,6 +53,9 @@ struct ProjectTimelineView: View {
     @State private var clipDeletionFocusID: UUID?
     @State private var clipDeletionWasConfirmed = false
     @State private var clipDeletionFallback: TimelineElementSelection?
+    @State private var magneticTrackPendingConfirmation: TimelineTrack?
+    @FocusState private var magneticKeyboardFocused: Bool
+    @AccessibilityFocusState private var magneticVoiceOverFocused: Bool
     @State private var errorMessage: String?
     @State private var errorTitle = "Timeline Change Failed"
 
@@ -80,6 +83,20 @@ struct ProjectTimelineView: View {
                         set: { controller.setActiveTrackMuted($0) }
                     ))
                     .toggleStyle(.checkbox)
+                }
+                if let track = controller.activeTimelineTrack, track.kind != .captions {
+                    Toggle("Magnetic", isOn: Binding(
+                        get: { controller.activeTimelineTrack?.isMagnetic ?? false },
+                        set: { enabled in
+                            if enabled && !track.clips.isEmpty {
+                                magneticTrackPendingConfirmation = track
+                            } else { setMagnetic(track.id, enabled: enabled) }
+                        }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .disabled(track.role != .additional)
+                    .focused($magneticKeyboardFocused)
+                    .accessibilityFocused($magneticVoiceOverFocused)
                 }
                 Menu("Track Actions") {
                     Button("Add Track…") { beginAddTrack() }
@@ -149,6 +166,21 @@ struct ProjectTimelineView: View {
         .onChange(of: focusedElement) { _, element in
             guard let element else { return }
             controller.focusTimelineElement(element)
+        }
+        .sheet(item: $magneticTrackPendingConfirmation, onDismiss: {
+            magneticKeyboardFocused = true
+            magneticVoiceOverFocused = true
+        }) { track in
+            ConfirmationView(
+                title: "Enable Magnetic for \(track.name)?",
+                message: "The first clip will move to the beginning of the project, and every following clip will move directly after the previous clip. This removes all gaps and changes the clips’ synchronization with the project. You can undo this change.",
+                confirmTitle: "Enable Magnetic and Reposition Clips",
+                cancel: { magneticTrackPendingConfirmation = nil },
+                confirm: {
+                    magneticTrackPendingConfirmation = nil
+                    setMagnetic(track.id, enabled: true)
+                }
+            )
         }
         .sheet(isPresented: $isRenamingClip) { renameClipSheet }
         .sheet(isPresented: $isRenamingTrack) { renameTrackSheet }
@@ -534,6 +566,11 @@ struct ProjectTimelineView: View {
             if let target { controller.requestTimelineFocusRestore(to: target) }
             else { controller.requestTimelineListFocusRestore() }
         } catch { presentTimelineError(error) }
+    }
+
+    private func setMagnetic(_ id: UUID, enabled: Bool) {
+        do { try controller.setTrackMagnetic(id: id, enabled: enabled) }
+        catch { presentTimelineError(error) }
     }
 
     @ViewBuilder

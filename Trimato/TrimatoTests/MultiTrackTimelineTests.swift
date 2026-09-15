@@ -376,7 +376,7 @@ struct MultiTrackTimelineTests {
         #expect(controller.movingTimelineClipID == nil)
     }
 
-    @Test func movingAdditionalClipsPreservesTrackOffsetAndGaps() throws {
+    @Test func movingAbsoluteClipToStartPreservesItsNeighbors() throws {
         let asset = fixtureAsset(name: "Music", duration: 20)
         var project = TrimatoProject()
         project.media = [asset]
@@ -387,8 +387,8 @@ struct MultiTrackTimelineTests {
         project.tracks[0].clips[1].timelineStart = ProjectTime(seconds: 9)
         try project.moveTrackClip(id: second, to: .start, targetID: first)
         #expect(project.tracks[0].sortedClips.map(\.id) == [second, first])
-        #expect(project.timelineClip(id: second)?.timelineStart == ProjectTime(seconds: 5))
-        #expect(project.timelineClip(id: first)?.timelineStart == ProjectTime(seconds: 10))
+        #expect(project.timelineClip(id: second)?.timelineStart == .zero)
+        #expect(project.timelineClip(id: first)?.timelineStart == ProjectTime(seconds: 5))
     }
 
     @Test func moveThatSeparatesTransitionIsTransactional() throws {
@@ -502,6 +502,7 @@ struct MultiTrackTimelineTests {
         var project = TrimatoProject()
         project.media = [music]
         let trackID = project.createTrack(kind: .audio, name: "Music")
+        try project.setTrackMagnetic(id: trackID, enabled: true)
         let firstID = try project.append(asset: music, segments: [segment(0, 4)], toTrack: trackID)
         let secondID = try project.append(asset: music, segments: [segment(4, 4)], toTrack: trackID)
 
@@ -747,6 +748,7 @@ struct MultiTrackTimelineTests {
         var project = TrimatoProject()
         project.media = [music]
         let trackID = project.createTrack(kind: .audio, name: "Musica")
+        try project.setTrackMagnetic(id: trackID, enabled: true)
         let firstID = try project.append(asset: music, segments: [segment(0, 60)], toTrack: trackID)
         let secondID = try project.append(asset: music, segments: [segment(60, 5)], toTrack: trackID)
         let videoEnd = ProjectTime(seconds: 14.408)
