@@ -138,8 +138,10 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private var appliedDuckingRanges: [ProjectTimeRange] = []
     func updateMix(project: TrimatoProject, solo: Set<UUID>? = nil, refreshEnvelopes: Bool = false) {
+        let nextSolo = solo ?? soloTrackIDs
+        guard refreshEnvelopes || latestMixProject != project || nextSolo != soloTrackIDs else { return }
         latestMixProject = project
-        if let solo { soloTrackIDs = solo }
+        soloTrackIDs = nextSolo
         let validSolo = soloTrackIDs.intersection(Set(project.tracks.filter { $0.kind == .audio }.map(\.id)))
         var listeningProject = project
         if !validSolo.isEmpty {
@@ -149,7 +151,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
         if audioNotice != nil, (try? SpatialAudioPlan.validateControls(listeningProject)) != nil,
            !spatialMixMatches(listeningProject) {
-            startPreparation(project: listeningProject, mediaURLs: spatialMediaURLs, initialTime: currentTime)
+            startPreparation(project: listeningProject, mediaURLs: spatialMediaURLs, initialTime: ProjectTime(player.currentTime()))
             return
         }
         if hasSpatialAudio {
@@ -172,7 +174,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                         do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
                         guard let self else { return }
                         self.spatialMixRebuildTask = nil
-                        self.startPreparation(project: listeningProject, mediaURLs: self.spatialMediaURLs, initialTime: self.currentTime)
+                        self.startPreparation(project: listeningProject, mediaURLs: self.spatialMediaURLs, initialTime: ProjectTime(self.player.currentTime()))
                     }
                     return
                 }
@@ -188,7 +190,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 // Unsupported spatial effects still have a usable stereo preview;
                 // the builder labels it and Export keeps the audio choice explicit.
                 resumeAfterSpatialMix = resumeAfterSpatialMix || player.rate != 0
-                startPreparation(project: listeningProject, mediaURLs: spatialMediaURLs, initialTime: currentTime)
+                startPreparation(project: listeningProject, mediaURLs: spatialMediaURLs, initialTime: ProjectTime(player.currentTime()))
                 return
             }
         }
@@ -214,9 +216,19 @@ final class ProjectPlayerViewModel: ObservableObject {
     @Published private(set) var presentedPreviewFailure: ProjectPreviewFailure?
     @Published private(set) var isPlaying = false
     private var pendingInsertionPlayhead: ProjectTime?
-    @Published private(set) var currentTime = ProjectTime.zero
-    @Published private(set) var currentFrame = 0
-    @Published private(set) var displayTimecode = "00:00:00.000"
+    let playbackClock = ProjectPlaybackClock()
+    private(set) var currentTime: ProjectTime {
+        get { playbackClock.time }
+        set { playbackClock.time = newValue }
+    }
+    private(set) var currentFrame: Int {
+        get { playbackClock.frame }
+        set { playbackClock.frame = newValue }
+    }
+    private(set) var displayTimecode: String {
+        get { playbackClock.timecode }
+        set { playbackClock.timecode = newValue }
+    }
     @Published private(set) var accessibilityTimecodeLabel = "0 seconds, 0 milliseconds"
     @Published private(set) var showingFrames = false
     @Published private(set) var playbackRate: Float = 0
@@ -305,7 +317,10 @@ final class ProjectPlayerViewModel: ObservableObject {
                 self.isPlaying = rate != 0
                 self.playbackRate = rate
                 if rate == 0, !self.isScrubbing, !self.isSteppingFrames {
-                    self.refreshAccessibilityTimecode()
+                    if self.pendingInsertionPlayhead == nil, self.hasPreparedPlayerItem {
+                        self.updateDisplayedTime(self.captionPlaybackSettlingTime ?? ProjectTime(self.player.currentTime()))
+                    }
+                    self.refreshAccessibilityValueForFocus()
                 }
             }
         timeObserver = player.addPeriodicTimeObserver(
@@ -1191,16 +1206,9 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func updateDisplayedTime(_ time: ProjectTime) {
-        if currentTime != time {
-            currentTime = time
-            playheadChanged?(time)
-        }
-        // AVPlayer can report the same position while paused or waiting. Publishing
-        // unchanged display values would rebuild the Editor and its native slider.
-        let frame = max(Int((time.seconds * projectFrameRate).rounded(.towardZero)), 0)
-        if currentFrame != frame { currentFrame = frame }
-        let timecode = ProjectTimecodeFormatter.string(time)
-        if displayTimecode != timecode { displayTimecode = timecode }
+        let changed = currentTime != time
+        playbackClock.update(time, frameRate: projectFrameRate)
+        if changed { playheadChanged?(time) }
         if !isPlaying, !isScrubbing, !isSteppingFrames {
             refreshAccessibilityTimecode()
         }
@@ -1268,6 +1276,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func refreshAccessibilityTimecode() {
+        guard !isPlaying else { return }
         let value = Self.accessibilityTimecodeValue(
             time: currentTime,
             frameRate: projectFrameRate,
@@ -1287,6 +1296,18 @@ final class ProjectPlayerViewModel: ObservableObject {
         )
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
+    }
+
+    var currentTimecodeForAnnouncement: String {
+        AppPreferences.spokenTimecode(
+            seconds: (frameStepPosition ?? currentTime).seconds,
+            frameRate: projectFrameRate
+        )
+    }
+
+    func announceCurrentTimecode() {
+        guard canControlPlayback else { return }
+        announce(currentTimecodeForAnnouncement)
     }
 
     private func announceCurrentTimecodeOnDemand() {
@@ -1579,8 +1600,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 case "x": self.quickCrossTransition?(); return nil
                 case "f": self.quickFade?(); return nil
                 case "t":
-                    guard AppPreferences.timecodeFeedback == .onDemand else { return event }
-                    self.announceCurrentTimecodeOnDemand()
+                    self.announceCurrentTimecode()
                     return nil
                 case "i": self.markIn(); return nil
                 case "o": self.markOut(); return nil
@@ -1629,7 +1649,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         guard unmodified else { return false }
         if keyCode == 49 || keyCode == 123 || keyCode == 124 { return true }
         if key == "g" { return relevantModifiers.isEmpty }
-        return ["[", "]", "c", "x", "f", "i", "o", "j", "k", "l"].contains(key)
+        return ["[", "]", "c", "x", "f", "t", "i", "o", "j", "k", "l"].contains(key)
     }
 
     nonisolated static func trackSelectionOffset(
@@ -1665,5 +1685,41 @@ final class ProjectPlayerViewModel: ObservableObject {
     private func isEditingText(in window: NSWindow?) -> Bool {
         guard let textView = window?.firstResponder as? NSTextView else { return false }
         return textView.isEditable
+    }
+}
+
+/// Clock-only changes must not invalidate the surrounding project workspace.
+@MainActor final class ProjectPlaybackClock: ObservableObject {
+    @Published var time = ProjectTime.zero
+    @Published var frame = 0
+    @Published var timecode = "00:00:00.000"
+
+    func update(_ position: ProjectTime, frameRate: Double) {
+        if time != position { time = position }
+        let nextFrame = max(Int((position.seconds * frameRate).rounded(.towardZero)), 0)
+        if frame != nextFrame { frame = nextFrame }
+        let nextTimecode = ProjectTimecodeFormatter.string(position)
+        if timecode != nextTimecode { timecode = nextTimecode }
+    }
+}
+
+extension ProjectPlayerViewModel {
+    /// Analysis gets independent taps, never the live renderer's processing state.
+    func waveformInput() throws -> (AVAsset, AVAudioMix?)? {
+        guard let item = player.currentItem else { return nil }
+        let asset = item.asset.copy() as! AVAsset
+        guard let original = item.audioMix else { return (asset, nil) }
+        let mix = AVMutableAudioMix()
+        mix.inputParameters = try original.inputParameters.map { input in
+            let copy = input.mutableCopy() as! AVMutableAudioMixInputParameters
+            if let binding = mixBindings[input.trackID],
+               let processor = mixProcessors.first(where: { $0.trackID == binding.sourceID }) {
+                copy.audioTapProcessor = try processor.copyProcessor().makeTap()
+            } else {
+                copy.audioTapProcessor = nil
+            }
+            return copy
+        }
+        return (asset, mix)
     }
 }

@@ -12,8 +12,8 @@ import Darwin
         model.stageInsertionPlayhead(position, duration: duration)
         var frameUpdates = 0
         var timecodeUpdates = 0
-        let frame = model.$currentFrame.dropFirst().sink { _ in frameUpdates += 1 }
-        let timecode = model.$displayTimecode.dropFirst().sink { _ in timecodeUpdates += 1 }
+        let frame = model.playbackClock.$frame.dropFirst().sink { _ in frameUpdates += 1 }
+        let timecode = model.playbackClock.$timecode.dropFirst().sink { _ in timecodeUpdates += 1 }
         for _ in 0..<100 { model.stageInsertionPlayhead(position, duration: duration) }
         print("Repeated unchanged position: \(frameUpdates) frame notifications, \(timecodeUpdates) timecode notifications")
         guard frameUpdates == 0, timecodeUpdates == 0 else { exit(1) }

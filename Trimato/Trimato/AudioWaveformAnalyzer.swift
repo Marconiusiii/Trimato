@@ -52,13 +52,21 @@ nonisolated enum AudioWaveformAnalyzer {
         return try await analyzeSynchronously(asset: asset, maximumCount: maximumCount, progress: progress)
     }
 
+    static func analyzeProject(asset: AVAsset, audioMix: AVAudioMix?, maximumCount: Int = 2_048) async throws -> AudioWaveformData {
+        try await analyzeSynchronously(asset: asset, maximumCount: maximumCount,
+            progress: { _ in }, projectMix: audioMix, combinesTracks: true)
+    }
+
     @concurrent
     private static func analyzeSynchronously(
         asset: AVAsset,
         maximumCount: Int,
-        progress: @escaping @MainActor @Sendable (Double) -> Void
+        progress: @escaping @MainActor @Sendable (Double) -> Void,
+        projectMix: AVAudioMix? = nil,
+        combinesTracks: Bool = false
     ) async throws -> AudioWaveformData {
-        guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        guard let track = tracks.first else {
             return AudioWaveformData(samples: [], duration: 0)
         }
         let duration = try await asset.load(.duration).seconds
@@ -67,12 +75,20 @@ nonisolated enum AudioWaveformAnalyzer {
         }
 
         let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+        let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVLinearPCMIsFloatKey: true,
             AVLinearPCMBitDepthKey: 32,
             AVLinearPCMIsNonInterleaved: false,
-        ])
+        ]
+        let output: AVAssetReaderOutput
+        if combinesTracks {
+            let mixed = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: settings)
+            mixed.audioMix = projectMix
+            output = mixed
+        } else {
+            output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+        }
         output.alwaysCopiesSampleData = false
         guard reader.canAdd(output) else {
             throw MediaSourceError.unreadable("Trimato could not read the audio samples for the waveform.")

@@ -48,7 +48,7 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
 
     init(session: MixerSession) {
         self.session = session
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 650),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 790),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Mixer"
         window.contentViewController = NSHostingController(rootView:
@@ -61,7 +61,7 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
         window.collectionBehavior.insert(.participatesInCycle)
         window.isExcludedFromWindowsMenu = false
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 680, height: 620)
+        window.minSize = NSSize(width: 680, height: 700)
         window.center()
         super.init(window: window)
         window.delegate = self
@@ -121,6 +121,7 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
             return true
         }
         guard modifiers.isEmpty else { return false }
+        if let editor = window?.firstResponder as? NSTextView, editor.isEditable { return false }
         // Native choices and buttons retain their own activation keys.
         let focused = NSApp.accessibilityFocusedUIElement as? NSObject ?? window?.firstResponder
         let role = focused.flatMap { $0.responds(to: NSSelectorFromString("accessibilityRole"))
@@ -132,6 +133,8 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
             return true
         }
         switch event.charactersIgnoringModifiers?.lowercased() {
+        case "t":
+            if !event.isARepeat { session.player.announceCurrentTimecode() }
         case "j": session.player.pressJ()
         case "k": session.player.pressK()
         case "l": session.player.pressL()

@@ -34,7 +34,24 @@ final class ProjectController: ObservableObject {
     private var mediaLocationOverrides: [UUID: MediaAssetRecord] = [:]
 
     @Published var selection: EditorSelection = .project
-    @Published var timelinePlayhead = ProjectTime.zero
+    private var playbackPosition = ProjectTime.zero
+    var timelinePlayhead: ProjectTime {
+        get { playbackPosition }
+        set {
+            guard playbackPosition != newValue else { return }
+            objectWillChange.send()
+            playbackPosition = newValue
+        }
+    }
+
+    func updatePlaybackPosition(_ time: ProjectTime, isPlaying: Bool) {
+        guard playbackPosition != time else { return }
+        // Current-clip badges change at clip boundaries, not every clock tick.
+        if !isPlaying || currentTimelineClip(at: playbackPosition)?.id != currentTimelineClip(at: time)?.id {
+            objectWillChange.send()
+        }
+        playbackPosition = time
+    }
     @Published var activeTimelineTrackID: UUID?
     @Published var selectedCaptionCueID: UUID?
     @Published private(set) var isCaptionEditorOpen = false
@@ -420,9 +437,8 @@ final class ProjectController: ObservableObject {
     func installProjectPlayer(_ player: ProjectPlayerViewModel) {
         projectPlayer = player
         player.updateMix(project: project)
-        player.onPlayheadChange { [weak self] time in
-            guard let self, self.timelinePlayhead != time else { return }
-            self.timelinePlayhead = time
+        player.onPlayheadChange { [weak self, weak player] time in
+            self?.updatePlaybackPosition(time, isPlaying: player?.isPlaying == true)
         }
     }
 

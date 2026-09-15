@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import Combine
 import SwiftUI
@@ -17,6 +18,8 @@ final class MixerSession: ObservableObject {
     @Published var selectedID: UUID?
     @Published private(set) var soloIDs: Set<UUID> = []
     @Published private(set) var masterVolumeDB: Double = 0
+    @Published private(set) var waveformRevision = 0
+    private var waveformProject: TrimatoProject?
     private var observation: AnyCancellable?
     private let fromTimeline: Bool
     private let origin: TimelineElementSelection?
@@ -33,6 +36,10 @@ final class MixerSession: ObservableObject {
     }
     var selected: MixerTrack? { tracks.first { $0.id == selectedID } }
     func refresh() {
+        if waveformProject != controller.project {
+            waveformProject = controller.project
+            waveformRevision &+= 1
+        }
         let next = controller.project.orderedTimelineTracks.filter { $0.kind == .audio }.map {
             MixerTrack(id: $0.id, name: $0.name, mix: $0.mix, muted: $0.isMuted)
         }
@@ -60,11 +67,12 @@ final class MixerSession: ObservableObject {
     func solo(_ value: Bool) {
         guard let selectedID else { return }
         if value { soloIDs.insert(selectedID) } else { soloIDs.remove(selectedID) }
+        waveformRevision &+= 1
         player.updateMix(project: controller.project, solo: soloIDs)
     }
     func reset() {
         guard let selectedID else { return }
-        soloIDs.remove(selectedID)
+        if soloIDs.remove(selectedID) != nil { waveformRevision &+= 1 }
         controller.resetTrackMix(selectedID); refresh()
     }
     func selectAdjacentTrack(_ direction: Int) {
@@ -99,7 +107,7 @@ struct MixerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Mixer").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
-            MixerPlaybackControls(player: player, play: session.togglePlayback)
+            MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, play: session.togglePlayback)
             Divider()
             Text("Track controls").font(.headline).accessibilityAddTraits(.isHeader)
             Picker("Audio track", selection: $session.selectedID) {
@@ -156,6 +164,7 @@ final class MixerPlaybackPresentation: ObservableObject {
         var timecode: String
         var duration: Double
         var step: Double
+        var itemID: ObjectIdentifier?
 
         init(player: ProjectPlayerViewModel) {
             error = player.errorMessage
@@ -165,6 +174,7 @@ final class MixerPlaybackPresentation: ObservableObject {
             timecode = player.accessibilityTimecodeLabel
             duration = player.duration.seconds
             step = player.playbackFractionStep
+            itemID = player.player.currentItem.map(ObjectIdentifier.init)
         }
     }
 
@@ -182,29 +192,82 @@ final class MixerPlaybackPresentation: ObservableObject {
     }
 }
 
-private struct MixerLiveTimecode: View {
+private struct MixerLivePlayhead: View {
     @ObservedObject var player: ProjectPlayerViewModel
+    @ObservedObject private var clock: ProjectPlaybackClock
+    init(player: ProjectPlayerViewModel) {
+        self.player = player
+        clock = player.playbackClock
+    }
     var body: some View {
-        Text(player.showingFrames ? String(player.currentFrame) : player.displayTimecode)
+        MixerPlayheadSlider(value: Binding(get: {
+            player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
+        }, set: { player.seek(toFraction: $0) }),
+            step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
+            ready: player.canControlPlayback, playing: player.isPlaying,
+            prepareFocus: player.refreshAccessibilityValueForFocus)
     }
 }
 
-private struct MixerLivePlayhead: View {
-    @ObservedObject var player: ProjectPlayerViewModel
+private struct MixerWaveform: View {
+    let player: ProjectPlayerViewModel
+    let revision: Int
+    let playing: Bool
+    let itemID: ObjectIdentifier?
+    @State private var samples: [Float] = []
+    @State private var loading = false
+    @State private var completed: Request?
+    private struct Request: Equatable {
+        let revision: Int
+        let itemID: ObjectIdentifier?
+        let playing: Bool
+    }
     var body: some View {
-        MixerPlayheadSlider(value: Binding(get: { player.playbackFraction }, set: { player.seek(toFraction: $0) }),
-            step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
-            ready: player.canControlPlayback, prepareFocus: player.refreshAccessibilityValueForFocus)
+        MixerWaveformDisplay(clock: player.playbackClock, samples: samples,
+            duration: player.duration.seconds, loading: loading)
+            .frame(minHeight: 80, idealHeight: 120, maxHeight: 160)
+            .task(id: Request(revision: revision, itemID: itemID, playing: playing)) {
+                let request = Request(revision: revision, itemID: itemID, playing: false)
+                guard !playing, completed != request, itemID != nil else { return }
+                loading = true
+                defer { loading = false }
+                do {
+                    // Coalesce rapid mix edits and yield to actual playback.
+                    try await Task.sleep(for: .milliseconds(300))
+                    guard let (asset, mix) = try player.waveformInput() else { return }
+                    let waveform = try await AudioWaveformAnalyzer.analyzeProject(asset: asset, audioMix: mix)
+                    try Task.checkCancellation()
+                    samples = waveform.samples
+                    completed = request
+                } catch is CancellationError {
+                    return
+                } catch {
+                    samples = []
+                }
+            }
+    }
+}
+
+private struct MixerWaveformDisplay: View {
+    @ObservedObject var clock: ProjectPlaybackClock
+    let samples: [Float]
+    let duration: Double
+    let loading: Bool
+    var body: some View {
+        AudioWaveformView(samples: samples, playbackFraction: duration > 0 ? clock.time.seconds / duration : 0,
+            isLoading: loading)
     }
 }
 
 private struct MixerPlaybackControls: View {
     let player: ProjectPlayerViewModel
     @StateObject private var presentation: MixerPlaybackPresentation
+    let waveformRevision: Int
     let play: () -> Void
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @StateObject private var keyboard = SettingsSliderKeyboard(identifier: "trimato.mixer.playhead")
-    init(player: ProjectPlayerViewModel, play: @escaping () -> Void) {
+    init(player: ProjectPlayerViewModel, waveformRevision: Int, play: @escaping () -> Void) {
+        self.waveformRevision = waveformRevision
         self.player = player
         self.play = play
         _presentation = StateObject(wrappedValue: MixerPlaybackPresentation(player: player))
@@ -215,6 +278,8 @@ private struct MixerPlaybackControls: View {
             if let message = presentation.state.error {
                 Text(message).textSelection(.enabled)
             }
+            MixerWaveform(player: player, revision: waveformRevision, playing: presentation.state.playing,
+                itemID: presentation.state.itemID)
             MixerLivePlayhead(player: player)
                 .tint(EditorTheme.playhead)
                 .onAppear { keyboard.start() }
@@ -229,7 +294,7 @@ private struct MixerPlaybackControls: View {
             VStack(spacing: 8) {
                 Button { player.toggleTimecodeDisplay() } label: {
                     VStack(spacing: 2) {
-                        MixerLiveTimecode(player: player)
+                        ProjectLiveTimecode(clock: player.playbackClock, showingFrames: presentation.state.showingFrames)
                             .font(.system(.title, design: .monospaced).weight(.semibold))
                             .monospacedDigit()
                             .foregroundStyle(EditorTheme.accent(for: accentChoice))

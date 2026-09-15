@@ -6,6 +6,7 @@ struct MixerPlayheadSlider: View {
     let step: Double
     let timecode: String
     let ready: Bool
+    let playing: Bool
     let prepareFocus: () -> Void
     @Environment(\.controlActiveState) private var windowActivity
     @FocusState private var keyboardFocused: Bool
@@ -18,6 +19,7 @@ struct MixerPlayheadSlider: View {
         LabeledContent("Project playhead") {
             Slider(value: $value, in: 0...1, step: step)
                 .accessibilityValue(timecode)
+                .accessibilityAddTraits(playing ? .updatesFrequently : [])
                 .accessibilityIdentifier("trimato.mixer.playhead")
                 .focused($keyboardFocused)
                 .accessibilityFocused($voiceOverFocused)

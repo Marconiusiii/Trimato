@@ -656,7 +656,7 @@ struct ProjectViewerView: View {
                     }
                 },
                 accessibleFrame: controller.project.hasTimelineVideo,
-                frameDescription: "Project time \(String(format: "%.3f", viewModel.currentTime.seconds)) seconds, frame \(Int((viewModel.currentTime.seconds * (controller.project.format.frameRate ?? 30)).rounded()))"
+                frameDescription: viewModel.accessibilityTimecodeLabel
             )
             .accessibilityFocused($focusedAccessibilityTarget, equals: .videoFrame)
             if !controller.project.tracks.contains(where: { !$0.clips.isEmpty }) {
@@ -694,14 +694,7 @@ struct ProjectViewerView: View {
             if let notice = viewModel.audioNotice {
                 Text(notice).fixedSize(horizontal: false, vertical: true)
             }
-            Slider(
-                value: Binding(
-                    get: { viewModel.playbackFraction },
-                    set: { viewModel.seek(toFraction: $0) }
-                ),
-                in: 0...1,
-                step: viewModel.playbackFractionStep
-            )
+            ProjectLivePlayhead(player: viewModel)
             .disabled(!viewModel.canControlPlayback)
             .tint(EditorTheme.playhead)
             .accessibilityLabel("Project playhead")
@@ -846,9 +839,7 @@ struct ProjectViewerView: View {
     private var projectTimecode: some View {
         Button { viewModel.toggleTimecodeDisplay() } label: {
             VStack(spacing: 2) {
-                Text(viewModel.showingFrames
-                     ? String(format: "%06d", viewModel.currentFrame)
-                     : viewModel.displayTimecode)
+                ProjectLiveTimecode(clock: viewModel.playbackClock, showingFrames: viewModel.showingFrames)
                     .font(.system(.headline, design: .monospaced).weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(EditorTheme.accent(for: accentChoice))
@@ -936,5 +927,28 @@ struct ProjectPreviewFailureSheet: View {
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { messageFocused = true }
+    }
+}
+
+private struct ProjectLivePlayhead: View {
+    @ObservedObject var player: ProjectPlayerViewModel
+    @ObservedObject private var clock: ProjectPlaybackClock
+    init(player: ProjectPlayerViewModel) {
+        self.player = player
+        clock = player.playbackClock
+    }
+    var body: some View {
+        Slider(value: Binding(get: {
+            player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
+        }, set: { player.seek(toFraction: $0) }), in: 0...1, step: player.playbackFractionStep)
+            .accessibilityAddTraits(player.isPlaying ? .updatesFrequently : [])
+    }
+}
+
+struct ProjectLiveTimecode: View {
+    @ObservedObject var clock: ProjectPlaybackClock
+    let showingFrames: Bool
+    var body: some View {
+        Text(showingFrames ? String(format: "%06d", clock.frame) : clock.timecode)
     }
 }
