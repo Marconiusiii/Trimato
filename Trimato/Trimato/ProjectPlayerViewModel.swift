@@ -871,6 +871,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func stopMixerPlayback() {
         mixerRestartTask?.cancel(); mixerRestartTask = nil
+        resumeAfterSpatialMix = false
         stop()
     }
 
@@ -1289,11 +1290,12 @@ final class ProjectPlayerViewModel: ObservableObject {
         accessibilityTimecodeLabel = value
     }
 
+    func spokenTimecode(at time: ProjectTime) -> String {
+        AppPreferences.spokenTimecode(seconds: time.seconds, frameRate: projectFrameRate)
+    }
+
     func refreshAccessibilityValueForFocus() {
-        let value = AppPreferences.spokenTimecode(
-            seconds: currentTime.seconds,
-            frameRate: projectFrameRate
-        )
+        let value = spokenTimecode(at: currentTime)
         guard accessibilityTimecodeLabel != value else { return }
         accessibilityTimecodeLabel = value
     }

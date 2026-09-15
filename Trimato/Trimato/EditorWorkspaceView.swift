@@ -455,6 +455,7 @@ struct ProjectViewerView: View {
     @ObservedObject var viewModel: ProjectPlayerViewModel
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
     @AccessibilityFocusState(for: .voiceOver) private var focusedAccessibilityTarget: AccessibilityTarget?
+    @Environment(\.controlActiveState) private var windowActivity
     @State private var pendingProjectPlayheadFocus = false
     @State private var controlsHeight: CGFloat = 240
     @State private var availableWidth: CGFloat = 0
@@ -577,6 +578,19 @@ struct ProjectViewerView: View {
         .onChange(of: controller.editorFocusRestoreRequest) {
             restoreProjectPlayheadFocus()
         }
+        .onChange(of: windowActivity) { _, activity in
+            if activity != .key {
+                paneCommandKeyboardTarget = nil
+                focusedAccessibilityTarget = nil
+                focusScope.recordVoiceOverFocus(false)
+            }
+        }
+        .task(id: windowActivity == .key && pendingProjectPlayheadFocus && viewModel.canControlPlayback) {
+            guard windowActivity == .key, pendingProjectPlayheadFocus, viewModel.canControlPlayback else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            restoreProjectPlayheadFocus()
+        }
         .onChange(of: controller.workspaceFocusRequest) { _, request in
             guard request.pane == .editor, controller.acceptsWorkspaceCommands else { return }
             pendingProjectPlayheadFocus = false
@@ -588,9 +602,6 @@ struct ProjectViewerView: View {
         .onChange(of: focusedAccessibilityTarget) { _, target in
             focusScope.recordVoiceOverFocus(target != nil)
             if target != nil { controller.setProjectInfoTarget(.editor) }
-            if target == .playhead {
-                viewModel.refreshAccessibilityValueForFocus()
-            }
         }
         .onDisappear { focusScope.recordVoiceOverFocus(false) }
         // Timeline edits rebuild playback in the background. They must never
@@ -694,11 +705,10 @@ struct ProjectViewerView: View {
             if let notice = viewModel.audioNotice {
                 Text(notice).fixedSize(horizontal: false, vertical: true)
             }
-            ProjectLivePlayhead(player: viewModel)
+            ProjectLivePlayhead(player: viewModel, voiceOverFocused: focusedAccessibilityTarget == .playhead)
             .disabled(!viewModel.canControlPlayback)
             .tint(EditorTheme.playhead)
             .accessibilityLabel("Project playhead")
-            .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier("trimato.editor.playhead")
             .accessibilityFocused($focusedAccessibilityTarget, equals: .playhead)
             .focused($paneCommandKeyboardTarget, equals: .playhead)
@@ -933,15 +943,23 @@ struct ProjectPreviewFailureSheet: View {
 private struct ProjectLivePlayhead: View {
     @ObservedObject var player: ProjectPlayerViewModel
     @ObservedObject private var clock: ProjectPlaybackClock
-    init(player: ProjectPlayerViewModel) {
+    let voiceOverFocused: Bool
+    @State private var readout = ProjectPlayheadReadout()
+    init(player: ProjectPlayerViewModel, voiceOverFocused: Bool) {
         self.player = player
+        self.voiceOverFocused = voiceOverFocused
         clock = player.playbackClock
     }
     var body: some View {
+        let timecode = player.spokenTimecode(at: clock.time)
         Slider(value: Binding(get: {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }), in: 0...1, step: player.playbackFractionStep)
+            .accessibilityValue(readout.value.isEmpty ? timecode : readout.value)
             .accessibilityAddTraits(player.isPlaying ? .updatesFrequently : [])
+            .onChange(of: voiceOverFocused) { _, focused in readout.setFocused(focused) }
+            .onChange(of: timecode, initial: true) { _, value in readout.update(value, playing: player.isPlaying) }
+            .onChange(of: player.isPlaying) { _, playing in readout.update(timecode, playing: playing) }
     }
 }
 

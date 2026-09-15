@@ -7,7 +7,7 @@ struct MixerPlayheadSlider: View {
     let timecode: String
     let ready: Bool
     let playing: Bool
-    let prepareFocus: () -> Void
+    @State private var readout = ProjectPlayheadReadout()
     @Environment(\.controlActiveState) private var windowActivity
     @FocusState private var keyboardFocused: Bool
     @AccessibilityFocusState private var voiceOverFocused: Bool
@@ -18,7 +18,7 @@ struct MixerPlayheadSlider: View {
         // Native LabeledContent keeps the label associated without that work.
         LabeledContent("Project playhead") {
             Slider(value: $value, in: 0...1, step: step)
-                .accessibilityValue(timecode)
+                .accessibilityValue(readout.value.isEmpty ? timecode : readout.value)
                 .accessibilityAddTraits(playing ? .updatesFrequently : [])
                 .accessibilityIdentifier("trimato.mixer.playhead")
                 .focused($keyboardFocused)
@@ -32,12 +32,34 @@ struct MixerPlayheadSlider: View {
                   application.keyWindow?.attachedSheet == nil,
                   application.modalWindow == nil else { return }
             needsInitialFocus = false
-            prepareFocus()
             keyboardFocused = true
             voiceOverFocused = true
         }
         .onChange(of: voiceOverFocused) { _, focused in
-            if focused { prepareFocus() }
+            readout.setFocused(focused)
         }
+        .onChange(of: timecode, initial: true) { _, value in
+            readout.update(value, playing: playing)
+        }
+        .onChange(of: playing) { _, playing in
+            readout.update(timecode, playing: playing)
+        }
+    }
+}
+
+/// Prepare while away; entering focus never changes the value VoiceOver just read.
+nonisolated struct ProjectPlayheadReadout {
+    private(set) var value = ""
+    private var latest = ""
+    private var focused = false
+
+    mutating func update(_ current: String, playing: Bool) {
+        latest = current
+        if value.isEmpty || !focused || !playing { value = current }
+    }
+
+    mutating func setFocused(_ focused: Bool) {
+        self.focused = focused
+        if !focused { value = latest }
     }
 }

@@ -26,7 +26,12 @@ final class MixerSession: ObservableObject {
 
     init(controller: ProjectController, player: ProjectPlayerViewModel) {
         self.controller = controller; self.player = player
-        fromTimeline = controller.timelineHasKeyboardFocus || TimelineKeyboardFocus.isInTimeline
+        if NSWorkspace.shared.isVoiceOverEnabled, let window = controller.projectSaveCoordinator?.attachedWindow {
+            if case .timeline = WorkspaceVoiceOverCommandFocus.forWindow(window).owner { fromTimeline = true }
+            else { fromTimeline = false }
+        } else {
+            fromTimeline = controller.timelineHasKeyboardFocus || TimelineKeyboardFocus.isInTimeline
+        }
         origin = controller.selectedTimelineClip.map { .clip($0.id) }
         refresh()
         selectedID = tracks.contains(where: { $0.id == controller.activeTimelineTrackID })
@@ -203,9 +208,8 @@ private struct MixerLivePlayhead: View {
         MixerPlayheadSlider(value: Binding(get: {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }),
-            step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
-            ready: player.canControlPlayback, playing: player.isPlaying,
-            prepareFocus: player.refreshAccessibilityValueForFocus)
+            step: player.playbackFractionStep, timecode: player.spokenTimecode(at: clock.time),
+            ready: player.canControlPlayback, playing: player.isPlaying)
     }
 }
 

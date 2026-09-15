@@ -91,8 +91,16 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         keyboardMonitor = nil
+        onKeyChange?(false)
+        onKeyChange = nil
         session.player.stopMixerPlayback()
-        onClose?(); onClose = nil
+        let completion = onClose
+        onClose = nil
+        // Keep registry ownership until AppKit has finished closing this window.
+        Task { @MainActor in
+            await Task.yield()
+            completion?()
+        }
     }
     private func handle(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
