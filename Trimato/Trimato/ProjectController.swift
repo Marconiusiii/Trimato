@@ -45,6 +45,7 @@ final class ProjectController: ObservableObject {
     @Published var transitionRequest: TransitionRequest?
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
+    @Published private(set) var workspaceFocusRequest = WorkspaceFocusRequest()
     @Published private(set) var projectSourceFocusRequest = ProjectSourceFocusRequest()
     @Published private(set) var timelineFocusRestoreRequest = 0
     @Published private(set) var timelineListFocusRestoreRequest = 0
@@ -1170,6 +1171,16 @@ final class ProjectController: ObservableObject {
 
     func requestEditorFocusRestore() {
         editorFocusRestoreRequest += 1
+    }
+
+    var acceptsWorkspaceCommands: Bool {
+        projectSaveCoordinator?.acceptsWorkspaceCommands == true && !isImporting &&
+            !isExporting && !isPresentingExportPanel && applyingTransitionName == nil
+    }
+
+    func requestWorkspaceFocus(_ pane: WorkspacePane) {
+        guard acceptsWorkspaceCommands else { return }
+        workspaceFocusRequest = WorkspaceFocusRequest(pane: pane, revision: workspaceFocusRequest.revision + 1)
     }
 
     func beginProjectSourceImportFocus(returningTo item: ProjectSourceItemID?) {

@@ -475,10 +475,16 @@ struct TimelineClipsCollection: NSViewRepresentable {
                 previousListFocusRequest = source.listFocusRequest
                 let request = source.listFocusRequest
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, self.previousListFocusRequest == request else { return }
+                    guard let self, self.previousListFocusRequest == request,
+                          let collection = self.collectionView,
+                          let window = collection.window, window.isKeyWindow,
+                          window.attachedSheet == nil, NSApp.modalWindow == nil else { return }
                     self.pendingFocusTarget = nil
-                    self.collectionView?.deselectAll(nil)
-                    self.scrollView?.window?.makeFirstResponder(self.collectionView)
+                    guard window.makeFirstResponder(collection) else { return }
+                    if NSWorkspace.shared.isVoiceOverEnabled {
+                        collection.setAccessibilityFocused(true)
+                        NSAccessibility.post(element: collection, notification: .focusedUIElementChanged)
+                    }
                 }
             } else {
                 previousListFocusRequest = source.listFocusRequest
@@ -534,6 +540,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
 
         private func select(_ target: TimelineElementSelection) {
             guard let collectionView,
+                  let window = collectionView.window, window.isKeyWindow,
+                  window.attachedSheet == nil, NSApp.modalWindow == nil,
                   let index = models.firstIndex(where: { $0.selection == target }) else { return }
             let path = IndexPath(item: index, section: 0)
             // Explicit restoration replaces the old selection; selectItems adds

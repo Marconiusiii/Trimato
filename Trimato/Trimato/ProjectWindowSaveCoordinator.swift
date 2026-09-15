@@ -47,6 +47,16 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
     @Published private(set) var windowAttachmentRevision = 0
     @Published var presentedError: ProjectPresentedError?
 
+    var acceptsWorkspaceCommands: Bool {
+        guard let window, let application = NSApp else { return false }
+        return WorkspaceCommandAvailability.allows(
+            isActive: application.isActive,
+            isProjectWindowKey: application.keyWindow === window && window.isKeyWindow,
+            hasSheet: window.attachedSheet != nil, hasModalWindow: application.modalWindow != nil,
+            isClosing: isResolvingClose || isApplicationTerminating
+        )
+    }
+
     init(projectDocument: ProjectDocument, preferences: UserDefaults = .standard) {
         self.projectDocument = projectDocument
         self.preferences = preferences

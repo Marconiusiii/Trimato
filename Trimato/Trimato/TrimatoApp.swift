@@ -43,6 +43,7 @@ struct TrimatoApp: App {
             EditorWorkspaceView(document: file.document).editorAppearance()
         }
         .commands { MixerUndoCommands() }
+        .commands { WorkspaceCommands() }
         .commands {
             ProjectFileCommands()
             ContextualExportCommands()

@@ -132,6 +132,17 @@ struct ProjectTimelineView: View {
         .onAppear {
             reconcileActiveTrack()
         }
+        .onChange(of: controller.workspaceFocusRequest) { _, request in
+            guard request.pane == .timeline, controller.acceptsWorkspaceCommands else { return }
+            if let target = WorkspacePaneNavigation.timelineTarget(
+                remembered: focusedElement, keyboard: keyboardFocusedElement,
+                available: timelineCollectionItems.map(\.selection)
+            ) {
+                controller.requestTimelineFocusRestore(to: target)
+            } else {
+                controller.requestTimelineListFocusRestore()
+            }
+        }
         .onChange(of: controller.project.tracks.map(\.id)) {
             reconcileActiveTrack()
         }
@@ -199,12 +210,8 @@ struct ProjectTimelineView: View {
 
     @ViewBuilder
     private var timelineContent: some View {
-        if controller.project.tracks.isEmpty {
-            emptyMessage("No clips in the project timeline")
-        } else {
-            timelineScrollView
-                .onDeleteCommand(perform: deleteFocusedTimelineElement)
-        }
+        timelineScrollView
+            .onDeleteCommand(perform: deleteFocusedTimelineElement)
     }
 
     private func deleteFocusedTimelineElement() {

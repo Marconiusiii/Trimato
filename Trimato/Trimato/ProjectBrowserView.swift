@@ -161,6 +161,15 @@ struct ProjectBrowserView: View {
         .onChange(of: initialImportFocusRequest, initial: true) {
             focusImportFilesIfRequested()
         }
+        .onChange(of: controller.workspaceFocusRequest) { _, request in
+            guard request.pane == .project, controller.acceptsWorkspaceCommands else { return }
+            if controller.project.media.isEmpty {
+                importFilesHasKeyboardFocus = true
+                importFilesHasVoiceOverFocus = true
+            } else {
+                controller.requestProjectSourceFocus(to: sourceSelection ?? .clips(controller.project.id))
+            }
+        }
     }
 
     @ViewBuilder

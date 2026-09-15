@@ -420,9 +420,11 @@ struct EditorWorkspaceView: View {
 }
 
 struct ProjectViewerView: View {
+    @AppStorage(AppPreferenceKey.portraitVideo) private var portraitVideo = false
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @AppStorage(AppPreferenceKey.preserveHDR) private var preserveHDR = true
     private enum AccessibilityTarget: Hashable {
+        case heading
         case videoFrame
         case playhead
         case goToBeginning
@@ -451,6 +453,18 @@ struct ProjectViewerView: View {
     @AccessibilityFocusState(for: .voiceOver) private var focusedAccessibilityTarget: AccessibilityTarget?
     @State private var pendingProjectPlayheadFocus = false
     @State private var controlsHeight: CGFloat = 240
+    @State private var availableWidth: CGFloat = 0
+    @FocusState private var paneCommandKeyboardTarget: AccessibilityTarget?
+
+    private var controlsBesideVideo: Bool {
+        PortraitEditorLayout.placesControlsBesideVideo(enabled: portraitVideo, width: availableWidth)
+    }
+
+    private var viewerLayout: AnyLayout {
+        controlsBesideVideo
+            ? AnyLayout(HStackLayout(alignment: .top, spacing: 0))
+            : AnyLayout(VStackLayout(spacing: 0))
+    }
 
     init(controller: ProjectController, openClipEditor: @escaping (EditorSelection) -> Void,
          workspacePaneLinks: Namespace.ID, viewModel: ProjectPlayerViewModel) {
@@ -471,17 +485,24 @@ struct ProjectViewerView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(EditorTheme.controlSurface)
+                .focusable(!viewModel.canControlPlayback)
+                .focused($paneCommandKeyboardTarget, equals: .heading)
+                .accessibilityFocused($focusedAccessibilityTarget, equals: .heading)
 
             Divider()
 
-            videoArea
-                .frame(minHeight: 60, maxHeight: .infinity)
-            controlsArea
-                .fixedSize(horizontal: false, vertical: true)
-                .layoutPriority(1)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
+            viewerLayout {
+                videoArea
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 60, maxHeight: .infinity)
+                controlsArea
+                    .frame(width: controlsBesideVideo ? PortraitEditorLayout.controlsWidth : nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
+            }
         }
-        .frame(minHeight: controlsHeight + 92)
+        .frame(minHeight: controlsHeight + (controlsBesideVideo ? 32 : 92))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .accessibilityIdentifier("trimato.editor.root")
         .background(EditorAccessibilityFocusBridge(scope: focusScope))
         .focusedObject(viewModel)
@@ -552,6 +573,14 @@ struct ProjectViewerView: View {
         .onChange(of: controller.editorFocusRestoreRequest) {
             restoreProjectPlayheadFocus()
         }
+        .onChange(of: controller.workspaceFocusRequest) { _, request in
+            guard request.pane == .editor, controller.acceptsWorkspaceCommands else { return }
+            pendingProjectPlayheadFocus = false
+            let target: AccessibilityTarget = viewModel.canControlPlayback ? .playhead : .heading
+            viewModel.refreshAccessibilityValueForFocus()
+            paneCommandKeyboardTarget = target
+            focusedAccessibilityTarget = target
+        }
         .onChange(of: focusedAccessibilityTarget) { _, target in
             focusScope.recordVoiceOverFocus(target != nil)
             if target != nil { controller.setProjectInfoTarget(.editor) }
@@ -594,6 +623,7 @@ struct ProjectViewerView: View {
         }
         pendingProjectPlayheadFocus = false
         viewModel.refreshAccessibilityValueForFocus()
+        paneCommandKeyboardTarget = .playhead
         focusedAccessibilityTarget = .playhead
     }
 
@@ -674,6 +704,7 @@ struct ProjectViewerView: View {
             .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier("trimato.editor.playhead")
             .accessibilityFocused($focusedAccessibilityTarget, equals: .playhead)
+            .focused($paneCommandKeyboardTarget, equals: .playhead)
 
             moveAndEditGroup
             markersGroup
