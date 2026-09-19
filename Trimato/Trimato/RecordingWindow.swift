@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Combine
 
@@ -7,6 +8,19 @@ final class RecordingWindowRegistry: ObservableObject {
     @Published var session: ProjectRecordingSession?
     var closeWindow: (() -> Void)?
     private var pendingCloseID: UUID?
+    private weak var arrangedWindow: NSWindow?
+    private var windowObservation: NSObjectProtocol?
+
+    private func arrangeWindow(for id: UUID) {
+        guard session?.id == id, arrangedWindow == nil else { return }
+        guard let window = NSApp.windows.first(where: {
+            $0.isVisible && $0.title == session?.purpose.toolTitle
+        }) else { return }
+        arrangedWindow = window
+        AuthoringWindowArrangement.shared.place(window, beside: session?.controller?.projectSaveCoordinator?.attachedWindow)
+        if let windowObservation { NotificationCenter.default.removeObserver(windowObservation) }
+        windowObservation = nil
+    }
 
     func close(id: UUID) {
         guard session?.id == id else { return }
@@ -17,11 +31,24 @@ final class RecordingWindowRegistry: ObservableObject {
     func installCloseAction(id: UUID, action: @escaping () -> Void) {
         guard session?.id == id else { return }
         closeWindow = action
+        if windowObservation == nil {
+            windowObservation = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.arrangeWindow(for: id) }
+            }
+        }
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.arrangeWindow(for: id)
+        }
         if pendingCloseID == id { action() }
     }
 
     func finished(_ closing: ProjectRecordingSession) {
         guard session?.id == closing.id else { return }
+        AuthoringWindowArrangement.shared.release(arrangedWindow)
+        arrangedWindow = nil
+        if let windowObservation { NotificationCenter.default.removeObserver(windowObservation) }
+        windowObservation = nil
         closeWindow = nil
         pendingCloseID = nil
         session = nil

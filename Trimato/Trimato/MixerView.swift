@@ -110,7 +110,16 @@ struct MixerView: View {
                 set: { session.change(key, to: $0) })
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        ScrollView {
+            controls.fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(minWidth: 440, idealWidth: 440, minHeight: 620, idealHeight: 700)
+        .background(EditorTheme.controlSurface)
+        .blocksEditingDuringQuit()
+    }
+
+    private var controls: some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Mixer").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
             MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, play: session.togglePlayback)
             Divider()
@@ -124,8 +133,10 @@ struct MixerView: View {
                 AudioValueSlider(label: "Volume", value: value(\.volumeDB), range: -60...12, step: 0.5,
                     unit: "dB", identifier: "trimato.mixer.volume", spokenValue: MixerValue.decibels,
                     onEditingChanged: session.controller.mixerAdjustmentEditing)
-                Toggle("Mute", isOn: Binding(get: { session.selected?.muted ?? false }, set: session.mute))
-                Toggle("Solo", isOn: Binding(get: { session.selectedID.map { session.soloIDs.contains($0) } ?? false }, set: session.solo))
+                HStack {
+                    Toggle("Mute", isOn: Binding(get: { session.selected?.muted ?? false }, set: session.mute))
+                    Toggle("Solo", isOn: Binding(get: { session.selectedID.map { session.soloIDs.contains($0) } ?? false }, set: session.solo))
+                }
                 AudioValueSlider(label: "Pan", value: value(\.pan), range: -1...1, step: 0.01,
                     unit: "", identifier: "trimato.mixer.pan", spokenValue: MixerValue.position,
                     onEditingChanged: session.controller.mixerAdjustmentEditing)
@@ -152,7 +163,7 @@ struct MixerView: View {
             }
         }
         .padding(EditorTheme.dialogPadding)
-        .frame(minWidth: 640, idealWidth: 760)
+        .frame(minWidth: 440, idealWidth: 440)
         .background(EditorTheme.controlSurface)
         .blocksEditingDuringQuit()
     }

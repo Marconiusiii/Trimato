@@ -235,8 +235,23 @@ final class ProjectPlayerViewModel: ObservableObject {
     @Published private(set) var inMarker: ProjectTime?
     @Published private(set) var outMarker: ProjectTime?
 
+    @Published private(set) var authoringPlaybackID: UUID?
+
+    func beginAuthoringPlayback(id: UUID) {
+        stopCaptionRangePlayback(preservingSettlingPosition: false)
+        stopMixerPlayback()
+        player.pause()
+        authoringPlaybackID = id
+    }
+
+    func endAuthoringPlayback(id: UUID, at time: ProjectTime) {
+        guard authoringPlaybackID == id else { return }
+        authoringPlaybackID = nil
+        seek(to: time)
+    }
+
     var canControlPlayback: Bool {
-        !spatialMixBlocked && Self.canControlPlayback(hasPreparedItem: hasPreparedPlayerItem, isPreparing: isPreparing)
+        authoringPlaybackID == nil && !spatialMixBlocked && Self.canControlPlayback(hasPreparedItem: hasPreparedPlayerItem, isPreparing: isPreparing)
     }
 
     nonisolated static func canControlPlayback(hasPreparedItem: Bool, isPreparing: Bool) -> Bool {

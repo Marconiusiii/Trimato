@@ -1194,7 +1194,7 @@ final class ProjectController: ObservableObject {
     }
 
     var acceptsWorkspaceCommands: Bool {
-        projectSaveCoordinator?.acceptsWorkspaceCommands == true && !isImporting &&
+        projectSaveCoordinator?.acceptsWorkspaceCommands == true && recordingSession == nil && !isImporting &&
             !isExporting && !isPresentingExportPanel && applyingTransitionName == nil
     }
 

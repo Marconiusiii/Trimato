@@ -151,6 +151,13 @@ struct ProjectRecordingTests {
         let tool = try #require(NSApp.windows.first { $0.title == "Describer" && $0.isVisible })
         #expect(tool.sheetParent == nil)
         #expect(tool !== coordinator.attachedWindow)
+        if let projectWindow = coordinator.attachedWindow,
+           let screen = projectWindow.screen, screen.visibleFrame.width >= 1252 {
+            for _ in 0..<50 where tool.frame.intersects(projectWindow.frame) {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            #expect(!tool.frame.intersects(projectWindow.frame), "Describer must leave the project window visible")
+        }
         tool.performClose(nil)
         for _ in 0..<50 where controller.recordingSession != nil { try await Task.sleep(for: .milliseconds(20)) }
         #expect(controller.recordingSession == nil)

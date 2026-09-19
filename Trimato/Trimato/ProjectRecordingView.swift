@@ -52,6 +52,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         editingCueID = cue?.id
         let insertion = cue?.start.seconds ?? (purpose == .audioDescription ? controller.captionDraftRange?.start.seconds : nil) ?? controller.timelinePlayhead.seconds
         start = insertion
+        position = insertion
         end = cue?.end.seconds ?? controller.captionDraftRange?.end.seconds ?? min(controller.project.duration.seconds, insertion + 5)
         text = cue?.text ?? ""
         name = purpose.title
@@ -66,8 +67,12 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         takeRateObserver = takePlayer.publisher(for: \.rate).receive(on: RunLoop.main).sink { [weak self] in self?.takePlaying = $0 != 0 }
         rateObserver = player.publisher(for: \.rate).receive(on: RunLoop.main).sink { [weak self] in self?.playing = $0 != 0 }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] time in
-            Task { @MainActor [weak self] in self?.position = max(0, time.seconds) }
+            Task { @MainActor [weak self] in
+                guard let self, !self.closed, time.seconds.isFinite else { return }
+                self.position = max(0, time.seconds)
+            }
         }
+        controller.projectPlayer?.beginAuthoringPlayback(id: id)
         originalQuitDraft = quitDraft
     }
 
@@ -88,6 +93,10 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
                 preview(mixed: false, autoplay: false, recording: true, soundFeedback: true)
             } else { capture.setRecording(true, input: input) }
         } else { capture.setRecording(false, input: input) }
+    }
+
+    func playProjectRange() {
+        preview(mixed: false, soundFeedback: true)
     }
 
     func stopPlayback() {
@@ -154,6 +163,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
                 player.replaceCurrentItem(with: item)
                 let sought = await player.seek(to: ProjectTime(seconds: requestedPosition).cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
                 guard sought, player.currentItem === item else { throw CancellationError() }
+                position = requestedPosition
                 try Task.checkCancellation()
                 processingSound.stopBeforePlayback()
                 if autoplay { player.play() }
@@ -339,6 +349,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         closed = true
         operation?.cancel()
         player.pause()
+        controller?.projectPlayer?.endAuthoringPlayback(id: id, at: ProjectTime(seconds: position))
         player.replaceCurrentItem(with: nil)
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         timeObserver = nil
@@ -371,15 +382,39 @@ struct ProjectRecordingView: View {
     @AccessibilityFocusState private var textFocus: Field?
     @StateObject private var voiceWork = VoiceAdjustmentWork()
     @State private var selectedTab = "Recording"
+    @State private var contentHeight: CGFloat = 600
 
     init(session: ProjectRecordingSession) {
         self.session = session
         _capture = ObservedObject(wrappedValue: session.capture)
     }
     var body: some View {
+        ScrollView {
+            form
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        }
+        .frame(width: 440, height: min(contentHeight, maximumContentHeight))
+    }
+
+    private var maximumContentHeight: CGFloat {
+        let screen = session.controller?.projectSaveCoordinator?.attachedWindow?.screen ?? NSScreen.main
+        return max(300, (screen?.visibleFrame.height ?? 800) - 64)
+    }
+
+    private var form: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(session.purpose.toolTitle).font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
-            VideoPlayerView(player: session.player).frame(height: 140)
+            LabeledContent("Timecode") {
+                Text(ProjectTimecodeFormatter.string(ProjectTime(seconds: session.position)))
+                    .monospacedDigit()
+            }
+            HStack {
+                Button(session.playing ? "Stop playback" : "Play project range") {
+                    session.playProjectRange()
+                }
+                .disabled(session.busy || capture.isBusy || !session.validRange)
+            }
             LabeledContent("Clip name") {
                 TextField("", text: $session.name)
                     .focused($keyboardFocus, equals: .name)
@@ -387,72 +422,80 @@ struct ProjectRecordingView: View {
                     .disabled(session.saving)
                     .labelsHidden()
             }
-            TabView(selection: $selectedTab) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        LabeledContent(session.isDescriber ? "In" : "Insert at") {
-                            TextField("", value: $session.start, format: RecordingTimeFormat()).labelsHidden()
+            Picker("Recording settings", selection: $selectedTab) {
+                Text("Recording").tag("Recording")
+                Text("Voice").tag("Voice")
+            }
+            .pickerStyle(.segmented)
+            .disabled(voiceWork.busy || capture.isBusy || session.busy)
+            Group {
+                if selectedTab == "Recording" {
+                    VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            LabeledContent(session.isDescriber ? "In" : "Insert at") {
+                                TextField("", value: $session.start, format: RecordingTimeFormat()).labelsHidden()
+                            }
+                            if session.isDescriber {
+                                LabeledContent("Out") { TextField("", value: $session.end, format: RecordingTimeFormat()).labelsHidden() }
+                            }
                         }
+                        .disabled(capture.isBusy || session.busy)
                         if session.isDescriber {
-                            LabeledContent("Out") { TextField("", value: $session.end, format: RecordingTimeFormat()).labelsHidden() }
-                        }
-                    }
-                    .disabled(capture.isBusy || session.busy)
-                    if session.isDescriber {
-                        Text("Description transcript").font(.headline).accessibilityAddTraits(.isHeader)
-                        LabeledContent("Description text") {
-                            TextEditor(text: $session.text)
-                            .labelsHidden()
-                            .focused($keyboardFocus, equals: .transcript)
-                            .accessibilityFocused($textFocus, equals: .transcript)
-                            .frame(height: 80)
-                            .disabled(session.saving)
+                            Text("Description transcript").font(.headline).accessibilityAddTraits(.isHeader)
+                            LabeledContent("Description text") {
+                                TextEditor(text: $session.text)
+                                .labelsHidden()
+                                .focused($keyboardFocus, equals: .transcript)
+                                .accessibilityFocused($textFocus, equals: .transcript)
+                                .frame(height: 80)
+                                .disabled(session.saving)
+                            }
+                            VStack(alignment: .leading, spacing: 8) {
+                                Toggle("Speed up to fit", isOn: $session.fitLongTake)
+                                    .onChange(of: session.fitLongTake) { _, value in if value { session.trimLongTake = false } }
+                                Toggle("Trim at Out", isOn: $session.trimLongTake)
+                                    .onChange(of: session.trimLongTake) { _, value in if value { session.fitLongTake = false } }
+                            }
+                            .disabled(session.busy || capture.isBusy)
+                            Toggle("Audio Ducking", isOn: $session.ducking.enabled)
+                                .toggleStyle(.switch)
+                                .disabled(session.busy || capture.isBusy)
+                            if session.ducking.enabled {
+                                LabeledContent("Audio Ducking Amount") {
+                                    TextField("", value: $session.ducking.decibels, format: .number.precision(.fractionLength(0...1))).labelsHidden()
+                                    Text("dB").accessibilityHidden(true)
+                                }
+                                .disabled(session.busy || capture.isBusy)
+                                LabeledContent("Fade time, seconds") {
+                                    TextField("", value: $session.ducking.fadeSeconds, format: .number.precision(.fractionLength(0...2))).labelsHidden()
+                                }
+                                .disabled(session.busy || capture.isBusy)
+                            }
                         }
                         HStack {
-                            Toggle("Speed up to fit", isOn: $session.fitLongTake)
-                                .onChange(of: session.fitLongTake) { _, value in if value { session.trimLongTake = false } }
-                            Toggle("Trim at Out", isOn: $session.trimLongTake)
-                                .onChange(of: session.trimLongTake) { _, value in if value { session.fitLongTake = false } }
+                            Toggle("Record", isOn: Binding(get: { capture.isRecordingRequested || session.preparingRecording }, set: { session.toggleRecording($0) }))
+                                .toggleStyle(.button)
+                                .disabled(session.busy && !session.preparingRecording)
+                            Button(session.takePlaying ? "Stop take" : "Play take") { session.playTake() }
+                                .disabled(capture.testURL == nil || capture.isBusy || session.busy)
                         }
-                        .disabled(session.busy || capture.isBusy)
-                        Toggle("Audio Ducking", isOn: $session.ducking.enabled)
-                            .toggleStyle(.switch)
-                            .disabled(session.busy || capture.isBusy)
-                        if session.ducking.enabled {
-                            LabeledContent("Audio Ducking Amount") {
-                                TextField("", value: $session.ducking.decibels, format: .number.precision(.fractionLength(0...1))).labelsHidden()
-                                Text("dB").accessibilityHidden(true)
+                        HStack {
+                            Button(session.playing ? "Stop playback" : "Play with Primary Audio") { session.preview(mixed: true, soundFeedback: true) }
+                                .disabled(capture.testURL == nil || capture.isBusy || session.busy)
+                            Button("Delete take") { session.stopPlayback(); capture.deleteTest() }
+                                .disabled(capture.testURL == nil || capture.isBusy || session.busy)
+                        }
+                        if let summary = capture.summary {
+                            Text("Take length: \(summary.duration, specifier: "%.2f") seconds")
+                            if session.isDescriber && summary.duration > session.end - session.start {
+                                Text("Beyond Out: \(summary.duration - (session.end - session.start), specifier: "%.2f") seconds")
                             }
-                            .disabled(session.busy || capture.isBusy)
-                            LabeledContent("Fade time, seconds") {
-                                TextField("", value: $session.ducking.fadeSeconds, format: .number.precision(.fractionLength(0...2))).labelsHidden()
-                            }
-                            .disabled(session.busy || capture.isBusy)
                         }
                     }
-                    HStack {
-                        Toggle("Record", isOn: Binding(get: { capture.isRecordingRequested || session.preparingRecording }, set: { session.toggleRecording($0) }))
-                            .toggleStyle(.button)
-                            .disabled(session.busy && !session.preparingRecording)
-                        Button(session.takePlaying ? "Stop take" : "Play take") { session.playTake() }
-                            .disabled(capture.testURL == nil || capture.isBusy || session.busy)
-                        Button("Play with Primary Audio") { session.preview(mixed: true, soundFeedback: true) }
-                            .disabled(capture.testURL == nil || capture.isBusy || session.busy)
-                        Button("Delete take") { session.stopPlayback(); capture.deleteTest() }
-                            .disabled(capture.testURL == nil || capture.isBusy || session.busy)
-                    }
-                    if let summary = capture.summary {
-                        Text("Take length: \(summary.duration, specifier: "%.2f") seconds")
-                        if session.isDescriber && summary.duration > session.end - session.start {
-                            Text("Beyond Out: \(summary.duration - (session.end - session.start), specifier: "%.2f") seconds")
-                        }
-                    }
-                }
-                .padding(8).tabItem { Text("Recording") }.tag("Recording")
-                if let controller = session.controller {
+                } else if let controller = session.controller {
                     VStack(alignment: .leading, spacing: 10) {
                         VoiceAdjustmentControls(settings: $session.voice, controller: controller, work: voiceWork,
-                            track: session.voiceTrack, validateTake: session.validateVoice,
+                            track: session.voiceTrack, compact: true, validateTake: session.validateVoice,
                             applyTrack: { settings in
                                 if let track = session.voiceTrack { try await controller.applyVoiceToTrack(track.id, settings: settings) }
                             }, beforePlayback: session.stopPlayback)
@@ -460,13 +503,11 @@ struct ProjectRecordingView: View {
                             Button(session.takePlaying ? "Stop take" : "Play take") { voiceWork.cancel(); session.playTake() }
                             Button("Play with Primary Audio") { voiceWork.cancel(); session.preview(mixed: true, soundFeedback: true) }
                         }.disabled(capture.testURL == nil || session.busy || voiceWork.busy)
-                        Spacer(minLength: 0)
                     }
                     .disabled(capture.isBusy || session.busy)
-                    .padding(8).tabItem { Text("Voice") }.tag("Voice")
+
                 }
             }
-            .frame(height: session.isDescriber ? 385 : 330)
             .disabled(voiceWork.busy)
             if voiceWork.busy {
                 HStack { ProgressView("Preparing voice adjustments"); Button("Cancel preparation") { voiceWork.cancel() } }
@@ -484,13 +525,12 @@ struct ProjectRecordingView: View {
             }
         }
         .padding(EditorTheme.dialogPadding)
-        .frame(width: 620)
+        .frame(width: 440)
         .interactiveDismissDisabled()
         .onChange(of: capture.state) { _, state in
             if state == .recording { session.player.play() }
             else if state == .idle || state == .finishing {
                 session.player.pause()
-                if state == .finishing { session.player.replaceCurrentItem(with: nil) }
             }
         }
         .defaultFocus($keyboardFocus, .name)

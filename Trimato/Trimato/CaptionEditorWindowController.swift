@@ -71,7 +71,7 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
         let focusRequest = NativeModalFocusRequest()
         let modalWindow = NativeModalWindowController(
             title: session.title,
-            contentSize: NSSize(width: 560, height: 390),
+            contentSize: NSSize(width: 440, height: 390),
             rootView: CaptionEditorView(session: session, focusRequest: focusRequest),
             focusRequest: focusRequest,
             returnWindow: projectWindow,
@@ -85,11 +85,15 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
         session.closeAction = { [weak modalWindow] in modalWindow?.closeModal() }
         activeSession = session
         activeWindow = modalWindow
+        if let window = modalWindow.window {
+            AuthoringWindowArrangement.shared.place(window, beside: projectWindow)
+        }
         controller.setCaptionEditorOpen(true)
         modalWindow.showModal()
     }
 
     private func finish() {
+        AuthoringWindowArrangement.shared.release(activeWindow?.window)
         controller?.stopCaptionPlayback()
         controller?.setCaptionEditorOpen(false)
         projectWindow = nil
@@ -232,6 +236,8 @@ struct CaptionEditorView: View {
                     Button("Sound Description") { session.insert("[sound description]") }
                     Button("Lyrics") { session.insert("♪ lyrics ♪") }
                 }
+            }
+            HStack {
                 Spacer()
                 Button("Cancel", action: session.cancel)
                     .keyboardShortcut(.cancelAction)
@@ -243,7 +249,7 @@ struct CaptionEditorView: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 520, minHeight: 350)
+        .frame(width: 440)
         .pendingQuitDraft(session.text, pending: session.hasPendingQuitEdits,
             validate: { if !session.canSave { throw QuitDraftError(message: "Enter caption text before saving.") } },
             apply: { try session.saveForQuit(); session.cancel() })

@@ -45,10 +45,11 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
     var onKeyChange: ((Bool) -> Void)?
     var onClose: (() -> Void)?
     private var keyboardMonitor: Any?
+    private var didArrange = false
 
     init(session: MixerSession) {
         self.session = session
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 790),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Mixer"
         window.contentViewController = NSHostingController(rootView:
@@ -61,7 +62,7 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
         window.collectionBehavior.insert(.participatesInCycle)
         window.isExcludedFromWindowsMenu = false
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 680, height: 700)
+        window.minSize = NSSize(width: 440, height: 620)
         window.center()
         super.init(window: window)
         window.delegate = self
@@ -81,6 +82,10 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
             window.setFrame(ClipEditorLayout.fitting(window.frame, in: screen.visibleFrame), display: false)
         }
         showWindow(nil)
+        if !didArrange, let window {
+            AuthoringWindowArrangement.shared.place(window, beside: session.controller.projectSaveCoordinator?.attachedWindow)
+            didArrange = true
+        }
         window?.makeKeyAndOrderFront(nil)
     }
     func windowDidBecomeKey(_ notification: Notification) {
@@ -89,6 +94,7 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
     }
     func windowDidResignKey(_ notification: Notification) { onKeyChange?(false) }
     func windowWillClose(_ notification: Notification) {
+        AuthoringWindowArrangement.shared.release(window)
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         keyboardMonitor = nil
         onKeyChange?(false)

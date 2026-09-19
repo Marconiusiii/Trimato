@@ -15,12 +15,12 @@ Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will n
 - Activate Trim a Clip on the welcome screen to choose an audio or video file and open the standalone Clip Editor without creating a project first, then create a project from the current edit when ready.
 - Edit audio-only sources against a static waveform with a visible playhead, using the same playback, marker, trimming, timeline, and project tools as video.
 - Open a source clip, timeline clip, or cutaway in Trimato's focused clip editor.
-- Arrange clips on independent video and audio tracks, using one linear Timeline clips list for the track selected in the Track picker. Primary tracks retain magnetic editing, while additional tracks also support absolute positioning and gaps.
+- Arrange clips on independent video and audio tracks, using one linear Timeline clips list for the track selected in the Track picker. Primary tracks retain magnetic editing. Additional tracks default to absolute placement and offer an undoable Magnetic setting.
 - Append clips, insert and split at the playhead, or replace the remainder of the clip at the playhead.
 - Add a single-layer cutaway that temporarily replaces the picture, either with its source audio or while retaining the primary storyline audio.
 - Send only the audio from an imported video clip to an existing or newly named audio track, using the complete source edit or its marked In and Out range.
 - Split, rename, remove, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
-- Pick up a Timeline clip with Space, choose its position with arrow keys, and drop it with Space as one undoable move. On additional tracks, plain arrows also nudge the focused clip one project frame without pickup and without overlapping neighboring clips.
+- Pick up a Timeline clip with Space, choose its position with arrow keys, and drop it with Space as one undoable move. With Magnetic off on additional tracks, plain arrows also nudge the focused clip one project frame without pickup and without overlapping neighboring clips.
 - Add, edit, and remove video fades, cross dissolves, directional wipes, audio fades, and cross fades as independent timeline elements.
 - Create saved Black, Solid Color, Static Gradient, Silence, and Text generators from a native Generator window.
 - Apply curated video and audio filters to individual timeline clips, with editable parameters, bypass, reset, and removal. Basic audio gain remains separate.
@@ -50,7 +50,7 @@ Press Command-Shift-D to open Describer at the Editor markers, or Command-Shift-
 
 In Settings > Audio, choose System Default to use the current macOS input or playback device, or select a specific device. Input and playback can use different devices. Choose the input channel for a multi-channel interface. Recordings retain the input sample rate and use the selected recording quality.
 
-Choose Add to Project to add the recording as an audio clip. Describer can also save written description text on the Description Transcript track.
+Choose Add to Project to add the recording at its requested project time on an absolute track. New Describer and Voicer recordings use an available track with Magnetic off or create one, even if a previous recording track has been made magnetic. While Magnetic remains off, changing one recording leaves the other recordings at their assigned times. Describer can also save written description text on the Description Transcript track. Captions and description transcripts always retain independent start and end times; primary-timeline edits do not automatically retime them.
 
 ## Sound settings
 
@@ -84,10 +84,13 @@ These commands apply while focus is in Editor or Clip Editor. Timeline Clips use
 - J: Play in reverse. Press repeatedly to increase reverse speed.
 - K: Play or pause.
 - L: Play forward. Press repeatedly to increase forward speed.
+- T: Speak the current time in Editor or Mixer. In Clip Editor, select On Demand in Timecode Feedback to use T.
 - Command-Left Arrow: Move to the previous timeline point.
 - Command-Right Arrow: Move to the next timeline point.
 - Command-Up Arrow: Move to the start of the edited clip.
 - Command-Down Arrow: Move to the end of the edited clip.
+
+The playhead’s accessible timecode stays stable during continuous playback. Pausing or completing a seek or frame jog updates it to the stopped position without requiring a VoiceOver focus change. The visible timecode continues to advance during playback.
 
 ### Clip Editor marking and editing
 
@@ -111,8 +114,8 @@ These commands apply while focus is in Editor or Clip Editor. Timeline Clips use
 - Command-T: Open Add Transition for the clip at the Editor playhead or the focused Timeline clips item.
 - Command-[: While focus is in Editor, trim the start of the active track's announced clip to the shared project playhead.
 - Command-]: While focus is in Editor, trim the end of the active track's announced clip to the shared project playhead. When a Timeline clip is focused, trim that focused clip's end instead.
-- [: While focus is in Editor, move an additional-track clip so its head begins at the shared project playhead without trimming its stored source.
-- ]: While focus is in Editor, move an additional-track clip so its tail ends at the shared project playhead without trimming its stored source.
+- [: While focus is in Editor, move an additional-track clip with Magnetic off so its head begins at the shared project playhead without trimming its stored source.
+- ]: While focus is in Editor, move an additional-track clip with Magnetic off so its tail ends at the shared project playhead without trimming its stored source.
 - C: Open Clip Editor for the active-track clip at or immediately after the Editor playhead.
 - Command-C: Copy the focused Timeline clip.
 - Command-V: Paste a copy immediately after the focused Timeline clip.
@@ -120,8 +123,8 @@ These commands apply while focus is in Editor or Clip Editor. Timeline Clips use
 - Control-Enter: Open Selected Element Actions for the focused Timeline clips item.
 - Option-Command-Up Arrow: Select the previous timeline track and announce its direct-edit clip.
 - Option-Command-Down Arrow: Select the next timeline track and announce its direct-edit clip.
-- Option-Command-Left Arrow: Move the focused clip one position earlier on a primary track, or nudge it one frame earlier on an additional track. If a clip is picked up, adjust that clip instead.
-- Option-Command-Right Arrow: Move the focused clip one position later on a primary track, or nudge it one frame later on an additional track. If a clip is picked up, adjust that clip instead.
+- Option-Command-Left Arrow: Move the focused clip one position earlier on a magnetic track, or nudge it one frame earlier on an additional track with Magnetic off. If a clip is picked up, adjust that clip instead.
+- Option-Command-Right Arrow: Move the focused clip one position later on a magnetic track, or nudge it one frame later on an additional track with Magnetic off. If a clip is picked up, adjust that clip instead.
 - Command-G: Open Generator from the project Editor.
 - F: Open Quick Fade at the Editor playhead.
 - X: Open Quick Cross Dissolve or Quick Cross Fade for the edit at the Editor playhead.
@@ -130,17 +133,17 @@ These commands apply while focus is in Editor or Clip Editor. Timeline Clips use
 
 - Space: Pick up the focused clip for movement, or drop the picked-up clip.
 - Enter or Return: Open the focused clip in Clip Editor, matching normal button activation.
-- Left Arrow or Up Arrow: On primary tracks, move the picked-up clip one list position earlier. On additional tracks, nudge the focused or picked-up clip one project frame earlier.
-- Right Arrow or Down Arrow: On primary tracks, move the picked-up clip one list position later. On additional tracks, nudge the focused or picked-up clip one project frame later.
+- Left Arrow or Up Arrow: On magnetic tracks, move the picked-up clip one list position earlier. With Magnetic off on additional tracks, nudge the focused or picked-up clip one project frame earlier.
+- Right Arrow or Down Arrow: On magnetic tracks, move the picked-up clip one list position later. With Magnetic off on additional tracks, nudge the focused or picked-up clip one project frame later.
 - Escape: Drop the picked-up clip at its proposed position.
 - Command-Z: Undo an immediate nudge or the complete pickup-and-drop move.
 - VO-Command-Shift-Space: Hold the mouse button on a clip, use arrows to adjust its position, then repeat the command to release and drop it.
 
-Additional-track nudges do not require Space first. With VoiceOver, use ordinary VO-Arrow navigation to review clips; those navigation commands do not move clips. If Quick Nav is handling plain arrows, turn it off for nudging or use the Timeline menu's Move Clip Earlier and Move Clip Later commands.
+With Magnetic off, additional-track nudges do not require Space first. With VoiceOver, use ordinary VO-Arrow navigation to review clips; those navigation commands do not move clips. If Quick Nav is handling plain arrows, turn it off for nudging or use the Timeline menu's Move Clip Earlier and Move Clip Later commands.
 
 Choose Remove from Timeline to remove a clip while keeping its source in Project Source. Choose Delete Media in Timeline Clips or Project Source to remove the source from the project and all timeline clips and transitions that use it. The confirmation shows how many timeline clips use the source. Files remain in Finder. Both actions support Undo and Redo. Save the project to keep these changes.
 
-The clip context menu provides a movement-selection toggle and one Move To… submenu with Start, Before, After, and End. Pick up a source clip, focus a destination, and choose Before or After. Start and End use the active track and also work directly on the focused clip without pickup. The redundant Move Earlier and Move Later context-menu items have been removed.
+The clip context menu provides a movement-selection toggle and one Move To… submenu with Start, Before, After, End, and Playhead. Playhead places the source clip’s start at the current project playhead on an additional track with Magnetic off, without moving neighboring clips. Pick up a source clip, focus a destination, and choose Before or After. Start, End, and Playhead use the active track and also work directly on the focused clip without pickup. The redundant Move Earlier and Move Later context-menu items have been removed.
 
 Media can also be dragged from Finder into the Project Browser. Native menus provide placement, movement, and editing commands.
 
@@ -198,13 +201,17 @@ In and Out are general selection markers:
 
 After a clip-editor deletion, the playhead moves to the new edit point and the markers are cleared. Source edits remain temporary until placed in the timeline. The project saves each timeline clip’s ranges, and project changes participate in the standard Undo and Redo commands.
 
-The primary video and audio tracks retain magnetic editing, so operations that remove time close the resulting space on that track. Additional tracks can also contain independently positioned clips and gaps for music, effects, and layered material. Clips on different tracks can begin and end independently. The Track picker chooses the video or audio track presented as a native chronological Timeline clips list, while the Editor playhead remains shared across the complete project. Timeline clips is for reviewing and arranging the project. Clip Editor changes a source edit, Transition Editor changes transition timing, and Editor provides project playback and direct playhead-based editing.
+The primary video and audio tracks retain magnetic editing, so operations that remove time close the resulting space on that track. Additional tracks default to Magnetic off: editing, replacing, trimming, deleting, pasting, or moving one clip preserves its neighbors’ assigned times. Append places a clip after the track’s last clip. Overlapping placements are rejected without shifting other clips. Clips on different tracks can begin and end independently. The Track picker chooses the video or audio track presented as a native chronological Timeline clips list, while the Editor playhead remains shared across the complete project. Timeline clips is for reviewing and arranging the project. Clip Editor changes a source edit, Transition Editor changes transition timing, and Editor provides project playback and direct playhead-based editing.
+
+Use the Magnetic checkbox beside the Track picker to change an additional audio or video track’s behavior. Enabling Magnetic on a populated track requires confirmation: it moves the first clip to project time zero and places every subsequent clip directly after the previous clip in chronological order, removing all gaps. The setting and repositioning form one Undo action that restores the exact previous arrangement. Turning Magnetic off preserves the current positions; earlier magnetic edits have their own Undo actions. The setting is saved with the project. Older additional tracks without a saved setting open with Magnetic off and retain their stored positions.
+
+On magnetic tracks, insertion, replacement, and duration changes can shift later clips. With Magnetic off, insertion requires free space at the playhead, and replacing a clip’s remainder preserves later clips’ times. A replacement that would overlap another clip is rejected.
 
 The protected primary video and audio tracks retain the standard placement commands. Insert and Split splits the clip under the playhead and preserves both sides. After insertion, the shared project playhead advances to the incoming clip's end, so consecutive insertions stay in the order they were made. Insert and Overwrite preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips after the inserted clip. User-created tracks can be added, renamed, reordered, and deleted independently. A cutaway requires a visual source. It changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
 
 Current identifies the clip beneath the playhead on the displayed track. Selected identifies only a clip picked up for movement. VoiceOver focus updates the target for clip commands and Command-I Get Info without moving the playhead or picking up a clip. In a gap, no clip is marked Current, even though Editor's C command can open the next clip.
 
-During pickup-and-drop movement, the live timeline stays unchanged until drop. Primary-track arrows announce the proposed list position; additional-track nudges announce the proposed start frame. Ordinary navigation does not announce list positions. An immediate nudge changes only the focused clip's time and any linked audio that moves with picture. Neighboring clips stay in place. Nudges cannot overlap or cross another clip on the same track, but edges may touch. A linked-track collision also blocks the move. Clips with attached transitions must have those transitions removed before nudging. A project without a defined frame rate uses 30 fps for nudges.
+During pickup-and-drop movement, the live timeline stays unchanged until drop. Magnetic-track arrows announce the proposed list position; nudges on tracks with Magnetic off announce the proposed start frame. Ordinary navigation does not announce list positions. An immediate nudge changes only the focused clip's time and any linked audio that moves with picture. Neighboring clips stay in place. Nudges cannot overlap or cross another clip on the same track, but edges may touch. A linked-track collision also blocks the move. Clips with attached transitions must have those transitions removed before nudging. A project without a defined frame rate uses 30 fps for nudges.
 
 When a video source contains audio, open it in Clip Editor and use the native Audio Only menu to append its audio, insert its audio at the project playhead, or insert and overwrite on an audio track. Add Audio Only to Track lists only audio tracks and can create a named audio track in the same operation. New Track from Video and New Track from Audio are also available in Clip Editor and from a Project Source clip's Actions and context menus. Each command creates a named compatible track and appends the current source edit as one undoable operation; the audio command contributes no picture to preview or export.
 
@@ -366,7 +373,7 @@ Accessibility is part of Trimato's editing model rather than an additional mode.
 - Get Info opens a standard macOS window titled for the focused item. Each field is exposed to VoiceOver as one qualified label and value, and the window closes with the standard window controls or Command-W.
 - Quick transition sheets return VoiceOver focus to the Editor after applying or canceling so repeated playback and editing remain in context.
 - Timeline list items expose names and positions without continuously speaking start, end, and duration values. Press Command-I for exact timing and other information about the focused item.
-- Settings has General, Audio, Video, Accessibility, and Storage panes. Video contains Preserve HDR. Accessibility includes Timecode Feedback controls for Live, On Demand, or Off feedback and Default, Short, or Frames verbosity. In On Demand mode, press T in Editor or Clip Editor to hear the current time.
+- Settings has General, Audio, Video, Accessibility, and Storage panes. Video contains Preserve HDR. Accessibility includes Timecode Feedback controls for Live, On Demand, or Off feedback and Default, Short, or Frames verbosity. Press T in Editor or Mixer to hear the current time with any feedback setting. In Clip Editor, T is available with On Demand selected.
 - Import preparation appears in a native modal sheet so the inactive editor does not remain in the active VoiceOver context.
 - Import, export, transition, generator, and filter operations use separate progress windows with cancellation and restrained spoken percentage announcements.
 - In, Out, navigation, editing, completion, and failure actions provide spoken feedback.

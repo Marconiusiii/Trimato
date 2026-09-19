@@ -292,6 +292,7 @@ struct EditorWorkspaceView: View {
                 )
             }
                 .frame(minWidth: 210, idealWidth: 260, maxWidth: 360)
+                .disabled(controller.recordingSession != nil)
 
             VSplitView {
                 MacEditorPane("Editor") {
@@ -314,6 +315,7 @@ struct EditorWorkspaceView: View {
                 }
                 .frame(minWidth: 460)
                 .frame(minHeight: 240)
+                .disabled(controller.recordingSession != nil)
             }
         }
         .frame(minWidth: 800, minHeight: 720)
@@ -496,17 +498,21 @@ struct ProjectViewerView: View {
 
             Divider()
 
-            viewerLayout {
-                videoArea
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 60, maxHeight: .infinity)
-                controlsArea
-                    .frame(width: controlsBesideVideo ? PortraitEditorLayout.controlsWidth : nil)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .layoutPriority(1)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
+            if let session = controller.recordingSession {
+                RecordingEditorPreview(session: session, project: controller.project)
+            } else {
+                viewerLayout {
+                    videoArea
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 60, maxHeight: .infinity)
+                    controlsArea
+                        .frame(width: controlsBesideVideo ? PortraitEditorLayout.controlsWidth : nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .layoutPriority(1)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
+                }
             }
         }
-        .frame(minHeight: controlsHeight + (controlsBesideVideo ? 32 : 92))
+        .frame(minHeight: controller.recordingSession == nil ? controlsHeight + (controlsBesideVideo ? 32 : 92) : 180)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .accessibilityIdentifier("trimato.editor.root")
         .background(EditorAccessibilityFocusBridge(scope: focusScope))

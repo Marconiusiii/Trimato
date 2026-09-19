@@ -81,6 +81,10 @@ struct VoiceAdjustmentControls: View {
     @ObservedObject var controller: ProjectController
     @ObservedObject var work: VoiceAdjustmentWork
     var track: TimelineTrack?
+    var compact = false
+    private var rowLayout: AnyLayout {
+        compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())
+    }
     let validateTake: (VoiceAdjustment) async throws -> Void
     let applyTrack: (VoiceAdjustment) async throws -> Void
     let beforePlayback: () -> Void
@@ -88,7 +92,7 @@ struct VoiceAdjustmentControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Voice adjustments").font(.headline).accessibilityAddTraits(.isHeader)
-            HStack {
+            rowLayout {
                 LabeledContent("Dialogue reference In") {
                     TextField("", value: $settings.referenceStart, format: RecordingTimeFormat()).labelsHidden()
                 }
@@ -96,7 +100,7 @@ struct VoiceAdjustmentControls: View {
                     TextField("", value: $settings.referenceEnd, format: RecordingTimeFormat()).labelsHidden()
                 }
             }
-            HStack {
+            rowLayout {
                 Button(work.playing ? "Stop playback" : "Play reference") {
                     if work.playing { work.cancel(); return }
                     beforePlayback()
@@ -136,7 +140,7 @@ struct VoiceAdjustmentControls: View {
                 .accessibilityValue(AudioClipControlSpecification.spokenDecibels(settings.level))
                 .accessibilityIdentifier("trimato.voice.level")
             Text(AudioClipControlSpecification.visibleDecibels(settings.level)).accessibilityHidden(true)
-            HStack {
+            rowLayout {
                 Button("Reset voice adjustments") {
                     settings.targetLoudness = nil
                     settings.evenOut = false

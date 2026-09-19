@@ -10,7 +10,7 @@
 <header><p><a href="index.html">Trimato Help</a></p></header>
 <main>
     <h1>Control playback and use In and Out points</h1>
-    <p>The playback commands on this page apply while focus is in Editor or Clip Editor. In Timeline Clips, Space picks up or drops a clip, and plain arrows reorder a picked-up primary-track clip or nudge an additional-track clip. <a href="timeline-editing.html">Read about Timeline clip movement.</a></p>
+    <p>The playback commands on this page apply while focus is in Editor or Clip Editor. In Timeline Clips, Space picks up or drops a clip, and plain arrows reorder a picked-up clip on a magnetic track or nudge an additional-track clip with Magnetic off. <a href="timeline-editing.html">Read about Timeline clip movement.</a></p>
 
     <h2>Play and pause</h2>
     <ul>
@@ -34,9 +34,11 @@
         <li>Activate the time display to switch between timecode and frame number.</li>
         <li>Choose Trimato &gt; Settings &gt; Accessibility to set Timecode Feedback to Live, On Demand, or Off.</li>
         <li>With Live or On Demand selected, choose Default, Short, or Frames from Timecode Verbosity.</li>
-        <li>With On Demand selected, press T to hear the current timecode.</li>
+        <li>Press T in Editor or Mixer to hear the current timecode with any feedback setting. In Clip Editor, select On Demand to use T.</li>
         <li>In a project Editor, press C to open Clip Editor for the active-track clip at or immediately after the playhead.</li>
     </ul>
+
+    <p>The playhead’s VoiceOver timecode stays stable during continuous playback. Pausing or completing a seek or frame jog updates it to the stopped position without requiring a focus change. The visible timecode continues to advance during playback.</p>
 
     <h2>Set and clear points</h2>
     <ul>
