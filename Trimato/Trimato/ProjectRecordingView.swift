@@ -411,15 +411,18 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
 struct ProjectRecordingView: View {
     @ObservedObject var session: ProjectRecordingSession
     @ObservedObject private var capture: AudioCaptureSession
+    let focusRevision: Int
     @Environment(\.controlActiveState) private var windowActivity
-    @State private var didSetInitialFocus = false
+    @State private var appliedFocusRevision: Int?
+    @State private var transcriptHeight: CGFloat = 220
     private enum Field: Hashable { case name, transcript }
     @FocusState private var keyboardFocus: Field?
     @AccessibilityFocusState private var textFocus: Field?
     @StateObject private var voiceWork = VoiceAdjustmentWork()
 
-    init(session: ProjectRecordingSession) {
+    init(session: ProjectRecordingSession, focusRevision: Int = 0) {
         self.session = session
+        self.focusRevision = focusRevision
         _capture = ObservedObject(wrappedValue: session.capture)
     }
     var body: some View {
@@ -427,12 +430,10 @@ struct ProjectRecordingView: View {
             form
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 440, height: min(600, maximumContentHeight))
-    }
-
-    private var maximumContentHeight: CGFloat {
-        let screen = session.controller?.projectSaveCoordinator?.attachedWindow?.screen ?? NSScreen.main
-        return max(300, (screen?.visibleFrame.height ?? 800) - 64)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            transcriptHeight = max(200, height - 590)
+        }
     }
 
     private var form: some View {
@@ -468,12 +469,12 @@ struct ProjectRecordingView: View {
                     .disabled(capture.isBusy || session.busy)
                     if session.isDescriber {
                         Text("Description transcript").font(.headline).accessibilityAddTraits(.isHeader)
-                        LabeledContent("Description text") {
+                        VStack(alignment: .leading, spacing: 6) {
                             TextEditor(text: $session.text)
-                            .labelsHidden()
+                            .accessibilityLabel("Description text")
                             .focused($keyboardFocus, equals: .transcript)
                             .accessibilityFocused($textFocus, equals: .transcript)
-                            .frame(height: 80)
+                            .frame(height: transcriptHeight)
                             .disabled(session.saving)
                         }
                         VStack(alignment: .leading, spacing: 8) {
@@ -540,7 +541,7 @@ struct ProjectRecordingView: View {
                 .accessibilityHidden(!capture.isPreparingInput && (!session.busy || session.preparingRecording))
             HStack {
                 Spacer()
-                Button("Cancel") { session.controller?.dismissRecording() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { session.controller?.requestCloseToolPane() }.keyboardShortcut(.cancelAction)
                 Button(session.saveTitle) { session.save() }
                     .buttonStyle(.borderedProminent)
                     .editorPrimaryAction()
@@ -550,7 +551,7 @@ struct ProjectRecordingView: View {
             }
         }
         .padding(EditorTheme.dialogPadding)
-        .frame(width: 440)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .interactiveDismissDisabled()
         .onChange(of: capture.state) { _, state in
             if state == .recording { session.player.play() }
@@ -559,14 +560,13 @@ struct ProjectRecordingView: View {
             }
         }
         .defaultFocus($keyboardFocus, .name)
-        .onChange(of: windowActivity, initial: true) { _, activity in
-            guard activity == .key, !didSetInitialFocus else { return }
-            didSetInitialFocus = true
-            Task { @MainActor in
-                await Task.yield()
-                keyboardFocus = .name
-                textFocus = .name
-            }
+        .task(id: windowActivity == .key ? focusRevision : nil) {
+            guard windowActivity == .key, appliedFocusRevision != focusRevision else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            appliedFocusRevision = focusRevision
+            keyboardFocus = .name
+            textFocus = .name
         }
         .task {
             if session.validRange, session.controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {

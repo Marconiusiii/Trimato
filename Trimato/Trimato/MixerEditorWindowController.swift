@@ -6,114 +6,53 @@ import SwiftUI
 final class MixerWindowRegistry: ObservableObject {
     static let shared = MixerWindowRegistry()
     @Published private(set) var session: MixerSession?
-    @Published private(set) var isKeyWindow = false
-    private var editor: MixerEditorWindowController?
     private var changes: AnyCancellable?
-    var activeSession: MixerSession? { isKeyWindow ? session : nil }
-    var activeWindow: NSWindow? { isKeyWindow ? editor?.window : nil }
+    private var keyboardMonitor: Any?
+    weak var focusScope: EditorAccessibilityFocusScope?
+    private var window: NSWindow? { session?.controller.projectSaveCoordinator?.attachedWindow }
+    var activeSession: MixerSession? { window?.isKeyWindow == true ? session : nil }
 
     func open(controller: ProjectController) {
-        if let editor { editor.showAndFocus(); return }
-        guard let player = controller.projectPlayer else { return }
-        let session = MixerSession(controller: controller, player: player)
-        self.session = session
-        changes = session.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-        let editor = MixerEditorWindowController(session: session)
-        self.editor = editor
-        editor.onKeyChange = { [weak self] key in self?.isKeyWindow = key }
-        editor.onClose = { [weak self] in
-            self?.isKeyWindow = false
-            self?.editor = nil
-            self?.session = nil
-            self?.changes = nil
-            session.close()
-        }
-        editor.showAndFocus()
-    }
-    func close(for controller: ProjectController) {
-        guard session?.controller === controller else { return }
-        editor?.window?.close()
-    }
-}
-
-/// Uses the Clip Editor's native window lifecycle and screen-fitting behavior.
-@MainActor
-final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
-    let session: MixerSession
-    var onKeyChange: ((Bool) -> Void)?
-    var onClose: (() -> Void)?
-    private var keyboardMonitor: Any?
-    private var didArrange = false
-
-    init(session: MixerSession) {
-        self.session = session
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 700),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Mixer"
-        window.contentViewController = NSHostingController(rootView:
-            MixerView(session: session, player: session.player)
-                .editorAppearance()
-                .onExitCommand { [weak window] in
-                    guard window?.attachedSheet == nil, NSApp.modalWindow == nil else { return }
-                    window?.performClose(nil)
-                })
-        window.collectionBehavior.insert(.participatesInCycle)
-        window.isExcludedFromWindowsMenu = false
-        window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 440, height: 620)
-        window.center()
-        super.init(window: window)
-        window.delegate = self
-        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            MainActor.assumeIsolated {
-                guard let self, let window = self.window, event.window === window,
-                      window.isKeyWindow, window.attachedSheet == nil else { return event }
-                return self.handle(event) ? nil : event
+        controller.openToolPane(.mixer) { [weak self, weak controller] in
+            guard let self, let controller, let player = controller.projectPlayer else { return }
+            let session = MixerSession(controller: controller, player: player)
+            self.session = session
+            changes = session.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.window, event.window === window,
+                          window.isKeyWindow, window.attachedSheet == nil,
+                          self.focusScope?.containsInputFocus == true else { return event }
+                    return self.handle(event) ? nil : event
+                }
             }
         }
     }
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func showAndFocus() {
-        if let window, let screen = window.screen ?? NSScreen.main {
-            window.setFrame(ClipEditorLayout.fitting(window.frame, in: screen.visibleFrame), display: false)
-        }
-        showWindow(nil)
-        if !didArrange, let window {
-            AuthoringWindowArrangement.shared.place(window, beside: session.controller.projectSaveCoordinator?.attachedWindow)
-            didArrange = true
-        }
-        window?.makeKeyAndOrderFront(nil)
-    }
-    func windowDidBecomeKey(_ notification: Notification) {
-        onKeyChange?(true)
-        ExternalMediaOpenCoordinator.shared.activate(controller: session.controller)
-    }
-    func windowDidResignKey(_ notification: Notification) { onKeyChange?(false) }
-    func windowWillClose(_ notification: Notification) {
-        AuthoringWindowArrangement.shared.release(window)
+    func close(for controller: ProjectController) {
+        guard let closing = session, closing.controller === controller else { return }
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         keyboardMonitor = nil
-        onKeyChange?(false)
-        onKeyChange = nil
-        session.player.stopMixerPlayback()
-        let completion = onClose
-        onClose = nil
-        // Keep registry ownership until AppKit has finished closing this window.
-        Task { @MainActor in
+        focusScope = nil
+        session = nil
+        changes = nil
+        closing.player.stopMixerPlayback()
+        if controller.toolPane == .mixer { controller.toolPane = nil }
+        Task { @MainActor [weak controller] in
             await Task.yield()
-            completion?()
+            closing.close(restoreFocus: controller?.toolPane == nil)
         }
     }
+
     private func handle(_ event: NSEvent) -> Bool {
+        guard let session else { return false }
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         // Resolve these before examining a control's focus or native activation keys.
         if let command = MixerWindowCommand.resolve(keyCode: event.keyCode, modifiers: modifiers, character: event.charactersIgnoringModifiers) {
             switch command {
-            case .close: window?.performClose(nil)
+            case .close: session.controller.requestCloseToolPane()
             case .save:
                 session.controller.mixerAdjustmentEditing(false)
                 session.controller.saveProjectDocument()

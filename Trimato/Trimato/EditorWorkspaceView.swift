@@ -8,6 +8,7 @@ struct EditorWorkspaceView: View {
     @StateObject private var projectPlayer: ProjectPlayerViewModel
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var captionEditorWindows: CaptionEditorWindowCoordinator
+    @ObservedObject private var mixer = MixerWindowRegistry.shared
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var restoresEditorFocusAfterTransitionSheet = false
     @State private var timelineFocusAfterTransitionSheet: TimelineElementSelection?
@@ -85,11 +86,18 @@ struct EditorWorkspaceView: View {
                 )
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
-            .onChange(of: controller.recordingSession?.id) { _, id in
-                if let id, let session = controller.recordingSession {
-                    RecordingWindowRegistry.shared.session = session
-                    openWindow(id: "recording", value: id)
+            .focusedSceneValue(\.closeToolPane, controller.toolPane == nil ? nil : ToolPaneCloseAction(
+                title: "Close \(controller.toolPane!.title)", action: controller.requestCloseToolPane))
+            .onChange(of: controller.toolPane) { old, new in
+                guard old != nil, new == nil else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    guard controller.toolPane == nil else { return }
+                    projectWindowSaveCoordinator.toolDraftDidClose()
                 }
+            }
+            .sheet(isPresented: $controller.isConfirmingToolClose, onDismiss: controller.finishToolCloseReview) {
+                ToolPaneCloseConfirmation(controller: controller)
             }
             .onChange(of: projectWindowSaveCoordinator.isConfirmingClose, initial: true) { _, showing in
                 if showing && projectWindowSaveCoordinator.isApplicationTerminating { openWindow(id: "quit-review") }
@@ -117,7 +125,7 @@ struct EditorWorkspaceView: View {
                 if let report { presentCaptionFinalizationReport(report) }
             }
             .onDisappear {
-                controller.dismissRecording()
+                controller.closeToolPaneImmediately()
                 ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
                 WorkspaceCommandState.shared.unregister(controller)
             }
@@ -317,8 +325,35 @@ struct EditorWorkspaceView: View {
                 .frame(minHeight: 240)
                 .disabled(controller.recordingSession != nil)
             }
+            if let tool = controller.toolPane {
+                MacEditorPane(tool.title) {
+                    toolContent(tool)
+                }
+                .frame(minWidth: 440, idealWidth: 500, maxWidth: 720, maxHeight: .infinity)
+                .background(EditorTheme.controlSurface)
+            }
         }
-        .frame(minWidth: 800, minHeight: 720)
+        .frame(minWidth: controller.toolPane == nil ? 800 : 1140, minHeight: 720)
+    }
+
+    @ViewBuilder
+    private func toolContent(_ tool: WorkspaceTool) -> some View {
+        switch tool {
+        case .caption:
+            if let session = captionEditorWindows.activeSession {
+                CaptionEditorView(session: session, focusRevision: controller.toolFocusRevision,
+                    cancel: controller.requestCloseToolPane)
+            }
+        case .describer, .voicer:
+            if let session = controller.recordingSession {
+                ProjectRecordingView(session: session, focusRevision: controller.toolFocusRevision)
+                    .id(session.id)
+            }
+        case .mixer:
+            if let session = mixer.session, session.controller === controller {
+                MixerView(session: session, player: session.player, focusRevision: controller.toolFocusRevision)
+            }
+        }
     }
 
     @ViewBuilder
@@ -492,7 +527,7 @@ struct ProjectViewerView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(EditorTheme.controlSurface)
-                .focusable(!viewModel.canControlPlayback)
+                .focusable(!viewModel.canControlPlayback || controller.recordingSession != nil)
                 .focused($paneCommandKeyboardTarget, equals: .heading)
                 .accessibilityFocused($focusedAccessibilityTarget, equals: .heading)
 
@@ -600,7 +635,7 @@ struct ProjectViewerView: View {
         .onChange(of: controller.workspaceFocusRequest) { _, request in
             guard request.pane == .editor, controller.acceptsWorkspaceCommands else { return }
             pendingProjectPlayheadFocus = false
-            let target: AccessibilityTarget = viewModel.canControlPlayback ? .playhead : .heading
+            let target: AccessibilityTarget = viewModel.canControlPlayback && controller.recordingSession == nil ? .playhead : .heading
             viewModel.refreshAccessibilityValueForFocus()
             paneCommandKeyboardTarget = target
             focusedAccessibilityTarget = target

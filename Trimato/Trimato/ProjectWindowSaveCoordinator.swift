@@ -416,6 +416,12 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         )
     }
 
+    func toolDraftDidClose() {
+        // Native text editing can mark the window edited before a pane draft is
+        // applied. After dismissal, the project model remains the save authority.
+        synchronizeNativeDocumentChangeState(projectDocument.hasUnsavedChanges)
+    }
+
     private func synchronizeNativeDocumentChangeState(_ hasUnsavedChanges: Bool) {
         guard let nativeDocument else { return }
         switch Self.nativeChangeAction(

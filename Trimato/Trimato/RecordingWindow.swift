@@ -1,106 +1,127 @@
-import AppKit
 import SwiftUI
-import Combine
 
-@MainActor
-final class RecordingWindowRegistry: ObservableObject {
-    static let shared = RecordingWindowRegistry()
-    @Published var session: ProjectRecordingSession?
-    var closeWindow: (() -> Void)?
-    private var pendingCloseID: UUID?
-    private weak var arrangedWindow: NSWindow?
-    private var windowObservation: NSObjectProtocol?
+nonisolated enum WorkspaceTool: Equatable {
+    case caption, describer, voicer, mixer
 
-    private func arrangeWindow(for id: UUID) {
-        guard session?.id == id, arrangedWindow == nil else { return }
-        guard let window = NSApp.windows.first(where: {
-            $0.isVisible && $0.title == session?.purpose.toolTitle
-        }) else { return }
-        arrangedWindow = window
-        AuthoringWindowArrangement.shared.place(window, beside: session?.controller?.projectSaveCoordinator?.attachedWindow)
-        if let windowObservation { NotificationCenter.default.removeObserver(windowObservation) }
-        windowObservation = nil
-    }
-
-    func close(id: UUID) {
-        guard session?.id == id else { return }
-        pendingCloseID = id
-        closeWindow?()
-    }
-
-    func installCloseAction(id: UUID, action: @escaping () -> Void) {
-        guard session?.id == id else { return }
-        closeWindow = action
-        if windowObservation == nil {
-            windowObservation = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.arrangeWindow(for: id) }
-            }
-        }
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            self?.arrangeWindow(for: id)
-        }
-        if pendingCloseID == id { action() }
-    }
-
-    func finished(_ closing: ProjectRecordingSession) {
-        guard session?.id == closing.id else { return }
-        AuthoringWindowArrangement.shared.release(arrangedWindow)
-        arrangedWindow = nil
-        if let windowObservation { NotificationCenter.default.removeObserver(windowObservation) }
-        windowObservation = nil
-        closeWindow = nil
-        pendingCloseID = nil
-        session = nil
-        closing.close()
-        if closing.controller?.recordingSession?.id == closing.id {
-            closing.controller?.dismissRecording()
-        }
-        Task { @MainActor in
-            await Task.yield()
-            closing.controller?.recordingWindowDidDismiss()
+    var title: String {
+        switch self {
+        case .caption: "Captioner"
+        case .describer: "Describer"
+        case .voicer: "Voicer"
+        case .mixer: "Mixer"
         }
     }
 }
 
-struct RecordingWindowContent: View {
-    let id: UUID
-    @ObservedObject private var registry = RecordingWindowRegistry.shared
-    @Environment(\.dismissWindow) private var dismissWindow
-
-    var body: some View {
-        if let session = registry.session, session.id == id, let coordinator = session.controller?.projectSaveCoordinator {
-            RecordingWindowEditor(session: session, coordinator: coordinator)
-                .navigationTitle(session.purpose.toolTitle)
-                .focusedSceneValue(\.closeRecording, { session.controller?.dismissRecording() })
-                .onAppear {
-                    registry.installCloseAction(id: id) { dismissWindow(id: "recording", value: id) }
-                }
-                .onDisappear { registry.finished(session) }
-        } else {
-            Text("Recording session closed")
-                .task { dismissWindow(id: "recording", value: id) }
-        }
-    }
+struct ToolPaneCloseAction {
+    let title: String
+    let action: () -> Void
 }
 
-private struct CloseRecordingKey: FocusedValueKey {
-    typealias Value = () -> Void
+private struct ToolPaneCloseKey: FocusedValueKey {
+    typealias Value = ToolPaneCloseAction
 }
 extension FocusedValues {
-    var closeRecording: (() -> Void)? {
-        get { self[CloseRecordingKey.self] }
-        set { self[CloseRecordingKey.self] = newValue }
+    var closeToolPane: ToolPaneCloseAction? {
+        get { self[ToolPaneCloseKey.self] }
+        set { self[ToolPaneCloseKey.self] = newValue }
     }
 }
 
+extension ProjectController {
+    var toolHasPendingEdits: Bool {
+        switch toolPane {
+        case .caption: captionHasPendingEdits?() == true
+        case .describer, .voicer:
+            recordingSession?.hasPendingQuitEdits == true || recordingSession?.capture.isRecordingRequested == true
+                || recordingSession?.preparingRecording == true
+        default: false
+        }
+    }
 
-private struct RecordingWindowEditor: View {
-    let session: ProjectRecordingSession
-    @ObservedObject var coordinator: ProjectWindowSaveCoordinator
+    func openToolPane(_ tool: WorkspaceTool, open: @escaping () -> Void) {
+        if toolPane == tool {
+            toolFocusRevision += 1
+            return
+        }
+        requestToolChange { [weak self] in
+            guard let self else { return }
+            closeToolPaneImmediately()
+            toolPane = tool
+            open()
+            toolFocusRevision += 1
+        }
+    }
+
+    func requestCloseToolPane() {
+        guard projectSaveCoordinator?.attachedWindow?.attachedSheet == nil else { return }
+        requestToolChange { [weak self] in self?.closeToolPaneImmediately() }
+    }
+
+    private func requestToolChange(_ action: @escaping () -> Void) {
+        guard !isConfirmingToolClose, recordingSession?.saving != true else { return }
+        if toolHasPendingEdits {
+            pendingToolAction = action
+            isConfirmingToolClose = true
+        } else { action() }
+    }
+
+    func cancelToolCloseReview() {
+        pendingToolAction = nil
+        isConfirmingToolClose = false
+    }
+
+    func discardToolChanges() {
+        // Finish the transition only after the native sheet has dismissed.
+        isConfirmingToolClose = false
+    }
+
+    func finishToolCloseReview() {
+        let action = pendingToolAction
+        pendingToolAction = nil
+        if let action { action() }
+        else { toolFocusRevision += 1 }
+    }
+
+    func closeToolPaneImmediately() {
+        switch toolPane {
+        case .caption: closeCaptionEditor()
+        case .describer, .voicer: dismissRecording()
+        case .mixer: MixerWindowRegistry.shared.close(for: self)
+        case nil:
+            // Also release sessions created by project-close and test workflows.
+            if recordingSession != nil { dismissRecording() }
+        }
+        toolPane = nil
+    }
+}
+
+struct ToolPaneCloseConfirmation: View {
+    @ObservedObject var controller: ProjectController
+    @FocusState private var cancelFocused: Bool
+    @AccessibilityFocusState private var cancelVoiceOverFocused: Bool
 
     var body: some View {
-        ProjectRecordingView(session: session)
-            .disabled(coordinator.isConfirmingClose || coordinator.isResolvingClose)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Discard changes in \(controller.toolPane?.title ?? "this tool")?")
+                .font(.headline).accessibilityAddTraits(.isHeader)
+            Text("The unfinished text or recording has not been added to the project.")
+            HStack {
+                Button("Discard Changes", role: .destructive, action: controller.discardToolChanges)
+                Spacer()
+                Button("Cancel", action: controller.cancelToolCloseReview)
+                    .keyboardShortcut(.cancelAction)
+                    .focused($cancelFocused)
+                    .accessibilityFocused($cancelVoiceOverFocused)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+        .interactiveDismissDisabled()
+        .task {
+            await Task.yield()
+            cancelFocused = true
+            cancelVoiceOverFocused = true
+        }
     }
 }

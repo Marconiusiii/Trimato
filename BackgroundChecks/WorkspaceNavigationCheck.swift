@@ -17,8 +17,8 @@ import Darwin
 
     @MainActor static func main() async {
         verify(NSApp == nil, "Must not create an application")
-        verify(WorkspacePane.allCases.map(\.title) == ["Project Source", "Editor", "Timeline"], "Window menu names")
-        verify(WorkspacePane.allCases.map(\.shortcut) == ["1", "2", "3"], "Pane shortcut mapping")
+        verify(WorkspacePane.allCases.map(\.title) == ["Project Source", "Editor", "Timeline", "Tool Pane"], "Window menu names")
+        verify(WorkspacePane.allCases.map(\.shortcut) == ["1", "2", "3", "4"], "Pane shortcut mapping")
         for active in [false, true] {
             for key in [false, true] {
                 for sheet in [false, true] {

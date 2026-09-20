@@ -7,6 +7,7 @@ struct MixerPlayheadSlider: View {
     let timecode: String
     let ready: Bool
     let playing: Bool
+    var focusRevision = 0
     @Environment(\.controlActiveState) private var windowActivity
     @FocusState private var keyboardFocused: Bool
     @AccessibilityFocusState private var voiceOverFocused: Bool
@@ -22,6 +23,10 @@ struct MixerPlayheadSlider: View {
                 .accessibilityIdentifier("trimato.mixer.playhead")
                 .focused($keyboardFocused)
                 .accessibilityFocused($voiceOverFocused)
+        }
+        .onChange(of: focusRevision) { _, _ in
+            keyboardFocused = true
+            voiceOverFocused = true
         }
         .task(id: ready && windowActivity == .key) {
             guard needsInitialFocus, ready, windowActivity == .key else { return }

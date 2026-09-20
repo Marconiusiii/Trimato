@@ -10,9 +10,7 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
     }
 
     private weak var controller: ProjectController?
-    private weak var projectWindow: NSWindow?
-    private var activeSession: CaptionEditorWindowSession?
-    private var activeWindow: NativeModalWindowController?
+    @Published private(set) var activeSession: CaptionEditorWindowSession?
 
     init(controller: ProjectController) {
         self.controller = controller
@@ -46,57 +44,48 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
     }
 
     private func open(cue: CaptionCue?, range: ProjectTimeRange, origin: FocusOrigin) {
-        guard activeWindow == nil, let controller else { return }
-        controller.stopCaptionPlayback()
-        projectWindow = currentProjectWindow
-
-        let session = CaptionEditorWindowSession(
-            cue: cue,
-            range: range,
-            save: { [weak controller] text in
-                guard let controller else { return }
-                if var cue {
-                    cue.text = text
-                    cue.identifier = nil
-                    cue.webVTTSettings = nil
-                    try controller.updateCaptionCue(cue)
-                } else {
-                    _ = try controller.addCaptionCue(start: range.start, end: range.end, text: text)
-                    controller.clearCaptionMarkers()
-                }
-            },
-            play: { [weak controller] in controller?.playCaptionRange(range) },
-            finished: { [weak self] in self?.finish() }
-        )
-        let focusRequest = NativeModalFocusRequest()
-        let modalWindow = NativeModalWindowController(
-            title: session.title,
-            contentSize: NSSize(width: 440, height: 390),
-            rootView: CaptionEditorView(session: session, focusRequest: focusRequest),
-            focusRequest: focusRequest,
-            returnWindow: projectWindow,
-            returned: { [weak self] in self?.restoreFocus(origin: origin) },
-            closed: { [weak self, weak session] in
+        guard let controller else { return }
+        controller.openToolPane(.caption) { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            controller.stopCaptionPlayback()
+            let session = CaptionEditorWindowSession(
+                cue: cue,
+                range: range,
+                save: { [weak controller] text in
+                    guard let controller else { return }
+                    if var cue {
+                        cue.text = text
+                        cue.identifier = nil
+                        cue.webVTTSettings = nil
+                        try controller.updateCaptionCue(cue)
+                    } else {
+                        _ = try controller.addCaptionCue(start: range.start, end: range.end, text: text)
+                        controller.clearCaptionMarkers()
+                    }
+                },
+                play: { [weak controller] in controller?.playCaptionRange(range) },
+                finished: { [weak self] in self?.finish() }
+            )
+            session.closeAction = { [weak self, weak controller, weak session] in
                 session?.finishOnce()
                 self?.activeSession = nil
-                self?.activeWindow = nil
+                controller?.captionHasPendingEdits = nil
+                controller?.setCaptionEditorOpen(false)
+                if controller?.toolPane == .caption { controller?.toolPane = nil }
+                Task { @MainActor [weak self, weak controller] in
+                    await Task.yield()
+                    guard controller?.toolPane == nil else { return }
+                    self?.restoreFocus(origin: origin)
+                }
             }
-        )
-        session.closeAction = { [weak modalWindow] in modalWindow?.closeModal() }
-        activeSession = session
-        activeWindow = modalWindow
-        if let window = modalWindow.window {
-            AuthoringWindowArrangement.shared.place(window, beside: projectWindow)
+            self.activeSession = session
+            controller.captionHasPendingEdits = { [weak session] in session?.hasPendingQuitEdits == true }
+            controller.setCaptionEditorOpen(true)
         }
-        controller.setCaptionEditorOpen(true)
-        modalWindow.showModal()
     }
 
     private func finish() {
-        AuthoringWindowArrangement.shared.release(activeWindow?.window)
         controller?.stopCaptionPlayback()
-        controller?.setCaptionEditorOpen(false)
-        projectWindow = nil
     }
 
     private func restoreFocus(origin: FocusOrigin) {
@@ -108,11 +97,6 @@ final class CaptionEditorWindowCoordinator: ObservableObject {
         }
     }
 
-    private var currentProjectWindow: NSWindow? {
-        if let keyWindow = NSApp.keyWindow { return keyWindow.sheetParent ?? keyWindow }
-        if let mainWindow = NSApp.mainWindow { return mainWindow.sheetParent ?? mainWindow }
-        return nil
-    }
 }
 
 @MainActor
@@ -192,7 +176,10 @@ final class CaptionEditorWindowSession: ObservableObject, Identifiable {
 
 struct CaptionEditorView: View {
     @ObservedObject var session: CaptionEditorWindowSession
-    @ObservedObject var focusRequest: NativeModalFocusRequest
+    let focusRevision: Int
+    let cancel: () -> Void
+    @Environment(\.controlActiveState) private var windowActivity
+    @State private var appliedFocusRevision: Int?
     @FocusState private var textFocused: Bool
     @AccessibilityFocusState private var textVoiceOverFocused: Bool
 
@@ -235,7 +222,7 @@ struct CaptionEditorView: View {
             Button("Play Selection", action: session.play)
             HStack {
                 Spacer()
-                Button("Cancel", action: session.cancel)
+                Button("Cancel", action: cancel)
                     .keyboardShortcut(.cancelAction)
                 NativeDefaultButton(
                     title: session.actionTitle,
@@ -246,18 +233,18 @@ struct CaptionEditorView: View {
             }
         }
         .padding(20)
-        .frame(width: 440)
+        .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
         .pendingQuitDraft(session.text, pending: session.hasPendingQuitEdits,
             validate: { if !session.canSave { throw QuitDraftError(message: "Enter caption text before saving.") } },
             apply: { try session.saveForQuit(); session.cancel() })
         .navigationTitle(session.title)
-        .onChange(of: focusRequest.revision, initial: true) { _, revision in
-            guard revision > 0 else { return }
-            Task { @MainActor in
-                await Task.yield()
-                textFocused = true
-                textVoiceOverFocused = true
-            }
+        .task(id: windowActivity == .key ? focusRevision : nil) {
+            guard windowActivity == .key, appliedFocusRevision != focusRevision else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            appliedFocusRevision = focusRevision
+            textFocused = true
+            textVoiceOverFocused = true
         }
     }
 }

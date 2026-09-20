@@ -9,6 +9,7 @@ final class WorkspaceVoiceOverCommandFocus {
     enum Owner: Equatable {
         case editor(UUID)
         case timeline(UUID)
+        case mixer(UUID)
     }
 
     private(set) var owner: Owner?
@@ -32,12 +33,17 @@ final class WorkspaceVoiceOverCommandFocus {
 final class EditorAccessibilityFocusScope: ObservableObject {
     private let ownerID = UUID()
     weak var boundaryView: NSView?
+    private let mixer: Bool
+    init(mixer: Bool = false) { self.mixer = mixer }
+    private var commandOwner: WorkspaceVoiceOverCommandFocus.Owner {
+        mixer ? .mixer(ownerID) : .editor(ownerID)
+    }
 
     func recordVoiceOverFocus(_ focused: Bool) {
         guard let window = boundaryView?.window else { return }
         let commands = WorkspaceVoiceOverCommandFocus.forWindow(window)
-        if focused { commands.claim(.editor(ownerID)) }
-        else { commands.release(.editor(ownerID)) }
+        if focused { commands.claim(commandOwner) }
+        else { commands.release(commandOwner) }
     }
 
     var containsInputFocus: Bool {
@@ -69,7 +75,7 @@ final class EditorAccessibilityFocusScope: ObservableObject {
 
     private var containsVoiceOverFocus: Bool {
         guard let window = boundaryView?.window, window.isKeyWindow else { return false }
-        return WorkspaceVoiceOverCommandFocus.forWindow(window).owner == .editor(ownerID)
+        return WorkspaceVoiceOverCommandFocus.forWindow(window).owner == commandOwner
     }
 }
 

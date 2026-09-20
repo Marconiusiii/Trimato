@@ -11,7 +11,7 @@ struct CaptionWorkflowTests {
         let range = ProjectTimeRange(start: ProjectTime(seconds: 2), duration: ProjectTime(seconds: 3))
         let session = CaptionEditorWindowSession(cue: nil, range: range, save: { _ in }, play: {}, finished: {})
         session.text = "A caption for review."
-        let host = NSHostingView(rootView: CaptionEditorView(session: session, focusRequest: NativeModalFocusRequest()))
+        let host = NSHostingView(rootView: CaptionEditorView(session: session, focusRevision: 0, cancel: {}))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 520),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

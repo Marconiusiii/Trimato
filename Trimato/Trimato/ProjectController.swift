@@ -57,6 +57,11 @@ final class ProjectController: ObservableObject {
     @Published private(set) var isCaptionEditorOpen = false
     @Published var timelineHasKeyboardFocus = false
     @Published var recordingSession: ProjectRecordingSession?
+    @Published var toolPane: WorkspaceTool?
+    @Published var toolFocusRevision = 0
+    @Published var isConfirmingToolClose = false
+    var pendingToolAction: (() -> Void)?
+    var captionHasPendingEdits: (() -> Bool)?
     private var recordingOriginCueID: UUID?
     @Published var generatorRequestID: UUID?
     @Published var transitionRequest: TransitionRequest?
@@ -144,17 +149,28 @@ final class ProjectController: ObservableObject {
     }
 
     func requestRecording(_ purpose: RecordingPurpose, cue: CaptionCue? = nil) {
-        guard recordingSession == nil, !isExporting, !isImporting else { return }
-        projectPlayer?.player.pause()
-        recordingOriginCueID = cue?.id
-        recordingSession = ProjectRecordingSession(controller: self, purpose: purpose, cue: cue)
+        guard !isExporting, !isImporting else { return }
+        let tool: WorkspaceTool = purpose == .audioDescription ? .describer : .voicer
+        openToolPane(tool) { [weak self] in
+            guard let self else { return }
+            projectPlayer?.player.pause()
+            recordingOriginCueID = cue?.id
+            recordingSession = ProjectRecordingSession(controller: self, purpose: purpose, cue: cue)
+        }
     }
 
     func dismissRecording() {
         let session = recordingSession
         session?.close()
         recordingSession = nil
-        if let session { RecordingWindowRegistry.shared.close(id: session.id) }
+        if toolPane == .describer || toolPane == .voicer { toolPane = nil }
+        if session != nil {
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                guard self?.toolPane == nil else { return }
+                self?.recordingWindowDidDismiss()
+            }
+        }
     }
 
     func recordingWindowDidDismiss() {
@@ -314,6 +330,7 @@ final class ProjectController: ObservableObject {
 
     func requestCaptionEditor() {
         guard canRequestCaption else { return }
+        if toolPane == .caption { toolFocusRevision += 1; return }
         guard canCreateCaption else {
             presentedError = ProjectPresentedError(
                 title: "Caption Needs In and Out Points",
@@ -1220,12 +1237,16 @@ final class ProjectController: ObservableObject {
     }
 
     var acceptsWorkspaceCommands: Bool {
-        projectSaveCoordinator?.acceptsWorkspaceCommands == true && recordingSession == nil && !isImporting &&
+        projectSaveCoordinator?.acceptsWorkspaceCommands == true && !isImporting &&
             !isExporting && !isPresentingExportPanel && applyingTransitionName == nil
     }
 
     func requestWorkspaceFocus(_ pane: WorkspacePane) {
         guard acceptsWorkspaceCommands else { return }
+        if pane == .tool {
+            guard toolPane != nil else { return }
+            toolFocusRevision += 1
+        }
         workspaceFocusRequest = WorkspaceFocusRequest(pane: pane, revision: workspaceFocusRequest.revision + 1)
     }
 

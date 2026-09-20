@@ -109,7 +109,8 @@ struct ProjectRecordingTests {
             #expect(backend.beginCount == take)
             #expect(window.firstResponder === responder)
             #expect(NSApp.keyWindow === keyWindow)
-            #expect(Set(NSApp.windows.map(\.windowNumber)) == windows)
+            #expect(Set(NSApp.windows.map(\.windowNumber)) == windows,
+                "Unexpected windows: \(NSApp.windows.filter { !windows.contains($0.windowNumber) }.map { "\($0.windowNumber): \($0.title), \(type(of: $0)), visible=\($0.isVisible)" })")
             #expect(session.message == nil && capture.message == nil)
             session.toggleRecording(true)
             #expect(capture.state == .recording)
@@ -344,23 +345,13 @@ struct ProjectRecordingTests {
         controller.recordingSession = ProjectRecordingSession(controller: controller, purpose: .audioDescription,
             capture: capture, startCapture: { capture.record(request: request) },
             prepareCapture: { capture.prepareInput { request } })
-        for _ in 0..<50 where RecordingWindowRegistry.shared.closeWindow == nil {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        let tool = try #require(NSApp.windows.first { $0.title == "Describer" && $0.isVisible })
-        #expect(tool.sheetParent == nil)
-        #expect(tool !== coordinator.attachedWindow)
-        if let projectWindow = coordinator.attachedWindow,
-           let screen = projectWindow.screen, screen.visibleFrame.width >= 1252 {
-            for _ in 0..<50 where tool.frame.intersects(projectWindow.frame) {
-                try await Task.sleep(for: .milliseconds(20))
-            }
-            #expect(!tool.frame.intersects(projectWindow.frame), "Describer must leave the project window visible")
-        }
+        controller.toolPane = .describer
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(!NSApp.windows.contains { $0.title == "Describer" && $0.isVisible })
+        #expect(coordinator.attachedWindow?.isVisible == true)
         #expect(controller.recordingSession?.hasPendingQuitEdits == false,
             "Preparing a microphone without a take must not prompt to save on close")
-        tool.performClose(nil)
-        for _ in 0..<50 where controller.recordingSession != nil { try await Task.sleep(for: .milliseconds(20)) }
+        controller.requestCloseToolPane()
         #expect(controller.recordingSession == nil)
 
         let cue = CaptionCue(start: .zero, end: ProjectTime(seconds: 2), text: "The door opens.")
@@ -481,22 +472,50 @@ struct ProjectRecordingTests {
         #expect(!NSDocumentController.shared.documents.contains(native))
     }
 
-    @Test func recordingRegistryClosesTheToolAndReleasesTheSession() async {
+    @Test func recordingPaneClosesAndReleasesTheSession() async {
         let controller = ProjectController(document: ProjectDocument())
         controller.requestRecording(.voiceOver)
-        guard let session = controller.recordingSession else { Issue.record("Missing session"); return }
-        let registry = RecordingWindowRegistry.shared
-        registry.session = session
-        var closeRequests = 0
-        controller.dismissRecording()
-        #expect(closeRequests == 0)
-        registry.installCloseAction(id: session.id) { closeRequests += 1 }
-        #expect(closeRequests == 1)
-        registry.finished(session)
-        #expect(registry.session == nil)
-        #expect(registry.closeWindow == nil)
+        #expect(controller.recordingSession != nil)
+        #expect(controller.toolPane == .voicer)
+        controller.requestCloseToolPane()
+        #expect(!controller.isConfirmingToolClose)
         #expect(controller.recordingSession == nil)
+        #expect(controller.toolPane == nil)
         await Task.yield()
+    }
+
+    @Test func switchingToolsPreservesDraftUntilDiscardIsConfirmed() {
+        let controller = ProjectController(document: ProjectDocument())
+        controller.requestRecording(.voiceOver)
+        let original = controller.recordingSession
+        original?.name = "Unfinished take"
+        controller.requestRecording(.audioDescription)
+        #expect(controller.isConfirmingToolClose)
+        #expect(controller.recordingSession === original)
+        controller.cancelToolCloseReview()
+        controller.finishToolCloseReview()
+        #expect(controller.recordingSession === original)
+        controller.requestRecording(.audioDescription)
+        controller.discardToolChanges()
+        #expect(controller.recordingSession === original, "Wait until the confirmation sheet has dismissed")
+        controller.finishToolCloseReview()
+        #expect(controller.toolPane == .describer)
+        #expect(controller.recordingSession !== original)
+        controller.dismissRecording()
+    }
+
+    @Test func reopeningRecordingToolOnlyRequestsFocus() {
+        let controller = ProjectController(document: ProjectDocument())
+        controller.requestRecording(.voiceOver)
+        let original = controller.recordingSession
+        let revision = controller.toolFocusRevision
+        original?.name = "Keep this draft"
+        controller.requestRecording(.voiceOver)
+        #expect(controller.recordingSession === original)
+        #expect(controller.recordingSession?.name == "Keep this draft")
+        #expect(controller.toolFocusRevision == revision + 1)
+        #expect(!controller.isConfirmingToolClose)
+        controller.dismissRecording()
     }
 
     @Test func longerTakeRemainsUnchangedWithoutAnExplicitFitChoice() async throws {
@@ -540,7 +559,7 @@ struct ProjectRecordingTests {
         }
         let elements = descendants(host)
         let names = ["\(purpose.toolTitle) Clip Name"] + (session.isDescriber
-            ? ["In", "Out", "Audio Ducking Amount", "Fade time, seconds", "Description text"] : ["Insert at"])
+            ? ["In", "Out", "Audio Ducking Amount", "Fade time, seconds"] : ["Insert at"])
         for name in names {
             let label = try #require(elements.first {
                 attribute($0, "accessibilityRole") as? String == "AXStaticText" &&
@@ -553,6 +572,15 @@ struct ProjectRecordingTests {
                 ["AXTextField", "AXTextArea"].contains(attribute($0, "accessibilityRole") as? String ?? "")
             }, "Missing native field for visible label: \(name)")
             #expect((attribute(field, "accessibilityPlaceholderValue") as? String ?? "").isEmpty)
+        }
+        if session.isDescriber {
+            let editor = try #require(elements.first {
+                attribute($0, "accessibilityRole") as? String == "AXTextArea" &&
+                attribute($0, "accessibilityLabel") as? String == "Description text"
+            })
+            #expect((attribute(editor, "accessibilityPlaceholderValue") as? String ?? "").isEmpty)
+            let frame = try #require(attribute(editor, "accessibilityFrame") as? NSValue)
+            #expect(frame.rectValue.width >= 500, "Transcript must use the pane width instead of a narrow label column")
         }
         let disclosure = try #require(descendants(host).first {
             attribute($0, "accessibilityRole") as? String == "AXDisclosureTriangle" &&

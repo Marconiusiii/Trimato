@@ -86,10 +86,10 @@ final class MixerSession: ObservableObject {
         selectedID = MixerTrackNavigation.adjacent(direction, selected: selectedID, tracks: tracks.map(\.id))
     }
     func togglePlayback() { player.toggleMixerPlayback() }
-    func close() {
+    func close(restoreFocus: Bool = true) {
         controller.mixerAdjustmentEditing(false)
         player.updateMix(project: controller.project, solo: [])
-        guard controller.projectSaveCoordinator?.isApplicationTerminating != true,
+        guard restoreFocus, controller.projectSaveCoordinator?.isApplicationTerminating != true,
               controller.projectSaveCoordinator?.isResolvingClose != true,
               ExternalMediaOpenCoordinator.shared.activeProjectController === controller,
               let window = controller.projectSaveCoordinator?.attachedWindow, window.isVisible else { return }
@@ -104,6 +104,9 @@ final class MixerSession: ObservableObject {
 struct MixerView: View {
     @ObservedObject var session: MixerSession
     let player: ProjectPlayerViewModel
+    var focusRevision = 0
+    @StateObject private var focusScope = EditorAccessibilityFocusScope(mixer: true)
+    @AccessibilityFocusState private var containsVoiceOverFocus: Bool
 
     private func value(_ key: WritableKeyPath<TrackMixSettings, Double>) -> Binding<Double> {
         Binding(get: { session.selected?.mix[keyPath: key] ?? TrackMixSettings.neutral[keyPath: key] },
@@ -113,7 +116,12 @@ struct MixerView: View {
         ScrollView {
             controls.fixedSize(horizontal: false, vertical: true)
         }
-        .frame(minWidth: 440, idealWidth: 440, minHeight: 620, idealHeight: 700)
+        .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
+        .background(EditorAccessibilityFocusBridge(scope: focusScope))
+        .accessibilityFocused($containsVoiceOverFocus)
+        .onChange(of: containsVoiceOverFocus) { _, focused in focusScope.recordVoiceOverFocus(focused) }
+        .onAppear { MixerWindowRegistry.shared.focusScope = focusScope }
+        .onDisappear { focusScope.recordVoiceOverFocus(false) }
         .background(EditorTheme.controlSurface)
         .blocksEditingDuringQuit()
     }
@@ -121,7 +129,7 @@ struct MixerView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Mixer").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
-            MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, play: session.togglePlayback)
+            MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, focusRevision: focusRevision, play: session.togglePlayback)
             Divider()
             Text("Track controls").font(.headline).accessibilityAddTraits(.isHeader)
             Picker("Audio track", selection: $session.selectedID) {
@@ -159,11 +167,13 @@ struct MixerView: View {
                 spokenValue: MixerValue.decibels, onEditingChanged: session.controller.mixerAdjustmentEditing)
             HStack {
                 Spacer()
+                Button("Close") { session.controller.requestCloseToolPane() }
+                    .keyboardShortcut(.cancelAction)
                 ContextualHelpButton(topic: .mixer)
             }
         }
         .padding(EditorTheme.dialogPadding)
-        .frame(minWidth: 440, idealWidth: 440)
+        .frame(maxWidth: .infinity)
         .background(EditorTheme.controlSurface)
         .blocksEditingDuringQuit()
     }
@@ -211,8 +221,10 @@ final class MixerPlaybackPresentation: ObservableObject {
 private struct MixerLivePlayhead: View {
     @ObservedObject var player: ProjectPlayerViewModel
     @ObservedObject private var clock: ProjectPlaybackClock
-    init(player: ProjectPlayerViewModel) {
+    let focusRevision: Int
+    init(player: ProjectPlayerViewModel, focusRevision: Int) {
         self.player = player
+        self.focusRevision = focusRevision
         clock = player.playbackClock
     }
     var body: some View {
@@ -220,7 +232,7 @@ private struct MixerLivePlayhead: View {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }),
             step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
-            ready: player.canControlPlayback, playing: player.isPlaying)
+            ready: player.canControlPlayback, playing: player.isPlaying, focusRevision: focusRevision)
     }
 }
 
@@ -278,11 +290,13 @@ private struct MixerPlaybackControls: View {
     let player: ProjectPlayerViewModel
     @StateObject private var presentation: MixerPlaybackPresentation
     let waveformRevision: Int
+    let focusRevision: Int
     let play: () -> Void
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @StateObject private var keyboard = SettingsSliderKeyboard(identifier: "trimato.mixer.playhead")
-    init(player: ProjectPlayerViewModel, waveformRevision: Int, play: @escaping () -> Void) {
+    init(player: ProjectPlayerViewModel, waveformRevision: Int, focusRevision: Int, play: @escaping () -> Void) {
         self.waveformRevision = waveformRevision
+        self.focusRevision = focusRevision
         self.player = player
         self.play = play
         _presentation = StateObject(wrappedValue: MixerPlaybackPresentation(player: player))
@@ -295,7 +309,7 @@ private struct MixerPlaybackControls: View {
             }
             MixerWaveform(player: player, revision: waveformRevision, playing: presentation.state.playing,
                 itemID: presentation.state.itemID)
-            MixerLivePlayhead(player: player)
+            MixerLivePlayhead(player: player, focusRevision: focusRevision)
                 .tint(EditorTheme.playhead)
                 .onAppear { keyboard.start() }
                 .onDisappear { keyboard.stop() }

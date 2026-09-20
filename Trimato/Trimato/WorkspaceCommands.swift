@@ -4,13 +4,14 @@ import Combine
 import SwiftUI
 
 nonisolated enum WorkspacePane: String, CaseIterable, Identifiable, Sendable {
-    case project, editor, timeline
+    case project, editor, timeline, tool
     var id: Self { self }
     var title: String {
         switch self {
         case .project: "Project Source"
         case .editor: "Editor"
         case .timeline: "Timeline"
+        case .tool: "Tool Pane"
         }
     }
     var shortcut: String {
@@ -18,6 +19,7 @@ nonisolated enum WorkspacePane: String, CaseIterable, Identifiable, Sendable {
         case .project: "1"
         case .editor: "2"
         case .timeline: "3"
+        case .tool: "4"
         }
     }
 }
@@ -92,6 +94,7 @@ final class WorkspaceCommandState: ObservableObject {
             controller.$isExporting.map { _ in () }.eraseToAnyPublisher(),
             controller.$isPresentingExportPanel.map { _ in () }.eraseToAnyPublisher(),
             controller.$applyingTransitionName.map { _ in () }.eraseToAnyPublisher(),
+            controller.$toolPane.map { _ in () }.eraseToAnyPublisher(),
             windowChanges,
         ]
         Publishers.MergeMany(changes)
@@ -117,6 +120,7 @@ final class WorkspaceCommandState: ObservableObject {
             self.registrations = self.registrations.filter { $0.value.controller != nil }
             let next = self.registrations.values.compactMap(\.controller).first(where: self.acceptsCommands)
             if self.controller !== next { self.controller = next }
+            else { self.objectWillChange.send() }
         }
     }
 }
@@ -131,9 +135,10 @@ struct WorkspaceCommands: Commands {
         CommandGroup(replacing: .singleWindowList) { }
         CommandGroup(before: .windowArrangement) {
             ForEach(WorkspacePane.allCases) { pane in
-                Button(pane.title) { state.controller?.requestWorkspaceFocus(pane) }
+                Button(pane == .tool ? state.controller?.toolPane?.title ?? pane.title : pane.title) { state.controller?.requestWorkspaceFocus(pane) }
                     .keyboardShortcut(KeyEquivalent(Character(pane.shortcut)), modifiers: .command)
-                    .disabled(state.controller == nil)
+                    .disabled(state.controller == nil || (pane == .tool && state.controller?.toolPane == nil)
+                        || (state.controller?.recordingSession != nil && (pane == .project || pane == .timeline)))
             }
             Toggle("Portrait Video", isOn: Binding(
                 get: { portraitVideo },
@@ -146,7 +151,7 @@ struct WorkspaceCommands: Commands {
                     AccessibilityNotification.Announcement(announcement).post()
                 }
             ))
-            .keyboardShortcut("4", modifiers: .command)
+            .keyboardShortcut("l", modifiers: .command)
             .disabled(state.controller == nil)
             Divider()
         }

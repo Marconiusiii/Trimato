@@ -238,11 +238,6 @@ struct TrimatoApp: App {
             }
         }
 
-        WindowGroup("Recording", id: "recording", for: UUID.self) { $id in
-            if let id { RecordingWindowContent(id: id).editorAppearance() }
-        }
-        .windowResizability(.contentSize)
-
         WindowGroup("Clip Editor", for: ExternalMediaOpenRequest.self) { $request in
             if let request {
                 StandaloneClipEditorView(request: request).editorAppearance()
@@ -403,11 +398,7 @@ private struct ProjectFileCommands: Commands {
     @ObservedObject private var quitReview = QuitReviewState.shared
     @ObservedObject private var projectOpening = SingleProjectCoordinator.shared
     @ObservedObject private var mixer = MixerWindowRegistry.shared
-    private var closeMixer: (() -> Void)? {
-        guard let window = mixer.activeWindow else { return nil }
-        return { window.performClose(nil) }
-    }
-    @FocusedValue(\.closeRecording) private var closeRecording
+    @FocusedValue(\.closeToolPane) private var closeToolPane
     @FocusedValue(\.closeSettings) private var closeSettings
     @FocusedObject private var standaloneContext: StandaloneClipCommandContext?
     @Environment(\.openWindow) private var openWindow
@@ -440,25 +431,18 @@ private struct ProjectFileCommands: Commands {
 
         }
         CommandGroup(replacing: .saveItem) {
-            Button(quitReview.coordinator != nil ? "Cancel Quit" : closeMixer != nil ? "Close Mixer" : closeSettings != nil ? "Close Settings" : (closeRecording != nil ? controller?.recordingSession.map { "Close \($0.purpose.toolTitle)" } : nil) ?? (controller?.isCaptionEditorOpen == true ? "Close Caption Editor" : (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project"))) {
-                if let coordinator = quitReview.coordinator {
-                    coordinator.cancelQuitReview()
-                } else if let closeMixer {
-                    closeMixer()
-                } else if let closeSettings {
-                    closeSettings()
-                } else if let closeRecording {
-                    closeRecording()
-                } else if controller?.isCaptionEditorOpen == true {
-                    controller?.closeCaptionEditor()
-                } else {
-                    if let standaloneContext { standaloneContext.close() }
-                    else if let window = clipPlacement?.hostWindow, clipPlacement?.isKeyWindow == true { window.performClose(nil) }
-                    else { controller?.closeProject() }
-                }
+            Button(quitReview.coordinator != nil ? "Cancel Quit" : closeSettings != nil ? "Close Settings" :
+                closeToolPane?.title ?? (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project")) {
+                if let coordinator = quitReview.coordinator { coordinator.cancelQuitReview() }
+                else if let closeSettings { closeSettings() }
+                else if let closeToolPane { closeToolPane.action() }
+                else if let standaloneContext { standaloneContext.close() }
+                else if let window = clipPlacement?.hostWindow, clipPlacement?.isKeyWindow == true { window.performClose(nil) }
+                else { controller?.closeProject() }
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(quitReview.coordinator?.isResolvingClose == true || quitReview.coordinator == nil && closeMixer == nil && closeRecording == nil && closeSettings == nil && controller?.isCaptionEditorOpen != true && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil)
+            .disabled(quitReview.coordinator?.isResolvingClose == true ||
+                (closeToolPane == nil && closeSettings == nil && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil))
             Divider()
             Button(quitReview.coordinator != nil ? "Save and Quit" : "Save") {
                 if let coordinator = quitReview.coordinator { coordinator.chooseCloseDecision(.save) }
