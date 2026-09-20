@@ -449,7 +449,19 @@ final class AudioCaptureSession: ObservableObject {
     @Published private(set) var testURL: URL?
     @Published private(set) var isPlaying = false
     @Published var message: ApplicationMessageDescriptor?
-    static var suppressesAnnouncements = false
+    private static var quietPreparations: Set<UUID> = []
+    static var suppressesAnnouncements: Bool {
+        !quietPreparations.isEmpty || activeSession?.isBusy == true
+    }
+    static func beginQuietPreparation(_ id: UUID) {
+        quietPreparations.insert(id)
+        InterfaceSounds.shared.capture(id, active: true)
+    }
+    static func endQuietPreparation(_ id: UUID) {
+        quietPreparations.remove(id)
+        InterfaceSounds.shared.capture(id, active: false)
+    }
+    private var pendingFailure: String?
     private static weak var activeSession: AudioCaptureSession?
     var isBusy: Bool { state != .idle }
     var isRecordingRequested: Bool { state == .preparing || state == .recording }
@@ -527,12 +539,12 @@ final class AudioCaptureSession: ObservableObject {
         player.pause()
         player.replaceCurrentItem(with: nil)
         message = nil
+        pendingFailure = nil
         sessionID = UUID()
         let id = sessionID
         inputUID = request.inputUID
         outputUID = request.outputUID
         state = .preparing
-        Self.suppressesAnnouncements = true
         task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -598,7 +610,6 @@ final class AudioCaptureSession: ObservableObject {
         timer?.invalidate(); timer = nil
         backend.stopAccepting()
         state = .finishing
-        Self.suppressesAnnouncements = false
         task = Task { [self] in
             let result = await backend.finish(playCue: playCue)
             guard sessionID == id else { return }
@@ -608,7 +619,9 @@ final class AudioCaptureSession: ObservableObject {
             }
             state = .idle
             if Self.activeSession === self { Self.activeSession = nil }
-            if let error = result.error, !closed { fail(error) }
+            let failure = pendingFailure ?? result.error
+            pendingFailure = nil
+            if let failure, !closed { fail(failure) }
             task = nil
         }
     }
@@ -635,5 +648,8 @@ final class AudioCaptureSession: ObservableObject {
 
     func close() { closed = true; stop(playCue: false); deleteTest() }
     private func interrupted(_ detail: String) { stop(playCue: false); fail(detail) }
-    private func fail(_ detail: String) { message = ApplicationMessageDescriptor(title: "Audio Recording", message: detail, initialFocus: .message) }
+    private func fail(_ detail: String) {
+        if isBusy { pendingFailure = detail; return }
+        message = ApplicationMessageDescriptor(title: "Audio Recording", message: detail, initialFocus: .message)
+    }
 }

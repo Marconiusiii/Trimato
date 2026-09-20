@@ -47,7 +47,10 @@ final class ApplicationMessageWindowCoordinator {
         let id = session.id
         sessions[id] = session
         Task { @MainActor [weak self] in
-            while NSApp.modalWindow?.identifier?.rawValue == "Trimato.OperationProgress" {
+            // Queued messages must not create a window during recording startup or capture.
+            while AudioCaptureSession.suppressesAnnouncements ||
+                    NSApp.modalWindow?.identifier?.rawValue == "Trimato.OperationProgress" {
+                guard self?.sessions[id] != nil else { return }
                 try? await Task.sleep(for: .milliseconds(50))
             }
             guard let self, self.sessions[id] != nil else { return }
@@ -76,7 +79,8 @@ final class ApplicationMessageWindowCoordinator {
     }
 
     func dismiss(id: UUID) {
-        windows[id]?.closeModal()
+        if let window = windows[id] { window.closeModal() }
+        else { sessions.removeValue(forKey: id)?.finish() }
     }
 }
 

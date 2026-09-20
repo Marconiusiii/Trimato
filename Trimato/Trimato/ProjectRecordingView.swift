@@ -22,6 +22,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     @Published var ducking: DescriptionDucking
     private let processingSound: ProcessingSound
     private let recordingDirectory: () async throws -> URL
+    private let startCapture: () -> Void
     @Published var busy = false {
         didSet { if !busy { processingSound.stop() } }
     }
@@ -49,8 +50,11 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
 
     init(controller: ProjectController, purpose: RecordingPurpose, cue: CaptionCue? = nil,
          capture: AudioCaptureSession? = nil, processingSound: ProcessingSound? = nil,
-         recordingDirectory: (() async throws -> URL)? = nil) {
-        self.capture = capture ?? AudioCaptureSession()
+         recordingDirectory: (() async throws -> URL)? = nil,
+         startCapture: (() -> Void)? = nil) {
+        let recordingCapture = capture ?? AudioCaptureSession()
+        self.capture = recordingCapture
+        self.startCapture = startCapture ?? { recordingCapture.setRecording(true, input: AudioInputManager.shared) }
         self.processingSound = processingSound ?? ProcessingSound()
         self.recordingDirectory = recordingDirectory ?? { [weak controller] in
             guard let controller else { throw CancellationError() }
@@ -95,12 +99,17 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         guard !busy else { return }
         player.pause()
         if enabled {
+            guard !capture.isBusy else { return }
             takePlayer.replaceCurrentItem(with: nil)
             guard validRange else { fail("Set a valid insertion time and, for Describer, an Out point after the In point."); return }
+            AudioCaptureSession.beginQuietPreparation(id)
             if controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {
                 preparingRecording = true
-                preview(mixed: false, autoplay: false, recording: true, soundFeedback: true)
-            } else { capture.setRecording(true, input: input) }
+                preview(mixed: false, autoplay: false, recording: true, soundFeedback: false)
+            } else {
+                startCapture()
+                AudioCaptureSession.endQuietPreparation(id)
+            }
         } else { capture.setRecording(false, input: input) }
     }
 
@@ -131,7 +140,11 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         if soundFeedback { processingSound.start() }
         operation = Task { [weak self] in
             guard let self else { return }
-            defer { busy = false; preparingRecording = false }
+            defer {
+                busy = false
+                preparingRecording = false
+                if recording { AudioCaptureSession.endQuietPreparation(id) }
+            }
             var pendingMedia: [URL] = []
             defer { for url in pendingMedia { try? FileManager.default.removeItem(at: url) } }
             do {
@@ -176,7 +189,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
                 try Task.checkCancellation()
                 processingSound.stopBeforePlayback()
                 if autoplay { player.play() }
-                if recording { capture.setRecording(true, input: input) }
+                if recording { startCapture() }
             } catch is CancellationError { }
             catch { fail(error.localizedDescription) }
         }
@@ -359,6 +372,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         guard !closed else { return }
         processingSound.stop()
         closed = true
+        AudioCaptureSession.endQuietPreparation(id)
         operation?.cancel()
         player.pause()
         controller?.projectPlayer?.endAuthoringPlayback(id: id, at: ProjectTime(seconds: position))
@@ -393,7 +407,6 @@ struct ProjectRecordingView: View {
     @FocusState private var keyboardFocus: Field?
     @AccessibilityFocusState private var textFocus: Field?
     @StateObject private var voiceWork = VoiceAdjustmentWork()
-    @State private var contentHeight: CGFloat = 600
 
     init(session: ProjectRecordingSession) {
         self.session = session
@@ -403,9 +416,8 @@ struct ProjectRecordingView: View {
         ScrollView {
             form
                 .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
-        .frame(width: 440, height: min(contentHeight, maximumContentHeight))
+        .frame(width: 440, height: min(600, maximumContentHeight))
     }
 
     private var maximumContentHeight: CGFloat {
@@ -511,7 +523,10 @@ struct ProjectRecordingView: View {
             if voiceWork.busy {
                 HStack { ProgressView("Preparing voice adjustments"); Button("Cancel preparation") { voiceWork.cancel() } }
             }
-            if session.busy { ProgressView("Preparing…").controlSize(.small) }
+            ProgressView("Preparing…")
+                .controlSize(.small)
+                .opacity(session.busy && !session.preparingRecording ? 1 : 0)
+                .accessibilityHidden(!session.busy || session.preparingRecording)
             HStack {
                 Spacer()
                 Button("Cancel") { session.controller?.dismissRecording() }.keyboardShortcut(.cancelAction)

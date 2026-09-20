@@ -55,6 +55,62 @@ struct ProjectRecordingTests {
         #expect(cues == completedCueCount, "Processing sound must stop after saving")
     }
 
+    @Test(arguments: [RecordingPurpose.voiceOver, .audioDescription])
+    func recordKeepsWindowAndFocusStableForFreshAndCachedPreviews(purpose: RecordingPurpose) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.wav")
+        try tone(at: source, seconds: 2)
+        var project = TrimatoProject()
+        var sourceAsset = asset(.voiceOver)
+        sourceAsset.originalPath = source.path
+        project.putRecording(sourceAsset, at: .zero)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let backend = StoredTakeBackend(url: root.appendingPathComponent("unused.wav"))
+        let capture = AudioCaptureSession(routes: AudioOutputManager(observeHardware: false),
+            backend: backend, preparationDelay: .zero, playCue: { _, _ in })
+        let request = AudioCaptureRequest(inputDeviceID: 10, inputUID: "test", outputDeviceID: 20,
+            outputUID: "test", channel: 0, bitDepth: 24)
+        let session = ProjectRecordingSession(controller: controller, purpose: purpose, capture: capture,
+            startCapture: { capture.record(request: request) })
+        let host = NSHostingView(rootView: ProjectRecordingView(session: session))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.close(); session.close() }
+        try await Task.sleep(for: .milliseconds(500))
+        for _ in 0..<200 where session.busy { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!session.busy)
+        let frame = window.frame
+        let keyWindow = NSApp.keyWindow
+        let responder = window.firstResponder
+        let windows = Set(NSApp.windows.map(\.windowNumber))
+        // A project change invalidates the cached preview for the first Record action.
+        controller.document.project.masterVolumeDB = -1
+        for _ in 0..<2 {
+            session.toggleRecording(true)
+            #expect(AudioCaptureSession.suppressesAnnouncements)
+            for _ in 0..<300 where capture.state != .recording {
+                try await Task.sleep(for: .milliseconds(10))
+                #expect(window.frame == frame)
+            }
+            #expect(capture.state == .recording)
+            #expect(window.firstResponder === responder)
+            #expect(NSApp.keyWindow === keyWindow)
+            #expect(Set(NSApp.windows.map(\.windowNumber)) == windows)
+            #expect(session.message == nil && capture.message == nil)
+            session.toggleRecording(true)
+            #expect(capture.state == .recording)
+            session.toggleRecording(false)
+            for _ in 0..<200 where capture.isBusy || session.busy { try await Task.sleep(for: .milliseconds(10)) }
+            #expect(!AudioCaptureSession.suppressesAnnouncements)
+            #expect(window.frame == frame)
+        }
+    }
+
     @Test func newRecordingNamesAreEmpty() {
         let controller = ProjectController(document: ProjectDocument())
         for purpose in [RecordingPurpose.voiceOver, .audioDescription] {

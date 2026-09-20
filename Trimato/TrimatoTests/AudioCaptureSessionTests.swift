@@ -154,9 +154,45 @@ struct AudioCaptureLifecycleTests {
         #expect(session.message == nil)
         backend.isReady = false
         backend.configurationChanged?()
+        #expect(session.state == .finishing)
+        #expect(session.message == nil)
+        #expect(AudioCaptureSession.suppressesAnnouncements)
         try await waitUntilIdle(session)
         #expect(session.message != nil)
         #expect(backend.finishCount == 1)
+    }
+
+    @Test func queuedApplicationMessageCannotOpenDuringQuietPreparation() async throws {
+        let quietID = UUID()
+        AudioCaptureSession.beginQuietPreparation(quietID)
+        defer { AudioCaptureSession.endQuietPreparation(quietID) }
+        let coordinator = ApplicationMessageWindowCoordinator()
+        let windows = Set(NSApp.windows.map(\.windowNumber))
+        let key = NSApp.keyWindow
+        var dismissed = false
+        let id = coordinator.present(ApplicationMessageDescriptor(title: "Deferred test", message: "Test")) {
+            dismissed = true
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(Set(NSApp.windows.map(\.windowNumber)) == windows)
+        #expect(NSApp.keyWindow === key)
+        #expect(!dismissed)
+        coordinator.dismiss(id: id)
+        #expect(dismissed)
+        AudioCaptureSession.endQuietPreparation(quietID)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(Set(NSApp.windows.map(\.windowNumber)) == windows)
+    }
+
+    @Test func quietPreparationRemainsActiveUntilEveryOwnerFinishes() {
+        let first = UUID(), second = UUID()
+        AudioCaptureSession.beginQuietPreparation(first)
+        AudioCaptureSession.beginQuietPreparation(second)
+        #expect(AudioCaptureSession.suppressesAnnouncements)
+        AudioCaptureSession.endQuietPreparation(first)
+        #expect(AudioCaptureSession.suppressesAnnouncements)
+        AudioCaptureSession.endQuietPreparation(second)
+        #expect(!AudioCaptureSession.suppressesAnnouncements)
     }
 
     @Test func togglingOffImmediatelyDoesNotOpenTheMicrophoneLater() async throws {
@@ -184,7 +220,7 @@ struct AudioCaptureLifecycleTests {
         var closed = false
         let close = SettingsCloseAction(capture: session, closeWindow: {
             #expect(session.state == .finishing)
-            #expect(!AudioCaptureSession.suppressesAnnouncements)
+            #expect(AudioCaptureSession.suppressesAnnouncements)
             closed = true
         })
         close()
