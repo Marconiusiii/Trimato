@@ -7,6 +7,133 @@ import SwiftUI
 @MainActor
 @Suite(.serialized)
 struct ProjectRecordingTests {
+    @Test func storageCancellationAndDenialPreserveTakeAndStaySilentUntilRetry() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let take = root.appendingPathComponent("take.wav")
+        let data = InterfaceSounds.wave(notes: [440], noteLength: 1, volume: 0.01)
+        try data.write(to: take)
+        let backend = StoredTakeBackend(url: take)
+        let capture = AudioCaptureSession(routes: AudioOutputManager(observeHardware: false),
+            backend: backend, preparationDelay: .zero, playCue: { _, _ in })
+        capture.record(request: AudioCaptureRequest(inputDeviceID: 10, inputUID: "test",
+            outputDeviceID: 20, outputUID: "test", channel: 0, bitDepth: 24))
+        for _ in 0..<100 where capture.state == .preparing { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(capture.state == .recording)
+        capture.stop(playCue: false)
+        for _ in 0..<100 where capture.isBusy { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(capture.testURL == take)
+        let controller = ProjectController(document: ProjectDocument())
+        var cues = 0
+        let sounds = InterfaceSounds(playback: { _ in cues += 1 })
+        var attempts = 0
+        let session = ProjectRecordingSession(controller: controller, purpose: .voiceOver,
+            capture: capture, processingSound: ProcessingSound(sounds: sounds), recordingDirectory: {
+                attempts += 1
+                try await Task.sleep(for: .milliseconds(800))
+                #expect(cues == 0, "Folder interaction must not produce processing audio")
+                if attempts == 1 { throw CancellationError() }
+                if attempts == 2 { throw CocoaError(.fileWriteNoPermission) }
+                return root
+            })
+        defer { session.close() }
+        for _ in 0..<2 {
+            do { try await session.saveForQuit(); Issue.record("Expected storage to stop this attempt") }
+            catch { }
+            #expect(!session.busy && !session.saving)
+            #expect(session.capture.testURL == take)
+            #expect(try Data(contentsOf: take) == data)
+            #expect(controller.project.media.isEmpty)
+        }
+        try await session.saveForQuit()
+        #expect(attempts == 3)
+        #expect(controller.project.media.count == 1)
+        #expect(!session.busy && !session.saving)
+        let completedCueCount = cues
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(cues == completedCueCount, "Processing sound must stop after saving")
+    }
+
+    @Test func newRecordingNamesAreEmpty() {
+        let controller = ProjectController(document: ProjectDocument())
+        for purpose in [RecordingPurpose.voiceOver, .audioDescription] {
+            let session = ProjectRecordingSession(controller: controller, purpose: purpose)
+            #expect(session.name.isEmpty)
+            #expect(!session.hasPendingQuitEdits)
+            session.close()
+        }
+    }
+
+    @Test func mediaStorageObtainsAccessBeforeWritingAfterSaveAs() async throws {
+        let project = URL(fileURLWithPath: "/Movies/BuddyTheCat.trimato")
+        for grant in [nil, URL(fileURLWithPath: "/Movies/proClips")] {
+            var events: [String] = []
+            let destination = try await ProjectMediaStorage.prepare(projectURL: project, name: "Recordings",
+                grantedFolder: grant, requestAccess: {
+                    events.append("choose")
+                    return project.deletingLastPathComponent()
+                }, prepareDirectory: { url in
+                    events.append("write")
+                    #expect(url.path == "/Movies/Recordings")
+                })
+            #expect(events == ["choose", "write"])
+            #expect(destination.path == "/Movies/Recordings")
+        }
+    }
+
+    @Test func validMediaFolderGrantDoesNotPromptAgain() async throws {
+        let project = URL(fileURLWithPath: "/Movies/BuddyTheCat.trimato")
+        var writes = 0
+        _ = try await ProjectMediaStorage.prepare(projectURL: project, name: "Clips",
+            grantedFolder: project.deletingLastPathComponent(), requestAccess: {
+                Issue.record("An existing matching grant must not prompt again")
+                throw CancellationError()
+            }, prepareDirectory: { _ in writes += 1 })
+        #expect(writes == 1)
+    }
+
+    @Test func cancelledOrIncorrectFolderSelectionNeverWritesAndCanRetry() async throws {
+        let project = URL(fileURLWithPath: "/Movies/BuddyTheCat.trimato")
+        var writes = 0
+        for cancelled in [true, false] {
+            do {
+                _ = try await ProjectMediaStorage.prepare(projectURL: project, name: "Recordings",
+                    grantedFolder: nil, requestAccess: {
+                        if cancelled { throw CancellationError() }
+                        return URL(fileURLWithPath: "/Movies/Other")
+                    }, prepareDirectory: { _ in writes += 1 })
+                Issue.record("Storage must reject a cancelled or incorrect selection")
+            } catch { }
+        }
+        #expect(writes == 0)
+        _ = try await ProjectMediaStorage.prepare(projectURL: project, name: "Recordings",
+            grantedFolder: nil, requestAccess: { project.deletingLastPathComponent() },
+            prepareDirectory: { _ in writes += 1 })
+        #expect(writes == 1)
+    }
+
+    @Test func failedDirectoryPreparationDoesNotRetryOrPromptInALoop() async throws {
+        let project = URL(fileURLWithPath: "/Movies/BuddyTheCat.trimato")
+        var prompts = 0
+        var writes = 0
+        do {
+            _ = try await ProjectMediaStorage.prepare(projectURL: project, name: "Recordings",
+                grantedFolder: nil, requestAccess: {
+                    prompts += 1
+                    return project.deletingLastPathComponent()
+                }, prepareDirectory: { _ in
+                    writes += 1
+                    throw CocoaError(.fileWriteNoPermission)
+                })
+            Issue.record("The write failure must reach the recording session")
+        } catch {
+            #expect((error as? CocoaError)?.code == .fileWriteNoPermission)
+        }
+        #expect(prompts == 1)
+        #expect(writes == 1)
+    }
+
     @Test func recordingTimecodeFormatsAndParsesHumanReadableTimes() throws {
         let format = RecordingTimeFormat()
         #expect(format.format(2.234435) == "00:00:02.234")
@@ -652,5 +779,21 @@ private final class CloseSaveTestDocument: NSDocument {
     override func save(to url: URL, ofType typeName: String, for saveOperation: NSDocument.SaveOperationType,
                        completionHandler: @escaping (Error?) -> Void) {
         completionHandler(failSave ? CocoaError(.fileWriteNoPermission) : nil)
+    }
+}
+
+@MainActor
+private final class StoredTakeBackend: AudioCaptureBackend {
+    var isReady = false
+    var configurationChanged: (() -> Void)?
+    let url: URL
+    init(url: URL) { self.url = url }
+    func prepare(_ request: AudioCaptureRequest) async throws { }
+    func settle() async throws { isReady = true }
+    func begin() async throws { }
+    func progress() -> (AudioRecordingSummary, String?) { (AudioRecordingSummary(frames: 48_000, sampleRate: 48_000), nil) }
+    func finish(playCue: Bool) async -> AudioCaptureResult {
+        isReady = false
+        return AudioCaptureResult(url: url, summary: AudioRecordingSummary(frames: 48_000, sampleRate: 48_000))
     }
 }

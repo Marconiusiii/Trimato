@@ -65,7 +65,7 @@ struct NewTrackFromSourceView: View {
                 .accessibilityAddTraits(.isHeader)
 
             LabeledContent("Track Name") {
-                TextField("Track Name", text: $trackName)
+                TextField("Track Name", text: $trackName, prompt: Text(""))
                     .labelsHidden()
                     .focused($trackNameFocused)
             }

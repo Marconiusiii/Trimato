@@ -134,7 +134,7 @@ private struct GeneralSettingsView: View {
                     if autoSaveEnabled {
                         LabeledContent("Minutes between saves") {
                             TextField("Minutes between saves", value: $autoSaveMinutes,
-                                      formatter: Self.minutesFormatter)
+                                      formatter: Self.minutesFormatter, prompt: Text(""))
                                 .labelsHidden()
                                 .frame(width: 80)
                         }

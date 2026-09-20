@@ -354,7 +354,7 @@ struct ProjectBrowserView: View {
             Text(title)
                 .font(.headline)
             LabeledContent("Folder Name") {
-                TextField("Folder Name", text: fieldValue)
+                TextField("Folder Name", text: fieldValue, prompt: Text(""))
                     .labelsHidden()
             }
             NativeModalActions(

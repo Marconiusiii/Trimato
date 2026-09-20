@@ -262,7 +262,7 @@ struct GeneratorView: View {
                 }
                 .pickerStyle(.segmented)
 
-                TextField(session.durationUnit.fieldLabel, value: $session.durationValue, format: .number)
+                TextField(session.durationUnit.fieldLabel, value: $session.durationValue, format: .number, prompt: Text(""))
 
                 if session.editing == nil {
                     Picker("Destination Track", selection: $session.trackID) {
@@ -274,7 +274,7 @@ struct GeneratorView: View {
                     .pickerStyle(.menu)
 
                     if session.trackID == nil {
-                        TextField("New Track Name", text: $session.newTrackName)
+                        TextField("New Track Name", text: $session.newTrackName, prompt: Text(""))
                     }
                 }
             }

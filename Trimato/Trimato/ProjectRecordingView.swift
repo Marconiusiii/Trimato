@@ -8,7 +8,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     let id = UUID()
     let purpose: RecordingPurpose
     weak var controller: ProjectController?
-    let capture = AudioCaptureSession()
+    let capture: AudioCaptureSession
     let input = AudioInputManager.shared
     let player = AVPlayer()
     private let takePlayer = AVPlayer()
@@ -20,7 +20,8 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     @Published var fitLongTake = false
     @Published var trimLongTake = false
     @Published var ducking: DescriptionDucking
-    private let processingSound = ProcessingSound()
+    private let processingSound: ProcessingSound
+    private let recordingDirectory: () async throws -> URL
     @Published var busy = false {
         didSet { if !busy { processingSound.stop() } }
     }
@@ -46,7 +47,15 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     var range: ProjectTimeRange { ProjectTimeRange(start: ProjectTime(seconds: start), duration: ProjectTime(seconds: end - start)) }
     var validRange: Bool { start.isFinite && start >= 0 && (!isDescriber || (end.isFinite && end > start)) }
 
-    init(controller: ProjectController, purpose: RecordingPurpose, cue: CaptionCue? = nil) {
+    init(controller: ProjectController, purpose: RecordingPurpose, cue: CaptionCue? = nil,
+         capture: AudioCaptureSession? = nil, processingSound: ProcessingSound? = nil,
+         recordingDirectory: (() async throws -> URL)? = nil) {
+        self.capture = capture ?? AudioCaptureSession()
+        self.processingSound = processingSound ?? ProcessingSound()
+        self.recordingDirectory = recordingDirectory ?? { [weak controller] in
+            guard let controller else { throw CancellationError() }
+            return try await controller.recordingsDirectory()
+        }
         self.controller = controller
         self.purpose = purpose
         editingCueID = cue?.id
@@ -55,13 +64,13 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         position = insertion
         end = cue?.end.seconds ?? controller.captionDraftRange?.end.seconds ?? min(controller.project.duration.seconds, insertion + 5)
         text = cue?.text ?? ""
-        name = purpose.title
+        name = ""
         ducking = controller.project.descriptionDucking
         if let reference = controller.captionDraftRange {
             voice.referenceStart = reference.start.seconds
             voice.referenceEnd = reference.end.seconds
         } else { voice.referenceEnd = min(5, controller.project.duration.seconds) }
-        capture.maximumDuration = nil
+        self.capture.maximumDuration = nil
         AudioOutputManager.shared.register(player)
         AudioOutputManager.shared.register(takePlayer)
         takeRateObserver = takePlayer.publisher(for: \.rate).receive(on: RunLoop.main).sink { [weak self] in self?.takePlaying = $0 != 0 }
@@ -286,7 +295,6 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         do { try validateForQuit() } catch { fail(error.localizedDescription); return }
         busy = true
         saving = true
-        processingSound.start()
         operation = Task { [weak self] in
             guard let self else { return }
             do {
@@ -316,8 +324,12 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
             }
             var asset: MediaAssetRecord?
             if capture.testURL != nil {
+                // Resolve user interaction before starting processing feedback or file work.
+                processingSound.stop()
+                let folder = try await recordingDirectory()
+                try Task.checkCancellation()
+                processingSound.start()
                 let (source, duration) = try await preparedTake()
-                let folder = try await controller.recordingsDirectory()
                 try Task.checkCancellation()
                 let cleanName = name.components(separatedBy: CharacterSet(charactersIn: "/:\n\r")).joined(separator: " ")
                     .trimmingCharacters(in: .whitespacesAndNewlines)

@@ -45,7 +45,7 @@ struct TransitionEditorView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 LabeledContent("Transition Name") {
-                    TextField("Transition name", text: $transitionName)
+                    TextField("Transition name", text: $transitionName, prompt: Text(""))
                         .labelsHidden()
                 }
                 transitionPicker

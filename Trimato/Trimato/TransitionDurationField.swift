@@ -34,7 +34,7 @@ struct TransitionDurationField: View {
 
     var body: some View {
         LabeledContent(label) {
-            TextField(label, text: $text)
+            TextField(label, text: $text, prompt: Text(""))
                 .labelsHidden()
         }
     }

@@ -302,3 +302,25 @@ struct ProjectMediaFilesPrompt: View {
         .interactiveDismissDisabled()
     }
 }
+
+/// Folder access must be established before even a write-permission probe.
+@MainActor
+enum ProjectMediaStorage {
+    static func prepare(projectURL: URL, name: String, grantedFolder: URL?,
+                        requestAccess: () async throws -> URL,
+                        prepareDirectory: (URL) async throws -> Void) async throws -> URL {
+        let parent = projectURL.deletingLastPathComponent().standardizedFileURL
+        try Task.checkCancellation()
+        if grantedFolder?.standardizedFileURL != parent {
+            let selected = try await requestAccess()
+            try Task.checkCancellation()
+            guard selected.standardizedFileURL == parent else {
+                throw AudioCaptureError.message("Choose the folder containing this Trimato project.")
+            }
+        }
+        let folder = parent.appendingPathComponent(name, isDirectory: true)
+        try await prepareDirectory(folder)
+        try Task.checkCancellation()
+        return folder
+    }
+}

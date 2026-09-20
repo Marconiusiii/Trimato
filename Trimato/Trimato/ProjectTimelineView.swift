@@ -674,7 +674,7 @@ struct ProjectTimelineView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Rename Timeline Clip").font(.headline).accessibilityAddTraits(.isHeader)
             LabeledContent("Clip Name") {
-                TextField("Clip Name", text: $renamedClipName)
+                TextField("Clip Name", text: $renamedClipName, prompt: Text(""))
                     .labelsHidden()
             }
             NativeModalActions(
@@ -695,7 +695,7 @@ struct ProjectTimelineView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Rename Track").font(.headline).accessibilityAddTraits(.isHeader)
             LabeledContent("Track Name") {
-                TextField("Track Name", text: $trackName)
+                TextField("Track Name", text: $trackName, prompt: Text(""))
                     .labelsHidden()
             }
             NativeModalActions(
@@ -781,7 +781,7 @@ private struct AddTrackView: View {
                 }
             }
             LabeledContent("Track Name") {
-                TextField("Track name", text: $trackName)
+                TextField("Track name", text: $trackName, prompt: Text(""))
                     .labelsHidden()
             }
             NativeModalActions(

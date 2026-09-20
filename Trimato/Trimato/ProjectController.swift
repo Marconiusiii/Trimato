@@ -202,45 +202,71 @@ final class ProjectController: ObservableObject {
         try await projectMediaDirectory(named: "Recordings")
     }
 
+    private var choosingMediaFolder = false
+
     func projectMediaDirectory(named name: String) async throws -> URL {
         guard let projectURL = projectSaveCoordinator?.projectURL else {
-            throw AudioCaptureError.message("Save the project before adding a recording.")
+            throw AudioCaptureError.message("Save the project before adding project media.")
         }
+        guard !choosingMediaFolder else {
+            throw AudioCaptureError.message("Finish choosing the project media folder first.")
+        }
+        choosingMediaFolder = true
+        defer { choosingMediaFolder = false }
         let parent = projectURL.deletingLastPathComponent()
-        let folder = parent.appendingPathComponent(name, isDirectory: true)
+        // Capture the initiating window before any suspension or panel presentation.
+        let origin = NSApp.keyWindow ?? projectSaveCoordinator?.attachedWindow
+        var grantedFolder: URL?
         if let bookmark = project.recordingsFolderBookmark {
             var stale = false
             if let granted = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI],
                                       relativeTo: nil, bookmarkDataIsStale: &stale),
-               granted.standardizedFileURL == parent.standardizedFileURL,
-               !accessedURLs.contains(granted), granted.startAccessingSecurityScopedResource() {
-                accessedURLs.append(granted)
+               !stale, granted.standardizedFileURL == parent.standardizedFileURL {
+                if accessedURLs.contains(granted) {
+                    grantedFolder = granted
+                } else if granted.startAccessingSecurityScopedResource() {
+                    accessedURLs.append(granted)
+                    grantedFolder = granted
+                }
             }
         }
-        do {
-            try await RecordingFileStorage.prepareDirectory(folder)
-        }
-        catch {
-            guard (error as NSError).code == CocoaError.fileWriteNoPermission.rawValue,
-                  let window = NSApp.keyWindow ?? projectSaveCoordinator?.attachedWindow else { throw error }
-            let panel = NSOpenPanel()
-            panel.title = "Allow Project Media Storage"
-            panel.message = "Choose the project folder to store media alongside the Trimato project."
-            panel.directoryURL = parent
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            guard await panel.beginSheetModal(for: window.attachedSheet ?? window) == .OK, let selected = panel.url else { throw CancellationError() }
-            guard selected.standardizedFileURL == parent.standardizedFileURL else {
-                throw AudioCaptureError.message("Choose the folder containing this Trimato project.")
-            }
-            if selected.startAccessingSecurityScopedResource() { accessedURLs.append(selected) }
-            if let bookmark = try? selected.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
+        return try await ProjectMediaStorage.prepare(projectURL: projectURL, name: name,
+            grantedFolder: grantedFolder, requestAccess: { [self] in
+                guard let origin, origin.attachedSheet == nil else {
+                    throw AudioCaptureError.message("Close the open sheet before choosing the project media folder. Your recording is still available.")
+                }
+                InterfaceSounds.shared.silenceForPlayback()
+                let panel = NSOpenPanel()
+                panel.title = "Choose Project Media Folder"
+                panel.message = "Choose “\(parent.lastPathComponent)”, the folder containing “\(projectURL.lastPathComponent)”. Trimato will store project media in subfolders here. Cancel keeps your recording available."
+                panel.prompt = "Choose Folder"
+                panel.directoryURL = parent
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                let response = await withTaskCancellationHandler {
+                    if Task.isCancelled { return NSApplication.ModalResponse.cancel }
+                    return await panel.beginSheetModal(for: origin)
+                } onCancel: {
+                    Task { @MainActor in panel.cancel(nil) }
+                }
+                try Task.checkCancellation()
+                guard response == .OK, let selected = panel.url else { throw CancellationError() }
+                guard projectSaveCoordinator?.projectURL == projectURL else {
+                    throw AudioCaptureError.message("The project location changed. Try adding the media again.")
+                }
+                guard selected.standardizedFileURL == parent.standardizedFileURL else {
+                    throw AudioCaptureError.message("Choose “\(parent.lastPathComponent)”, the folder containing this Trimato project. Your recording is still available.")
+                }
+                guard selected.startAccessingSecurityScopedResource() else {
+                    throw AudioCaptureError.message("Trimato could not access the selected folder. Choose the folder again to grant access. Your recording is still available.")
+                }
+                accessedURLs.append(selected)
+                let bookmark = try selected.bookmarkData(options: .withSecurityScope,
+                    includingResourceValuesForKeys: nil, relativeTo: nil)
                 document.project.recordingsFolderBookmark = bookmark
-            }
-            try await RecordingFileStorage.prepareDirectory(folder)
-        }
-        return folder
+                return selected
+            }, prepareDirectory: { try await RecordingFileStorage.prepareDirectory($0) })
     }
 
     func exportDescriptions() {

@@ -655,7 +655,7 @@ private struct AddToTrackView: View {
             Divider()
 
             LabeledContent("New Track Name") {
-                TextField("New Track Name", text: $newTrackName)
+                TextField("New Track Name", text: $newTrackName, prompt: Text(""))
                     .labelsHidden()
             }
 

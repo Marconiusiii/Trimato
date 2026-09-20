@@ -267,7 +267,7 @@ struct ProjectCreationView: View {
             }
 
             Form {
-                TextField("Project Name", text: $name)
+                TextField("Project Name", text: $name, prompt: Text(""))
                     .focused($nameKeyboardFocused)
                     .accessibilityFocused($nameVoiceOverFocused)
 
@@ -286,8 +286,8 @@ struct ProjectCreationView: View {
                     .pickerStyle(.menu)
 
                     if resolutionChoice == .custom {
-                        TextField("Width", value: customWidthBinding, format: .number)
-                        TextField("Height", value: customHeightBinding, format: .number)
+                        TextField("Width", value: customWidthBinding, format: .number, prompt: Text(""))
+                        TextField("Height", value: customHeightBinding, format: .number, prompt: Text(""))
                         Toggle("Lock aspect ratio", isOn: aspectRatioLockBinding)
                             .toggleStyle(.checkbox)
                     }
@@ -300,7 +300,7 @@ struct ProjectCreationView: View {
                     .pickerStyle(.menu)
 
                     if frameRateChoice == .custom {
-                        TextField("Custom Frame Rate", value: $customFrameRate, format: .number)
+                        TextField("Custom Frame Rate", value: $customFrameRate, format: .number, prompt: Text(""))
                     }
 
                     Text("Choose a preset or enter custom even dimensions from 2 through 8,192 pixels and a custom frame rate from 1 through 240 fps.")
@@ -315,7 +315,7 @@ struct ProjectCreationView: View {
 
                 Toggle("Use Target Duration", isOn: $usesTargetDuration)
                 if usesTargetDuration {
-                    TextField("Target Duration in Seconds", value: $targetSeconds, format: .number)
+                    TextField("Target Duration in Seconds", value: $targetSeconds, format: .number, prompt: Text(""))
                 }
             }
 

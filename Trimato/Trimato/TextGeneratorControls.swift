@@ -69,13 +69,13 @@ struct TextGeneratorControls: View {
             }
 
             TextField("Font Size in Points", value: $definition.textFontSizeWholePoints,
-                      format: .number)
+                      format: .number, prompt: Text(""))
             Picker("Text Alignment", selection: settings.alignment) {
                 ForEach(TextAlignmentChoice.allCases) { Text($0.title).tag($0) }
             }
 
             TextField("Line Spacing", value: $definition.textLineHeightMultiple,
-                      format: .number.precision(.fractionLength(0...2)))
+                      format: .number.precision(.fractionLength(0...2)), prompt: Text(""))
                 .help("A multiplier of 1 uses the font's natural line spacing.")
         }
     }
@@ -96,7 +96,7 @@ struct TextGeneratorControls: View {
             if definition.textSettings.panelEnabled {
                 colorControls("Panel Color", color: settings.panelColor)
                 TextField("Panel Opacity in Percent", value: settings.panelOpacity,
-                          format: .number.precision(.fractionLength(0...2)))
+                          format: .number.precision(.fractionLength(0...2)), prompt: Text(""))
             }
         }
     }
@@ -108,15 +108,15 @@ struct TextGeneratorControls: View {
             }
 
             TextField("Safe Margin in Percent", value: settings.safeMargin,
-                      format: .number.precision(.fractionLength(0...2)))
+                      format: .number.precision(.fractionLength(0...2)), prompt: Text(""))
                 .help("Keeps text away from the edges of the video.")
             TextField("Maximum Width as Percent of Safe Area", value: settings.maximumWidth,
-                      format: .number.precision(.fractionLength(0...2)))
+                      format: .number.precision(.fractionLength(0...2)), prompt: Text(""))
             TextField("Horizontal Offset as Percent of Frame Width", value: settings.horizontalOffset,
-                      format: .number.precision(.fractionLength(0...2)))
+                      format: .number.precision(.fractionLength(0...2)), prompt: Text(""))
                 .help("Positive values move text right; negative values move it left.")
             TextField("Vertical Offset as Percent of Frame Height", value: settings.verticalOffset,
-                      format: .number.precision(.fractionLength(0...2)))
+                      format: .number.precision(.fractionLength(0...2)), prompt: Text(""))
                 .help("Positive values move text down; negative values move it up.")
         }
     }
@@ -128,7 +128,7 @@ struct TextGeneratorControls: View {
         }
 
         if color.wrappedValue.choice == .custom {
-            TextField("\(title) Hexadecimal", text: color.customHex)
+            TextField("\(title) Hexadecimal", text: color.customHex, prompt: Text(""))
                 .help("Enter a six-digit hexadecimal color, such as FFFFFF for white.")
         }
     }
