@@ -541,7 +541,8 @@ struct ProjectRecordingTests {
     @Test(arguments: [RecordingPurpose.audioDescription, .voiceOver])
     func recordingFieldsHaveNativeLabelsAndNoPlaceholders(purpose: RecordingPurpose) async throws {
         let controller = ProjectController(document: ProjectDocument())
-        let session = ProjectRecordingSession(controller: controller, purpose: purpose, prepareCapture: {})
+        var preparations = 0
+        let session = ProjectRecordingSession(controller: controller, purpose: purpose, prepareCapture: { preparations += 1 })
         let host = NSHostingView(rootView: ProjectRecordingView(session: session))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 800),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -582,10 +583,11 @@ struct ProjectRecordingTests {
             let frame = try #require(attribute(editor, "accessibilityFrame") as? NSValue)
             #expect(frame.rectValue.width >= 500, "Transcript must use the pane width instead of a narrow label column")
         }
-        let disclosure = try #require(descendants(host).first {
-            attribute($0, "accessibilityRole") as? String == "AXDisclosureTriangle" &&
-                attribute($0, "accessibilityLabel") as? String == "Voice Adjustments"
-        })
+        func tab(_ name: String) throws -> NSTabViewItem {
+            try #require(descendants(host).compactMap { $0 as? NSTabViewItem }.first { $0.label == name })
+        }
+        let adjustmentsTab = try tab("Voice Adjustments")
+        let tabView = try #require(adjustmentsTab.tabView)
         func visibleText(_ text: String) -> Bool {
             descendants(host).contains { attribute($0, "accessibilityValue") as? String == text }
         }
@@ -598,19 +600,17 @@ struct ProjectRecordingTests {
         }
         #expect(!visibleText("Dialogue reference In"))
         #expect(playbackButtonCount() == 1)
-        let press = NSSelectorFromString("accessibilityPerformPress")
-        try #require(disclosure.responds(to: press))
-        let toggle = unsafeBitCast(disclosure.method(for: press),
-            to: (@convention(c) (AnyObject, Selector) -> Bool).self)
-        #expect(toggle(disclosure, press))
+        tabView.selectTabViewItem(adjustmentsTab)
         try await Task.sleep(for: .milliseconds(250))
         #expect(visibleText("Dialogue reference In"))
         #expect(playbackButtonCount() == 1)
         #expect(visibleText("\(purpose.toolTitle) Clip Name"))
-        #expect(toggle(disclosure, press))
+        tabView.selectTabViewItem(try tab("Recording"))
         try await Task.sleep(for: .milliseconds(250))
         #expect(!visibleText("Dialogue reference In"))
         #expect(playbackButtonCount() == 1)
+        #expect(preparations == 1, "Changing tabs must not prepare the microphone again")
+        #expect(session.inputPreparationStarted)
         session.ducking.enabled = false
         try await Task.sleep(for: .milliseconds(250))
         #expect(!descendants(host).contains { attribute($0, "accessibilityValue") as? String == "Audio Ducking Amount" })

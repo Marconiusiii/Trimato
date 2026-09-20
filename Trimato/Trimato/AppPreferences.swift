@@ -16,6 +16,7 @@ nonisolated enum AppPreferenceKey {
     static let audioRecordingBitDepth = "audioRecordingBitDepth"
     static let timecodeFeedback = "timecodeFeedback"
     static let timecodeVerbosity = "timecodeVerbosity"
+    static let precisionTimecode = "precisionTimecode"
 }
 
 nonisolated enum TimecodeFeedback: String, CaseIterable, Identifiable, Sendable {
@@ -70,6 +71,26 @@ nonisolated enum AppPreferences {
 
     static func audioRecordingBitDepth(in defaults: UserDefaults = .standard) -> Int {
         defaults.integer(forKey: AppPreferenceKey.audioRecordingBitDepth) == 16 ? 16 : 24
+    }
+
+    static func precisionTimecode(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: AppPreferenceKey.precisionTimecode) as? Bool ?? true
+    }
+
+    /// Presentation only: never use the whole-second result to update an edit boundary.
+    static func passiveTimecode(seconds: Double, precision: Bool) -> String {
+        let safeSeconds = seconds.isFinite ? min(max(seconds, 0), 359_999_999) : 0
+        if precision {
+            let milliseconds = Int64((safeSeconds * 1_000).rounded())
+            return String(format: "%02lld:%02lld:%02lld.%03lld", milliseconds / 3_600_000,
+                          milliseconds / 60_000 % 60, milliseconds / 1_000 % 60, milliseconds % 1_000)
+        }
+        let wholeSeconds = Int64(safeSeconds.rounded(.down))
+        if wholeSeconds >= 3_600 {
+            return String(format: "%lld:%02lld:%02lld", wholeSeconds / 3_600,
+                          wholeSeconds / 60 % 60, wholeSeconds % 60)
+        }
+        return String(format: "%lld:%02lld", wholeSeconds / 60, wholeSeconds % 60)
     }
 
     static var timecodeFeedback: TimecodeFeedback {

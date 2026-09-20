@@ -447,10 +447,12 @@ private struct ClipEditorEntryFocusBridge: NSViewRepresentable {
 }
 
 private struct ClipLiveTimecode: View {
+    @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @ObservedObject var clock: ClipPlaybackClock
     let showingFrames: Bool
     var body: some View {
-        Text(showingFrames ? String(format: "%06d", clock.frame) : clock.timecode)
+        Text(showingFrames ? String(format: "%06d", clock.frame)
+             : AppPreferences.passiveTimecode(seconds: clock.time, precision: precisionTimecode))
     }
 }
 

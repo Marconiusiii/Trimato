@@ -184,6 +184,7 @@ struct GeneralSettingsView: View {
 }
 
 struct AccessibilitySettingsView: View {
+    @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @AppStorage(AppPreferenceKey.timecodeFeedback)
     private var timecodeFeedback = TimecodeFeedback.live
     @AppStorage(AppPreferenceKey.timecodeVerbosity)
@@ -202,6 +203,8 @@ struct AccessibilitySettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+
+                    Toggle("Precision Timecode", isOn: $precisionTimecode)
 
                     if timecodeFeedback != .off {
                         Picker("Timecode Verbosity", selection: $timecodeVerbosity) {

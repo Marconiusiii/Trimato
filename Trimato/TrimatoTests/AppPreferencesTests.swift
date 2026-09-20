@@ -32,6 +32,37 @@ struct AppPreferencesTests {
         #expect(AppPreferences.audioRecordingBitDepth(in: defaults) == 16)
     }
 
+    @Test func precisionTimecodeDefaultsOnAndCanBeDisabled() throws {
+        let name = "PrecisionTimecodeTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        #expect(AppPreferences.precisionTimecode(in: defaults))
+        defaults.set(false, forKey: AppPreferenceKey.precisionTimecode)
+        #expect(!AppPreferences.precisionTimecode(in: defaults))
+        defaults.set(true, forKey: AppPreferenceKey.precisionTimecode)
+        #expect(AppPreferences.precisionTimecode(in: defaults))
+    }
+
+    @Test func passiveCountersUseCompletedSecondsWithoutChangingPreciseTimes() throws {
+        for (seconds, simplified, precise) in [
+            (0.0, "0:00", "00:00:00.000"),
+            (1.25, "0:01", "00:00:01.250"),
+            (59.999, "0:59", "00:00:59.999"),
+            (60.0, "1:00", "00:01:00.000"),
+            (3599.999, "59:59", "00:59:59.999"),
+            (3600.0, "1:00:00", "01:00:00.000"),
+            (3661.042, "1:01:01", "01:01:01.042")
+        ] {
+            #expect(AppPreferences.passiveTimecode(seconds: seconds, precision: false) == simplified)
+            #expect(AppPreferences.passiveTimecode(seconds: seconds, precision: true) == precise)
+            #expect(RecordingTimeFormat().format(seconds) == precise)
+            #expect(abs(try RecordingTimeFormat().parseStrategy.parse(precise) - seconds) < 0.000_001)
+        }
+        for invalid in [-1.0, Double.nan, Double.infinity] {
+            #expect(AppPreferences.passiveTimecode(seconds: invalid, precision: false) == "0:00")
+        }
+    }
+
     @Test func timecodeChoicesStayInTheSettingsOrder() {
         #expect(TimecodeFeedback.allCases == [.live, .onDemand, .off])
         #expect(TimecodeVerbosity.allCases == [.default, .short, .frames])

@@ -113,8 +113,11 @@ struct MixerView: View {
                 set: { session.change(key, to: $0) })
     }
     var body: some View {
-        ScrollView {
-            controls.fixedSize(horizontal: false, vertical: true)
+        VStack(spacing: 0) {
+            controls
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Divider()
+            actions.padding(EditorTheme.dialogPadding)
         }
         .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
         .background(EditorAccessibilityFocusBridge(scope: focusScope))
@@ -126,8 +129,17 @@ struct MixerView: View {
         .blocksEditingDuringQuit()
     }
 
+    private var actions: some View {
+        HStack {
+            Spacer()
+            Button("Close") { session.controller.requestCloseToolPane() }
+                .keyboardShortcut(.cancelAction)
+            ContextualHelpButton(topic: .mixer)
+        }
+    }
+
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Mixer").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
             MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, focusRevision: focusRevision, play: session.togglePlayback)
             Divider()
@@ -165,12 +177,7 @@ struct MixerView: View {
                 session.controller.setMasterVolume($0); session.refresh()
             }), range: -60...12, step: 0.5, unit: "dB", identifier: "trimato.mixer.master",
                 spokenValue: MixerValue.decibels, onEditingChanged: session.controller.mixerAdjustmentEditing)
-            HStack {
-                Spacer()
-                Button("Close") { session.controller.requestCloseToolPane() }
-                    .keyboardShortcut(.cancelAction)
-                ContextualHelpButton(topic: .mixer)
-            }
+
         }
         .padding(EditorTheme.dialogPadding)
         .frame(maxWidth: .infinity)

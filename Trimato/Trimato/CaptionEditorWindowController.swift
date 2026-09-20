@@ -183,10 +183,34 @@ struct CaptionEditorView: View {
     @FocusState private var textFocused: Bool
     @AccessibilityFocusState private var textVoiceOverFocused: Bool
 
+    private var actions: some View {
+        HStack {
+            Spacer()
+            Button("Cancel", action: cancel)
+                .keyboardShortcut(.cancelAction)
+            NativeDefaultButton(
+                title: session.actionTitle,
+                isEnabled: session.canSave,
+                action: session.save
+            )
+            ContextualHelpButton(topic: .captioner)
+        }
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Divider()
+            actions.padding(EditorTheme.dialogPadding)
+        }
+        .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(session.title)
-                .font(.headline)
+                .font(EditorTheme.dialogTitle)
                 .accessibilityAddTraits(.isHeader)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -201,7 +225,7 @@ struct CaptionEditorView: View {
                 .focused($textFocused)
                 .accessibilityFocused($textVoiceOverFocused)
                 .accessibilityLabel("Caption Text")
-                .frame(minHeight: 150)
+                .frame(minHeight: 100, idealHeight: 220, maxHeight: .infinity)
 
             Menu("Insert Caption Description") {
                 Button("Music Description") { session.insert("[music description]") }
@@ -220,20 +244,10 @@ struct CaptionEditorView: View {
             }
 
             Button("Play Selection", action: session.play)
-            HStack {
-                Spacer()
-                Button("Cancel", action: cancel)
-                    .keyboardShortcut(.cancelAction)
-                NativeDefaultButton(
-                    title: session.actionTitle,
-                    isEnabled: session.canSave,
-                    action: session.save
-                )
-                ContextualHelpButton(topic: .captioner)
-            }
+
         }
-        .padding(20)
-        .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+        .padding(EditorTheme.dialogPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .pendingQuitDraft(session.text, pending: session.hasPendingQuitEdits,
             validate: { if !session.canSave { throw QuitDraftError(message: "Enter caption text before saving.") } },
             apply: { try session.saveForQuit(); session.cancel() })

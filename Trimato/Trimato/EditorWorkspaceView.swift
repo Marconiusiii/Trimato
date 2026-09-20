@@ -995,9 +995,11 @@ private struct ProjectLivePlayhead: View {
 }
 
 struct ProjectLiveTimecode: View {
+    @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @ObservedObject var clock: ProjectPlaybackClock
     let showingFrames: Bool
     var body: some View {
-        Text(showingFrames ? String(format: "%06d", clock.frame) : clock.timecode)
+        Text(showingFrames ? String(format: "%06d", clock.frame)
+             : AppPreferences.passiveTimecode(seconds: clock.time.seconds, precision: precisionTimecode))
     }
 }

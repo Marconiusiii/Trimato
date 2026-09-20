@@ -2,6 +2,7 @@ import SwiftUI
 
 /// The authoring session owns its temporary mix; the Editor owns its visual display.
 struct RecordingEditorPreview: View {
+    @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @ObservedObject var session: ProjectRecordingSession
     let project: TrimatoProject
 
@@ -15,12 +16,12 @@ struct RecordingEditorPreview: View {
                     project.format.height.map { CGSize(width: width, height: $0) }
                 },
                 accessibleFrame: project.hasTimelineVideo,
-                frameDescription: ProjectTimecodeFormatter.string(ProjectTime(seconds: session.position))
+                frameDescription: AppPreferences.passiveTimecode(seconds: session.position, precision: precisionTimecode)
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.black)
             LabeledContent(session.purpose.toolTitle) {
-                Text(ProjectTimecodeFormatter.string(ProjectTime(seconds: session.position)))
+                Text(AppPreferences.passiveTimecode(seconds: session.position, precision: precisionTimecode))
                     .monospacedDigit()
             }
             .padding(8)
