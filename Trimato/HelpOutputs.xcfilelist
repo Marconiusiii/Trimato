@@ -27,3 +27,8 @@ $(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/gener
 $(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/voicer.html
 $(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/describer.html
 $(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/captioner.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/settings-general.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/settings-audio.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/settings-video.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/settings-accessibility.html
+$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/Contents/Resources/en.lproj/settings-storage.html

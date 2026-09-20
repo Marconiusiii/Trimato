@@ -26,19 +26,19 @@ struct TrimatoSettingsView: View {
     @StateObject private var capture = AudioCaptureSession()
     var body: some View {
         TabView {
-            GeneralSettingsView()
+            SettingsHelpPage(topic: .generalSettings) { GeneralSettingsView() }
                 .tabItem { Label("General", systemImage: "gearshape") }
 
-            AudioRecordingSettingsView(capture: capture)
+            SettingsHelpPage(topic: .audioSettings) { AudioRecordingSettingsView(capture: capture) }
                 .tabItem { Label("Audio", systemImage: "waveform") }
 
-            VideoSettingsView()
+            SettingsHelpPage(topic: .videoSettings) { VideoSettingsView() }
                 .tabItem { Label("Video", systemImage: "video") }
 
-            AccessibilitySettingsView()
+            SettingsHelpPage(topic: .accessibilitySettings) { AccessibilitySettingsView() }
                 .tabItem { Label("Accessibility", systemImage: "accessibility") }
 
-            MediaCacheSettingsView()
+            SettingsHelpPage(topic: .storageSettings) { MediaCacheSettingsView() }
                 .tabItem { Label("Storage", systemImage: "internaldrive") }
         }
         .accessibilityIdentifier(SettingsToolbarAccessibility.contentIdentifier)
@@ -92,7 +92,7 @@ enum SettingsToolbarAccessibility {
     }
 }
 
-private struct GeneralSettingsView: View {
+struct GeneralSettingsView: View {
     @AppStorage(AppPreferenceKey.processingSounds) private var processingSounds = true
     @AppStorage(AppPreferenceKey.exportCompletionSound) private var exportCompletionSound = true
     @AppStorage(AppPreferenceKey.appearance) private var appearance = AppAppearance.system
@@ -162,8 +162,6 @@ private struct GeneralSettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     LabeledContent("Export notification access", value: notificationModel.state.statusText)
                         .accessibilityElement(children: .combine)
-                    Text(notificationModel.state.explanation)
-                        .foregroundStyle(EditorTheme.secondaryText)
 
                     if notificationModel.state == .notRequested {
                         Button("Allow export notifications…") {
@@ -185,7 +183,7 @@ private struct GeneralSettingsView: View {
     }
 }
 
-private struct AccessibilitySettingsView: View {
+struct AccessibilitySettingsView: View {
     @AppStorage(AppPreferenceKey.timecodeFeedback)
     private var timecodeFeedback = TimecodeFeedback.live
     @AppStorage(AppPreferenceKey.timecodeVerbosity)
@@ -214,10 +212,6 @@ private struct AccessibilitySettingsView: View {
                         .pickerStyle(.segmented)
                     }
 
-                    if timecodeFeedback == .onDemand {
-                        Text("Press T to hear the current timecode.")
-                            .foregroundStyle(EditorTheme.secondaryText)
-                    }
                 }
             }
         }
@@ -226,15 +220,37 @@ private struct AccessibilitySettingsView: View {
     }
 }
 
-private struct VideoSettingsView: View {
+struct VideoSettingsView: View {
     @AppStorage(AppPreferenceKey.preserveHDR) private var preserveHDR = true
 
     var body: some View {
-        Form {
+        VStack(alignment: .leading) {
             Toggle("Preserve HDR", isOn: $preserveHDR)
-            Text("Keep HDR brightness and color when exporting HDR video as HEVC or ProRes. Turn this off to convert HDR video to SDR.")
-            Text("Supported QuickTime exports preserve iPhone Spatial Audio and its stereo playback alternative. Combine compatible recordings with volume, mute, and audio transitions. Choose spatial or high-quality stereo audio in Export. Converted exports do not include editable Cinematic focus information.")
         }
-        .formStyle(.grouped)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+    }
+}
+
+/// Each Settings page scrolls independently above its final native Help button.
+struct SettingsHelpPage<Content: View>: View {
+    let topic: TrimatoHelp.Topic
+    let content: Content
+
+    init(topic: TrimatoHelp.Topic, @ViewBuilder content: () -> Content) {
+        self.topic = topic
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView { content }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack {
+                Spacer()
+                ContextualHelpButton(topic: topic)
+            }
+            .padding(20)
+        }
     }
 }

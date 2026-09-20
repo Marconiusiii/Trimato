@@ -91,10 +91,6 @@ struct MediaCacheSettingsView: View {
                     LabeledContent("Cache files", value: formattedFileCount)
                     LabeledContent("Storage limit", value: "10 GB")
                     LabeledContent("Stored in", value: "macOS Caches")
-                    Text("Trimato reuses frame indexes and audio waveforms when you reopen unchanged clips. Playback proxies are also cached when an original needs one.")
-                        .foregroundStyle(EditorTheme.secondaryText)
-                    Text("This total does not include projects, original media, exports, transition renders, audio previews, or export intermediates.")
-                        .foregroundStyle(EditorTheme.secondaryText)
 
                     Button("Refresh storage usage") {
                         model.refresh(announceCompletion: true)
@@ -112,15 +108,11 @@ struct MediaCacheSettingsView: View {
                         confirmation = .unused
                     }
                     .disabled(model.isWorking || model.isRefreshing)
-                    Text("Removes cached analysis and playback proxies not used in the last seven days.")
-                        .foregroundStyle(EditorTheme.secondaryText)
 
                     Button("Clear all cached media…") {
                         confirmation = .all
                     }
                     .disabled(model.isWorking || model.isRefreshing)
-                    Text("Removes cached analysis and playback proxies, keeping active preparation and proxies required by an open project or editor.")
-                        .foregroundStyle(EditorTheme.secondaryText)
                 }
             }
         }

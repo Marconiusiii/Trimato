@@ -15,6 +15,11 @@ enum TrimatoHelp {
         case describer = "trimato-describer"
         case voicer = "trimato-voicer"
         case captioner = "trimato-captioner"
+        case generalSettings = "trimato-settings-general"
+        case audioSettings = "trimato-settings-audio"
+        case videoSettings = "trimato-settings-video"
+        case accessibilitySettings = "trimato-settings-accessibility"
+        case storageSettings = "trimato-settings-storage"
     }
 
     struct Destination {

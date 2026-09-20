@@ -673,8 +673,8 @@ struct ProjectTimelineView: View {
     private var renameClipSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Rename Timeline Clip").font(.headline).accessibilityAddTraits(.isHeader)
-            LabeledContent("Clip Name") {
-                TextField("Clip Name", text: $renamedClipName, prompt: Text(""))
+            LabeledContent("Timeline Clip Name") {
+                TextField("Timeline Clip Name", text: $renamedClipName, prompt: Text(""))
                     .labelsHidden()
             }
             NativeModalActions(

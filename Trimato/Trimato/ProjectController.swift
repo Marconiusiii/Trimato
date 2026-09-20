@@ -233,12 +233,12 @@ final class ProjectController: ObservableObject {
         return try await ProjectMediaStorage.prepare(projectURL: projectURL, name: name,
             grantedFolder: grantedFolder, requestAccess: { [self] in
                 guard let origin, origin.attachedSheet == nil else {
-                    throw AudioCaptureError.message("Close the open sheet before choosing the project media folder. Your recording is still available.")
+                    throw AudioCaptureError.message("Close the open sheet before choosing the project media folder.")
                 }
                 InterfaceSounds.shared.silenceForPlayback()
                 let panel = NSOpenPanel()
                 panel.title = "Choose Project Media Folder"
-                panel.message = "Choose “\(parent.lastPathComponent)”, the folder containing “\(projectURL.lastPathComponent)”. Trimato will store project media in subfolders here. Cancel keeps your recording available."
+                panel.message = "Choose “\(parent.lastPathComponent)”, the folder containing “\(projectURL.lastPathComponent)”. Trimato will store project media in subfolders here."
                 panel.prompt = "Choose Folder"
                 panel.directoryURL = parent
                 panel.canChooseFiles = false
@@ -256,10 +256,10 @@ final class ProjectController: ObservableObject {
                     throw AudioCaptureError.message("The project location changed. Try adding the media again.")
                 }
                 guard selected.standardizedFileURL == parent.standardizedFileURL else {
-                    throw AudioCaptureError.message("Choose “\(parent.lastPathComponent)”, the folder containing this Trimato project. Your recording is still available.")
+                    throw AudioCaptureError.message("Choose “\(parent.lastPathComponent)”, the folder containing this Trimato project.")
                 }
                 guard selected.startAccessingSecurityScopedResource() else {
-                    throw AudioCaptureError.message("Trimato could not access the selected folder. Choose the folder again to grant access. Your recording is still available.")
+                    throw AudioCaptureError.message("Trimato could not access the selected folder. Choose the folder again to grant access.")
                 }
                 accessedURLs.append(selected)
                 let bookmark = try selected.bookmarkData(options: .withSecurityScope,

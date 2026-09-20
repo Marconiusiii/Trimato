@@ -20,5 +20,15 @@
 	<string>mixer.html</string>
 	<key>trimato-clip-editor</key>
 	<string>clip-editor.html</string>
+	<key>trimato-settings-general</key>
+	<string>settings-general.html</string>
+	<key>trimato-settings-audio</key>
+	<string>settings-audio.html</string>
+	<key>trimato-settings-video</key>
+	<string>settings-video.html</string>
+	<key>trimato-settings-accessibility</key>
+	<string>settings-accessibility.html</string>
+	<key>trimato-settings-storage</key>
+	<string>settings-storage.html</string>
 </dict>
 </plist>

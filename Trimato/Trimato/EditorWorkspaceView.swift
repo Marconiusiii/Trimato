@@ -708,9 +708,6 @@ struct ProjectViewerView: View {
 
     private var controlsArea: some View {
         VStack(spacing: 6) {
-            if let notice = viewModel.audioNotice {
-                Text(notice).fixedSize(horizontal: false, vertical: true)
-            }
             ProjectLivePlayhead(player: viewModel)
             .disabled(!viewModel.canControlPlayback)
             .tint(EditorTheme.playhead)

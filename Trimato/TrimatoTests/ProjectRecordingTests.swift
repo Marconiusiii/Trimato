@@ -445,9 +445,10 @@ struct ProjectRecordingTests {
         }
     }
 
-    @Test func describerFieldsHaveNativeLabelsAndNoPlaceholders() async throws {
+    @Test(arguments: [RecordingPurpose.audioDescription, .voiceOver])
+    func recordingFieldsHaveNativeLabelsAndNoPlaceholders(purpose: RecordingPurpose) async throws {
         let controller = ProjectController(document: ProjectDocument())
-        let session = ProjectRecordingSession(controller: controller, purpose: .audioDescription)
+        let session = ProjectRecordingSession(controller: controller, purpose: purpose)
         let host = NSHostingView(rootView: ProjectRecordingView(session: session))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 800),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -464,7 +465,9 @@ struct ProjectRecordingTests {
             [item] + ((attribute(item, "accessibilityChildren") as? [NSObject]) ?? []).flatMap(descendants)
         }
         let elements = descendants(host)
-        for name in ["Clip name", "In", "Out", "Audio Ducking Amount", "Fade time, seconds", "Description text"] {
+        let names = ["\(purpose.toolTitle) Clip Name"] + (session.isDescriber
+            ? ["In", "Out", "Audio Ducking Amount", "Fade time, seconds", "Description text"] : ["Insert at"])
+        for name in names {
             let label = try #require(elements.first {
                 attribute($0, "accessibilityRole") as? String == "AXStaticText" &&
                 attribute($0, "accessibilityValue") as? String == name
@@ -477,6 +480,35 @@ struct ProjectRecordingTests {
             }, "Missing native field for visible label: \(name)")
             #expect((attribute(field, "accessibilityPlaceholderValue") as? String ?? "").isEmpty)
         }
+        let disclosure = try #require(descendants(host).first {
+            attribute($0, "accessibilityRole") as? String == "AXDisclosureTriangle" &&
+                attribute($0, "accessibilityLabel") as? String == "Voice Adjustments"
+        })
+        func visibleText(_ text: String) -> Bool {
+            descendants(host).contains { attribute($0, "accessibilityValue") as? String == text }
+        }
+        func playbackButtonCount() -> Int {
+            descendants(host).filter {
+                attribute($0, "accessibilityRole") as? String == "AXButton" &&
+                    (attribute($0, "accessibilityTitle") as? String == "Play take" ||
+                     attribute($0, "accessibilityLabel") as? String == "Play take")
+            }.count
+        }
+        #expect(!visibleText("Dialogue reference In"))
+        #expect(playbackButtonCount() == 1)
+        let press = NSSelectorFromString("accessibilityPerformPress")
+        try #require(disclosure.responds(to: press))
+        let toggle = unsafeBitCast(disclosure.method(for: press),
+            to: (@convention(c) (AnyObject, Selector) -> Bool).self)
+        #expect(toggle(disclosure, press))
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(visibleText("Dialogue reference In"))
+        #expect(playbackButtonCount() == 1)
+        #expect(visibleText("\(purpose.toolTitle) Clip Name"))
+        #expect(toggle(disclosure, press))
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(!visibleText("Dialogue reference In"))
+        #expect(playbackButtonCount() == 1)
         session.ducking.enabled = false
         try await Task.sleep(for: .milliseconds(250))
         #expect(!descendants(host).contains { attribute($0, "accessibilityValue") as? String == "Audio Ducking Amount" })
