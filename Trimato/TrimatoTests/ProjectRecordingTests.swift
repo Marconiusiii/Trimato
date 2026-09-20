@@ -73,7 +73,8 @@ struct ProjectRecordingTests {
         let request = AudioCaptureRequest(inputDeviceID: 10, inputUID: "test", outputDeviceID: 20,
             outputUID: "test", channel: 0, bitDepth: 24)
         let session = ProjectRecordingSession(controller: controller, purpose: purpose, capture: capture,
-            startCapture: { capture.record(request: request) })
+            startCapture: { capture.record(request: request) },
+            prepareCapture: { capture.prepareInput { request } })
         let host = NSHostingView(rootView: ProjectRecordingView(session: session))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 600),
             styleMask: [.titled], backing: .buffered, defer: false)
@@ -84,13 +85,19 @@ struct ProjectRecordingTests {
         try await Task.sleep(for: .milliseconds(500))
         for _ in 0..<200 where session.busy { try await Task.sleep(for: .milliseconds(10)) }
         #expect(!session.busy)
+        for _ in 0..<100 where !capture.isInputPrepared { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(capture.isInputPrepared)
+        #expect(backend.prepareCount == 1)
+        #expect(backend.beginCount == 0)
         let frame = window.frame
         let keyWindow = NSApp.keyWindow
         let responder = window.firstResponder
         let windows = Set(NSApp.windows.map(\.windowNumber))
         // A project change invalidates the cached preview for the first Record action.
         controller.document.project.masterVolumeDB = -1
-        for _ in 0..<2 {
+        for take in 1...2 {
+            #expect(capture.isInputPrepared)
+            #expect(backend.prepareCount == take)
             session.toggleRecording(true)
             #expect(AudioCaptureSession.suppressesAnnouncements)
             for _ in 0..<300 where capture.state != .recording {
@@ -98,6 +105,8 @@ struct ProjectRecordingTests {
                 #expect(window.frame == frame)
             }
             #expect(capture.state == .recording)
+            #expect(backend.prepareCount == take, "Record must reuse the already-open input")
+            #expect(backend.beginCount == take)
             #expect(window.firstResponder === responder)
             #expect(NSApp.keyWindow === keyWindow)
             #expect(Set(NSApp.windows.map(\.windowNumber)) == windows)
@@ -327,7 +336,14 @@ struct ProjectRecordingTests {
         let coordinator = try #require(controller.projectSaveCoordinator)
         let native = try #require(NSDocumentController.shared.document(for: url))
         defer { native.close() }
-        controller.requestRecording(.audioDescription)
+        let backend = StoredTakeBackend(url: folder.appendingPathComponent("unused.wav"))
+        let capture = AudioCaptureSession(routes: AudioOutputManager(observeHardware: false),
+            backend: backend, preparationDelay: .seconds(2), playCue: { _, _ in })
+        let request = AudioCaptureRequest(inputDeviceID: 10, inputUID: "test", outputDeviceID: 20,
+            outputUID: "test", channel: 0, bitDepth: 24)
+        controller.recordingSession = ProjectRecordingSession(controller: controller, purpose: .audioDescription,
+            capture: capture, startCapture: { capture.record(request: request) },
+            prepareCapture: { capture.prepareInput { request } })
         for _ in 0..<50 where RecordingWindowRegistry.shared.closeWindow == nil {
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -341,6 +357,8 @@ struct ProjectRecordingTests {
             }
             #expect(!tool.frame.intersects(projectWindow.frame), "Describer must leave the project window visible")
         }
+        #expect(controller.recordingSession?.hasPendingQuitEdits == false,
+            "Preparing a microphone without a take must not prompt to save on close")
         tool.performClose(nil)
         for _ in 0..<50 where controller.recordingSession != nil { try await Task.sleep(for: .milliseconds(20)) }
         #expect(controller.recordingSession == nil)
@@ -504,7 +522,7 @@ struct ProjectRecordingTests {
     @Test(arguments: [RecordingPurpose.audioDescription, .voiceOver])
     func recordingFieldsHaveNativeLabelsAndNoPlaceholders(purpose: RecordingPurpose) async throws {
         let controller = ProjectController(document: ProjectDocument())
-        let session = ProjectRecordingSession(controller: controller, purpose: purpose)
+        let session = ProjectRecordingSession(controller: controller, purpose: purpose, prepareCapture: {})
         let host = NSHostingView(rootView: ProjectRecordingView(session: session))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 800),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -876,9 +894,11 @@ private final class StoredTakeBackend: AudioCaptureBackend {
     var configurationChanged: (() -> Void)?
     let url: URL
     init(url: URL) { self.url = url }
-    func prepare(_ request: AudioCaptureRequest) async throws { }
+    var prepareCount = 0
+    var beginCount = 0
+    func prepare(_ request: AudioCaptureRequest) async throws { prepareCount += 1; isReady = false }
     func settle() async throws { isReady = true }
-    func begin() async throws { }
+    func begin() async throws { beginCount += 1 }
     func progress() -> (AudioRecordingSummary, String?) { (AudioRecordingSummary(frames: 48_000, sampleRate: 48_000), nil) }
     func finish(playCue: Bool) async -> AudioCaptureResult {
         isReady = false

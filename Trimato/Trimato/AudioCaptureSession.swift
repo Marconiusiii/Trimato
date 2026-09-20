@@ -1,6 +1,40 @@
 import AVFoundation
 import AudioToolbox
 import Combine
+#if DEBUG
+import Synchronization
+import os
+
+/// Single audio-callback producer; observers read atomic counters only. No audio contents.
+@available(macOS 15.0, *)
+nonisolated final class AudioCaptureTiming: @unchecked Sendable {
+    let callbacks = Atomic<UInt64>(0)
+    let latestHostTime = Atomic<UInt64>(0)
+    let largestHostGap = Atomic<UInt64>(0)
+    let discontinuities = Atomic<UInt64>(0)
+    private var expectedSampleTime: Double?
+
+    func receive(hostTime: UInt64, sampleTime: Double?, frames: UInt32) {
+        let previous = latestHostTime.load(ordering: .relaxed)
+        if previous != 0, hostTime >= previous {
+            let gap = hostTime - previous
+            if gap > largestHostGap.load(ordering: .relaxed) {
+                largestHostGap.store(gap, ordering: .relaxed)
+            }
+        }
+        if let sampleTime, sampleTime.isFinite {
+            if let expectedSampleTime, abs(sampleTime - expectedSampleTime) > 0.5 {
+                discontinuities.wrappingAdd(1, ordering: .relaxed)
+            }
+            expectedSampleTime = sampleTime + Double(frames)
+        } else {
+            expectedSampleTime = nil
+        }
+        latestHostTime.store(hostTime, ordering: .relaxed)
+        callbacks.wrappingAdd(1, ordering: .relaxed)
+    }
+}
+#endif
 
 nonisolated enum AudioCaptureError: LocalizedError {
     case message(String)
@@ -30,6 +64,49 @@ nonisolated final class AudioCaptureWriter: @unchecked Sendable {
     private let sampleRate: Double
     private let inputChannels: Int
     private let buffer: AVAudioPCMBuffer
+#if DEBUG
+    // Keep the app's older deployment target; these temporary diagnostics run on macOS 15+.
+    private let timing: AnyObject? = {
+        if #available(macOS 15.0, *) { return AudioCaptureTiming() }
+        return nil
+    }()
+    private let diagnosticID = UUID().uuidString
+    private let diagnosticQueue = DispatchQueue(label: "com.marconius.trimato.capture-diagnostics", qos: .utility)
+    private var diagnosticTimer: DispatchSourceTimer?
+    private static let diagnosticLog = Logger(subsystem: "com.marconius.trimato", category: "Recording diagnostics")
+
+    /// Polling is deliberately separate from both the hardware callback and disk writer.
+    func startDiagnostics(input: AudioDeviceID, output: AudioDeviceID) {
+        diagnosticEvent("input-opening")
+        let timer = DispatchSource.makeTimerSource(queue: diagnosticQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(250))
+        timer.setEventHandler { [weak self] in
+            guard let self, #available(macOS 15.0, *), let timing = self.timing as? AudioCaptureTiming else { return }
+            let state = self.snapshot()
+            let last = timing.latestHostTime.load(ordering: .relaxed)
+            let gap = timing.largestHostGap.load(ordering: .relaxed)
+            let age = last == 0 ? -1 : AVAudioTime.seconds(forHostTime: mach_absolute_time() - last)
+            let metadata = "id=\(self.diagnosticID) event=sample callbacks=\(timing.callbacks.load(ordering: .relaxed)) maxCallbackGapSeconds=\(AVAudioTime.seconds(forHostTime: gap)) lastCallbackAgeSeconds=\(age) sampleDiscontinuities=\(timing.discontinuities.load(ordering: .relaxed)) writtenFrames=\(state.0.frames) writerFailed=\(state.1 != nil) clientRate=\(self.sampleRate) clientChannels=\(self.inputChannels) input={\(Self.deviceFormat(input, input: true))} output={\(Self.deviceFormat(output, input: false))} defaultInput=\(AudioHardware.defaultDevice(input: true)) defaultOutput=\(AudioHardware.defaultDevice(input: false))"
+            Self.diagnosticLog.info("\(metadata, privacy: .public)")
+        }
+        diagnosticTimer = timer
+        timer.resume()
+    }
+
+    private static func deviceFormat(_ device: AudioDeviceID, input: Bool) -> String {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamFormat,
+            mScope: input ? kAudioDevicePropertyScopeInput : kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain)
+        var format = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let status = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &format)
+        return "device=\(device) status=\(status) rate=\(format.mSampleRate) channels=\(format.mChannelsPerFrame) format=\(format.mFormatID)"
+    }
+
+    private func diagnosticEvent(_ event: String) {
+        Self.diagnosticLog.info("id=\(self.diagnosticID, privacy: .public) event=\(event, privacy: .public)")
+    }
+#endif
 
     init(url: URL, sampleRate: Double, channel: Int, bitDepth: Int, inputChannels: Int = 1) throws {
         guard sampleRate.isFinite, sampleRate > 0, channel >= 0, [16, 24].contains(bitDepth),
@@ -55,10 +132,21 @@ nonisolated final class AudioCaptureWriter: @unchecked Sendable {
         timer.resume()
     }
 
-    deinit { timer?.cancel(); TCaptureDestroy(ring) }
+    deinit {
+        timer?.cancel()
+#if DEBUG
+        diagnosticTimer?.cancel()
+#endif
+        TCaptureDestroy(ring)
+    }
     var hasReceivedAudio: Bool { TCaptureReceived(ring) != 0 }
     var deliveryCount: UInt64 { TCaptureDeliveries(ring) }
-    func begin() { TCaptureBegin(ring) }
+    func begin() {
+#if DEBUG
+        diagnosticEvent("retaining-start")
+#endif
+        TCaptureBegin(ring)
+    }
     func stopAccepting() { TCaptureStop(ring) }
 
     func receive(_ source: AVAudioPCMBuffer) {
@@ -68,7 +156,15 @@ nonisolated final class AudioCaptureWriter: @unchecked Sendable {
     }
 
     // Audio Queue delivers interleaved float PCM, converted by Core Audio from the device format.
-    func receive(_ source: AudioQueueBufferRef, queue: AudioQueueRef) {
+    func receive(_ source: AudioQueueBufferRef, queue: AudioQueueRef, timestamp: AudioTimeStamp) {
+#if DEBUG
+        if #available(macOS 15.0, *), let timing = timing as? AudioCaptureTiming {
+            let frameBytes = inputChannels * MemoryLayout<Float>.size
+            timing.receive(hostTime: mach_absolute_time(),
+                sampleTime: timestamp.mFlags.contains(.sampleTimeValid) ? timestamp.mSampleTime : nil,
+                frames: frameBytes > 0 ? source.pointee.mAudioDataByteSize / UInt32(frameBytes) : 0)
+        }
+#endif
         receiveInterleaved(source.pointee.mAudioData, byteCount: Int(source.pointee.mAudioDataByteSize))
         let status = AudioQueueEnqueueBuffer(queue, source, 0, nil)
         if status != noErr { TCaptureDeviceError(ring, status) }
@@ -119,13 +215,24 @@ nonisolated final class AudioCaptureWriter: @unchecked Sendable {
     // Called on the capture worker, never on the interface or hardware callback.
     func finish() -> (AudioRecordingSummary, String?) {
         stopAccepting()
+#if DEBUG
+        diagnosticEvent("retaining-stop")
+#endif
         while TCaptureActive(ring) != 0 { Thread.sleep(forTimeInterval: 0.001) }
         queue.sync { timer?.cancel(); timer = nil; drain(); file = nil }
+#if DEBUG
+        diagnosticQueue.sync {
+            diagnosticTimer?.cancel(); diagnosticTimer = nil
+            guard #available(macOS 15.0, *), let timing = timing as? AudioCaptureTiming else { return }
+            let result = snapshot()
+            Self.diagnosticLog.info("id=\(self.diagnosticID, privacy: .public) event=writer-finished frames=\(result.0.frames) failed=\(result.1 != nil) callbacks=\(timing.callbacks.load(ordering: .relaxed)) sampleDiscontinuities=\(timing.discontinuities.load(ordering: .relaxed))")
+        }
+#endif
         return snapshot()
     }
 }
 
-nonisolated struct AudioCaptureRequest: Sendable {
+nonisolated struct AudioCaptureRequest: Sendable, Equatable {
     let inputDeviceID: AudioDeviceID
     let inputUID: String
     let outputDeviceID: AudioDeviceID
@@ -296,11 +403,14 @@ nonisolated private final class MicrophoneDevice: @unchecked Sendable {
         let writer = try AudioCaptureWriter(url: url, sampleRate: rate, channel: request.channel,
             bitDepth: request.bitDepth, inputChannels: input.inputChannels)
         self.writer = writer
+#if DEBUG
+        writer.startDiagnostics(input: input.deviceID, output: output.deviceID)
+#endif
         var queue: AudioQueueRef?
         let context = Unmanaged.passRetained(writer)
-        let created = AudioQueueNewInput(&format, { context, queue, buffer, _, _, _ in
+        let created = AudioQueueNewInput(&format, { context, queue, buffer, timestamp, _, _ in
             guard let context else { return }
-            Unmanaged<AudioCaptureWriter>.fromOpaque(context).takeUnretainedValue().receive(buffer, queue: queue)
+            Unmanaged<AudioCaptureWriter>.fromOpaque(context).takeUnretainedValue().receive(buffer, queue: queue, timestamp: timestamp.pointee)
         }, context.toOpaque(), nil, nil, 0, &queue)
         if created != noErr { context.release() }
         else { inputContext = context }
@@ -463,8 +573,18 @@ final class AudioCaptureSession: ObservableObject {
     }
     private var pendingFailure: String?
     private static weak var activeSession: AudioCaptureSession?
-    var isBusy: Bool { state != .idle }
+    @Published private(set) var isPreparingInput = false
+    @Published private(set) var isInputPrepared = false
+    private var preparesBeforeRecord = false
+    private var waitingForInputOwner = false
+    private var finishingTake = false
+    private var requestProvider: (() -> AudioCaptureRequest?)?
+    private var preparedRequest: AudioCaptureRequest?
+    private var preparationMonitor: Timer?
+    var canStartRecording: Bool { !closed && !isBusy && (!preparesBeforeRecord || isInputPrepared) }
+    var isBusy: Bool { state != .idle || isPreparingInput }
     var isRecordingRequested: Bool { state == .preparing || state == .recording }
+    var hasPendingTake: Bool { isRecordingRequested || finishingTake || testURL != nil }
     var maximumDuration: Double? = 60
     private let routes: AudioOutputManager
     private let backend: any AudioCaptureBackend
@@ -513,25 +633,128 @@ final class AudioCaptureSession: ObservableObject {
         else if isRecordingRequested { stop() }
     }
 
-    func record(input: AudioInputManager) {
-        closed = false
-        guard !isRecordingRequested else { return }
-        routes.refresh()
-        input.refresh()
-        guard input.permission == .authorized else { fail("Allow microphone access before recording."); return }
+    private func request(input: AudioInputManager) -> AudioCaptureRequest? {
+        guard input.permission == .authorized else { return nil }
         let device = input.resolvedDevice
         let output = routes.resolvedDevice
-        record(request: AudioCaptureRequest(inputDeviceID: device?.deviceID ?? 0, inputUID: device?.id ?? input.selectedUID,
+        return AudioCaptureRequest(inputDeviceID: device?.deviceID ?? 0, inputUID: device?.id ?? input.selectedUID,
             outputDeviceID: output?.deviceID ?? 0, outputUID: output?.id ?? routes.selectedUID,
             channel: input.channel, bitDepth: input.bitDepth, systemDefaultInput: input.selectedUID.isEmpty,
-            systemDefaultOutput: routes.selectedUID.isEmpty))
+            systemDefaultOutput: routes.selectedUID.isEmpty)
+    }
+
+    func prepareInput(input: AudioInputManager) {
+        guard !closed, !preparesBeforeRecord else { return }
+        routes.refresh()
+        input.refresh()
+        prepareInput { [weak self, weak input] in
+            guard let self, let input else { return nil }
+            return self.request(input: input)
+        }
+    }
+
+    /// Authoring windows prepare the device before Record can retain any samples.
+    /// The provider also lets device changes be handled while no take is running.
+    func prepareInput(requestProvider: @escaping () -> AudioCaptureRequest?) {
+        guard !closed, !preparesBeforeRecord else { return }
+        preparesBeforeRecord = true
+        self.requestProvider = requestProvider
+        preparationMonitor = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.checkPreparedInput() }
+        }
+        startInputPreparation()
+    }
+
+    private func startInputPreparation() {
+        guard !closed, preparesBeforeRecord, !isBusy, !isInputPrepared else { return }
+        guard Self.activeSession == nil || Self.activeSession === self else {
+            if !waitingForInputOwner { fail("Close the other recording window before preparing this microphone.") }
+            waitingForInputOwner = true
+            return
+        }
+        waitingForInputOwner = false
+        guard let request = requestProvider?() else {
+            preparedRequest = nil
+            fail("Allow microphone access in Settings before recording.")
+            return
+        }
+        Self.activeSession = self
+        preparedRequest = request
+        message = nil
+        pendingFailure = nil
+        isPreparingInput = true
+        sessionID = UUID()
+        let id = sessionID
+        task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try Task.checkCancellation()
+                try await self.backend.prepare(request)
+                try await self.backend.settle()
+                try await Task.sleep(for: self.preparationDelay)
+                try await self.waitForInput(sessionID: id)
+                try Task.checkCancellation()
+                guard self.sessionID == id, !self.closed else { return }
+                // A changed selection must settle before Record is enabled.
+                guard self.requestProvider?() == request else {
+                    self.stop(playCue: false)
+                    return
+                }
+                let actual = self.backend.resolvedRoutes
+                self.inputUID = actual?.input ?? request.inputUID
+                self.outputUID = actual?.output ?? request.outputUID
+                self.isPreparingInput = false
+                self.isInputPrepared = true
+                self.task = nil
+            } catch is CancellationError {
+                // Stop/close owns serialized device cleanup.
+            } catch {
+                guard self.sessionID == id else { return }
+                self.stop(playCue: false)
+                self.fail(error.localizedDescription)
+            }
+        }
+    }
+
+    private func checkPreparedInput() {
+        guard !closed, preparesBeforeRecord, state != .finishing else { return }
+        if waitingForInputOwner {
+            if Self.activeSession == nil { startInputPreparation() }
+            return
+        }
+        if requestProvider?() != preparedRequest {
+            if state == .recording || state == .preparing {
+                interrupted("The selected audio device changed. Record another take after preparation finishes.")
+            } else if isInputPrepared || isPreparingInput {
+                stop(playCue: false)
+            } else {
+                startInputPreparation()
+            }
+        } else if isInputPrepared, !backend.isReady || backend.progress().1 != nil {
+            stop(playCue: false)
+        }
+    }
+
+    func record(input: AudioInputManager) {
+        if !preparesBeforeRecord { closed = false }
+        guard !closed, !isRecordingRequested else { return }
+        // Prepared authoring must not refresh or reopen hardware at the Record boundary.
+        if !preparesBeforeRecord { routes.refresh(); input.refresh() }
+        guard let request = request(input: input) else { fail("Allow microphone access before recording."); return }
+        record(request: request)
     }
 
     func record(request: AudioCaptureRequest) {
-        closed = false
-        guard !isRecordingRequested else { return }
+        if !preparesBeforeRecord { closed = false }
+        guard !closed, !isRecordingRequested, !isPreparingInput else { return }
+        if preparesBeforeRecord {
+            guard isInputPrepared, preparedRequest == request else {
+                checkPreparedInput()
+                return
+            }
+        }
         guard Self.activeSession == nil || Self.activeSession === self else {
-            fail("Stop the other recording before starting a new take.")
+            fail("Close the other recording window before starting a new take.")
             return
         }
         guard state != .finishing else { return }
@@ -544,18 +767,20 @@ final class AudioCaptureSession: ObservableObject {
         let id = sessionID
         inputUID = request.inputUID
         outputUID = request.outputUID
+        let alreadyPrepared = isInputPrepared
+        isInputPrepared = false
         state = .preparing
         task = Task { [weak self] in
             guard let self else { return }
             do {
                 try Task.checkCancellation()
                 guard self.sessionID == id else { return }
-                try await self.backend.prepare(request)
-                try await self.backend.settle()
-                // No focus request or start announcement. Input configuration settles and
-                // actual input buffers arrive before the cue and before samples are retained.
-                try await Task.sleep(for: self.preparationDelay)
-                try await self.waitForInput(sessionID: id)
+                if !alreadyPrepared {
+                    try await self.backend.prepare(request)
+                    try await self.backend.settle()
+                    try await Task.sleep(for: self.preparationDelay)
+                    try await self.waitForInput(sessionID: id)
+                }
                 try await self.playCue(true, request.outputDeviceID)
                 try Task.checkCancellation()
                 guard self.sessionID == id else { return }
@@ -603,12 +828,15 @@ final class AudioCaptureSession: ObservableObject {
     }
 
     func stop(playCue: Bool = true) {
-        guard isBusy, state != .finishing else { player.pause(); return }
+        guard isBusy || isInputPrepared, state != .finishing else { player.pause(); return }
         sessionID = UUID()
         let id = sessionID
         task?.cancel(); task = nil
         timer?.invalidate(); timer = nil
+        finishingTake = isRecordingRequested
         backend.stopAccepting()
+        isInputPrepared = false
+        isPreparingInput = false
         state = .finishing
         task = Task { [self] in
             let result = await backend.finish(playCue: playCue)
@@ -618,11 +846,13 @@ final class AudioCaptureSession: ObservableObject {
                 else { deleteTest(); testURL = url; summary = result.summary }
             }
             state = .idle
+            finishingTake = false
             if Self.activeSession === self { Self.activeSession = nil }
             let failure = pendingFailure ?? result.error
             pendingFailure = nil
             if let failure, !closed { fail(failure) }
             task = nil
+            if failure == nil, !closed { startInputPreparation() }
         }
     }
 
@@ -646,7 +876,13 @@ final class AudioCaptureSession: ObservableObject {
         summary = nil
     }
 
-    func close() { closed = true; stop(playCue: false); deleteTest() }
+    func close() {
+        closed = true
+        preparationMonitor?.invalidate(); preparationMonitor = nil
+        requestProvider = nil
+        stop(playCue: false)
+        deleteTest()
+    }
     private func interrupted(_ detail: String) { stop(playCue: false); fail(detail) }
     private func fail(_ detail: String) {
         if isBusy { pendingFailure = detail; return }

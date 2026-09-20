@@ -23,6 +23,9 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     private let processingSound: ProcessingSound
     private let recordingDirectory: () async throws -> URL
     private let startCapture: () -> Void
+    private let prepareCapture: () -> Void
+    @Published private(set) var inputPreparationStarted = false
+    var canStartRecording: Bool { inputPreparationStarted && capture.canStartRecording }
     @Published var busy = false {
         didSet { if !busy { processingSound.stop() } }
     }
@@ -51,10 +54,11 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     init(controller: ProjectController, purpose: RecordingPurpose, cue: CaptionCue? = nil,
          capture: AudioCaptureSession? = nil, processingSound: ProcessingSound? = nil,
          recordingDirectory: (() async throws -> URL)? = nil,
-         startCapture: (() -> Void)? = nil) {
+         startCapture: (() -> Void)? = nil, prepareCapture: (() -> Void)? = nil) {
         let recordingCapture = capture ?? AudioCaptureSession()
         self.capture = recordingCapture
         self.startCapture = startCapture ?? { recordingCapture.setRecording(true, input: AudioInputManager.shared) }
+        self.prepareCapture = prepareCapture ?? { recordingCapture.prepareInput(input: AudioInputManager.shared) }
         self.processingSound = processingSound ?? ProcessingSound()
         self.recordingDirectory = recordingDirectory ?? { [weak controller] in
             guard let controller else { throw CancellationError() }
@@ -89,6 +93,12 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         originalQuitDraft = quitDraft
     }
 
+    func prepareRecordingInput() {
+        guard !closed, !inputPreparationStarted else { return }
+        inputPreparationStarted = true
+        prepareCapture()
+    }
+
     func toggleRecording(_ enabled: Bool) {
         if !enabled, preparingRecording {
             processingSound.stop()
@@ -99,7 +109,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         guard !busy else { return }
         player.pause()
         if enabled {
-            guard !capture.isBusy else { return }
+            guard canStartRecording else { return }
             takePlayer.replaceCurrentItem(with: nil)
             guard validRange else { fail("Set a valid insertion time and, for Describer, an Out point after the In point."); return }
             AudioCaptureSession.beginQuietPreparation(id)
@@ -293,7 +303,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         QuitDraft(name: name, text: text, start: start, end: end, voice: voice, ducking: ducking,
                   take: capture.testURL, speed: fitLongTake, trim: trimLongTake)
     }
-    var hasPendingQuitEdits: Bool { capture.isBusy || capture.testURL != nil || quitDraft != originalQuitDraft }
+    var hasPendingQuitEdits: Bool { capture.hasPendingTake || quitDraft != originalQuitDraft }
     func validateForQuit() throws {
         guard validRange else { throw QuitDraftError(message: "Set a valid recording In and Out range before saving.") }
         guard !capture.isBusy, !busy else { throw QuitDraftError(message: "Stop recording and wait for the take to finish before saving.") }
@@ -491,7 +501,8 @@ struct ProjectRecordingView: View {
                     HStack {
                         Toggle("Record", isOn: Binding(get: { capture.isRecordingRequested || session.preparingRecording }, set: { voiceWork.cancel(); session.toggleRecording($0) }))
                             .toggleStyle(.button)
-                            .disabled(session.busy && !session.preparingRecording)
+                            .disabled((session.busy && !session.preparingRecording)
+                                || (!capture.isRecordingRequested && !session.preparingRecording && !session.canStartRecording))
                         Button(session.takePlaying ? "Stop take" : "Play take") { voiceWork.cancel(); session.playTake() }
                             .disabled(capture.testURL == nil || capture.isBusy || session.busy)
                     }
@@ -523,10 +534,10 @@ struct ProjectRecordingView: View {
             if voiceWork.busy {
                 HStack { ProgressView("Preparing voice adjustments"); Button("Cancel preparation") { voiceWork.cancel() } }
             }
-            ProgressView("Preparing…")
+            ProgressView(capture.isPreparingInput ? "Preparing microphone…" : "Preparing…")
                 .controlSize(.small)
-                .opacity(session.busy && !session.preparingRecording ? 1 : 0)
-                .accessibilityHidden(!session.busy || session.preparingRecording)
+                .opacity(capture.isPreparingInput || (session.busy && !session.preparingRecording) ? 1 : 0)
+                .accessibilityHidden(!capture.isPreparingInput && (!session.busy || session.preparingRecording))
             HStack {
                 Spacer()
                 Button("Cancel") { session.controller?.dismissRecording() }.keyboardShortcut(.cancelAction)
@@ -561,6 +572,7 @@ struct ProjectRecordingView: View {
             if session.validRange, session.controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {
                 session.preview(mixed: false, autoplay: false, soundFeedback: false)
             }
+            session.prepareRecordingInput()
         }
         .task(id: session.ducking) { await session.applyDucking() }
         .onChange(of: session.voice) { session.stopPlayback() }

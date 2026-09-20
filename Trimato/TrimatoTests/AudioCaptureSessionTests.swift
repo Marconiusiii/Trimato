@@ -1,7 +1,11 @@
 import AppKit
 import AVFoundation
+import Combine
 import SwiftUI
 import Testing
+#if DEBUG
+import Synchronization
+#endif
 @testable import Trimato
 
 @Suite("Audio capture storage")
@@ -82,6 +86,161 @@ struct AudioCaptureLifecycleTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(session.state == .idle)
+    }
+
+    private func waitUntilPrepared(_ session: AudioCaptureSession) async throws {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !session.isInputPrepared, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(session.isInputPrepared)
+        #expect(session.canStartRecording)
+        #expect(!session.isRecordingRequested)
+    }
+
+    @Test func openingPreparesWithoutSavingAndRecordReusesTheInput() async throws {
+        let backend = TestCaptureBackend()
+        var cues = 0
+        let session = makeSession(backend) { _, _ in cues += 1 }
+        session.prepareInput { request }
+        #expect(!session.canStartRecording)
+        session.record(request: request)
+        try await waitUntilPrepared(session)
+        #expect(backend.prepareCount == 1)
+        #expect(backend.beginCount == 0)
+        #expect(cues == 0)
+        #expect(session.testURL == nil)
+        session.record(request: request)
+        try await waitUntilRecording(session)
+        #expect(backend.prepareCount == 1)
+        #expect(backend.settleCount == 1)
+        #expect(backend.beginCount == 1)
+        #expect(cues == 1)
+        session.stop()
+        try await waitUntilPrepared(session)
+        #expect(backend.finishCount == 1)
+        #expect(backend.prepareCount == 2)
+        session.record(request: request)
+        try await waitUntilRecording(session)
+        #expect(backend.prepareCount == 2)
+        #expect(backend.beginCount == 2)
+        session.close()
+        try await waitUntilIdle(session)
+        #expect(!session.isInputPrepared)
+        #expect(backend.finishCount == 2)
+    }
+
+    @Test func closeBeforePreparationRunsNeverOpensTheMicrophone() async throws {
+        let backend = TestCaptureBackend()
+        let session = makeSession(backend)
+        session.prepareInput { request }
+        session.close()
+        try await waitUntilIdle(session)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(backend.prepareCount == 0)
+        #expect(backend.beginCount == 0)
+        #expect(!session.isInputPrepared)
+        #expect(!session.canStartRecording)
+    }
+
+    @Test func closeWhilePreparationIsSuspendedCleansUpWithoutRearming() async throws {
+        let backend = TestCaptureBackend()
+        backend.pausePreparation = true
+        let session = makeSession(backend)
+        session.prepareInput { request }
+        for _ in 0..<100 where backend.prepareCount == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        session.close()
+        backend.resumePreparation?()
+        try await waitUntilIdle(session)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(backend.prepareCount == 1)
+        #expect(backend.beginCount == 0)
+        #expect(backend.finishCount == 1)
+        #expect(!session.isInputPrepared)
+    }
+
+    @Test func changingDevicesPreparesReplacementBeforeRecordAndPreservesTake() async throws {
+        let backend = TestCaptureBackend()
+        let session = makeSession(backend)
+        var selected = request
+        session.prepareInput { selected }
+        try await waitUntilPrepared(session)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("prepared-take-\(UUID()).wav")
+        try Data([1, 2, 3]).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        backend.nextResult = AudioCaptureResult(url: url, summary: AudioRecordingSummary(frames: 480, sampleRate: 48_000))
+        session.record(request: selected)
+        try await waitUntilRecording(session)
+        session.stop()
+        try await waitUntilPrepared(session)
+        #expect(session.testURL == url)
+        selected = AudioCaptureRequest(inputDeviceID: 30, inputUID: "replacement", outputDeviceID: 40,
+            outputUID: "replacement-output", channel: 0, bitDepth: 16)
+        try await Task.sleep(for: .milliseconds(350))
+        try await waitUntilPrepared(session)
+        #expect(backend.lastInputUID == "replacement")
+        #expect(session.testURL == url)
+        #expect(try Data(contentsOf: url) == Data([1, 2, 3]))
+        let prepared = backend.prepareCount
+        session.record(request: selected)
+        try await waitUntilRecording(session)
+        #expect(backend.prepareCount == prepared)
+        session.close()
+        try await waitUntilIdle(session)
+    }
+
+    @Test func failedPreparationDoesNotLoopAndRecoversOnDeviceChange() async throws {
+        let backend = TestCaptureBackend()
+        backend.failNextSettle = true
+        let session = makeSession(backend)
+        var selected = request
+        session.prepareInput { selected }
+        for _ in 0..<100 where session.message == nil { try await Task.sleep(for: .milliseconds(10)) }
+        try await Task.sleep(for: .milliseconds(350))
+        #expect(session.message != nil)
+        #expect(!session.canStartRecording)
+        #expect(backend.prepareCount == 1)
+        selected = AudioCaptureRequest(inputDeviceID: 30, inputUID: "replacement", outputDeviceID: 40,
+            outputUID: "replacement-output", channel: 0, bitDepth: 16)
+        try await waitUntilPrepared(session)
+        #expect(backend.prepareCount == 2)
+        session.close()
+        try await waitUntilIdle(session)
+    }
+
+    @Test func waitingWindowDoesNotStealInputAndPreparesAfterOwnerCloses() async throws {
+        let firstBackend = TestCaptureBackend(), secondBackend = TestCaptureBackend()
+        let first = makeSession(firstBackend), second = makeSession(secondBackend)
+        first.prepareInput { request }
+        try await waitUntilPrepared(first)
+        var messages = 0
+        let observation = second.$message.sink { if $0 != nil { messages += 1 } }
+        defer { observation.cancel() }
+        second.prepareInput { request }
+        try await Task.sleep(for: .milliseconds(550))
+        #expect(secondBackend.prepareCount == 0)
+        #expect(first.isInputPrepared)
+        #expect(messages == 1)
+        first.close()
+        try await waitUntilIdle(first)
+        try await waitUntilPrepared(second)
+        #expect(secondBackend.prepareCount == 1)
+        second.close()
+        try await waitUntilIdle(second)
+    }
+
+    @Test func losingPreparedInputDisablesRecordUntilItIsPreparedAgain() async throws {
+        let backend = TestCaptureBackend()
+        let session = makeSession(backend)
+        session.prepareInput { request }
+        try await waitUntilPrepared(session)
+        backend.isReady = false
+        try await Task.sleep(for: .milliseconds(350))
+        try await waitUntilPrepared(session)
+        #expect(backend.prepareCount == 2)
+        #expect(backend.beginCount == 0)
+        session.close()
+        try await waitUntilIdle(session)
     }
 
     @Test func failedPreparationCanBeRetriedWithTheNewDevice() async throws {
@@ -337,6 +496,9 @@ private final class TestCaptureBackend: AudioCaptureBackend {
     var notifyDuringPreparation = false
     var failNextSettle = false
     var lastInputUID: String?
+    var pausePreparation = false
+    var resumePreparation: (() -> Void)?
+    var nextResult = AudioCaptureResult()
     var prepareCount = 0
     var settleCount = 0
     var beginCount = 0
@@ -344,6 +506,11 @@ private final class TestCaptureBackend: AudioCaptureBackend {
     func prepare(_ request: AudioCaptureRequest) async throws {
         prepareCount += 1
         lastInputUID = request.inputUID
+        isReady = false
+        if pausePreparation {
+            await withCheckedContinuation { continuation in resumePreparation = { continuation.resume() } }
+            try Task.checkCancellation()
+        }
         if notifyDuringPreparation { configurationChanged?() }
     }
     func settle() async throws {
@@ -359,5 +526,47 @@ private final class TestCaptureBackend: AudioCaptureBackend {
         beginCount += 1
     }
     func progress() -> (AudioRecordingSummary, String?) { (AudioRecordingSummary(), nil) }
-    func finish(playCue: Bool) async -> AudioCaptureResult { finishCount += 1; isReady = false; return AudioCaptureResult() }
+    func finish(playCue: Bool) async -> AudioCaptureResult {
+        finishCount += 1; isReady = false
+        let result = nextResult; nextResult = AudioCaptureResult()
+        return result
+    }
 }
+
+#if DEBUG
+@Suite("Recording timing diagnostics")
+struct AudioCaptureTimingTests {
+    @Test func contiguousSamplesRemainContinuousAcrossCallbackDelays() {
+        guard #available(macOS 15.0, *) else { return }
+        let timing = AudioCaptureTiming()
+        timing.receive(hostTime: 100, sampleTime: 0, frames: 480)
+        timing.receive(hostTime: 200, sampleTime: 480, frames: 480)
+        timing.receive(hostTime: 900, sampleTime: 960, frames: 480)
+        #expect(timing.callbacks.load(ordering: .relaxed) == 3)
+        #expect(timing.largestHostGap.load(ordering: .relaxed) == 700)
+        #expect(timing.discontinuities.load(ordering: .relaxed) == 0)
+    }
+
+    @Test func missingAndRepeatedSamplesAreCountedSeparatelyFromDeliveryDelay() {
+        guard #available(macOS 15.0, *) else { return }
+        let timing = AudioCaptureTiming()
+        timing.receive(hostTime: 100, sampleTime: 0, frames: 480)
+        timing.receive(hostTime: 200, sampleTime: 960, frames: 480)
+        timing.receive(hostTime: 300, sampleTime: 960, frames: 480)
+        #expect(timing.discontinuities.load(ordering: .relaxed) == 2)
+        #expect(timing.largestHostGap.load(ordering: .relaxed) == 100)
+    }
+
+    @Test func unavailableTimestampsDoNotInventDiscontinuities() {
+        guard #available(macOS 15.0, *) else { return }
+        let timing = AudioCaptureTiming()
+        timing.receive(hostTime: 100, sampleTime: 0, frames: 480)
+        timing.receive(hostTime: 200, sampleTime: nil, frames: 480)
+        timing.receive(hostTime: 300, sampleTime: 4800, frames: 480)
+        timing.receive(hostTime: 400, sampleTime: .nan, frames: 480)
+        timing.receive(hostTime: 500, sampleTime: 9600, frames: 480)
+        #expect(timing.discontinuities.load(ordering: .relaxed) == 0)
+        #expect(timing.latestHostTime.load(ordering: .relaxed) == 500)
+    }
+}
+#endif
