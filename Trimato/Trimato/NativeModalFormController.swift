@@ -298,7 +298,6 @@ struct NativeModalActions: View {
 
     var body: some View {
         HStack(spacing: EditorTheme.actionSpacing) {
-            if let helpTopic { ContextualHelpButton(topic: helpTopic) }
             Spacer()
             Button("Cancel", action: cancel)
                 .keyboardShortcut(.cancelAction)
@@ -307,6 +306,7 @@ struct NativeModalActions: View {
                 isEnabled: primaryEnabled,
                 action: primary
             )
+            if let helpTopic { ContextualHelpButton(topic: helpTopic) }
         }
     }
 }

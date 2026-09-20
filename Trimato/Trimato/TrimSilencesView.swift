@@ -59,15 +59,15 @@ struct TrimSilencesView: View {
                 playing.toggle()
             }.disabled(previewAsset == nil || busy)
             HStack(spacing: EditorTheme.actionSpacing) {
-                Button("Help") {
-                    if let error = TrimatoHelp.open(.trimSilences) { message = error }
-                }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Trim Pauses") { apply() }
                     .buttonStyle(.borderedProminent)
                     .editorPrimaryAction()
                     .disabled(busy || (plan?.removedCount ?? 0) == 0 || previewAsset == nil)
+                Button("Help") {
+                    if let error = TrimatoHelp.open(.trimSilences) { message = error }
+                }
             }
         }
         .padding(EditorTheme.dialogPadding)

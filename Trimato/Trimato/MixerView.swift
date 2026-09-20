@@ -158,8 +158,8 @@ struct MixerView: View {
             }), range: -60...12, step: 0.5, unit: "dB", identifier: "trimato.mixer.master",
                 spokenValue: MixerValue.decibels, onEditingChanged: session.controller.mixerAdjustmentEditing)
             HStack {
-                ContextualHelpButton(topic: .mixer)
                 Spacer()
+                ContextualHelpButton(topic: .mixer)
             }
         }
         .padding(EditorTheme.dialogPadding)

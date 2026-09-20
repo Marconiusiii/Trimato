@@ -308,7 +308,6 @@ struct SourceClipEditorView: View {
             Text("No clip changes to update.")
         }
         HStack {
-            ContextualHelpButton(topic: .clipEditor)
             Spacer()
             if commandContext.isTimelineEntry {
                 Button("Update Clip") { commandContext.performUpdate() }
@@ -352,6 +351,7 @@ struct SourceClipEditorView: View {
                 }
                 .disabled(!commandContext.canPlace)
             }.disabled(!commandContext.canPlace)
+            ContextualHelpButton(topic: .clipEditor)
         }
     }
     private func reloadLinkedSource() {

@@ -514,7 +514,6 @@ struct ProjectRecordingView: View {
             }
             if session.busy { ProgressView("Preparing…").controlSize(.small) }
             HStack {
-                ContextualHelpButton(topic: session.isDescriber ? .describer : .voicer)
                 Spacer()
                 Button("Cancel") { session.controller?.dismissRecording() }.keyboardShortcut(.cancelAction)
                 Button(session.saveTitle) { session.save() }
@@ -522,6 +521,7 @@ struct ProjectRecordingView: View {
                     .editorPrimaryAction()
                     .keyboardShortcut(.defaultAction)
                     .disabled(session.busy || voiceWork.busy || capture.isBusy || !session.validRange)
+                ContextualHelpButton(topic: session.isDescriber ? .describer : .voicer)
             }
         }
         .padding(EditorTheme.dialogPadding)

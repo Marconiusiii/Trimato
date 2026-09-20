@@ -1,11 +1,75 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Trimato
 
 @Suite(.serialized)
 @MainActor
 struct CaptionWorkflowTests {
+    @Test func captionControlsUseNativeOrderAndQualifiedTimecodes() async throws {
+        let range = ProjectTimeRange(start: ProjectTime(seconds: 2), duration: ProjectTime(seconds: 3))
+        let session = CaptionEditorWindowSession(cue: nil, range: range, save: { _ in }, play: {}, finished: {})
+        session.text = "A caption for review."
+        let host = NSHostingView(rootView: CaptionEditorView(session: session, focusRequest: NativeModalFocusRequest()))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 520),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(250))
+        let elements = accessibilityDescendants(host)
+        let values = elements.compactMap { accessibilityAttribute($0, "accessibilityValue") as? String }
+        #expect(values.contains("In Time: 00:00:02.000"))
+        #expect(values.contains("Out Time: 00:00:05.000"))
+        let controls = elements.filter {
+            ["AXTextArea", "AXButton", "AXMenuButton", "AXPopUpButton"].contains(
+                accessibilityAttribute($0, "accessibilityRole") as? String ?? "")
+        }
+        let names = controls.map { item in
+            let role = accessibilityAttribute(item, "accessibilityRole") as? String
+            if role == "AXTextArea" { return "AXTextArea" }
+            // SwiftUI's menu title is unavailable through this in-process AX reader.
+            // Its native role still verifies its position between text and playback.
+            if role == "AXMenuButton" { return "AXMenuButton" }
+            return (accessibilityAttribute(item, "accessibilityTitle") as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? (accessibilityAttribute(item, "accessibilityLabel") as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? (accessibilityAttribute(item, "accessibilityValue") as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? ""
+        }
+        #expect(names == ["AXTextArea", "AXMenuButton", "Play Selection", "Cancel", "Add Caption", "Help"])
+        #expect(host.fittingSize.width <= 441)
+    }
+
+    @Test func sharedModalActionsExposeHelpLast() async throws {
+        let host = NSHostingView(rootView: NativeModalActions(helpTopic: .filters, primaryTitle: "Apply", cancel: {}, primary: {}))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 100),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(250))
+        let names = accessibilityDescendants(host).filter {
+            accessibilityAttribute($0, "accessibilityRole") as? String == "AXButton"
+        }.map {
+            (accessibilityAttribute($0, "accessibilityTitle") as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? accessibilityAttribute($0, "accessibilityLabel") as? String ?? ""
+        }
+        #expect(names == ["Cancel", "Apply", "Help"])
+    }
+
+    private func accessibilityAttribute(_ item: NSObject, _ key: String) -> Any? {
+        item.responds(to: NSSelectorFromString(key)) ? item.value(forKey: key) : nil
+    }
+
+    private func accessibilityDescendants(_ item: NSObject) -> [NSObject] {
+        [item] + ((accessibilityAttribute(item, "accessibilityChildren") as? [NSObject]) ?? []).flatMap(accessibilityDescendants)
+    }
+
     private func controller() -> ProjectController {
         var project = TrimatoProject()
         project.tracks = [TimelineTrack(

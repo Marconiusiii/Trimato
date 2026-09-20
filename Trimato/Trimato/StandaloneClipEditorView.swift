@@ -153,13 +153,13 @@ struct StandaloneClipEditorView: View {
                 .padding(.top, 12)
 
             HStack {
-                ContextualHelpButton(topic: .clipEditor)
                 Spacer()
                 Button("Create Project from Clip") {
                     commandContext.createProject()
                 }
                 .buttonStyle(.bordered)
                 .disabled(!commandContext.canCreateProject)
+                ContextualHelpButton(topic: .clipEditor)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)

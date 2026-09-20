@@ -202,13 +202,11 @@ struct CaptionEditorView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 
-            HStack(spacing: 24) {
-                LabeledContent("In") {
-                    Text(ProjectTimecodeFormatter.string(session.range.start)).monospacedDigit()
-                }
-                LabeledContent("Out") {
-                    Text(ProjectTimecodeFormatter.string(session.range.end)).monospacedDigit()
-                }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("In Time: \(ProjectTimecodeFormatter.string(session.range.start))")
+                    .monospacedDigit()
+                Text("Out Time: \(ProjectTimecodeFormatter.string(session.range.end))")
+                    .monospacedDigit()
             }
 
             TextEditor(text: $session.text)
@@ -217,6 +215,12 @@ struct CaptionEditorView: View {
                 .accessibilityFocused($textVoiceOverFocused)
                 .accessibilityLabel("Caption Text")
                 .frame(minHeight: 150)
+
+            Menu("Insert Caption Description") {
+                Button("Music Description") { session.insert("[music description]") }
+                Button("Sound Description") { session.insert("[sound description]") }
+                Button("Lyrics") { session.insert("♪ lyrics ♪") }
+            }
 
             if let errorMessage = session.errorMessage {
                 VStack(alignment: .leading, spacing: 8) {
@@ -228,15 +232,7 @@ struct CaptionEditorView: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                ContextualHelpButton(topic: .captioner)
-                Button("Play Selection", action: session.play)
-                Menu("Insert Description") {
-                    Button("Music Description") { session.insert("[music description]") }
-                    Button("Sound Description") { session.insert("[sound description]") }
-                    Button("Lyrics") { session.insert("♪ lyrics ♪") }
-                }
-            }
+            Button("Play Selection", action: session.play)
             HStack {
                 Spacer()
                 Button("Cancel", action: session.cancel)
@@ -246,6 +242,7 @@ struct CaptionEditorView: View {
                     isEnabled: session.canSave,
                     action: session.save
                 )
+                ContextualHelpButton(topic: .captioner)
             }
         }
         .padding(20)
