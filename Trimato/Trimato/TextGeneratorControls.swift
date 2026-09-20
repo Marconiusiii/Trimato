@@ -23,11 +23,13 @@ struct TextGeneratorControls: View {
 
             LabeledContent(definition.textSettings.template.textLabel) {
                 TextEditor(text: settings.text)
+                    .font(.body)
                     .frame(height: 80)
             }
             if definition.textSettings.template.hasSecondaryText {
                 LabeledContent(definition.textSettings.template.secondaryLabel) {
                     TextEditor(text: settings.secondaryText)
+                        .font(.body)
                         .frame(height: 64)
                 }
             }

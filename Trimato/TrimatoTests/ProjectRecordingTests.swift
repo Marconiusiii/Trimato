@@ -594,8 +594,8 @@ struct ProjectRecordingTests {
         func playbackButtonCount() -> Int {
             descendants(host).filter {
                 attribute($0, "accessibilityRole") as? String == "AXButton" &&
-                    (attribute($0, "accessibilityTitle") as? String == "Play take" ||
-                     attribute($0, "accessibilityLabel") as? String == "Play take")
+                    (attribute($0, "accessibilityTitle") as? String == "Play Take" ||
+                     attribute($0, "accessibilityLabel") as? String == "Play Take")
             }.count
         }
         #expect(!visibleText("Dialogue reference In"))

@@ -44,7 +44,9 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     private var showPreview: (project: TrimatoProject, result: ProjectCompositionResult)?
     private var closed = false
     private var originalQuitDraft: QuitDraft?
-    private var previewIncludesTake = false
+    @Published private(set) var previewIncludesTake = false
+    var playingProjectPreview: Bool { playing && !previewIncludesTake }
+    var playingMixedPreview: Bool { playing && previewIncludesTake }
 
     var saveTitle: String { editingCueID == nil ? "Add to Project" : "Save Description" }
     var isDescriber: Bool { purpose == .audioDescription }
@@ -134,7 +136,7 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     }
 
     func preview(mixed: Bool, autoplay: Bool = true, recording: Bool = false, seekTime: Double? = nil, soundFeedback: Bool = false) {
-        if player.rate != 0 && autoplay && seekTime == nil { stopPlayback(); return }
+        if player.rate != 0 && autoplay && seekTime == nil && previewIncludesTake == mixed { stopPlayback(); return }
         guard !busy, !capture.isBusy, let controller else { return }
         stopPlayback()
         guard validRange else { fail("Set a valid In and Out point before playback."); return }
@@ -463,6 +465,7 @@ struct ProjectRecordingView: View {
                 Text("Description transcript").font(.headline).accessibilityAddTraits(.isHeader)
                 VStack(alignment: .leading, spacing: 6) {
                     TextEditor(text: $session.text)
+                    .font(.body)
                     .accessibilityLabel("Description text")
                     .focused($keyboardFocus, equals: .transcript)
                     .accessibilityFocused($textFocus, equals: .transcript)
@@ -503,13 +506,13 @@ struct ProjectRecordingView: View {
                     .toggleStyle(.button)
                     .disabled((session.busy && !session.preparingRecording)
                         || (!capture.isRecordingRequested && !session.preparingRecording && !session.canStartRecording))
-                Button(session.takePlaying ? "Stop take" : "Play take") { voiceWork.cancel(); session.playTake() }
+                Button(session.takePlaying ? "Stop Take" : "Play Take") { voiceWork.cancel(); session.playTake() }
                     .disabled(capture.testURL == nil || capture.isBusy || session.busy)
             }
             HStack {
-                Button(session.playing ? "Stop playback" : "Play with Primary Audio") { voiceWork.cancel(); session.preview(mixed: true, soundFeedback: true) }
+                Button(session.playingMixedPreview ? "Stop Playback" : "Play with Primary Audio") { voiceWork.cancel(); session.preview(mixed: true, soundFeedback: true) }
                     .disabled(capture.testURL == nil || capture.isBusy || session.busy)
-                Button("Delete take") { session.stopPlayback(); capture.deleteTest() }
+                Button("Delete Take") { session.stopPlayback(); capture.deleteTest() }
                     .disabled(capture.testURL == nil || capture.isBusy || session.busy)
             }
             if let summary = capture.summary {
@@ -550,19 +553,12 @@ struct ProjectRecordingView: View {
     private var form: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(session.purpose.toolTitle).font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
-            if session.isDescriber {
-                LabeledContent("Timecode") {
-                    Text(AppPreferences.passiveTimecode(seconds: session.position, precision: precisionTimecode))
-                        .monospacedDigit()
-                }
-            } else {
-                Text("Project time: \(AppPreferences.passiveTimecode(seconds: session.position, precision: precisionTimecode))")
-                    .monospacedDigit()
-            }
+            Text("Project time: \(AppPreferences.passiveTimecode(seconds: session.position, precision: precisionTimecode))")
+                .monospacedDigit()
             HStack {
                 Button(session.isDescriber
-                    ? (session.playing ? "Stop playback" : "Play project range")
-                    : (session.playing ? "Stop Playback" : "Play Project from Insertion Point")) {
+                    ? (session.playingProjectPreview ? "Stop Playback" : "Play from In to Out")
+                    : (session.playingProjectPreview ? "Stop Playback" : "Play Project from Insertion Point")) {
                     voiceWork.cancel(); session.playProjectRange()
                 }
                 .disabled(session.busy || capture.isBusy || !session.validRange)
