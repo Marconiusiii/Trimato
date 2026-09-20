@@ -1,416 +1,47 @@
 # Trimato
 
-Trimato is an accessibility-first, keyboard-driven lightweight audio and video editor for macOS. Its focused clip editor remains the primary place to mark, trim, and remove sections. Edited source clips can then be arranged non-destructively in a saved Trimato project and exported as a finished video or audio file.
+Trimato is an accessibility-first audio and video editor for macOS, designed for keyboard and VoiceOver use. Trim clips, arrange a project, write captions, record narration and audio description, mix sound, and export your finished work.
 
 Created by Marco Salsiccia.
 
-## Release status
-
-Trimato 1.0.0 was the TestFlight-only beta of the focused clip editor and will not be released to the production App Store. Trimato 1.2.0 build 8 is the first TestFlight build of the complete project editor and is the candidate for Trimato's first production App Store release.
-
 ## Features
 
-- Create and save `.trimato` project packages with automatic or custom dimensions and frame rate.
-- Organize source clips in project folders, relink missing media, and optionally copy or move sources into a project-owned Clips folder. Imported files default to Keep in Place.
-- Activate Trim a Clip on the welcome screen to choose an audio or video file and open the standalone Clip Editor without creating a project first, then create a project from the current edit when ready.
-- Edit audio-only sources against a static waveform with a visible playhead, using the same playback, marker, trimming, timeline, and project tools as video.
-- Open a source clip, timeline clip, or cutaway in Trimato's focused clip editor.
-- Arrange clips on independent video and audio tracks, using one linear Timeline clips list for the track selected in the Track picker. Primary tracks retain magnetic editing. Additional tracks default to absolute placement and offer an undoable Magnetic setting.
-- Append clips, insert and split at the playhead, or replace the remainder of the clip at the playhead.
-- Add a single-layer cutaway that temporarily replaces the picture, either with its source audio or while retaining the primary storyline audio.
-- Send only the audio from an imported video clip to an existing or newly named audio track, using the complete source edit or its marked In and Out range.
-- Split, rename, remove, and reorder timeline clips while preserving non-destructive source ranges. Repeated names receive stable A, B, and later suffixes across primary clips and cutaways.
-- Pick up a Timeline clip with Space, choose its position with arrow keys, and drop it with Space as one undoable move. With Magnetic off on additional tracks, plain arrows also nudge the focused clip one project frame without pickup and without overlapping neighboring clips.
-- Add, edit, and remove video fades, cross dissolves, directional wipes, audio fades, and cross fades as independent timeline elements.
-- Create saved Black, Solid Color, Static Gradient, Silence, and Text generators from a native Generator window.
-- Apply curated video and audio filters to individual timeline clips, with editable parameters, bypass, reset, and removal. Basic audio gain remains separate.
-- Reach the displayed Video frame as a VoiceOver image above the Editor playhead slider.
-- Mix whole audio tracks with Volume, Mute, Solo, Pan, Stereo balance, Stereo width, and Channel routing. Adjust the combined output with Master Volume.
-- Preview and export the complete arranged project as H.264 or HEVC MP4, H.264 or HEVC QuickTime, ProRes 422 LT, ProRes 422, ProRes 422 HQ, M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, or 24-bit WAV.
-- Preserve HDR brightness and color in compatible HEVC and ProRes exports, or choose SDR conversion in Settings > Video.
-- Retain source audio sample rates during clip processing and choose lossless audio formats for the finished mix. Combine compatible iPhone Spatial Audio recordings with cuts and transitions, and choose spatial or high-quality stereo export.
-- Open audio and video files from the File menu, Finder, drag and drop, or Command-O.
-- Play, pause, seek, and move forward or backward one frame at a time.
-- Display the playhead as timecode or a frame number.
-- Mark reusable In and Out points on the edited timeline.
-- Delete a selected section from the middle of a clip and immediately preview the joined result.
-- Trim everything before or after the playhead with keyboard commands.
-- Make repeated, non-destructive edits, including cuts that cross an earlier edit point.
-- Jump among the start, In marker, Out marker, and end of the current edit.
-- Export the complete edited clip or only the current In-to-Out selection.
-- Preserve the source container and codec when native passthrough is available.
-- Convert unsupported playback formats to a local playback proxy using the bundled FFmpeg tools.
-- Open common audio and video formats through Finder after installing the app in Applications.
-
-## Record narration
-
-Choose a microphone and playback device in Settings > Audio. Use Record Test and Play Test to check the input.
-
-Press Command-Shift-D to open Describer at the Editor markers, or Command-Shift-V to open Voicer at the playhead. Turn Record on and begin speaking after the start cue. Turn Record off to finish; the stop cue sounds before the microphone is released. Play take plays the recording alone. Play with Primary Audio mixes it with the project. In Describer, mixed playback starts at In and stops at Out, including after an Audio Ducking change. Play take can play the entire recording if it extends beyond Out.
-
-In Settings > Audio, choose System Default to use the current macOS input or playback device, or select a specific device. Input and playback can use different devices. Choose the input channel for a multi-channel interface. Recordings retain the input sample rate and use the selected recording quality.
-
-Choose Add to Project to add the recording at its requested project time on an absolute track. New Describer and Voicer recordings use an available track with Magnetic off or create one, even if a previous recording track has been made magnetic. While Magnetic remains off, changing one recording leaves the other recordings at their assigned times. Describer can also save written description text on the Description Transcript track. Captions and description transcripts always retain independent start and end times; primary-timeline edits do not automatically retime them.
-
-## Sound settings
-
-In Settings > General, turn Processing sounds on or off. A soft ascending cue repeats when an action you activate takes extra time, such as preparing a recording or filter preview. Moving between controls, automatic preview updates, immediate actions, loading screens, and export progress remain quiet.
-
-Turn Export completion sound on or off to choose whether Trimato plays a short tune after a successful project export. These settings are separate from export notification permission.
-
-## Mixer
-
-Choose Playback > Mixer or press Command-Shift-M. Choose a track with the Audio track picker, then adjust its Volume, Mute, Pan, Stereo balance, Stereo width, or Channel routing. The adjustments apply to all clips on that track, alongside each clip's existing audio settings. Playback continues as you change tracks and settings.
-
-Use Solo to hear one or more tracks by themselves. Solo affects playback only and clears when the Mixer closes. Mute affects both playback and export. Master Volume adjusts the combined project audio. Audio description ducking continues to reduce other project audio during description clips.
-
-Stereo width offers Mono at zero percent and Original at 100 percent. Channel routing can use both channels, send only the left or right source channel to both sides, or swap the channels. Reset Track Mix restores the selected track's defaults and clears its Mute and Solo settings.
-
-Use the Project playhead, Play/Pause, Go to Beginning, and Go to End controls to play the project. J, K, and L control backward playback, pause, and forward playback. Command-Option-Up Arrow selects the previous audio track and Command-Option-Down Arrow selects the next, wrapping at the ends. Track changes leave playback and the current control in place. Frame-step and 10-second skip buttons are also available. Playing again after the project ends starts from the beginning.
-
-Mix changes support Undo and Redo. Command-S saves the project and its mix settings; Command-W closes the Mixer. Saved track and master settings apply to exports.
-
-## Keyboard controls
-
-### Playback and navigation
-
-These commands apply while focus is in Editor or Clip Editor. Timeline Clips uses Space and plain arrows for clip movement, as described below.
-
-- Space: Play or pause.
-- Left Arrow: Move backward one frame.
-- Right Arrow: Move forward one frame.
-- Hold Left Arrow: Play continuously in reverse until released.
-- Hold Right Arrow: Play continuously forward until released.
-- J: Play in reverse. Press repeatedly to increase reverse speed.
-- K: Play or pause.
-- L: Play forward. Press repeatedly to increase forward speed.
-- T: Speak the current time in Editor or Mixer. In Clip Editor, select On Demand in Timecode Feedback to use T.
-- Command-Left Arrow: Move to the previous timeline point.
-- Command-Right Arrow: Move to the next timeline point.
-- Command-Up Arrow: Move to the start of the edited clip.
-- Command-Down Arrow: Move to the end of the edited clip.
-
-The playhead’s accessible timecode stays stable during continuous playback. Pausing or completing a seek or frame jog updates it to the stopped position without requiring a VoiceOver focus change. The visible timecode continues to advance during playback.
-
-### Clip Editor marking and editing
-
-- I: Set or replace the In marker at the playhead.
-- O: Set or replace the Out marker at the playhead.
-- Delete or Forward Delete: Remove the current In-to-Out selection and join the surrounding media.
-- Command-[: Trim everything from the start of the clip to the playhead.
-- Command-]: Trim everything from the playhead to the end of the clip.
-
-### Files
-
-- Command-O: Open an audio or video file.
-- Command-R: Create a project from the current standalone clip edit.
-- Command-E: Export the edited clip or current selection.
-
-### Project editing
-
-- Command-Shift-I: Import media into the current project.
-- Command-E: Export the current project when the project workspace is active.
-- Command-B: Split the primary timeline clip beneath the project playhead; Timeline focus or movement selection is not required.
-- Command-T: Open Add Transition for the clip at the Editor playhead or the focused Timeline clips item.
-- Command-[: While focus is in Editor, trim the start of the active track's announced clip to the shared project playhead.
-- Command-]: While focus is in Editor, trim the end of the active track's announced clip to the shared project playhead. When a Timeline clip is focused, trim that focused clip's end instead.
-- [: While focus is in Editor, move an additional-track clip with Magnetic off so its head begins at the shared project playhead without trimming its stored source.
-- ]: While focus is in Editor, move an additional-track clip with Magnetic off so its tail ends at the shared project playhead without trimming its stored source.
-- C: Open Clip Editor for the active-track clip at or immediately after the Editor playhead.
-- Command-C: Copy the focused Timeline clip.
-- Command-V: Paste a copy immediately after the focused Timeline clip.
-- Command-Option-V: Move the picked-up Timeline clip, or the copied clip when none is picked up, immediately after the focused Timeline clip.
-- Control-Enter: Open Selected Element Actions for the focused Timeline clips item.
-- Option-Command-Up Arrow: Select the previous timeline track and announce its direct-edit clip.
-- Option-Command-Down Arrow: Select the next timeline track and announce its direct-edit clip.
-- Option-Command-Left Arrow: Move the focused clip one position earlier on a magnetic track, or nudge it one frame earlier on an additional track with Magnetic off. If a clip is picked up, adjust that clip instead.
-- Option-Command-Right Arrow: Move the focused clip one position later on a magnetic track, or nudge it one frame later on an additional track with Magnetic off. If a clip is picked up, adjust that clip instead.
-- Command-G: Open Generator from the project Editor.
-- F: Open Quick Fade at the Editor playhead.
-- X: Open Quick Cross Dissolve or Quick Cross Fade for the edit at the Editor playhead.
-
-### Timeline clip movement
-
-- Space: Pick up the focused clip for movement, or drop the picked-up clip.
-- Enter or Return: Open the focused clip in Clip Editor, matching normal button activation.
-- Left Arrow or Up Arrow: On magnetic tracks, move the picked-up clip one list position earlier. With Magnetic off on additional tracks, nudge the focused or picked-up clip one project frame earlier.
-- Right Arrow or Down Arrow: On magnetic tracks, move the picked-up clip one list position later. With Magnetic off on additional tracks, nudge the focused or picked-up clip one project frame later.
-- Escape: Drop the picked-up clip at its proposed position.
-- Command-Z: Undo an immediate nudge or the complete pickup-and-drop move.
-- VO-Command-Shift-Space: Hold the mouse button on a clip, use arrows to adjust its position, then repeat the command to release and drop it.
-
-With Magnetic off, additional-track nudges do not require Space first. With VoiceOver, use ordinary VO-Arrow navigation to review clips; those navigation commands do not move clips. If Quick Nav is handling plain arrows, turn it off for nudging or use the Timeline menu's Move Clip Earlier and Move Clip Later commands.
-
-Choose Remove from Timeline to remove a clip while keeping its source in Project Source. Choose Delete Media in Timeline Clips or Project Source to remove the source from the project and all timeline clips and transitions that use it. The confirmation shows how many timeline clips use the source. Files remain in Finder. Both actions support Undo and Redo. Save the project to keep these changes.
-
-The clip context menu provides a movement-selection toggle and one Move To… submenu with Start, Before, After, End, and Playhead. Playhead places the source clip’s start at the current project playhead on an additional track with Magnetic off, without moving neighboring clips. Pick up a source clip, focus a destination, and choose Before or After. Start, End, and Playhead use the active track and also work directly on the focused clip without pickup. The redundant Move Earlier and Move Later context-menu items have been removed.
-
-Media can also be dragged from Finder into the Project Browser. Native menus provide placement, movement, and editing commands.
-
-Editor shortcuts remain available while focus is on any editor control. Native import, open, save, and export panels retain their own keyboard behavior.
-
-## Captions
-
-Trimato keeps captions on one project track. To write captions by hand, mark the beginning and end of a complete spoken passage in the Editor, then press Shift-Command-C or choose Timeline > Captions > New Caption. Enter the words as spoken, use Play Selection when you need to hear the marked passage again, and choose Add Caption. Continue through the project one passage at a time.
-
-Newly written passages remain drafts until you choose Timeline > Captions > Finalize Captions. Finalizing divides each passage into timed cues, preserves its words and punctuation, and formats each cue as no more than two rendered lines. It aims for 160 words per minute, keeps each cue onscreen for at least 40 project frames and no more than six seconds, and extends the marked Out point when more reading time is available. It never crosses the next caption or the end of the project. A line break entered by the captioner is kept. Finalizing the available drafts is one Undo operation. If a passage still needs editing, the results window identifies it and explains the timing problem.
-
-SRT and WebVTT files can be imported with media and join the Captions track using their supplied timing. Imported cues are already finalized. Caption delivery in a project export and Timeline > Captions > Export Captions remain unavailable until every draft has been finalized. Projects can burn captions into video, save an SRT or WebVTT sidecar beside the exported media, or export without captions.
-
-## Generators and clip filters
-
-With a project open, choose Timeline > Generator or press Command-G. The Generator window captures the project playhead and pauses Editor playback. Choose Black, Solid Color, Static Gradient, Silence, or Text; set the relevant parameters and duration in seconds or whole project frames. Video generators use the project format, or 1920 by 1080 at 30 frames per second when it has not been resolved. Silence supports mono or stereo.
-
-Choose a compatible Destination Track or New Track and a name. The window opens at the Generator heading. Review the generated clip in the Editor after placement. Cancel Preparation stops processing and closes the Generator without changing the project. Append, Insert and Split, and Insert and Overwrite use the captured playhead where applicable. Insert on Top in New Video Track creates an additional video track at that position. Insert and Split advances the project playhead to the new clip's end. Preparation must finish before the project changes; adding the source, track when needed, and clip is one Undo operation.
-
-Generator definitions are saved in the project. Their playback files are internal cache files and can be regenerated without relinking an external source. Open a generated timeline clip in Clip Editor and choose Edit Generator to change its settings or duration. Update any pending clip edits first. Updating a generator creates a separate source for that instance, leaving other copies unchanged.
-
-Text provides Center Title, Title and Subtitle, Lower Third Center/Left/Right, Name and Role, Caption, and Subtitle templates. Enter text in the multiline editor; Return inserts a line break. Title and Subtitle and Name and Role provide a second text editor with smaller supporting text. Changing templates or choosing Reset Style preserves both text fields.
-
-Expand Typography for System Sans, Rounded Sans, Serif, or Monospaced fonts; weight, alignment, Font Size in Pixels, and Additional Line Spacing in Pixels. Line spacing adds space between lines; zero adds no extra space. Changing font size preserves the entered line spacing. Expand Appearance for named or hexadecimal colors, a Black or Transparent full-frame background, outline, shadow, and a separate text backing panel with adjustable opacity. Expand Layout for screen position, safe margins, maximum text width, and horizontal or vertical offsets. One detailed group opens at a time. Layout percentages name their reference area. Saved styles still scale with the video resolution.
-
-Check Text Fit reports the line count and whether text fits within the safe area. It also warns about small text and low contrast against a known opaque background. It does not assess contrast over changing footage. Overflow prevents placement with an explanation; text is not silently clipped or resized. Place transparent text on a video track above the footage to retain the underlying picture. The existing transitions apply, including separately timed fades in and out. Project exports contain the composed picture; this does not add a standalone transparent-video export format.
-
-The Caption and Subtitle generator templates create ordinary styled text clips and are separate from the project Captions track. Caption-file import uses the Captions track. Trimato does not transcribe audio. Text and styling remain editable in the saved generator definition. Text layout uses macOS fonts and native text rendering; generated media preserves alpha through the supported filters and transitions.
-
-Open a timeline video or audio clip and find the Filters section below Equalizer. Choose Add Filter, select an effect, preview it, and choose Add. The Applied Filters list remains available when empty. Open a filter’s context menu to enable or disable it, edit its settings, or remove it. Disabled filters keep their settings and do not affect playback or export. Choose Update Clip to save the changes to the project. The Export heading at the bottom contains Export Clip, Update Clip, and Add to Timeline; Update Clip appears when editing a timeline clip.
-
-| Video filters | Audio filters |
-| --- | --- |
-| Brightness and Contrast | Tone |
-| Color Adjustment | Reduce Background Noise |
-| Black and White | Even Out Volume |
-| Sharpen | Match Loudness |
-| Reduce Video Noise | |
-| Crop and Orientation | |
-
-Filters run in the displayed order for playback and export. Preparing filtered media can take time, especially with long sources and video noise reduction.
-
-The Editor exposes its displayed picture as a Video frame image directly above the project playhead slider, with a project time and frame value. VoiceOver image-description commands remain macOS commands. The availability and quality of descriptions depend on macOS and require hands-on VoiceOver testing; focusing the image does not start playback or change the playhead.
-
-## Editing model
-
-Trimato uses a non-destructive edit timeline. Deleting or trimming media changes Trimato's saved source-range instructions and playback composition, not the original file.
-
-In and Out are general selection markers:
-
-- Delete removes the selected section.
-- Export Clip exports the selection when both markers are set.
-- Export Clip exports the complete edited timeline when both markers are clear.
-- An incomplete or reversed selection must be corrected or cleared before export.
-
-After a clip-editor deletion, the playhead moves to the new edit point and the markers are cleared. Source edits remain temporary until placed in the timeline. The project saves each timeline clip’s ranges, and project changes participate in the standard Undo and Redo commands.
-
-The primary video and audio tracks retain magnetic editing, so operations that remove time close the resulting space on that track. Additional tracks default to Magnetic off: editing, replacing, trimming, deleting, pasting, or moving one clip preserves its neighbors’ assigned times. Append places a clip after the track’s last clip. Overlapping placements are rejected without shifting other clips. Clips on different tracks can begin and end independently. The Track picker chooses the video or audio track presented as a native chronological Timeline clips list, while the Editor playhead remains shared across the complete project. Timeline clips is for reviewing and arranging the project. Clip Editor changes a source edit, Transition Editor changes transition timing, and Editor provides project playback and direct playhead-based editing.
-
-Use the Magnetic checkbox beside the Track picker to change an additional audio or video track’s behavior. Enabling Magnetic on a populated track requires confirmation: it moves the first clip to project time zero and places every subsequent clip directly after the previous clip in chronological order, removing all gaps. The setting and repositioning form one Undo action that restores the exact previous arrangement. Turning Magnetic off preserves the current positions; earlier magnetic edits have their own Undo actions. The setting is saved with the project. Older additional tracks without a saved setting open with Magnetic off and retain their stored positions.
-
-On magnetic tracks, insertion, replacement, and duration changes can shift later clips. With Magnetic off, insertion requires free space at the playhead, and replacing a clip’s remainder preserves later clips’ times. A replacement that would overlap another clip is rejected.
-
-The protected primary video and audio tracks retain the standard placement commands. Insert and Split splits the clip under the playhead and preserves both sides. After insertion, the shared project playhead advances to the incoming clip's end, so consecutive insertions stay in the order they were made. Insert and Overwrite preserves the portion before the playhead, discards that clip's remaining portion, and leaves later clips after the inserted clip. User-created tracks can be added, renamed, reordered, and deleted independently. A cutaway requires a visual source. It changes neither the primary clip nor the total project duration; it temporarily takes over the picture and either takes over the audio or leaves the primary audio playing.
-
-Current identifies the clip beneath the playhead on the displayed track. Selected identifies only a clip picked up for movement. VoiceOver focus updates the target for clip commands and Command-I Get Info without moving the playhead or picking up a clip. In a gap, no clip is marked Current, even though Editor's C command can open the next clip.
-
-During pickup-and-drop movement, the live timeline stays unchanged until drop. Magnetic-track arrows announce the proposed list position; nudges on tracks with Magnetic off announce the proposed start frame. Ordinary navigation does not announce list positions. An immediate nudge changes only the focused clip's time and any linked audio that moves with picture. Neighboring clips stay in place. Nudges cannot overlap or cross another clip on the same track, but edges may touch. A linked-track collision also blocks the move. Clips with attached transitions must have those transitions removed before nudging. A project without a defined frame rate uses 30 fps for nudges.
-
-When a video source contains audio, open it in Clip Editor and use the native Audio Only menu to append its audio, insert its audio at the project playhead, or insert and overwrite on an audio track. Add Audio Only to Track lists only audio tracks and can create a named audio track in the same operation. New Track from Video and New Track from Audio are also available in Clip Editor and from a Project Source clip's Actions and context menus. Each command creates a named compatible track and appends the current source edit as one undoable operation; the audio command contributes no picture to preview or export.
-
-Every primary clip and cutaway has a distinct displayed timeline name. Repeated filenames and additional uses of the same source receive stable letter suffixes. Choose Rename Clip from the item's context menu or Selected Element Actions to give an instance a unique custom name. Timeline renames are saved in the project and participate in Undo and Redo.
-
-Opening an audio or video clip from Project Source starts with the complete original media and no In or Out markers. Source selections are temporary for that editor session. Appending places the selected range in the timeline; closing and reopening the source clears the selection. Opening a clip from Timeline Clips restores that timeline instance’s saved range.
-
-## Tracks and transitions
-
-VoiceOver focus in Timeline clips identifies the target clip or transition for timeline commands and Command-I Get Info. It does not set the Current or Selected movement states. Change the Track picker, or press Option-Command-Up Arrow and Option-Command-Down Arrow, to move between tracks without turning the complete project into one long list. When track selection begins in Editor, Trimato announces the active track and its direct-edit clip without moving VoiceOver into Timeline.
-
-The direct-edit clip is remembered separately for each track. When no clip has been remembered, Trimato resolves the clip at the Editor playhead, preferring an incoming clip at an edit point, then a clip containing the playhead, the next clip, or the last earlier clip. Command-[ and Command-] trim that clip to the shared project playhead while VoiceOver stays in Editor. Plain [ and ] reposition the complete clip on an additional track without trimming its stored source. Press C from Editor to open the direct-edit clip. Timeline clipboard commands operate only on the focused track item and require matching video or audio track types.
-
-Press Command-T in the Editor to add a transition at the playhead, or press it on a focused Timeline clips item. For a Fade on one clip, the controls are Fade In {clip name} and Fade Out {clip name}. Both name that same clip. Video and audio fades use Fade In Duration and Fade Out Duration, entered in seconds. The durations are independent and retain their values when a checkbox is cleared and checked again.
-
-Press F in the Editor to open Quick Fade. At a shared cut from clip A to clip B, Fade In B applies at the beginning of B and Fade Out A applies at the end of A. Selecting both places both fades around that cut. Within a clip, at the start of the timeline, or at its final endpoint, both controls name the same clip. Fade Audio includes the matching linked audio for each selected fade.
-
-Press X at an edit between clips to open Quick Cross Dissolve on a video track or Quick Cross Fade on an audio track. Transition durations accept fractional seconds such as `1.25`.
-
-- Fade In: Gradually reveals the clip. On additional video tracks, underlying video remains visible during the fade.
-- Fade Out: Gradually hides the clip, revealing underlying video on additional tracks. Where no picture is underneath, the background is black.
-- Audio Fade In: Gradually raises the clip audio from silence.
-- Audio Fade Out: Gradually lowers the clip audio to silence.
-- Cross Dissolve: Fades the incoming picture over the outgoing picture across their shared edit. Crossfade Audio blends both clips' audio at the same time.
-- Cross Fade: Lowers the outgoing audio while raising the incoming audio across their shared edit.
-- Fade Out/Fade In: Fades the outgoing video through black into the incoming video, or fades outgoing audio through silence into incoming audio, without overlapping the two sources.
-- Wipe Left: Replaces the outgoing picture with the incoming picture using an edge that moves left.
-- Wipe Right: Replaces the outgoing picture with the incoming picture using an edge that moves right.
-- Wipe Up: Replaces the outgoing picture with the incoming picture using an edge that moves upward.
-- Wipe Down: Replaces the outgoing picture with the incoming picture using an edge that moves downward.
-
-Wipes affect video only. Crossfade Audio blends the outgoing and incoming audio during a Cross Dissolve. Fade Audio adds the matching fade behavior. A transition appears as its own Timeline clips element and can be reopened, changed, or deleted without changing the source edit.
-
-## Export formats
-
-To silence a track, choose an audio track in Timeline and turn on Mute Track. Repeat for each audio track to exclude from the mix. Muting applies to preview and export, including audio transitions, and does not hide picture or change clip timing. The setting is saved with the project and participates in Undo and Redo. It affects the whole track, not only the clip beneath the playhead.
-
-Video exports include H.264 MP4, HEVC MP4, H.264 QuickTime, HEVC QuickTime, ProRes 422 LT, ProRes 422, and ProRes 422 HQ. Audio-only exports include M4A AAC, M4A Apple Lossless, FLAC, 16-bit WAV, and 24-bit WAV. Audio-only choices are available when the edited clip or project contains exportable audio.
-
-An audio-only clip or project offers only audio output formats because it has no picture to encode. A mixed project offers both video and audio output formats. In an audio-only project, adding the first video clip establishes the automatic project resolution and frame rate.
-
-### HDR and high-resolution video
-
-Open Settings > Video and leave Preserve HDR on to retain HDR brightness and color from supported sources. It is on by default. Choose HEVC MP4, HEVC movie, or a ProRes format for HDR output. HDR processing supports video filters, transitions, and burned-in captions. HEVC HDR output uses 10-bit video with regenerated Dolby Vision metadata; ProRes retains HLG HDR.
-
-Turn Preserve HDR off to convert HDR video to standard dynamic range (SDR), including when you need H.264 output. HDR project exports offer compatible formats; an incompatible HDR export request fails instead of silently switching to SDR. Original format is a standalone passthrough option and does not apply the HDR-to-SDR conversion setting.
-
-Use File > Project Settings to choose the intended dimensions and frame rate. For example, use 3840 by 2160 at 120 fps to retain that resolution and nominal rate from a matching iPhone recording. Adding a 4K or 120 fps clip to a lower-resolution or lower-rate project does not upgrade the project automatically. Variable-frame-rate recordings are conformed to the project's fixed frame grid; their exact original frame timing is not preserved.
-
-HDR preservation does not make video encoding lossless. H.264, HEVC, and ProRes exports can change picture data. Export uses original media rather than playback proxies, but output quality also depends on the project format, filters, and chosen codec.
-
-### Audio quality and export choices
-
-Clip audio processing uses 32-bit floating-point intermediates and retains the source sample rate. Project mixing uses the highest sample rate among its source audio, converting lower-rate sources to that common rate. It does not impose a blanket 44.1 or 48 kHz limit. Mixed project output is stereo; a standalone mono audio export can remain mono. Supported Spatial Audio projects use a separate path that retains the spatial channels and stereo playback alternative. These capabilities apply to audio-only editing as well as video soundtracks.
-
-| Export choice | Audio result |
-|---|---|
-| M4A Apple Lossless, FLAC, or WAV audio, 24-bit | Lossless compression or uncompressed storage of the rendered audio, with 24-bit output in the native audio export path. |
-| WAV audio, 16-bit | Uncompressed audio with lower sample precision than 24-bit output. |
-| ProRes 422 LT, 422, or 422 HQ movie | Video with uncompressed 24-bit PCM audio. |
-| M4A AAC audio, H.264, or HEVC video | Compressed AAC audio; audio is re-encoded and is not lossless. |
-
-These format choices describe mono and stereo editing. Choose Apple Lossless, FLAC, or 24-bit WAV to avoid an additional lossy audio encoding stage, or ProRes for uncompressed audio inside a video file. Spatial QuickTime exports retain the source audio encoding for unchanged audio, or use uncompressed floating-point audio for supported volume and transition edits. A lossless format does not restore information absent from the source or undo audio effects. Unsupported multichannel audio is rejected rather than automatically downmixed.
-
-### iPhone Spatial Audio and Cinematic recordings
-
-Import multiple iPhone recordings, trim and arrange them on the timeline, and preview or export the finished edit. Compatible Spatial Audio recordings retain their spatial channels through cuts, volume changes, mute, fades, Cross Fade, and Fade Out/In. Standard four-channel iPhone recordings can be combined with five-channel Cinematic recordings without changing their shared spatial channels.
-
-Choose Audio in Export Project or Export Clip:
-
-| Audio | Result |
-|---|---|
-| Preserve Spatial Audio | A QuickTime movie with spatial sound and a stereo playback alternative. Ordered cuts from one unchanged recording retain the source encoding and metadata. Combined recordings and audio changes use uncompressed 32-bit floating-point audio and create larger files. |
-| High-quality Stereo | The finished edit rendered to stereo. Use 24-bit WAV, Apple Lossless, FLAC, or ProRes for uncompressed or lossless output. AAC-based formats use high-quality lossy compression, identified in Export. |
-
-Export remembers the last audio choice and shows compatible file formats. The selected Audio option is passed through both project and standalone clip export paths. Stereo processing uses each recording's stereo playback alternative, retains the source sample rate during clip processing, and uses the highest source rate for project mixing. It supports the normal mono/stereo effects engine.
-
-Spatial preservation supports compatible channel layouts and sample rates. Voice adjustments, other audio filters, pan, balance, width, routing, ducking, mixed spatial/non-spatial audio, and source-audio cutaways currently require stereo. For these edits, Trimato provides a labeled stereo preview and explains why Preserve Spatial Audio is unavailable in Export. It does not silently change the exported audio choice.
-
-Processed spatial exports retain the source sample rate and spatial channel layout but do not retain the recording's original Apple Audio Mix analysis information. Reimporting Trimato's processed spatial movies supports further editing. Preview prepares the updated soundtrack before playback resumes; longer recordings take more time and temporary disk space.
-
-Cinematic picture can be edited, but converted exports do not retain editable focus and depth information. Cinematic mode does not imply a particular resolution or frame rate; inspect the actual clip properties with Get Info.
-
-The app integration is verified against the three supplied iPhone 16 Pro AAC/APAC recordings, including the Cinematic recording's five-channel spatial audio. Automated checks compare every audio sample in full, trimmed, HDR-rendered, and cut exports with the source, and compare volume, fades, and transitions against the expected samples in every channel. Ambisonic PCM is also detected so ProRes spatial sources cannot silently enter the stereo mixer; an original iPhone ProRes spatial recording has not yet been tested. Head-tracked playback and physical VoiceOver behavior remain separate device checks. See the [spatial integration and validation details](BackgroundChecks/SpatialAudioPreservation.md).
-
-## Mixed media and project format
-
-Each project that contains video has one resolution and frame rate. Automatic from First Clip uses the first video clip placed on the primary timeline, not the first file imported into the Project Browser. An earlier audio-only timeline clip does not establish a visual format. A project created directly from a standalone video uses that clip's displayed dimensions and nominal frame rate; a project created from standalone audio remains automatic until video is added. Later clips retain their own source properties while Trimato conforms them to the project during preview and export.
-
-Trimato uses proportional Fit for source dimensions and orientation. The complete source image remains visible and its aspect ratio is preserved:
-
-- A vertical or narrower source in a landscape project is centered and pillarboxed with black space on the left and right.
-- A source wider than the project frame is centered and letterboxed with black space above and below.
-- A source with the same aspect ratio is scaled proportionally to the project frame.
-- Trimato does not stretch, automatically crop, or rotate a source merely to fill the frame.
-
-Fit can scale a lower-resolution source up until one dimension reaches the project boundary, but it never enlarges the source past that boundary to eliminate letterboxing or pillarboxing. Fill, manual crop, positioning, and background controls are not currently part of the project timeline.
-
-The project frame rate establishes a fixed output cadence. Frames from higher-rate sources are omitted as needed, and frames from lower-rate sources are repeated as needed. This conversion does not change clip speed or audio duration. Trimato does not currently use optical flow to synthesize intermediate frames, so conversions such as 24 fps to 30 fps can retain visible motion judder.
-
-Audio-only timeline sections display as black picture in a video project while their audio continues normally. A visual cutaway can supply picture over an audio-only primary clip. Insert on Top is unavailable for an audio-only source because a cutaway must contain video.
-
-Custom projects provide common landscape, vertical, square, and portrait resolution presets, plus standard frame rates from 23.976 through 120 fps. Choose Custom dimensions or Custom frame rate when a preset does not match the intended output. Custom dimensions accept even width and height values from 2 through 8,192 pixels, and custom frame rates accept values from 1 through 240 fps.
-
-When entering custom dimensions, Lock aspect ratio is on initially. Changing either dimension calculates the other from the locked ratio and rounds the calculated value to an even pixel count. Turn the checkbox off to set width and height independently, including unconventional project frames. Turning it back on locks the dimensions at their current ratio. Select a source and press Command-I to read its proportional fitting and frame-rate conversion.
-
-## Supported media
-
-Trimato checks the media streams inside a file rather than relying only on its filename extension. Two files with the same extension can use different codecs and require different handling.
-
-When AVFoundation can play and pass through a source natively, Trimato plays the original and can retain its file type and codec when Original format is selected for a standalone clip export. This commonly includes QuickTime Movie, MP4, M4V, M4A, WAV, AIFF, and other sources whose internal codecs are supported by macOS.
-
-Some sources can be played by AVFoundation but cannot be passed through in their original file type or codec. Trimato still plays these sources directly, then converts them when an exported format requires it.
-
-When AVFoundation cannot play a source, Trimato uses its bundled FFmpeg and ffprobe tools to inspect the local file and create a playback proxy. Audio-only proxies contain audio without manufacturing a video track. The proxy is used for responsive preview and editing; it does not replace the original and is not used as the final-quality source for a project export. Explicitly registered fallback extensions include:
-
-- MKV
-- WebM
-- TS, MTS, and M2TS
-- VOB
-- WMV
-- FLV
-
-Format recognition does not guarantee that every codec or media feature inside a container can be edited. Supported HDR media uses the HDR processing path described above. If a source requires a fallback conversion that would discard HDR or transparency, Trimato rejects that conversion. This is distinct from deliberately turning Preserve HDR off for SDR output.
-
-The bundled tools have networking, encrypted-stream protocols, and HLS support disabled. They can access only local files and local process pipes.
-
-## Original media, playback proxies, and the media cache
-
-Trimato projects save editing instructions and references to source files. They do not copy the original media into the project package. Keep the original files available at their saved locations. If a source is moved, renamed, disconnected, or deleted, use Relink Clip to locate it before previewing or exporting that part of the project.
-
-For media that AVFoundation cannot play, Trimato stores a playback proxy in the macOS Caches directory. A project can reuse a valid proxy after it is closed and reopened. Trimato compares the source file's size and modification date with the information saved for the proxy; if the source changes, Trimato discards the stale proxy and creates a new one.
-
-Video frame indexes and audio waveform analysis are also cached across editor openings and app launches. Unchanged sources reuse completed analysis; simultaneous requests share the same work. File identity, size, modification date, and analysis version determine whether a result can be reused. Failed or incomplete analysis is not cached, and indexing errors are reported instead of silently continuing with an empty frame index.
-
-Playback proxies are disposable. Trimato recreates a missing proxy when the project next needs it, provided the original source remains accessible. macOS may also remove files from its Caches directory when storage is constrained.
-
-Trimato manages the media cache automatically:
-
-- The cache has an automatic limit of 10 GB, including up to 256 MB reserved for frame indexes and waveform analysis.
-- Trimato removes the least recently used unprotected proxies when necessary.
-- Trimato requires enough storage for a new proxy while retaining at least 10 GB of available disk space.
-- Proxies required by open projects and editors are protected from manual and automatic removal.
-- Clear cache not used recently removes cached analysis and proxies not used in the last seven days.
-- Clear all cached media removes analysis and unneeded proxies, retaining active preparation and proxies required by an open project or editor.
-- Clearing the cache never deletes original media or Trimato project files.
-
-Project export returns to the original source files rather than rendering from playback proxies. When AVFoundation cannot use an original directly in the final composition, Trimato creates a temporary full-resolution ProRes render intermediate from that original, applies the saved timeline instructions and project format, writes the chosen output, and removes the intermediate after export.
-
-## Accessibility
-
-Accessibility is part of Trimato's editing model rather than an additional mode.
-
-- The complete editor can be operated from the keyboard.
-- Native SwiftUI controls retain their standard VoiceOver roles and interactions.
-- Visible section headings include VoiceOver heading traits.
-- The Project Browser, Editor, and Timeline clips are labeled sections in structural source order. Linked regions support VoiceOver's linked-item navigation.
-- The Track picker changes the track context for the linear Timeline clips list. VoiceOver focus on a clip or transition makes it the target for timeline commands and Command-I Get Info.
-- Get Info opens a standard macOS window titled for the focused item. Each field is exposed to VoiceOver as one qualified label and value, and the window closes with the standard window controls or Command-W.
-- Quick transition sheets return VoiceOver focus to the Editor after applying or canceling so repeated playback and editing remain in context.
-- Timeline list items expose names and positions without continuously speaking start, end, and duration values. Press Command-I for exact timing and other information about the focused item.
-- Settings has General, Audio, Video, Accessibility, and Storage panes. Video contains Preserve HDR. Accessibility includes Timecode Feedback controls for Live, On Demand, or Off feedback and Default, Short, or Frames verbosity. Press T in Editor or Mixer to hear the current time with any feedback setting. In Clip Editor, T is available with On Demand selected.
-- Import preparation appears in a native modal sheet so the inactive editor does not remain in the active VoiceOver context.
-- Import, export, transition, generator, and filter operations use separate progress windows with cancellation and restrained spoken percentage announcements.
-- In, Out, navigation, editing, completion, and failure actions provide spoken feedback.
-- The interface uses a dark charcoal editor workspace with high-contrast text and teal accents.
-- Color is not the only indication of marker, progress, selection, or disabled states.
-
-Accessibility reports from VoiceOver and other assistive technology users are especially welcome.
+- Edit standalone audio and video clips or arrange multiple tracks in a saved `.trimato` project.
+- Mark ranges, split and trim clips, and make non-destructive edits that preserve the original media.
+- Work with portrait or landscape video, step through individual frames, and edit audio against a waveform.
+- Write and time captions with Captioner, import SRT and WebVTT files, and export captions as separate files or include them in the video.
+- Record audio description with Describer and narration with Voicer. Adjust voice levels, match loudness, and reduce other audio during descriptions.
+- Use Captioner, Describer, Voicer, and Mixer beside the main video preview in the project window.
+- Mix audio tracks with volume, mute, solo, pan, stereo balance, stereo width, and channel routing controls.
+- Add transitions, video and audio filters, titles, lower thirds, backgrounds, and other generated clips.
+- Export video in H.264, HEVC, or ProRes, and audio in AAC, Apple Lossless, FLAC, or WAV. Preserve HDR and compatible iPhone Spatial Audio in supported exports.
 
 ## Requirements
 
-- macOS Sonoma 14.0 or later
-- An Apple silicon Mac or an Intel Mac supported by macOS Sonoma
-- Xcode with support for the project's macOS deployment target when building from source
+- macOS Sonoma 14 or later.
+- An Apple silicon or Intel Mac.
+- Xcode to build the app from source.
 
-The Trimato application and its bundled FFmpeg and ffprobe executables are built for both Apple silicon and Intel. Release builds are checked for both architectures; hands-on Intel validation depends on beta testers with Intel hardware.
+## Getting started
 
-## Installing a local build
+Choose Trim a Clip on the welcome screen to edit a single file, New Project to arrange media, or Open Project to continue saved work.
 
-From the repository root, run:
+In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open Captioner, Describer, Voicer, or Mixer as needed. Choose Settings to configure recording devices, playback, timecode, and storage preferences.
 
-```sh
-cd Trimato
-./install-local.sh
-```
+For editing instructions and keyboard shortcuts, open the Trimato Manual from the app's Help menu. Help buttons open the topic for the current tool or Settings page.
 
-The installer creates a Release build, places `Trimato.app` in `/Applications`, and refreshes Launch Services so Trimato can appear in Finder's Open With menu. Quit an existing copy of Trimato before running the installer.
-
-To make Trimato the default editor for a particular video type, select a file of that type in Finder, press Command-I, choose Trimato from Open with, and activate Change All.
+- [Browse the Manual source.](Trimato/Trimato/Trimato.help/Contents/Resources/en.lproj/index.html)
+- [Read the keyboard shortcut reference.](Trimato/Trimato/Trimato.help/Contents/Resources/en.lproj/keyboard-shortcuts.html)
 
 ## Building from source
 
 1. Clone or download this repository.
 2. Open `Trimato/Trimato.xcodeproj` in Xcode.
 3. Select the `Trimato` scheme and My Mac as the destination.
-4. Build and run with Command-R.
+4. Configure signing for your development team if needed.
+5. Build and run with Command-R.
 
-For a command-line Release build from the repository root:
+To create a Release build from the repository root:
 
 ```sh
 xcodebuild \
@@ -421,7 +52,17 @@ xcodebuild \
   build
 ```
 
-Run the test suite with:
+To install a local Release build, quit Trimato and run:
+
+```sh
+./Trimato/install-local.sh
+```
+
+The installer replaces `/Applications/Trimato.app` with the new build and registers it for Finder's Open With menu.
+
+## Testing
+
+Run the app test suite from the repository root:
 
 ```sh
 xcodebuild \
@@ -432,44 +73,37 @@ xcodebuild \
   test
 ```
 
-## Project layout
+Run the background media and file-handling tests without launching the app:
 
-- `Trimato/Trimato`: Application source, editor views, timeline model, media preparation, and export code.
-- `Trimato/TrimatoTests`: Unit and integration tests.
+```sh
+swift test --scratch-path /tmp/trimato-media-tests
+```
+
+## Repository layout
+
+- `Trimato/Trimato`: App source and bundled Manual.
+- `Trimato/TrimatoTests`: App tests.
+- `BackgroundTests`: Background media and file-handling tests.
 - `Trimato/Trimato.xcodeproj`: Xcode project.
-- `Trimato/ThirdParty/FFmpeg`: FFmpeg build instructions, configuration, source location, and LGPL license.
-- `Trimato/install-local.sh`: Local Release installer for `/Applications`.
+- `Trimato/ThirdParty/FFmpeg`: Bundled FFmpeg tools, build notes, and license.
+- `Trimato/install-local.sh`: Local build installer.
 
-## Privacy and temporary files
+## Privacy
 
-Trimato has no accounts, advertising, analytics, or tracking. Media inspection, waveform generation, proxy creation, editing, and export happen locally on the Mac.
+Editing and media processing happen locally on your Mac. Trimato has no accounts, advertising, analytics, or tracking.
 
-The original source file is not modified. Project playback proxies can remain in the macOS Caches directory so they can be reused across sessions. Standalone temporary proxies and final-export render intermediates are removed after their operation or editor session ends normally. Canceling an import or export removes its incomplete output. An abnormal process termination can prevent normal cleanup code from running.
+## Support and contributions
 
-Opening the FFmpeg website from the About window leaves the app and uses the selected web browser, whose privacy policy then applies.
+Bug reports, accessibility feedback, and contributions are welcome. For a bug report, include the Trimato version, macOS version, media format, steps to reproduce the problem, and any assistive technology involved.
 
-## Support and feedback
-
-Bug reports, accessibility findings, and focused improvements are welcome. Include the macOS version, Trimato version, source format, assistive technology, and clear reproduction steps when reporting a problem.
-
-- [Open a GitHub issue.](../../issues)
+- [Open a GitHub issue.](https://github.com/Marconiusiii/Trimato/issues)
 - [Email Marco Salsiccia.](mailto:marco@marconius.com)
 
-## Third-party software
+## License and third-party software
 
-Trimato bundles FFmpeg 8.1.2 and ffprobe for media inspection, proxy generation, and MP4 conversion. Those tools are distributed under the GNU Lesser General Public License version 2.1 or later and are not relicensed under MIT.
+Trimato's original source code is available under the [MIT License.](LICENSE)
+
+The bundled FFmpeg and ffprobe tools are licensed separately under the GNU Lesser General Public License version 2.1 or later.
 
 - [Read the FFmpeg distribution and build notes.](Trimato/ThirdParty/FFmpeg/README.md)
-- [Read the bundled GNU Lesser General Public License.](Trimato/ThirdParty/FFmpeg/COPYING.LGPLv2.1)
-- [Visit the FFmpeg website.](https://ffmpeg.org/)
-
-## License
-
-Marco Salsiccia's original Trimato source code is available under the [MIT License.](LICENSE)
-
-Bundled third-party components remain subject to their respective licenses.
-
-
-## Background file-handling verification
-
-Run `swift test --scratch-path /tmp/trimato-media-tests` from the repository root to test the production file-transfer and file-reference code without launching Trimato or opening windows. The package covers missing-media recovery, project-folder relocation, safe copies and moves, filename collisions, duplicate references, cancellation, and import preferences. Xcode build-for-testing compiles the app integration without running its window-based tests.
+- [Read the bundled LGPL license.](Trimato/ThirdParty/FFmpeg/COPYING.LGPLv2.1)
