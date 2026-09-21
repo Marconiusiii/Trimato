@@ -160,14 +160,7 @@ struct ProjectTimelineView: View {
         }
         .onChange(of: controller.workspaceFocusRequest) { _, request in
             guard request.pane == .timeline, controller.acceptsWorkspaceCommands else { return }
-            if let target = WorkspacePaneNavigation.timelineTarget(
-                remembered: focusedElement, keyboard: keyboardFocusedElement,
-                available: timelineCollectionItems.map(\.selection)
-            ) {
-                controller.requestTimelineFocusRestore(to: target)
-            } else {
-                controller.requestTimelineListFocusRestore()
-            }
+            controller.requestTimelineListFocusRestore()
         }
         .onChange(of: controller.project.tracks.map(\.id)) {
             reconcileActiveTrack()

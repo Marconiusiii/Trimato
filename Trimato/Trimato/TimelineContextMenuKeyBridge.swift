@@ -462,8 +462,10 @@ struct TimelineClipsCollection: NSViewRepresentable {
                 previousFocusRequest = source.focusRequest
                 if let target = source.focusTarget {
                     let request = source.focusRequest
+                    let listRequest = source.listFocusRequest
                     DispatchQueue.main.async { [weak self] in
-                        guard let self, self.previousFocusRequest == request else { return }
+                        guard let self, self.previousFocusRequest == request,
+                              self.previousListFocusRequest == listRequest else { return }
                         self.pendingFocusTarget = target
                         self.select(target)
                     }
@@ -473,16 +475,18 @@ struct TimelineClipsCollection: NSViewRepresentable {
             }
             if previousListFocusRequest != source.listFocusRequest, source.listFocusRequest > 0 {
                 previousListFocusRequest = source.listFocusRequest
+                pendingFocusTarget = nil
                 let request = source.listFocusRequest
+                let itemRequest = source.focusRequest
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.previousListFocusRequest == request,
+                          self.previousFocusRequest == itemRequest,
                           let collection = self.collectionView,
                           let window = collection.window, window.isKeyWindow,
                           window.attachedSheet == nil, NSApp.modalWindow == nil else { return }
                     self.pendingFocusTarget = nil
                     guard window.makeFirstResponder(collection) else { return }
                     if NSWorkspace.shared.isVoiceOverEnabled {
-                        collection.setAccessibilityFocused(true)
                         NSAccessibility.post(element: collection, notification: .focusedUIElementChanged)
                     }
                 }

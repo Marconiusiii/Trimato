@@ -36,13 +36,6 @@ nonisolated enum WorkspaceCommandAvailability {
     }
 }
 
-nonisolated enum WorkspacePaneNavigation {
-    static func timelineTarget(remembered: TimelineElementSelection?, keyboard: TimelineElementSelection?,
-                               available: [TimelineElementSelection]) -> TimelineElementSelection? {
-        [remembered, keyboard].compactMap { $0 }.first { available.contains($0) }
-    }
-}
-
 nonisolated enum PortraitEditorLayout {
     static let controlsWidth: CGFloat = 460
     static let minimumWidth: CGFloat = 700

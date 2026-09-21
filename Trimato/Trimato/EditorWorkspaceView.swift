@@ -94,7 +94,13 @@ struct EditorWorkspaceView: View {
                 hasHandledInitialPreparation = true
                 if projectPlayer.errorMessage != nil {
                     projectPlayer.showPreviewFailure()
-                } else {
+                } else if controller.project.media.isEmpty,
+                          controller.project.folders.isEmpty,
+                          controller.project.primaryTimeline.isEmpty,
+                          controller.project.cutaways.isEmpty,
+                          controller.project.tracks.allSatisfy({
+                              $0.clips.isEmpty && $0.captionCues.isEmpty && $0.markers.isEmpty
+                          }) {
                     initialImportFocusRequest += 1
                 }
             }
@@ -563,7 +569,8 @@ struct ProjectViewerView: View {
                 focusScope?.containsInputFocus == true
             }
             viewModel.scopeKeyboardCommands { [weak focusScope, weak controller] in
-                (NSWorkspace.shared.isVoiceOverEnabled || controller?.timelineHasKeyboardFocus != true) &&
+                controller?.acceptsWorkspaceCommands == true &&
+                    (NSWorkspace.shared.isVoiceOverEnabled || controller?.timelineHasKeyboardFocus != true) &&
                     focusScope?.containsInputFocus == true
             }
             viewModel.onBladeAtPlayhead { [weak controller] in
@@ -625,10 +632,10 @@ struct ProjectViewerView: View {
             restoreProjectPlayheadFocus()
         }
         .onChange(of: windowActivity) { _, activity in
-            if activity != .key {
-                paneCommandKeyboardTarget = nil
-                focusedAccessibilityTarget = nil
-                focusScope.recordVoiceOverFocus(false)
+            // Application switching must not dismiss native focus. Reconcile
+            // command ownership from the observed binding when returning.
+            if activity == .key, focusedAccessibilityTarget != nil {
+                focusScope.recordVoiceOverFocus(true)
             }
         }
         .task(id: windowActivity == .key && pendingProjectPlayheadFocus && viewModel.canControlPlayback) {
@@ -642,8 +649,17 @@ struct ProjectViewerView: View {
             pendingProjectPlayheadFocus = false
             let target: AccessibilityTarget = viewModel.canControlPlayback && controller.recordingSession == nil ? .playhead : .heading
             viewModel.refreshAccessibilityValueForFocus()
-            paneCommandKeyboardTarget = target
-            focusedAccessibilityTarget = target
+            if NSWorkspace.shared.isVoiceOverEnabled {
+                // A repeated shortcut need not change the binding, so onChange
+                // alone cannot repair ownership for an already focused control.
+                if focusedAccessibilityTarget == target {
+                    focusScope.recordVoiceOverFocus(true)
+                } else {
+                    focusedAccessibilityTarget = target
+                }
+            } else {
+                paneCommandKeyboardTarget = target
+            }
         }
         .onChange(of: focusedAccessibilityTarget) { _, target in
             focusScope.recordVoiceOverFocus(target != nil)

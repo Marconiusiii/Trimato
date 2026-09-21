@@ -8,6 +8,43 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
+    @Test func collectionShortcutCancelsAnOlderQueuedClipRestoration() async {
+        let coordinator = TimelineClipsCollection.Coordinator()
+        let selection = TimelineElementSelection.clip(UUID())
+        let nativeFocus = TimelineNativeFocus()
+        let actions = TimelineCollectionActions(
+            activate: { _ in }, focus: { _ in }, renameClip: { _ in },
+            copyClip: { _ in }, pasteClipAfter: { _ in }, toggleClipMovement: { _ in },
+            moveClip: { _, _ in }, canMoveClip: { _, _ in false },
+            movePlayheadToCaption: { _ in }, delete: { _ in }, deleteMedia: { _ in })
+        func source(item: Int, list: Int) -> TimelineClipsCollection {
+            TimelineClipsCollection(items: [], accessibilityLabel: "Timeline Clips",
+                focusRequest: item, focusTarget: selection, listFocusRequest: list,
+                movingClipID: nil, actions: actions, nativeFocus: nativeFocus)
+        }
+        func drainQueuedRequests() async {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+
+        coordinator.update(from: source(item: 1, list: 0))
+        coordinator.update(from: source(item: 1, list: 1))
+        await drainQueuedRequests()
+        #expect(coordinator.pendingFocusTarget == nil)
+
+        // A subsequent explicit edit return still restores the requested clip.
+        coordinator.update(from: source(item: 2, list: 1))
+        await drainQueuedRequests()
+        #expect(coordinator.pendingFocusTarget == selection)
+
+        // The collection shortcut also cancels a clip waiting to be displayed.
+        coordinator.update(from: source(item: 2, list: 2))
+        #expect(coordinator.pendingFocusTarget == nil)
+        await drainQueuedRequests()
+        #expect(coordinator.pendingFocusTarget == nil)
+    }
+
     @Test func nativeVoiceOverFocusIsIndependentOfKeyboardSelection() {
         let focus = TimelineNativeFocus()
         let first = TimelineElementSelection.clip(UUID())
