@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Combine
 import Foundation
 import Testing
 @testable import Trimato
@@ -124,6 +125,27 @@ struct ProjectPlaybackTests {
         #expect(!viewModel.isInitialPreparationPending)
         #expect(viewModel.preparationProgress == nil)
         #expect(!viewModel.canControlPlayback)
+    }
+
+    @Test func workspaceCommandsBecomeAvailableWhenInitialPreparationFinishes() async {
+        let player = ProjectPlayerViewModel(awaitingInitialPreparation: true)
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        controller.installProjectPlayer(player)
+        let commands = WorkspaceCommandState(notifications: NotificationCenter(),
+            acceptsCommands: { !$0.isPreparingProject })
+        commands.register(controller,
+            windowChanges: player.$isInitialPreparationPending.map { _ in () }.eraseToAnyPublisher())
+        await commands.pendingRefresh?.value
+        #expect(controller.isPreparingProject)
+        #expect(commands.controller == nil)
+
+        player.prepare(project: controller.project, mediaURLs: [:])
+        await commands.pendingRefresh?.value
+        #expect(!controller.isPreparingProject)
+        #expect(commands.controller === controller)
+        commands.unregister(controller)
+        await commands.pendingRefresh?.value
+        #expect(commands.controller == nil)
     }
 
     @Test func requestedPreparationDefersPublishedChangesUntilAfterTheViewUpdate() async throws {

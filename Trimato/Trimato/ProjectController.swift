@@ -1359,8 +1359,10 @@ final class ProjectController: ObservableObject {
         editorFocusRestoreRequest += 1
     }
 
+    var isPreparingProject: Bool { projectPlayer?.isInitialPreparationPending == true }
+
     var acceptsWorkspaceCommands: Bool {
-        projectSaveCoordinator?.acceptsWorkspaceCommands == true && !isImporting &&
+        projectSaveCoordinator?.acceptsWorkspaceCommands == true && !isPreparingProject && !isImporting &&
             !isExporting && !isPresentingExportPanel && applyingTransitionName == nil
     }
 

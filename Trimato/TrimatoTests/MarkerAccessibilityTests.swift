@@ -145,6 +145,86 @@ struct MarkerAccessibilityTests {
         #expect(player.playheadAccessibilityValue == player.currentTimecodeForAnnouncement)
     }
 
+    @Test(arguments: ["Primary video", "Primary audio", "Voicer", "Audio description", "Captions"],
+          [TimecodeFeedback.live, .onDemand])
+    func cutNavigationRetainsTypeAndTimecodeAfterSeekAndFocusRefresh(
+        trackName: String, feedback: TimecodeFeedback
+    ) async throws {
+        let restore = preservePreference(AppPreferenceKey.timecodeFeedback)
+        defer { restore() }
+        UserDefaults.standard.set(feedback.rawValue, forKey: AppPreferenceKey.timecodeFeedback)
+        let fixture = try silentProject()
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        var project = fixture.project
+        let firstClip = try #require(project.primaryTimeline.first)
+        let secondID = try project.splitClip(id: firstClip.id, atTimelineTime: ProjectTime(seconds: 0.25))
+        _ = try project.splitClip(id: secondID, atTimelineTime: ProjectTime(seconds: 0.75))
+        let player = ProjectPlayerViewModel()
+        player.player.isMuted = true
+        player.prepare(project: project, mediaURLs: [project.media[0].id: fixture.url])
+        try await ready(player)
+        // Keep media preparation silent and native. Vary navigation metadata to
+        // exercise every supported track type against real asynchronous seeks.
+        let trackIndex = try #require(project.tracks.firstIndex { !$0.clips.isEmpty })
+        let kind: TimelineTrackKind = trackName == "Primary video" ? .video : .audio
+        project.tracks[trackIndex].kind = kind
+        project.tracks[trackIndex].name = trackName
+        project.tracks[trackIndex].role = kind == .video ? .primaryVideo : .primaryAudio
+        if trackName == "Voicer" || trackName == "Audio description" {
+            let purpose: RecordingPurpose = trackName == "Voicer" ? .voiceOver : .audioDescription
+            project.tracks[trackIndex].role = .additional
+            project.tracks[trackIndex].recordingPurpose = purpose
+            project.media[0].recordingPurpose = purpose
+        }
+        var navigationTrackID = project.tracks[trackIndex].id
+        if trackName == "Captions" {
+            navigationTrackID = project.createTrack(kind: .captions, name: "Captions")
+            try project.addCaptionCues([
+                CaptionCue(start: ProjectTime(seconds: 0.25), end: ProjectTime(seconds: 0.5), text: "First caption"),
+                CaptionCue(start: ProjectTime(seconds: 0.75), end: ProjectTime(seconds: 1), text: "Second caption")
+            ])
+        }
+        player.selectEditPointTrack(navigationTrackID, in: project)
+        var values: [String] = []
+        let observation = player.$playheadAccessibilityValue.dropFirst().sink { values.append($0) }
+        defer { withExtendedLifetime(observation) {}; player.player.pause() }
+
+        func check(forward: Bool, name: String, seconds: Double) async throws {
+            values.removeAll()
+            if forward { player.goToNextEdit() } else { player.goToPreviousEdit() }
+            try await Task.sleep(for: .milliseconds(250))
+            player.refreshAccessibilityValueForFocus()
+            let time = AppPreferences.spokenTimecode(seconds: seconds, frameRate: 30, verbosity: .default)
+                .replacingOccurrences(of: ", 0 milliseconds", with: "")
+            let expected = "\(name), \(time)"
+            #expect(abs(player.currentTime.seconds - seconds) < 0.02)
+            #expect(player.playheadAccessibilityValue == expected)
+            #expect(player.accessibilityTimecodeLabel == player.currentTimecodeForAnnouncement)
+            #expect(!values.isEmpty)
+            #expect(values.allSatisfy { $0 == expected }, "Seek completion must retain both cut type and position")
+        }
+
+        let cutName = kind == .video ? "Video edit point" : "Audio edit point"
+        let firstName = trackName == "Captions" ? "Caption: First caption" : cutName
+        let secondName = trackName == "Captions" ? "Caption: Second caption" : cutName
+        try await check(forward: true, name: firstName, seconds: 0.25)
+        let firstCutValue = player.playheadAccessibilityValue
+        try await check(forward: true, name: secondName, seconds: 0.75)
+        #expect(player.playheadAccessibilityValue != firstCutValue)
+        try await check(forward: true, name: "End", seconds: 1)
+        try await check(forward: false, name: secondName, seconds: 0.75)
+        player.markOut()
+        try await check(forward: false, name: firstName, seconds: 0.25)
+        player.markIn()
+        try await check(forward: false, name: "Start", seconds: 0)
+        try await check(forward: true, name: "In", seconds: 0.25)
+        try await check(forward: true, name: "Out", seconds: 0.75)
+        player.seek(to: ProjectTime(seconds: 0.5))
+        try await Task.sleep(for: .milliseconds(250))
+        player.refreshAccessibilityValueForFocus()
+        #expect(player.playheadAccessibilityValue == player.currentTimecodeForAnnouncement)
+    }
+
     @Test(arguments: [true, false])
     func repeatedMarkerCreationPreservesNativePlayheadAndPlayback(playing: Bool) async throws {
         let restore = preservePreference(AppPreferenceKey.markerAudio)

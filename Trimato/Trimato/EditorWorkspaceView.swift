@@ -4,6 +4,7 @@ import SwiftUI
 
 struct EditorWorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.controlActiveState) private var windowActivity
     @StateObject private var controller: ProjectController
     @StateObject private var projectPlayer: ProjectPlayerViewModel
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
@@ -15,7 +16,7 @@ struct EditorWorkspaceView: View {
     @State private var pendingTransitions: [TimelineTransition]?
     @State private var transitionTask: Task<Void, Never>?
     @State private var transitionOutcome = OperationProgressOutcome.completed
-    @State private var hasRequestedInitialImportFocus = false
+    @State private var hasHandledInitialPreparation = false
     @State private var initialImportFocusRequest = 0
     @State private var pendingPreviewRecovery: PreviewRecovery?
 
@@ -42,12 +43,15 @@ struct EditorWorkspaceView: View {
             .disabled(projectWindowSaveCoordinator.isResolvingClose)
             .background(EditorTheme.workspace)
             .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
-            .focusedSceneObject(controller)
+            .focusedSceneObject(projectPlayer.isInitialPreparationPending ? nil : controller)
             .handlesTrimatoMediaOpening()
             .onAppear {
                 controller.installSaveCoordinator(projectWindowSaveCoordinator)
+                controller.installProjectPlayer(projectPlayer)
                 WorkspaceCommandState.shared.register(controller,
-                    windowChanges: projectWindowSaveCoordinator.objectWillChange.eraseToAnyPublisher())
+                    windowChanges: projectWindowSaveCoordinator.objectWillChange
+                        .merge(with: projectPlayer.$isInitialPreparationPending.map { _ in () })
+                        .eraseToAnyPublisher())
                 projectWindowSaveCoordinator.onUndoManagerAvailable { [weak controller] undoManager in
                     controller?.installUndoManager(undoManager)
                 }
@@ -58,14 +62,9 @@ struct EditorWorkspaceView: View {
                     }
                 )
                 ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-                projectWindowSaveCoordinator.onWindowBecameKey { [weak controller, weak projectPlayer] in
+                projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
                     guard let controller else { return }
                     ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-                    Task { @MainActor in
-                        await Task.yield()
-                        guard projectPlayer?.isInitialPreparationPending == false else { return }
-                        requestInitialImportFocus()
-                    }
                 }
                 projectWindowSaveCoordinator.onLastProjectWindowWillClose {
                     openWindow(id: "project-launcher")
@@ -85,6 +84,19 @@ struct EditorWorkspaceView: View {
                     close: { [weak captionEditorWindows] in captionEditorWindows?.close() }
                 )
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
+            }
+            .task(id: canFinishInitialPreparation) {
+                guard canFinishInitialPreparation else { return }
+                // Let the enabled workspace update before requesting its initial focus.
+                await Task.yield()
+                guard !Task.isCancelled, canFinishInitialPreparation,
+                      projectWindowSaveCoordinator.acceptsWorkspaceCommands else { return }
+                hasHandledInitialPreparation = true
+                if projectPlayer.errorMessage != nil {
+                    projectPlayer.showPreviewFailure()
+                } else {
+                    initialImportFocusRequest += 1
+                }
             }
             .focusedSceneValue(\.closeToolPane, controller.toolPane == nil ? nil : ToolPaneCloseAction(
                 title: "Close \(controller.toolPane!.title)", action: controller.requestCloseToolPane))
@@ -203,16 +215,17 @@ struct EditorWorkspaceView: View {
     }
 
     private var progressEditor: some View {
-        editor
-            .disabled(projectPlayer.isInitialPreparationPending)
-            .accessibilityHidden(projectPlayer.isInitialPreparationPending)
-            .operationProgress(
-                initialPreparationOperation,
-                outcome: projectPlayer.errorMessage == nil ? .completed : .failed,
-                returnWindow: projectWindowSaveCoordinator.attachedWindow,
-                waitsForReturnWindow: true,
-                dismissed: initialPreparationDismissed
-            )
+        VStack(spacing: 0) {
+            if projectPlayer.isInitialPreparationPending {
+                ProgressView("Preparing Project", value: projectPlayer.preparationProgress)
+                    .progressViewStyle(.linear)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+            }
+            editor
+                .disabled(projectPlayer.isInitialPreparationPending)
+        }
             .operationProgress(
                 exportOperation,
                 outcome: controller.presentedError == nil ? .completed : .failed,
@@ -234,21 +247,10 @@ struct EditorWorkspaceView: View {
                                dismissed: restoreTransitionFocus)
     }
 
-    private var initialPreparationOperation: OperationProgress? {
-        guard projectPlayer.isInitialPreparationPending else { return nil }
-        return OperationProgress(
-            title: "Preparing Project",
-            progress: projectPlayer.preparationProgress,
-            announceCompletion: false
-        )
-    }
-
-    private func initialPreparationDismissed() {
-        guard projectPlayer.errorMessage == nil else {
-            projectPlayer.showPreviewFailure()
-            return
-        }
-        requestInitialImportFocus()
+    private var canFinishInitialPreparation: Bool {
+        !hasHandledInitialPreparation && !projectPlayer.isInitialPreparationPending &&
+            windowActivity == .key && projectWindowSaveCoordinator.attachedWindow != nil &&
+            !projectWindowSaveCoordinator.isResolvingClose
     }
 
     private func finishPreviewRecovery() {
@@ -261,12 +263,6 @@ struct EditorWorkspaceView: View {
         case .removeTransition(let id): controller.deleteTransition(id: id)
         case nil: break
         }
-    }
-
-    private func requestInitialImportFocus() {
-        guard !hasRequestedInitialImportFocus else { return }
-        hasRequestedInitialImportFocus = true
-        initialImportFocusRequest += 1
     }
 
     private var exportOperation: OperationProgress? {
