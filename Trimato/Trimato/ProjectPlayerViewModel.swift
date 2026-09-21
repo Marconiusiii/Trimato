@@ -232,6 +232,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         set { playbackClock.timecode = newValue }
     }
     @Published private(set) var accessibilityTimecodeLabel = "0 seconds, 0 milliseconds"
+    @Published private(set) var playheadAccessibilityValue = "0 seconds, 0 milliseconds"
     @Published private(set) var showingFrames = false
     @Published private(set) var playbackRate: Float = 0
     @Published private(set) var inMarker: ProjectTime?
@@ -298,6 +299,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var projectFrameRate = 30.0
     private var editPoints: [ProjectEditPoint] = []
     private var navigationTrackID: UUID?
+    private var navigationMarker: (time: ProjectTime, title: String)?
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8]
     private var arrowHolding = false
@@ -510,6 +512,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         mediaURLs: [UUID: URL],
         initialTime: ProjectTime
     ) {
+        navigationMarker = nil
         let presentsFailure = presentsNextPreparationFailure
         presentsNextPreparationFailure = false
         spatialMixRebuildTask?.cancel()
@@ -1181,6 +1184,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func stepFrame(forward: Bool) {
         guard canControlPlayback, !arrowHolding else { return }
+        navigationMarker = nil
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         jklIndex = 0
@@ -1205,8 +1209,9 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
-    private func seekPrecisely(to time: ProjectTime) {
+    private func seekPrecisely(to time: ProjectTime, markerTitle: String? = nil) {
         let bounded = min(max(time, .zero), projectDuration)
+        navigationMarker = markerTitle.map { (bounded, $0) }
         player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
             guard finished else { return }
             Task { @MainActor [weak self] in
@@ -1230,7 +1235,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             editPoint: editPoint,
             includeTimecode: AppPreferences.timecodeFeedback == .live
         )
-        seekPrecisely(to: destination)
+        seekPrecisely(to: destination, markerTitle: editPoint?.markerTitle)
         announce(announcement)
     }
 
@@ -1301,8 +1306,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             time: currentTime, frameRate: projectFrameRate,
             verbosity: AppPreferences.timecodeVerbosity, navigationCallout: nil
         )
-        guard accessibilityTimecodeLabel != value else { return }
-        accessibilityTimecodeLabel = value
+        updateAccessibilityValues(timecode: value)
     }
 
     func spokenTimecode(at time: ProjectTime) -> String {
@@ -1312,8 +1316,19 @@ final class ProjectPlayerViewModel: ObservableObject {
     func refreshAccessibilityValueForFocus() {
         guard player.rate == 0, !isScrubbing, !isSteppingFrames else { return }
         let value = spokenTimecode(at: currentTime)
-        guard accessibilityTimecodeLabel != value else { return }
-        accessibilityTimecodeLabel = value
+        updateAccessibilityValues(timecode: value)
+    }
+
+    private func updateAccessibilityValues(timecode: String) {
+        // A marker name belongs to the playhead's navigation feedback only.
+        // Timecode controls and video-frame descriptions continue to expose time.
+        if let marker = navigationMarker,
+           abs(currentTime.seconds - marker.time.seconds) >= 0.5 / max(projectFrameRate, 1) {
+            navigationMarker = nil
+        }
+        let playheadValue = navigationMarker?.title ?? timecode
+        if accessibilityTimecodeLabel != timecode { accessibilityTimecodeLabel = timecode }
+        if playheadAccessibilityValue != playheadValue { playheadAccessibilityValue = playheadValue }
     }
 
     var currentTimecodeForAnnouncement: String {

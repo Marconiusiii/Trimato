@@ -1053,7 +1053,7 @@ private struct ProjectPlayheadPresentation: View {
             .disabled(!player.canControlPlayback)
             .tint(EditorTheme.playhead)
             .accessibilityLabel("Project playhead")
-            .accessibilityValue(player.accessibilityTimecodeLabel)
+            .accessibilityValue(player.playheadAccessibilityValue)
             .accessibilityIdentifier("trimato.editor.playhead")
             .accessibilityAddTraits(player.isPlaying ? .updatesFrequently : [])
     }

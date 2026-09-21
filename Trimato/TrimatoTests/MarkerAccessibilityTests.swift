@@ -23,6 +23,28 @@ struct MarkerAccessibilityTests {
         return project
     }
 
+    private func silentProject() throws -> (project: TrimatoProject, url: URL) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48_000))
+        buffer.frameLength = 48_000
+        for channel in 0..<2 {
+            buffer.floatChannelData![channel].initialize(repeating: 0, count: 48_000)
+        }
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            try file.write(from: buffer)
+        }
+        let asset = MediaAssetRecord(name: "Silent marker fixture", originalPath: url.path,
+            duration: ProjectTime(seconds: 1), hasAudio: true,
+            sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 1)))],
+            playbackMode: .nativePassthrough)
+        var project = TrimatoProject(name: "Marker key sequence")
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        return (project, url)
+    }
+
     private func ready(_ player: ProjectPlayerViewModel) async throws {
         for _ in 0..<300 where !player.canControlPlayback {
             try await Task.sleep(for: .milliseconds(50))
@@ -79,43 +101,48 @@ struct MarkerAccessibilityTests {
         }
     }
 
-    @Test func markerNavigationKeepsSliderValueAsTimeAfterSeekAndFocusRefresh() async throws {
+    @Test func markerNavigationKeepsConciseNamesAfterSeekAndFocusRefresh() async throws {
         let restore = preservePreference(AppPreferenceKey.timecodeFeedback)
         defer { restore() }
         UserDefaults.standard.set(TimecodeFeedback.live.rawValue, forKey: AppPreferenceKey.timecodeFeedback)
-        var project = try project()
+        let fixture = try silentProject()
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        var project = fixture.project
         _ = project.insertMarker(at: .zero)
-        let second = project.insertMarker(at: ProjectTime(seconds: 2))
+        let second = project.insertMarker(at: ProjectTime(seconds: 0.25))
         _ = project.insertMarker(at: project.duration)
         let trackIndex = try #require(project.tracks.firstIndex { $0.kind == .markers })
         let markerIndex = try #require(project.tracks[trackIndex].markers.firstIndex { $0.id == second.id })
         project.tracks[trackIndex].markers[markerIndex].title = "Music begins"
         let player = ProjectPlayerViewModel()
-        player.prepare(project: project, mediaURLs: [:])
+        player.prepare(project: project, mediaURLs: [project.media[0].id: fixture.url])
         try await ready(player)
         player.selectEditPointTrack(project.markerTrack?.id, in: project)
         var values: [String] = []
-        let observation = player.$accessibilityTimecodeLabel.dropFirst().sink { values.append($0) }
+        let observation = player.$playheadAccessibilityValue.dropFirst().sink { values.append($0) }
         defer { withExtendedLifetime(observation) {}; player.player.pause() }
-        for (forward, title, seconds) in [(true, "Music begins", 2.0), (true, "Marker 3", 8.0),
-                                          (false, "Music begins", 2.0), (false, "Marker 1", 0.0)] {
+        for (forward, title, seconds) in [(true, "Music begins", 0.25), (true, "Marker 3", 1.0),
+                                          (false, "Music begins", 0.25), (false, "Marker 1", 0.0)] {
             values.removeAll()
             if forward { player.goToNextEdit() } else { player.goToPreviousEdit() }
             try await Task.sleep(for: .milliseconds(250))
             player.refreshAccessibilityValueForFocus()
             #expect(abs(player.currentTime.seconds - seconds) < 0.02)
             #expect(player.accessibilityTimecodeLabel == player.currentTimecodeForAnnouncement)
+            #expect(player.playheadAccessibilityValue == title)
             #expect(!values.isEmpty)
-            #expect(values.allSatisfy { !$0.contains(title) }, "Marker announcements must not become the slider value")
+            #expect(values.allSatisfy { $0 == title }, "Seek completion must not overwrite the marker name with time")
         }
         UserDefaults.standard.set(TimecodeFeedback.onDemand.rawValue, forKey: AppPreferenceKey.timecodeFeedback)
         player.goToNextEdit()
         try await Task.sleep(for: .milliseconds(250))
         #expect(player.accessibilityTimecodeLabel == player.currentTimecodeForAnnouncement)
-        player.seek(to: ProjectTime(seconds: 3.5))
+        #expect(player.playheadAccessibilityValue == "Music begins")
+        player.seek(to: ProjectTime(seconds: 0.5))
         try await Task.sleep(for: .milliseconds(250))
         #expect(player.accessibilityTimecodeLabel == player.currentTimecodeForAnnouncement)
         #expect(!player.accessibilityTimecodeLabel.contains("Music begins"))
+        #expect(player.playheadAccessibilityValue == player.currentTimecodeForAnnouncement)
     }
 
     @Test(arguments: [true, false])
@@ -138,7 +165,7 @@ struct MarkerAccessibilityTests {
         let original = try playhead()
         #expect(attribute(original, "accessibilityRole") as? String == "AXSlider")
         let originalValue = try #require(attribute(original, "accessibilityValueDescription") as? String)
-        #expect(originalValue == player.accessibilityTimecodeLabel)
+        #expect(originalValue == player.playheadAccessibilityValue)
         let item = player.player.currentItem
         let focusRevision = controller.editorFocusRestoreRequest
         player.scopeKeyboardCommands { true }
@@ -155,7 +182,7 @@ struct MarkerAccessibilityTests {
         let timelineFocusRevision = controller.timelineFocusRestoreRequest
         let timelineListFocusRevision = controller.timelineListFocusRestoreRequest
         var spokenUpdates: [String] = []
-        let observation = player.$accessibilityTimecodeLabel.dropFirst().sink { spokenUpdates.append($0) }
+        let observation = player.$playheadAccessibilityValue.dropFirst().sink { spokenUpdates.append($0) }
         defer { withExtendedLifetime(observation) {} }
         for _ in 0..<4 {
             let tapped = player.precisePlayhead
@@ -192,8 +219,9 @@ struct MarkerAccessibilityTests {
         if playing { player.goToNextEdit() } else { player.goToStart() }
         try await Task.sleep(for: .milliseconds(250))
         let navigatedValue = try #require(attribute(try playhead(), "accessibilityValueDescription") as? String)
-        #expect(navigatedValue == player.currentTimecodeForAnnouncement)
-        #expect(!navigatedValue.contains("First cue"))
+        #expect(navigatedValue == player.playheadAccessibilityValue)
+        if playing { #expect(navigatedValue == "First cue") }
+        #expect(player.accessibilityTimecodeLabel == player.currentTimecodeForAnnouncement)
     }
 
     @Test func markerDrawingRendersAtTimelinePositions() throws {
@@ -224,25 +252,9 @@ struct MarkerAccessibilityTests {
     }
 
     @Test func markerShortcutConsumesOnlyItsOwnKeySequence() async throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        let (project, url) = try silentProject()
         defer { try? FileManager.default.removeItem(at: url) }
-        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
-        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48_000))
-        buffer.frameLength = 48_000
-        for channel in 0..<2 {
-            buffer.floatChannelData![channel].initialize(repeating: 0, count: 48_000)
-        }
-        do {
-            let file = try AVAudioFile(forWriting: url, settings: format.settings)
-            try file.write(from: buffer)
-        }
-        let asset = MediaAssetRecord(name: "Silent marker fixture", originalPath: url.path,
-            duration: ProjectTime(seconds: 1), hasAudio: true,
-            sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 1)))],
-            playbackMode: .nativePassthrough)
-        var project = TrimatoProject(name: "Marker key sequence")
-        project.media = [asset]
-        _ = try project.append(asset: asset)
+        let asset = try #require(project.media.first)
         let player = ProjectPlayerViewModel()
         player.prepare(project: project, mediaURLs: [asset.id: url])
         try await ready(player)
@@ -277,6 +289,37 @@ struct MarkerAccessibilityTests {
         player.refreshAccessibilityValueForFocus()
         #expect(player.accessibilityTimecodeLabel == player.currentTimecodeForAnnouncement)
         #expect(!player.accessibilityTimecodeLabel.contains("Marker"))
+        #expect(player.playheadAccessibilityValue == "Marker 2")
+    }
+
+    @Test func creatingMarkerDuringPlaybackDoesNotPublishNavigationName() async throws {
+        let (project, url) = try silentProject()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let player = ProjectPlayerViewModel()
+        player.player.isMuted = true
+        defer { player.player.pause() }
+        player.prepare(project: project, mediaURLs: [project.media[0].id: url])
+        try await ready(player)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.installProjectPlayer(player)
+        controller.createMarker(at: .zero)
+        player.goToStart()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(player.playheadAccessibilityValue == "Marker 1")
+        var values: [String] = []
+        let observation = player.$playheadAccessibilityValue.dropFirst().sink { values.append($0) }
+        defer { withExtendedLifetime(observation) {} }
+        player.player.play()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(player.player.rate == 1)
+        controller.createMarker(at: player.precisePlayhead)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(controller.project.markerTrack?.markers.count == 2)
+        #expect(values.isEmpty)
+        player.player.pause()
+        try await Task.sleep(for: .milliseconds(100))
+        player.refreshAccessibilityValueForFocus()
+        #expect(player.playheadAccessibilityValue == player.currentTimecodeForAnnouncement)
     }
 
     @Test func markerDialogLabelsPositionAndRespondsToPrecisionSetting() async throws {
