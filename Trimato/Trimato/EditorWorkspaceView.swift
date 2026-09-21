@@ -96,6 +96,14 @@ struct EditorWorkspaceView: View {
                     projectWindowSaveCoordinator.toolDraftDidClose()
                 }
             }
+            .sheet(item: $controller.pictureExportRequest, onDismiss: controller.pictureExportSheetDismissed) { request in
+                PictureExportSheet(request: request, cancel: { controller.pictureExportRequest = nil }) { captions, language in
+                    controller.confirmPictureExport(request, captions: captions, language: language)
+                }
+            }
+            .sheet(item: $controller.editingMarker) { marker in
+                MarkerEditorSheet(marker: marker, save: controller.saveMarker, cancel: { controller.editingMarker = nil })
+            }
             .sheet(isPresented: $controller.isConfirmingToolClose, onDismiss: controller.finishToolCloseReview) {
                 ToolPaneCloseConfirmation(controller: controller)
             }
@@ -607,7 +615,8 @@ struct ProjectViewerView: View {
             requestPreparation()
         }
         .onChange(of: controller.project) { previous, project in
-            viewModel.updateMix(project: project)
+            if previous.withoutMarkers != project.withoutMarkers { viewModel.updateMix(project: project) }
+            viewModel.selectEditPointTrack(controller.activeTimelineTrackID, in: project)
             guard !controller.consumePreparedTransitionPreview(for: project),
                   ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
             requestPreparation()
@@ -700,7 +709,7 @@ struct ProjectViewerView: View {
             Color.black
             VideoPlayerView(
                 player: viewModel.player,
-                captionCues: controller.project.captionTrack?.captionCues ?? [],
+                captionCues: controller.project.visibleCaptionCues,
                 captionDuration: controller.project.duration,
                 captionRenderSize: controller.project.format.width.flatMap { width in
                     controller.project.format.height.map { height in
@@ -743,7 +752,7 @@ struct ProjectViewerView: View {
 
     private var controlsArea: some View {
         VStack(spacing: 6) {
-            ProjectLivePlayhead(player: viewModel)
+            ProjectLivePlayhead(player: viewModel, markers: controller.project.markerTrack?.sortedMarkers ?? [])
             .disabled(!viewModel.canControlPlayback)
             .tint(EditorTheme.playhead)
             .accessibilityLabel("Project playhead")
@@ -982,7 +991,9 @@ struct ProjectPreviewFailureSheet: View {
 private struct ProjectLivePlayhead: View {
     @ObservedObject var player: ProjectPlayerViewModel
     @ObservedObject private var clock: ProjectPlaybackClock
-    init(player: ProjectPlayerViewModel) {
+    let markers: [TimelineMarker]
+    init(player: ProjectPlayerViewModel, markers: [TimelineMarker]) {
+        self.markers = markers
         self.player = player
         clock = player.playbackClock
     }
@@ -990,6 +1001,18 @@ private struct ProjectLivePlayhead: View {
         Slider(value: Binding(get: {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }), in: 0...1, step: player.playbackFractionStep)
+            .overlay(alignment: .top) {
+                GeometryReader { geometry in
+                    ForEach(markers.filter { $0.time >= .zero && $0.time <= player.duration }) { marker in
+                        Image(systemName: marker.type == .chapter ? "bookmark.fill" : "diamond.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(marker.type == .chapter ? Color.orange : Color.accentColor)
+                            .position(x: 8 + max(0, geometry.size.width - 16) * min(1, max(0, marker.time.seconds / max(player.duration.seconds, 0.001))), y: -3)
+                    }
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
             .accessibilityAddTraits(player.isPlaying ? .updatesFrequently : [])
     }
 }

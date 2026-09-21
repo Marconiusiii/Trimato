@@ -49,7 +49,8 @@ enum ProjectExporter {
         to outputURL: URL,
         audioMode: ExportAudioMode = .preserveSpatial,
         progress: @escaping @MainActor @Sendable (Double) -> Void,
-        preserveHDR: Bool = AppPreferences.preserveHDR()
+        preserveHDR: Bool = AppPreferences.preserveHDR(),
+        webOptimized: Bool = false
     ) async throws {
         try ExportFileCommit.protectSources(Array(mediaURLs.values), destination: outputURL)
         let result = try await ProjectCompositionBuilder.build(
@@ -112,7 +113,7 @@ enum ProjectExporter {
             throw ExportError.incompatibleFormat(format.title)
         }
 
-        if format.requiresCustomVideoWriter || (colorPolicy == .hlg && [.hevcMP4, .hevcMovie].contains(format)) {
+        if (webOptimized && format == .h264MP4) || format.requiresCustomVideoWriter || (colorPolicy == .hlg && [.hevcMP4, .hevcMovie].contains(format)) {
             try await CustomMovieExporter.export(
                 asset: result.composition,
                 videoComposition: result.videoComposition,
@@ -247,6 +248,7 @@ nonisolated enum CustomMovieExporter {
     ) async throws {
         var videoCodec: AVVideoCodecType
         switch format {
+        case .h264MP4: videoCodec = .h264
         case .proRes422: videoCodec = .proRes422
         case .hevcMP4, .hevcMovie: videoCodec = .hevc
         case .proRes422LT: videoCodec = .proRes422LT
@@ -290,7 +292,7 @@ nonisolated enum CustomMovieExporter {
         let videoOutput = AVAssetReaderVideoCompositionOutput(
             videoTracks: videoTracks,
             videoSettings: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_64RGBAHalf,
+                kCVPixelBufferPixelFormatTypeKey as String: videoCodec == .h264 ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_64RGBAHalf,
             ]
         )
         videoOutput.videoComposition = effectiveComposition
@@ -300,7 +302,7 @@ nonisolated enum CustomMovieExporter {
         reader.add(videoOutput)
 
         let audioFormat = try await AudioProcessingFormat.inspect(tracks: audioTracks, stereoMix: audioMix != nil)
-        let audioSettings: [String: Any] = videoCodec == .hevc
+        let audioSettings: [String: Any] = (videoCodec == .hevc || videoCodec == .h264)
             ? [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: audioFormat.sampleRate,
                AVNumberOfChannelsKey: audioFormat.channels, AVEncoderBitRateKey: audioFormat.aacBitRate]
             : audioFormat.pcmSettings(bitDepth: 24)
@@ -318,6 +320,7 @@ nonisolated enum CustomMovieExporter {
         }
 
         let writer = try AVAssetWriter(outputURL: temporaryURL, fileType: format.fileType ?? .mov)
+        writer.shouldOptimizeForNetworkUse = format.supportsFastStart
         var videoSettings: [String: Any] = [
             AVVideoCodecKey: videoCodec,
             AVVideoColorPropertiesKey: colorPolicy.properties,
@@ -332,6 +335,14 @@ nonisolated enum CustomMovieExporter {
                 AVVideoExpectedSourceFrameRateKey: frameRate,
                 kVTCompressionPropertyKey_HDRMetadataInsertionMode as String: kVTHDRMetadataInsertionMode_Auto,
                 kVTCompressionPropertyKey_PreserveDynamicHDRMetadata as String: false,
+            ] as [String: Any]
+        }
+        if videoCodec == .h264 {
+            let frameRate = 1 / effectiveComposition.frameDuration.seconds
+            videoSettings[AVVideoCompressionPropertiesKey] = [
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoAverageBitRateKey: max(Int(renderSize.width * renderSize.height * frameRate * 0.2), 1_000_000),
+                AVVideoExpectedSourceFrameRateKey: frameRate,
             ] as [String: Any]
         }
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)

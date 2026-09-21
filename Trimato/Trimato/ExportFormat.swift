@@ -162,6 +162,13 @@ nonisolated enum ExportAudioMode: String, CaseIterable, Identifiable, Sendable {
 final class ExportFormatSelectionModel: ObservableObject {
     nonisolated static let pickerLabel = "Format"
 
+    @Published var audioOnly = false {
+        didSet {
+            if audioOnly { audioMode = .highQualityStereo }
+            if let format = availableFormats.first, !availableFormats.contains(selectedFormat) { selectedFormat = format }
+        }
+    }
+    @Published var includeCaptions = false
     @Published var selectedFormat: ExportFormat {
         didSet {
             if selectedFormat.isAudioOnly, captionDelivery == .burnedIn {
@@ -179,8 +186,9 @@ final class ExportFormatSelectionModel: ObservableObject {
     var offersAudioChoice = false
     var spatialUnavailableReason: String?
     var availableFormats: [ExportFormat] {
-        guard offersAudioChoice else { return allFormats }
-        return allFormats.filter { audioMode == .preserveSpatial ? $0.supportsSpatialAudio : $0 != .original }
+        let formats = allFormats.filter { $0.isAudioOnly == audioOnly }
+        guard offersAudioChoice, !audioOnly else { return formats }
+        return formats.filter { audioMode == .preserveSpatial ? $0.supportsSpatialAudio : $0 != .original }
     }
     var audioSummary: String {
         if audioMode == .preserveSpatial { return "Keeps spatial sound and a stereo playback alternative. Audio changes use uncompressed audio and produce larger files." }
@@ -201,6 +209,7 @@ final class ExportFormatSelectionModel: ObservableObject {
 
     init(selectedFormat: ExportFormat, hasCaptions: Bool, hasDescriptions: Bool = false, outputSummary: String? = nil) {
         self.selectedFormat = selectedFormat
+        self.audioOnly = selectedFormat.isAudioOnly
         self.captionDelivery = selectedFormat.isAudioOnly ? .webVTT : .burnedIn
         self.hasCaptions = hasCaptions
         self.outputSummary = outputSummary
@@ -214,13 +223,19 @@ private struct ExportFormatAccessoryView: View {
 
     var body: some View {
         VStack {
+            if formats.contains(where: \.isAudioOnly), formats.contains(where: { !$0.isAudioOnly }) {
+                Picker("Export type", selection: $model.audioOnly) {
+                    Text("Video").tag(false)
+                    Text("Audio only").tag(true)
+                }.frame(width: 330)
+            }
             Picker(ExportFormatSelectionModel.pickerLabel, selection: $model.selectedFormat) {
                 ForEach(model.availableFormats, id: \.self) { format in
                     Text(format.title).tag(format)
                 }
             }
             .frame(width: 330)
-            if model.offersAudioChoice {
+            if model.offersAudioChoice && !model.audioOnly {
                 Picker("Audio", selection: $model.audioMode) {
                     ForEach(ExportAudioMode.allCases) { mode in
                         Text(mode.title).tag(mode)
@@ -236,12 +251,14 @@ private struct ExportFormatAccessoryView: View {
                 Text(summary).frame(width: 330, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             }
             if model.hasCaptions {
+                Toggle("Include captions", isOn: $model.includeCaptions)
                 Picker("Captions", selection: $model.captionDelivery) {
-                    ForEach(CaptionDelivery.allCases) { delivery in
+                    ForEach(CaptionDelivery.allCases.filter { $0 != .none }) { delivery in
                         Text(delivery.title).tag(delivery)
                             .disabled(delivery == .burnedIn && model.selectedFormat.isAudioOnly)
                     }
                 }
+                .disabled(!model.includeCaptions)
                 .frame(width: 330)
             }
             if model.hasDescriptions {
@@ -299,7 +316,7 @@ final class ExportSavePanel {
             model: formatModel,
             formats: formats
         ).editorAppearance())
-        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 74 : 36) + (hasDescriptions ? 32 : 0) + (outputSummary == nil ? 0 : 110) + (offersAudioChoice ? 160 : 0) + (spatialUnavailableReason == nil ? 0 : 100))
+        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 144 : 76) + (hasDescriptions ? 32 : 0) + (outputSummary == nil ? 0 : 110) + (offersAudioChoice ? 160 : 0) + (spatialUnavailableReason == nil ? 0 : 100))
         panel.accessoryView = accessory
 
         panel.nameFieldStringValue = formatModel.selectedFormat.filename(
@@ -319,7 +336,7 @@ final class ExportSavePanel {
         return ExportSaveSelection(
             format: selectedFormat,
             url: url,
-            captionDelivery: formatModel.hasCaptions ? formatModel.captionDelivery : .none,
+            captionDelivery: formatModel.hasCaptions && formatModel.includeCaptions ? formatModel.captionDelivery : .none,
             exportDescriptions: formatModel.hasDescriptions && formatModel.exportDescriptions,
             audioMode: formatModel.audioMode
         )

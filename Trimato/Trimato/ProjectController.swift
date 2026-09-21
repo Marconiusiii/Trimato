@@ -54,6 +54,10 @@ final class ProjectController: ObservableObject {
     }
     @Published var activeTimelineTrackID: UUID?
     @Published var selectedCaptionCueID: UUID?
+    @Published var editingMarker: TimelineMarker?
+    @Published var pictureExportRequest: PictureExportRequest?
+    private var pendingPictureExport: (PictureExportRequest, Bool, String)?
+    @Published var selectedMarkerID: UUID?
     @Published private(set) var isCaptionEditorOpen = false
     @Published var timelineHasKeyboardFocus = false
     @Published var recordingSession: ProjectRecordingSession?
@@ -479,6 +483,9 @@ final class ProjectController: ObservableObject {
 
     func installProjectPlayer(_ player: ProjectPlayerViewModel) {
         projectPlayer = player
+        player.createMarker = { [weak self] in self?.createMarker(at: $0) }
+        player.editMarkerAtPlayhead = { [weak self] in self?.editMarkerAtPlayhead() ?? false }
+        player.deleteMarkerAtPlayhead = { [weak self] in self?.deleteMarkerAtPlayhead() ?? false }
         player.updateMix(project: project)
         player.onPlayheadChange { [weak self, weak player] time in
             self?.updatePlaybackPosition(time, isPlaying: player?.isPlaying == true)
@@ -511,6 +518,10 @@ final class ProjectController: ObservableObject {
             return
         }
         coordinator.requestQuit(edits: quitEdits, completion: completion)
+    }
+
+    var canExportFrame: Bool {
+        !isExporting && !isPresentingExportPanel && pictureExportRequest == nil && project.hasTimelineVideo
     }
 
     var canExportProject: Bool {
@@ -588,6 +599,115 @@ final class ProjectController: ObservableObject {
                     message: error.localizedDescription
                 )
                 announce("Relink failed")
+            }
+        }
+    }
+
+    func exportPicture(web: Bool) {
+        guard (web ? canExportProject : canExportFrame), project.hasTimelineVideo, NSApp.modalWindow == nil,
+              let player = projectPlayer else { return }
+        let time = player.precisePlayhead
+        let range = player.exportRange
+        guard time >= .zero, time < project.duration,
+              !web || range.map({ time >= $0.start && time < $0.end }) ?? true else {
+            presentedError = ProjectPresentedError(title: "Choose a Frame", message: "Move the playhead inside the export range, then export again.")
+            return
+        }
+        pictureExportRequest = PictureExportRequest(time: time, range: range, web: web, project: project)
+    }
+
+    func confirmPictureExport(_ request: PictureExportRequest, captions: Bool, language: String) {
+        pendingPictureExport = (request, captions, language)
+        pictureExportRequest = nil
+    }
+
+    func pictureExportSheetDismissed() {
+        guard let (request, captions, language) = pendingPictureExport else { return }
+        pendingPictureExport = nil
+        guard let window = NSApp.keyWindow else { return }
+        if captions && request.project.captionTrack?.captionCues.contains(where: \.isDraft) == true {
+            presentedError = ProjectPresentedError(title: "Finalize Captions Before Exporting", message: "Choose Timeline > Finalize Captions, then export again.")
+            return
+        }
+        isPresentingExportPanel = true
+        Task { @MainActor in
+            defer { isPresentingExportPanel = false }
+            let destination: URL
+            if request.web {
+                let panel = NSOpenPanel()
+                panel.title = "Export Web Video"
+                panel.prompt = "Export"
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.canCreateDirectories = true
+                panel.allowsMultipleSelection = false
+                guard await panel.beginSheetModal(for: window) == .OK, let url = panel.url else { return }
+                destination = url
+            } else {
+                let panel = NSSavePanel()
+                panel.title = "Export Frame"
+                panel.prompt = "Export"
+                panel.allowedContentTypes = [.png]
+                panel.nameFieldStringValue = request.project.name + ".png"
+                guard await panel.beginSheetModal(for: window) == .OK, let url = panel.url else { return }
+                destination = url
+            }
+            startPictureExport(request, destination: destination, captions: captions, language: language)
+        }
+    }
+
+    private func startPictureExport(_ request: PictureExportRequest, destination: URL, captions: Bool, language: String) {
+        let urls = resolvedMediaURLs()
+        isExporting = true
+        exportProgress = nil
+        exportTask = Task { @MainActor in
+            let scoped = destination.startAccessingSecurityScopedResource()
+            defer {
+                if scoped { destination.stopAccessingSecurityScopedResource() }
+                isExporting = false
+                exportProgress = nil
+                exportTask = nil
+            }
+            let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            do {
+                try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: temporary) }
+                let png = try await ProjectFrameExporter.png(project: request.project, mediaURLs: urls, at: request.time, captions: captions && !request.web)
+                if request.web {
+                    let package = temporary.appendingPathComponent("Web Video")
+                    try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+                    try png.write(to: package.appendingPathComponent("poster.png"))
+                    var movie = request.project
+                    for index in movie.tracks.indices where movie.tracks[index].kind == .captions { movie.tracks[index].captionCues = [] }
+                    try await ProjectExporter.export(project: movie, mediaURLs: urls, timeRange: request.range,
+                        format: .h264MP4, to: package.appendingPathComponent("video.mp4"), audioMode: .highQualityStereo,
+                        progress: { [weak self] in self?.exportProgress = $0 }, preserveHDR: false, webOptimized: true)
+                    if captions {
+                        let cues = CaptionFileCodec.cues(request.project.captionTrack?.captionCues ?? [], within: request.range)
+                        try CaptionFileCodec.encode(cues, format: .webVTT).write(to: package.appendingPathComponent("captions.vtt"))
+                    }
+                    let markup = WebVideoMarkup.fragment(title: request.project.name, captions: captions, language: language,
+                        languageName: Locale.current.localizedString(forLanguageCode: language) ?? language)
+                    try Data(markup.utf8).write(to: package.appendingPathComponent("embed.txt"))
+                    try Task.checkCancellation()
+                    var output = destination.appendingPathComponent("Web Video")
+                    var suffix = 2
+                    while FileManager.default.fileExists(atPath: output.path) {
+                        output = destination.appendingPathComponent("Web Video \(suffix)")
+                        suffix += 1
+                    }
+                    try FileManager.default.moveItem(at: package, to: output)
+                } else {
+                    try ExportFileCommit.protectSources(Array(urls.values), destination: destination)
+                    let staged = temporary.appendingPathComponent("frame.png")
+                    try png.write(to: staged)
+                    try ExportFileCommit.commit(staged, to: destination)
+                }
+                InterfaceSounds.shared.exportCompleted()
+                ExportNotificationCenter.postExportCompleted(filename: request.web ? "Web Video" : destination.lastPathComponent)
+            } catch is CancellationError {
+            } catch {
+                presentedError = ProjectPresentedError(title: "Export Failed", message: error.localizedDescription)
             }
         }
     }
@@ -848,6 +968,9 @@ final class ProjectController: ObservableObject {
             let transitionSelection = EditorSelection.transition(id)
             if selection != transitionSelection { selection = transitionSelection }
             projectInfoTarget = .selection(.transition(id))
+        case .marker(let id):
+            selectedMarkerID = id
+            selection = .project
         case .caption(let id):
             selection = .project
             selectedCaptionCueID = id
@@ -2491,6 +2614,63 @@ final class ProjectController: ObservableObject {
         moveTimelineClip(id: clip.id, to: .end, targetID: clip.id)
     }
 
+    func createMarker(at time: ProjectTime) {
+        guard time >= .zero, time <= project.duration else { return }
+        var created: TimelineMarker?
+        mutateProject(actionName: "Add Marker") { created = $0.insertMarker(at: time) }
+        activeTimelineTrackID = project.markerTrack?.id
+        selectedMarkerID = created?.id
+        projectPlayer?.selectEditPointTrack(activeTimelineTrackID, in: project)
+        InterfaceSounds.shared.markerCreated()
+    }
+
+    func editMarker(_ id: UUID) {
+        guard let marker = project.markerTrack?.markers.first(where: { $0.id == id }) else { return }
+        projectPlayer?.player.pause()
+        editingMarker = marker
+    }
+
+    private var markerAtPlayhead: TimelineMarker? {
+        guard activeTimelineTrack?.kind == .markers, let player = projectPlayer else { return nil }
+        let time = player.precisePlayhead
+        return activeTimelineTrack?.sortedMarkers.last { abs($0.time.seconds - time.seconds) < 0.5 / max(project.format.frameRate ?? 30, 1) }
+    }
+
+    func editMarkerAtPlayhead() -> Bool {
+        guard let marker = markerAtPlayhead else { return false }
+        editMarker(marker.id)
+        return true
+    }
+
+    func deleteMarkerAtPlayhead() -> Bool {
+        guard let marker = markerAtPlayhead else { return false }
+        deleteMarker(marker.id)
+        return true
+    }
+
+    func saveMarker(_ marker: TimelineMarker) {
+        mutateProject(actionName: "Edit Marker") { project in
+            guard let track = project.tracks.firstIndex(where: { $0.kind == .markers }),
+                  let index = project.tracks[track].markers.firstIndex(where: { $0.id == marker.id }) else { return }
+            project.tracks[track].markers[index] = marker
+        }
+        editingMarker = nil
+    }
+
+    func deleteMarker(_ id: UUID) {
+        mutateProject(actionName: "Delete Marker") { project in
+            for index in project.tracks.indices { project.tracks[index].markers.removeAll { $0.id == id } }
+        }
+        if selectedMarkerID == id { selectedMarkerID = nil }
+    }
+
+    func setCaptionsVisible(_ visible: Bool) {
+        mutateProject(actionName: "Show Captions") { project in
+            guard let index = project.tracks.firstIndex(where: { $0.kind == .captions && $0.recordingPurpose != .descriptionTranscript }) else { return }
+            project.tracks[index].isMuted = !visible
+        }
+    }
+
     private func mutateProject(actionName: String, _ mutation: (inout TrimatoProject) -> Void) {
         let before = document.project
         var after = before
@@ -2520,7 +2700,10 @@ final class ProjectController: ObservableObject {
             located.media[index].recordingRelativePath = location.recordingRelativePath
         }
         document.project = located
-        projectPlayer?.updateMix(project: located)
+        if project.withoutMarkers != previous.withoutMarkers {
+            projectPlayer?.updateMix(project: located)
+        }
+        projectPlayer?.selectEditPointTrack(activeTimelineTrackID, in: located)
         timelineContentRevision += 1
         updateCacheProtection(for: project)
         if let undoManager = projectUndoManager {

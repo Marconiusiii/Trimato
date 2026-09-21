@@ -84,7 +84,15 @@ struct ProjectTimelineView: View {
                     ))
                     .toggleStyle(.checkbox)
                 }
-                if let track = controller.activeTimelineTrack, track.kind != .captions {
+                if controller.activeTimelineTrack?.kind == .captions,
+                   controller.activeTimelineTrack?.recordingPurpose != .descriptionTranscript {
+                    Toggle("Show captions", isOn: Binding(
+                        get: { controller.activeTimelineTrack?.isMuted != true },
+                        set: controller.setCaptionsVisible
+                    ))
+                    .toggleStyle(.checkbox)
+                }
+                if let track = controller.activeTimelineTrack, track.kind == .video || track.kind == .audio {
                     Toggle("Magnetic", isOn: Binding(
                         get: { controller.activeTimelineTrack?.isMagnetic ?? false },
                         set: { enabled in
@@ -254,6 +262,7 @@ struct ProjectTimelineView: View {
             deleteTimelineClip(id)
         case .transition(let id):
             deleteTimelineTransition(id)
+        case .marker(let id): controller.deleteMarker(id)
         case .caption(let id):
             deleteCaptionCue(id)
         case nil:
@@ -267,8 +276,8 @@ struct ProjectTimelineView: View {
             accessibilityLabel: timelineListAccessibilityLabel,
             emptyTitle: controller.activeTimelineTrack?.recordingPurpose == .descriptionTranscript
                 ? "No descriptions on this track" : controller.activeTimelineTrack?.kind == .captions
-                ? "No captions on this track"
-                : "No clips on this track",
+                ? "No captions on this track" : controller.activeTimelineTrack?.kind == .markers
+                ? "No markers on this track" : "No clips on this track",
             focusRequest: controller.timelineFocusRestoreRequest,
             focusTarget: controller.timelineFocusRestoreTarget,
             listFocusRequest: controller.timelineListFocusRestoreRequest,
@@ -355,6 +364,11 @@ struct ProjectTimelineView: View {
                     isSelected: controller.movingTimelineClipID == nil && controller.selection == .transition(transition.id),
                     isTransition: true
                 )
+            case .marker(let marker):
+                return TimelineCollectionItemModel(selection: .marker(marker.id), title: marker.title,
+                    subtitle: "\(marker.type.rawValue), \(ProjectTimecodeFormatter.string(marker.time))",
+                    accessibilityValue: "", accessibilityHint: "",
+                    isSelected: controller.selectedMarkerID == marker.id, isTransition: false)
             case .caption(let cue):
                 return TimelineCollectionItemModel(
                     selection: .caption(cue.id),
@@ -379,6 +393,7 @@ struct ProjectTimelineView: View {
         switch selection {
         case .clip(let id): deleteTimelineClip(id)
         case .transition(let id): deleteTimelineTransition(id)
+        case .marker(let id): controller.deleteMarker(id)
         case .caption(let id): deleteCaptionCue(id)
         }
     }
@@ -446,7 +461,7 @@ struct ProjectTimelineView: View {
         switch element {
         case .clip(let id): .timelineClip(id)
         case .transition(let id): .transition(id)
-        case .caption: nil
+        case .caption, .marker: nil
         case nil: nil
         }
     }
@@ -484,6 +499,7 @@ struct ProjectTimelineView: View {
             openClipEditor(.timelineClip(id))
         case .transition(let id):
             editTransition(id)
+        case .marker(let id): controller.editMarker(id)
         case .caption(let id):
             guard let cue = controller.project.captionCue(id: id) else { return }
             controller.selectedCaptionCueID = id
@@ -800,6 +816,7 @@ struct TimelineListElement: Identifiable, Equatable {
         case clip(TimelineClip)
         case transition(TimelineTransition)
         case caption(CaptionCue)
+        case marker(TimelineMarker)
     }
 
     let content: Content
@@ -808,6 +825,7 @@ struct TimelineListElement: Identifiable, Equatable {
         switch content {
         case .clip(let clip): "clip-\(clip.id.uuidString)"
         case .transition(let transition): "transition-\(transition.id.uuidString)"
+        case .marker(let marker): "marker-\(marker.id.uuidString)"
         case .caption(let cue): "caption-\(cue.id.uuidString)"
         }
     }
@@ -879,6 +897,7 @@ enum TimelineElementSequence {
         track: TimelineTrack,
         transitions: [TimelineTransition]
     ) -> [TimelineListElement] {
+        if track.kind == .markers { return track.sortedMarkers.map { TimelineListElement(content: .marker($0)) } }
         if track.kind == .captions {
             return track.sortedCaptionCues.map { TimelineListElement(content: .caption($0)) }
         }

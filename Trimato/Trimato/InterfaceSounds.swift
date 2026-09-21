@@ -10,6 +10,8 @@ final class InterfaceSounds {
     private var loop: Task<Void, Never>?
     private var sound: NSSound?
     private var completionSound: NSSound?
+    private var markerSound: NSSound?
+    private let markerData = InterfaceSounds.wave(notes: [660], noteLength: 0.055, volume: 0.065)
     private let defaults: UserDefaults
     private let playback: ((Data) -> Void)?
     private let stopPlayback: (() -> Void)?
@@ -56,8 +58,16 @@ final class InterfaceSounds {
     }
 
     func capture(_ id: UUID, active: Bool) {
-        if active { captures.insert(id); silenceForPlayback() }
+        if active { captures.insert(id); markerSound?.stop(); silenceForPlayback() }
         else { captures.remove(id) }
+    }
+
+    func markerCreated() {
+        guard captures.isEmpty, enabled(AppPreferenceKey.markerAudio) else { return }
+        if let playback { playback(markerData); return }
+        markerSound?.stop()
+        markerSound = NSSound(data: markerData)
+        markerSound?.play()
     }
 
     func exportCompleted() {

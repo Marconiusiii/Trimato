@@ -93,6 +93,7 @@ enum SettingsToolbarAccessibility {
 }
 
 struct GeneralSettingsView: View {
+    @AppStorage(AppPreferenceKey.markerAudio) private var markerAudio = true
     @AppStorage(AppPreferenceKey.processingSounds) private var processingSounds = true
     @AppStorage(AppPreferenceKey.exportCompletionSound) private var exportCompletionSound = true
     @AppStorage(AppPreferenceKey.appearance) private var appearance = AppAppearance.system
@@ -152,6 +153,7 @@ struct GeneralSettingsView: View {
             .pickerStyle(.segmented)
 
             Text("Sounds").font(.headline).accessibilityAddTraits(.isHeader)
+            Toggle("Marker audio", isOn: $markerAudio)
             Toggle("Processing sounds", isOn: $processingSounds)
             Toggle("Export completion sound", isOn: $exportCompletionSound)
 

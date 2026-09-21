@@ -49,6 +49,17 @@ import AVFoundation
         defaults.set(false, forKey: AppPreferenceKey.exportCompletionSound)
         sounds.exportCompleted()
         precondition(cues.count == count + 1)
+        let beforeMarker = cues.count
+        sounds.markerCreated()
+        precondition(cues.count == beforeMarker + 1, "Marker feedback was coupled to other sound settings")
+        defaults.set(false, forKey: AppPreferenceKey.markerAudio)
+        sounds.markerCreated()
+        precondition(cues.count == beforeMarker + 1, "Marker audio setting was ignored")
+        defaults.set(true, forKey: AppPreferenceKey.markerAudio)
+        sounds.capture(capture, active: true)
+        sounds.markerCreated()
+        precondition(cues.count == beforeMarker + 1, "Marker cue leaked into capture")
+        sounds.capture(capture, active: false)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("sound-check-\(UUID()).wav")
         defer { try? FileManager.default.removeItem(at: url) }
         try cues.last!.write(to: url)

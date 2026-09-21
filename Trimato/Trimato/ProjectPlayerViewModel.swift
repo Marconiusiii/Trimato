@@ -15,8 +15,10 @@ nonisolated struct ProjectEditPoint: Equatable, Sendable {
     var hasVideo: Bool
     var hasAudio: Bool
     var captionText: String? = nil
+    var markerTitle: String? = nil
 
     var spokenName: String {
+        if let markerTitle { return markerTitle }
         if let captionText { return "Caption: \(captionText)" }
         if hasVideo, hasAudio { return "Video and audio edit point" }
         if hasVideo { return "Video edit point" }
@@ -83,7 +85,7 @@ nonisolated struct ProjectPreviewInput: Equatable {
         value.masterVolumeDB = 0
         value.folders = []
         value.targetDuration = nil
-        value.tracks.removeAll { $0.kind == .captions }
+        value.tracks.removeAll { $0.kind == .captions || $0.kind == .markers }
         let used = Set((value.tracks.flatMap(\.clips) + value.primaryTimeline).map(\.assetID)
                        + value.cutaways.map(\.assetID))
         value.media = value.media.filter { used.contains($0.id) }.map { asset in
@@ -1484,6 +1486,9 @@ final class ProjectPlayerViewModel: ObservableObject {
                 add(clip.visibleTimelineStart, kind: track.kind)
                 add(clip.visibleTimelineEnd, kind: track.kind)
             }
+            for marker in track.markers {
+                points[marker.time] = ProjectEditPoint(time: marker.time, hasVideo: false, hasAudio: false, markerTitle: marker.title)
+            }
             for cue in track.captionCues {
                 add(cue.start, kind: .captions, captionText: cue.text)
             }
@@ -1505,6 +1510,14 @@ final class ProjectPlayerViewModel: ObservableObject {
             .filter { $0.kind == .video }
             .map(\.end)
             .max() ?? .zero
+    }
+
+    var createMarker: ((ProjectTime) -> Void)?
+    var editMarkerAtPlayhead: (() -> Bool)?
+    var deleteMarkerAtPlayhead: (() -> Bool)?
+
+    var precisePlayhead: ProjectTime {
+        isPlaying ? ProjectTime(player.currentTime()) : currentTime
     }
 
     private func setupKeyEventMonitor() {
@@ -1530,6 +1543,14 @@ final class ProjectPlayerViewModel: ObservableObject {
 
             switch event.type {
             case .keyDown:
+                if unmodified, !event.isARepeat, event.characters == ";" {
+                    self.createMarker?(self.precisePlayhead)
+                    return nil
+                }
+                if modifiers.isEmpty, !event.isARepeat {
+                    if event.keyCode == 36, self.editMarkerAtPlayhead?() == true { return nil }
+                    if event.keyCode == 51, self.deleteMarkerAtPlayhead?() == true { return nil }
+                }
                 if modifiers == [.command, .option] {
                     if let offset = Self.trackSelectionOffset(
                         keyCode: event.keyCode,
@@ -1657,7 +1678,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
         guard unmodified else { return false }
         if keyCode == 49 || keyCode == 123 || keyCode == 124 { return true }
-        if key == "g" { return relevantModifiers.isEmpty }
+        if key == "g" || key == ";" { return relevantModifiers.isEmpty }
         return ["[", "]", "c", "x", "f", "t", "i", "o", "j", "k", "l"].contains(key)
     }
 

@@ -14,6 +14,8 @@ Created by Marco Salsiccia.
 - Use Captioner, Describer, Voicer, and Mixer beside the main video preview in the project window.
 - Mix audio tracks with volume, mute, solo, pan, stereo balance, stereo width, and channel routing controls.
 - Add transitions, video and audio filters, titles, lower thirds, backgrounds, and other generated clips.
+- Tap out absolute markers during playback, edit their titles, and mark chapter boundaries.
+- Export a full-resolution PNG from the playhead, or export web video with a poster, optional captions, and an HTML embed fragment.
 - Export video in H.264, HEVC, or ProRes, and audio in AAC, Apple Lossless, FLAC, or WAV. Preserve HDR and compatible iPhone Spatial Audio in supported exports.
 
 ## Requirements

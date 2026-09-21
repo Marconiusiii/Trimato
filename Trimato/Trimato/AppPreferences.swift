@@ -1,6 +1,7 @@
 import Foundation
 
 nonisolated enum AppPreferenceKey {
+    static let markerAudio = "markerAudio"
     static let processingSounds = "processingSounds"
     static let exportCompletionSound = "exportCompletionSound"
     static let preserveHDR = "preserveHDR"

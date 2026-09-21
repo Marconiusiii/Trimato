@@ -117,6 +117,7 @@ extension TrimatoProject {
         case .video: prefix = "Video"
         case .audio: prefix = "Audio"
         case .captions: prefix = "Captions"
+        case .markers: prefix = "Markers"
         }
         let existing = tracks.filter { $0.kind == kind }.count
         let name = (base?.isEmpty == false ? base! : "\(prefix) \(existing + 1)")
@@ -135,7 +136,7 @@ extension TrimatoProject {
 
     mutating func setTrackMagnetic(id: UUID, enabled: Bool) throws {
         guard let index = tracks.firstIndex(where: { $0.id == id }) else { throw ProjectTimelineError.trackNotFound }
-        guard tracks[index].role == .additional, tracks[index].kind != .captions else {
+        guard tracks[index].role == .additional, tracks[index].kind != .captions, tracks[index].kind != .markers else {
             throw ProjectTimelineError.protectedPrimaryTrack
         }
         guard tracks[index].magnetic != enabled else { return }

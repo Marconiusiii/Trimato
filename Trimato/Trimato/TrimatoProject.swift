@@ -274,7 +274,7 @@ nonisolated struct TimelineCutaway: Codable, Hashable, Identifiable, Sendable {
 }
 
 nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 5
+    static let currentSchemaVersion = 6
 
     var schemaVersion = currentSchemaVersion
     var id = UUID()
@@ -376,7 +376,7 @@ nonisolated struct TrimatoProject: Codable, Equatable, Sendable {
         let primaryVideo = tracks.filter { $0.role == .primaryVideo }
         let primaryAudio = tracks.filter { $0.role == .primaryAudio }
         let audioLayers = tracks.filter { $0.kind == .audio && $0.role == .additional }
-        return captions + Array(videoLayers.reversed()) + primaryVideo + primaryAudio + audioLayers
+        return tracks.filter { $0.kind == .markers } + captions + Array(videoLayers.reversed()) + primaryVideo + primaryAudio + audioLayers
     }
 
     var captionTrack: TimelineTrack? {

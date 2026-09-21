@@ -584,6 +584,9 @@ struct TimelineClipsCollection: NSViewRepresentable {
             case .transition:
                 add("Edit Transition…", to: menu) { [weak self] in self?.actions?.activate(selection) }
                 add("Delete Transition", to: menu) { [weak self] in self?.actions?.delete(selection) }
+            case .marker:
+                add("Edit Marker…", to: menu) { [weak self] in self?.actions?.activate(selection) }
+                add("Delete Marker", to: menu) { [weak self] in self?.actions?.delete(selection) }
             case .caption(let id):
                 let noun = models.first(where: { $0.selection == selection })?.isDescription == true ? "Description" : "Caption"
                 add("Move Playhead to \(noun)", to: menu) { [weak self] in
@@ -756,6 +759,7 @@ struct TimelineNativeButton: View {
         switch selection {
         case .clip(let id): TimelineElementAccessibilityIdentifier.clip(id)
         case .transition(let id): TimelineElementAccessibilityIdentifier.transition(id)
+        case .marker(let id): "trimato.timeline.marker.\(id.uuidString)"
         case .caption(let id): TimelineElementAccessibilityIdentifier.caption(id)
         }
     }

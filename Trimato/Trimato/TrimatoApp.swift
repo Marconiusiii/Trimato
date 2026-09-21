@@ -140,6 +140,12 @@ struct TrimatoApp: App {
                 .disabled(projectPlayer?.canControlPlayback != true)
             }
             CommandMenu("Markers") {
+                Button("Add Marker (;)") {
+                    guard let projectPlayer else { return }
+                    projectPlayer.createMarker?(projectPlayer.precisePlayhead)
+                }
+                .disabled(projectPlayer?.canControlPlayback != true)
+                Divider()
                 Button("Mark In (I)") {
                     if let projectPlayer { projectPlayer.markIn() }
                     else { viewModel?.markIn() }
@@ -525,6 +531,12 @@ private struct ContextualExportCommands: Commands {
                 Button("Export Project\u{2026}") { project?.exportProject() }
                     .keyboardShortcut("e", modifiers: .command)
                     .disabled(project?.canExportProject != true)
+                Button("Export Web Video…") { project?.exportPicture(web: true) }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .disabled(project?.canExportProject != true || project?.project.hasTimelineVideo != true)
+                Button("Export Frame…") { project?.exportPicture(web: false) }
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                    .disabled(project?.canExportFrame != true)
                 if project?.isExporting == true {
                     Button("Cancel Project Export") { project?.cancelExport() }
                 }

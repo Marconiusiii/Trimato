@@ -89,10 +89,10 @@
         <li>If the project contains caption drafts, choose Timeline &gt; Captions &gt; Finalize Captions and resolve any passages that remain drafts.</li>
         <li>Choose File &gt; Export Project or press Command-E.</li>
         <li>Enter a filename and choose a location and format.</li>
-        <li>If the project has captions, choose Burn Captions into Video, WebVTT Sidecar File, SRT Sidecar File, or No Captions from Captions.</li>
+        <li>If the project has captions, turn on Include captions, then choose Burn Captions into Video, WebVTT Sidecar File, or SRT Sidecar File. Include captions starts off for ordinary exports.</li>
         <li>Choose Export. A progress bar will appear. Choose Cancel Export if you want to stop.</li>
     </ol>
-    <p>Burn Captions into Video places the captions in the exported video. WebVTT Sidecar File and SRT Sidecar File save a caption file beside the exported media with the same filename. No Captions exports the project without captions. Audio formats offer WebVTT Sidecar File, SRT Sidecar File, and No Captions.</p>
+    <p>Burn Captions into Video places the captions in the exported video. WebVTT Sidecar File and SRT Sidecar File save a caption file beside the exported media with the same filename. Leave Include captions off to omit captions. Audio formats offer WebVTT Sidecar File and SRT Sidecar File when captions are included.</p>
 
     <h2>Export the caption track</h2>
     <ol>
@@ -117,6 +117,21 @@
 
     <h2>Review export notification permission</h2>
     <p>Choose Trimato &gt; Settings and read Export Notifications. If the permission is Not requested, activate Allow Export Notifications. If the permission is Not allowed, open System Settings, choose Notifications, choose Trimato, and turn on Allow Notifications.</p>
+    <h2>Export an audio mix</h2>
+    <p>Press Command-E and choose Audio only from Export type, then choose the audio format. The export combines audible audio tracks using their levels, fades, and description ducking. Muted tracks are silent. In and Out points limit the exported range.</p>
+    <h2>Export a frame</h2>
+    <p>Place the project playhead on the frame to save and press Shift-Command-P, or choose File &gt; Export Frame. The frame time is captured when the command is invoked. Choose Include captions if wanted, then Continue and save the PNG.</p>
+    <p>The PNG uses the project's full output dimensions and includes the picture edits, effects, and titles at that time. It uses SDR color for web and image compatibility.</p>
+    <h2>Export web video</h2>
+    <ol>
+        <li>Place the project playhead on the poster frame. If exporting an In/Out range, choose a frame within that range.</li>
+        <li>Press Shift-Command-E or choose File &gt; Export Web Video.</li>
+        <li>Review Poster frame. Include captions starts on when captions are present. Choose the caption language if including captions.</li>
+        <li>Choose Continue, select the destination folder, and choose Export.</li>
+    </ol>
+    <p>The new Web Video folder contains video.mp4, poster.png, embed.txt, and captions.vtt when captions are included. Existing export folders are kept; a numbered folder is created when needed.</p>
+    <p>Upload the files to your website and copy the HTML fragment from embed.txt into your page or blog's HTML editor. Adjust its file paths to match the uploaded locations. The fragment supplies native video controls, a poster, a download link, and a default caption track when included. It does not autoplay. Web video uses H.264 MP4 with SDR color.</p>
+    <p>Caption files need to be served from the same website as the player or with appropriate cross-origin access. Test the published player with the browsers and assistive technologies your audience uses. Include accurate captions and any needed audio description in the content; player markup does not create them.</p>
 </main>
 <footer><p><a href="troubleshooting.html">Related topic: Resolve common problems</a></p></footer>
 </body>

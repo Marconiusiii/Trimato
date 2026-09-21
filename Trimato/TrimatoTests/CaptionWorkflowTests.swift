@@ -185,12 +185,14 @@ struct CaptionWorkflowTests {
         }
     }
 
-    @Test func audioExportsDefaultToACaptionSidecar() {
+    @Test func captionFormatsAreReadyWhileInclusionStartsOff() {
         let audio = ExportFormatSelectionModel(selectedFormat: .wav, hasCaptions: true)
         #expect(audio.captionDelivery == .webVTT)
+        #expect(!audio.includeCaptions)
 
         let video = ExportFormatSelectionModel(selectedFormat: .h264MP4, hasCaptions: true)
         #expect(video.captionDelivery == .burnedIn)
+        #expect(!video.includeCaptions)
         video.selectedFormat = .wav
         #expect(video.captionDelivery == .webVTT)
     }
