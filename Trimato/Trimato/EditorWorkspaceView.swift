@@ -649,17 +649,13 @@ struct ProjectViewerView: View {
             pendingProjectPlayheadFocus = false
             let target: AccessibilityTarget = viewModel.canControlPlayback && controller.recordingSession == nil ? .playhead : .heading
             viewModel.refreshAccessibilityValueForFocus()
-            if NSWorkspace.shared.isVoiceOverEnabled {
-                // A repeated shortcut need not change the binding, so onChange
-                // alone cannot repair ownership for an already focused control.
-                if focusedAccessibilityTarget == target {
-                    focusScope.recordVoiceOverFocus(true)
-                } else {
-                    focusedAccessibilityTarget = target
-                }
-            } else {
-                paneCommandKeyboardTarget = target
+            // Preserve ownership when a repeated shortcut leaves the observed
+            // VoiceOver target unchanged. Let native keyboard focus perform the
+            // handoff; an accessibility-focus write also reports a window update.
+            if focusedAccessibilityTarget == target {
+                focusScope.recordVoiceOverFocus(true)
             }
+            paneCommandKeyboardTarget = target
         }
         .onChange(of: focusedAccessibilityTarget) { _, target in
             focusScope.recordVoiceOverFocus(target != nil)
@@ -799,10 +795,10 @@ private struct ProjectPlaybackControlsPresentation: View {
     var body: some View {
         VStack(spacing: 6) {
             ZStack(alignment: .top) {
-                ProjectLivePlayhead(player: viewModel)
+                ProjectLivePlayhead(player: viewModel,
+                                    focusedAccessibilityTarget: focusedAccessibilityTarget,
+                                    paneCommandKeyboardTarget: paneCommandKeyboardTarget)
                     .equatable()
-                    .accessibilityFocused(focusedAccessibilityTarget, equals: .playhead)
-                    .focused(paneCommandKeyboardTarget, equals: .playhead)
                 ProjectLiveMarkerIndicators(controller: controller, player: viewModel)
                     .frame(height: 12)
                     .offset(y: -9)
@@ -1047,21 +1043,29 @@ struct ProjectPreviewFailureSheet: View {
 
 // Marker edits must not reapply the focused slider's accessibility value.
 // The clock updates the native slider independently of its spoken presentation.
-struct ProjectLivePlayhead: View, Equatable {
+private struct ProjectLivePlayhead: View, Equatable {
     let player: ProjectPlayerViewModel
+    var focusedAccessibilityTarget: AccessibilityFocusState<ProjectViewerView.AccessibilityTarget?>.Binding
+    var paneCommandKeyboardTarget: FocusState<ProjectViewerView.AccessibilityTarget?>.Binding
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.player === rhs.player }
 
     var body: some View {
-        ProjectPlayheadPresentation(player: player)
+        ProjectPlayheadPresentation(player: player,
+                                    focusedAccessibilityTarget: focusedAccessibilityTarget,
+                                    paneCommandKeyboardTarget: paneCommandKeyboardTarget)
     }
 }
 
 private struct ProjectPlayheadPresentation: View {
     @ObservedObject var player: ProjectPlayerViewModel
+    var focusedAccessibilityTarget: AccessibilityFocusState<ProjectViewerView.AccessibilityTarget?>.Binding
+    var paneCommandKeyboardTarget: FocusState<ProjectViewerView.AccessibilityTarget?>.Binding
 
     var body: some View {
-        ProjectPlayheadSlider(player: player, clock: player.playbackClock)
+        ProjectPlayheadSlider(player: player, clock: player.playbackClock,
+                              focusedAccessibilityTarget: focusedAccessibilityTarget,
+                              paneCommandKeyboardTarget: paneCommandKeyboardTarget)
             .disabled(!player.canControlPlayback)
             .tint(EditorTheme.playhead)
             .accessibilityLabel("Project playhead")
@@ -1074,11 +1078,15 @@ private struct ProjectPlayheadPresentation: View {
 private struct ProjectPlayheadSlider: View {
     let player: ProjectPlayerViewModel
     @ObservedObject var clock: ProjectPlaybackClock
+    var focusedAccessibilityTarget: AccessibilityFocusState<ProjectViewerView.AccessibilityTarget?>.Binding
+    var paneCommandKeyboardTarget: FocusState<ProjectViewerView.AccessibilityTarget?>.Binding
 
     var body: some View {
         Slider(value: Binding(get: {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }), in: 0...1, step: player.playbackFractionStep)
+            .accessibilityFocused(focusedAccessibilityTarget, equals: .playhead)
+            .focused(paneCommandKeyboardTarget, equals: .playhead)
     }
 }
 
