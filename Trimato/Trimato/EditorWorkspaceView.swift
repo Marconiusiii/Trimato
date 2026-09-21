@@ -472,7 +472,7 @@ struct ProjectViewerView: View {
     @AppStorage(AppPreferenceKey.portraitVideo) private var portraitVideo = false
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @AppStorage(AppPreferenceKey.preserveHDR) private var preserveHDR = true
-    private enum AccessibilityTarget: Hashable {
+    fileprivate enum AccessibilityTarget: Hashable {
         case heading
         case videoFrame
         case playhead
@@ -751,15 +751,50 @@ struct ProjectViewerView: View {
     }
 
     private var controlsArea: some View {
+        ProjectPlaybackControls(controller: controller, viewModel: viewModel,
+                                focusedAccessibilityTarget: $focusedAccessibilityTarget,
+                                paneCommandKeyboardTarget: $paneCommandKeyboardTarget)
+            .equatable()
+    }
+}
+
+// Project edits update marker indicators independently of the native controls
+// and their focus bindings. Player and preference changes still update controls.
+private struct ProjectPlaybackControls: View, Equatable {
+    let controller: ProjectController
+    let viewModel: ProjectPlayerViewModel
+    var focusedAccessibilityTarget: AccessibilityFocusState<ProjectViewerView.AccessibilityTarget?>.Binding
+    var paneCommandKeyboardTarget: FocusState<ProjectViewerView.AccessibilityTarget?>.Binding
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.controller === rhs.controller && lhs.viewModel === rhs.viewModel
+    }
+
+    var body: some View {
+        ProjectPlaybackControlsPresentation(controller: controller, viewModel: viewModel,
+                                            focusedAccessibilityTarget: focusedAccessibilityTarget,
+                                            paneCommandKeyboardTarget: paneCommandKeyboardTarget)
+    }
+}
+
+private struct ProjectPlaybackControlsPresentation: View {
+    @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
+    let controller: ProjectController
+    @ObservedObject var viewModel: ProjectPlayerViewModel
+    var focusedAccessibilityTarget: AccessibilityFocusState<ProjectViewerView.AccessibilityTarget?>.Binding
+    var paneCommandKeyboardTarget: FocusState<ProjectViewerView.AccessibilityTarget?>.Binding
+
+    var body: some View {
         VStack(spacing: 6) {
-            ProjectLivePlayhead(player: viewModel, markers: controller.project.markerTrack?.sortedMarkers ?? [])
-            .disabled(!viewModel.canControlPlayback)
-            .tint(EditorTheme.playhead)
-            .accessibilityLabel("Project playhead")
-            .accessibilityValue(viewModel.accessibilityTimecodeLabel)
-            .accessibilityIdentifier("trimato.editor.playhead")
-            .accessibilityFocused($focusedAccessibilityTarget, equals: .playhead)
-            .focused($paneCommandKeyboardTarget, equals: .playhead)
+            ZStack(alignment: .top) {
+                ProjectLivePlayhead(player: viewModel)
+                    .equatable()
+                    .accessibilityFocused(focusedAccessibilityTarget, equals: .playhead)
+                    .focused(paneCommandKeyboardTarget, equals: .playhead)
+                ProjectLiveMarkerIndicators(controller: controller, player: viewModel)
+                    .frame(height: 12)
+                    .offset(y: -9)
+            }
 
             moveAndEditGroup
             markersGroup
@@ -779,33 +814,33 @@ struct ProjectViewerView: View {
                     .buttonStyle(.bordered)
                     .accessibilityLabel("Go to beginning")
                     .accessibilityIdentifier("trimato.editor.go-to-beginning")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .goToBeginning)
+                    .accessibilityFocused(focusedAccessibilityTarget, equals: .goToBeginning)
                 Button { viewModel.goToPreviousEdit() } label: { Image(systemName: "chevron.left.2") }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("Previous edit point")
                     .accessibilityIdentifier("trimato.editor.previous-edit")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .previousEdit)
+                    .accessibilityFocused(focusedAccessibilityTarget, equals: .previousEdit)
                 Button { controller.splitClipAtPlayhead() } label: { Image(systemName: "scissors") }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("Blade at playhead")
                     .accessibilityHint("Splits the primary timeline clip beneath the playhead")
                     .accessibilityIdentifier("trimato.editor.blade")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .blade)
+                    .accessibilityFocused(focusedAccessibilityTarget, equals: .blade)
                 Button { viewModel.goToNextEdit() } label: { Image(systemName: "chevron.right.2") }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("Next edit point")
                     .accessibilityIdentifier("trimato.editor.next-edit")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .nextEdit)
+                    .accessibilityFocused(focusedAccessibilityTarget, equals: .nextEdit)
                 Button { viewModel.goToEnd() } label: { Image(systemName: "forward.end.fill") }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("Go to end")
                     .accessibilityIdentifier("trimato.editor.go-to-end")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .goToEnd)
+                    .accessibilityFocused(focusedAccessibilityTarget, equals: .goToEnd)
                 Button { viewModel.goToVideoEnd() } label: { Image(systemName: "film.stack") }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("Go to end of video")
                     .accessibilityIdentifier("trimato.editor.go-to-video-end")
-                    .accessibilityFocused($focusedAccessibilityTarget, equals: .goToVideoEnd)
+                    .accessibilityFocused(focusedAccessibilityTarget, equals: .goToVideoEnd)
             }
             .font(.body)
             .foregroundStyle(EditorTheme.accent(for: accentChoice))
@@ -826,22 +861,22 @@ struct ProjectViewerView: View {
                 HStack {
                     Button("Mark In") { viewModel.markIn() }
                         .accessibilityIdentifier("trimato.editor.mark-in")
-                        .accessibilityFocused($focusedAccessibilityTarget, equals: .markIn)
+                        .accessibilityFocused(focusedAccessibilityTarget, equals: .markIn)
                     Text("In: \(viewModel.inMarkerDisplay)").monospacedDigit()
                     Button("Clear In") { viewModel.clearIn() }
                         .disabled(viewModel.inMarker == nil)
                         .accessibilityIdentifier("trimato.editor.clear-in")
-                        .accessibilityFocused($focusedAccessibilityTarget, equals: .clearIn)
+                        .accessibilityFocused(focusedAccessibilityTarget, equals: .clearIn)
                 }
                 HStack {
                     Button("Mark Out") { viewModel.markOut() }
                         .accessibilityIdentifier("trimato.editor.mark-out")
-                        .accessibilityFocused($focusedAccessibilityTarget, equals: .markOut)
+                        .accessibilityFocused(focusedAccessibilityTarget, equals: .markOut)
                     Text("Out: \(viewModel.outMarkerDisplay)").monospacedDigit()
                     Button("Clear Out") { viewModel.clearOut() }
                         .disabled(viewModel.outMarker == nil)
                         .accessibilityIdentifier("trimato.editor.clear-out")
-                        .accessibilityFocused($focusedAccessibilityTarget, equals: .clearOut)
+                        .accessibilityFocused(focusedAccessibilityTarget, equals: .clearOut)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -912,7 +947,7 @@ struct ProjectViewerView: View {
         .accessibilityValue(viewModel.accessibilityTimecodeLabel)
         .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
         .accessibilityIdentifier("trimato.editor.timecode")
-        .accessibilityFocused($focusedAccessibilityTarget, equals: .timecode)
+        .accessibilityFocused(focusedAccessibilityTarget, equals: .timecode)
     }
 
     private var transportControls: some View {
@@ -923,14 +958,14 @@ struct ProjectViewerView: View {
             .buttonStyle(.bordered)
             .accessibilityLabel("Step backward one frame")
             .accessibilityIdentifier("trimato.editor.step-backward")
-            .accessibilityFocused($focusedAccessibilityTarget, equals: .stepBackward)
+            .accessibilityFocused(focusedAccessibilityTarget, equals: .stepBackward)
             Button { viewModel.seekBackward() } label: {
                 Image(systemName: "gobackward.10").font(.body)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("Skip back 10 seconds")
             .accessibilityIdentifier("trimato.editor.skip-backward")
-            .accessibilityFocused($focusedAccessibilityTarget, equals: .skipBackward)
+            .accessibilityFocused(focusedAccessibilityTarget, equals: .skipBackward)
             Button { viewModel.togglePlayback() } label: {
                 Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
                     .font(.body)
@@ -938,23 +973,33 @@ struct ProjectViewerView: View {
             .buttonStyle(.bordered)
             .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
             .accessibilityIdentifier("trimato.editor.play-pause")
-            .accessibilityFocused($focusedAccessibilityTarget, equals: .playPause)
+            .accessibilityFocused(focusedAccessibilityTarget, equals: .playPause)
             Button { viewModel.seekForward() } label: {
                 Image(systemName: "goforward.10").font(.body)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("Skip forward 10 seconds")
             .accessibilityIdentifier("trimato.editor.skip-forward")
-            .accessibilityFocused($focusedAccessibilityTarget, equals: .skipForward)
+            .accessibilityFocused(focusedAccessibilityTarget, equals: .skipForward)
             Button { viewModel.stepForward() } label: {
                 Image(systemName: "forward.frame.fill").font(.body)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("Step forward one frame")
             .accessibilityIdentifier("trimato.editor.step-forward")
-            .accessibilityFocused($focusedAccessibilityTarget, equals: .stepForward)
+            .accessibilityFocused(focusedAccessibilityTarget, equals: .stepForward)
         }
         .foregroundStyle(EditorTheme.accent(for: accentChoice))
+    }
+}
+
+private struct ProjectLiveMarkerIndicators: View {
+    @ObservedObject var controller: ProjectController
+    @ObservedObject var player: ProjectPlayerViewModel
+
+    var body: some View {
+        ProjectMarkerIndicators(markers: controller.project.markerTrack?.sortedMarkers ?? [],
+                                duration: player.duration)
     }
 }
 
@@ -988,32 +1033,63 @@ struct ProjectPreviewFailureSheet: View {
     }
 }
 
-private struct ProjectLivePlayhead: View {
-    @ObservedObject var player: ProjectPlayerViewModel
-    @ObservedObject private var clock: ProjectPlaybackClock
-    let markers: [TimelineMarker]
-    init(player: ProjectPlayerViewModel, markers: [TimelineMarker]) {
-        self.markers = markers
-        self.player = player
-        clock = player.playbackClock
+// Marker edits must not reapply the focused slider's accessibility value.
+// The clock updates the native slider independently of its spoken presentation.
+struct ProjectLivePlayhead: View, Equatable {
+    let player: ProjectPlayerViewModel
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.player === rhs.player }
+
+    var body: some View {
+        ProjectPlayheadPresentation(player: player)
     }
+}
+
+private struct ProjectPlayheadPresentation: View {
+    @ObservedObject var player: ProjectPlayerViewModel
+
+    var body: some View {
+        ProjectPlayheadSlider(player: player, clock: player.playbackClock)
+            .disabled(!player.canControlPlayback)
+            .tint(EditorTheme.playhead)
+            .accessibilityLabel("Project playhead")
+            .accessibilityValue(player.accessibilityTimecodeLabel)
+            .accessibilityIdentifier("trimato.editor.playhead")
+            .accessibilityAddTraits(player.isPlaying ? .updatesFrequently : [])
+    }
+}
+
+private struct ProjectPlayheadSlider: View {
+    let player: ProjectPlayerViewModel
+    @ObservedObject var clock: ProjectPlaybackClock
+
     var body: some View {
         Slider(value: Binding(get: {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }), in: 0...1, step: player.playbackFractionStep)
-            .overlay(alignment: .top) {
-                GeometryReader { geometry in
-                    ForEach(markers.filter { $0.time >= .zero && $0.time <= player.duration }) { marker in
-                        Image(systemName: marker.type == .chapter ? "bookmark.fill" : "diamond.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(marker.type == .chapter ? Color.orange : Color.accentColor)
-                            .position(x: 8 + max(0, geometry.size.width - 16) * min(1, max(0, marker.time.seconds / max(player.duration.seconds, 0.001))), y: -3)
-                    }
-                }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+    }
+}
+
+struct ProjectMarkerIndicators: View {
+    let markers: [TimelineMarker]
+    let duration: ProjectTime
+
+    var body: some View {
+        // Drawing markers must not insert accessibility-layout descendants
+        // into the Editor pane each time the marker key is pressed.
+        Canvas { context, size in
+            for marker in markers where marker.time >= .zero && marker.time <= duration {
+                var symbol = context.resolve(Image(systemName: marker.type == .chapter ? "bookmark.fill" : "diamond.fill"))
+                symbol.shading = .color(marker.type == .chapter ? .orange : .accentColor)
+                guard symbol.size.height > 0 else { continue }
+                let width = 9 * symbol.size.width / symbol.size.height
+                let fraction = min(1, max(0, marker.time.seconds / max(duration.seconds, 0.001)))
+                let x = 8 + max(0, size.width - 16) * fraction
+                context.draw(symbol, in: CGRect(x: x - width / 2, y: 1.5, width: width, height: 9))
             }
-            .accessibilityAddTraits(player.isPlaying ? .updatesFrequently : [])
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

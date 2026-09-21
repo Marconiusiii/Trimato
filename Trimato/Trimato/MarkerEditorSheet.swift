@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MarkerEditorSheet: View {
+    @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @State var marker: TimelineMarker
     let save: (TimelineMarker) -> Void
     let cancel: () -> Void
@@ -13,7 +14,7 @@ struct MarkerEditorSheet: View {
                     Text(type.rawValue).tag(type)
                 }
             }
-            LabeledContent("Time", value: ProjectTimecodeFormatter.string(marker.time))
+            Text("Marker position: \(AppPreferences.passiveTimecode(seconds: marker.time.seconds, precision: precisionTimecode))")
             HStack {
                 Spacer()
                 Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)

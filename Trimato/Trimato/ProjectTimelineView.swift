@@ -29,6 +29,7 @@ nonisolated enum TimelineClipDeletionConfirmation {
 }
 
 struct ProjectTimelineView: View {
+    @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
     var openCaptionEditor: (CaptionCue) -> Void = { _ in }
@@ -366,7 +367,7 @@ struct ProjectTimelineView: View {
                 )
             case .marker(let marker):
                 return TimelineCollectionItemModel(selection: .marker(marker.id), title: marker.title,
-                    subtitle: "\(marker.type.rawValue), \(ProjectTimecodeFormatter.string(marker.time))",
+                    subtitle: "\(marker.type.rawValue), Position: \(AppPreferences.passiveTimecode(seconds: marker.time.seconds, precision: precisionTimecode))",
                     accessibilityValue: "", accessibilityHint: "",
                     isSelected: controller.selectedMarkerID == marker.id, isTransition: false)
             case .caption(let cue):

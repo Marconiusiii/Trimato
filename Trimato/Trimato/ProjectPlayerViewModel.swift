@@ -306,6 +306,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var isScrubbing = false
     private var isSteppingFrames = false
     private var keyEventMonitor: Any?
+    private var markerKeyDown: UInt16?
     private var keyboardCommandsAreActive: (() -> Bool)?
     private var bladeAtPlayhead: (() -> Void)?
     private var standardTransition: (() -> Void)?
@@ -1219,13 +1220,14 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func navigate(to destination: ProjectTime) {
         cancelFrameStepping()
+        let editPoint = editPoints.first { $0.time == destination }
         let announcement = Self.navigationAnnouncement(
             destination: destination,
             duration: projectDuration,
             inMarker: inMarker,
             outMarker: outMarker,
             frameRate: projectFrameRate,
-            editPoint: editPoints.first { $0.time == destination },
+            editPoint: editPoint,
             includeTimecode: AppPreferences.timecodeFeedback == .live
         )
         seekPrecisely(to: destination)
@@ -1424,7 +1426,9 @@ final class ProjectPlayerViewModel: ObservableObject {
         includeTimecode: Bool = true
     ) -> String {
         let pointName: String
-        if destination == .zero {
+        if let markerTitle = editPoint?.markerTitle {
+            pointName = markerTitle
+        } else if destination == .zero {
             pointName = "Start"
         } else if destination == duration {
             pointName = "End"
@@ -1522,135 +1526,150 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func setupKeyEventMonitor() {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-            guard let self, NSApp.modalWindow == nil,
-                  !self.isEditingText(in: event.window) else { return event }
+            guard let self else { return event }
+            return self.handleEditorKeyEvent(event)
+        }
+    }
 
-            guard self.keyboardCommandsAreActive?() == true,
-                  !TimelineKeyboardFocus.isInTimeline else { return event }
-
-            guard self.canControlPlayback else {
-                return Self.recognizesEditorKeyboardCommand(
-                    type: event.type,
-                    keyCode: event.keyCode,
-                    character: event.charactersIgnoringModifiers,
-                    modifiers: event.modifierFlags
-                ) ? nil : event
+    func handleEditorKeyEvent(_ event: NSEvent) -> NSEvent? {
+        // Once this editor consumes a marker press, it owns its repeats and
+        // release even if focus or modifiers change before the key comes up.
+        if markerKeyDown == event.keyCode {
+            if event.type == .keyUp {
+                markerKeyDown = nil
+                return nil
             }
+            if event.type == .keyDown, event.isARepeat { return nil }
+        }
+        guard NSApp.modalWindow == nil,
+              !self.isEditingText(in: event.window) else { return event }
 
-            let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
-            let modifiers = event.modifierFlags.intersection(commandSet)
-            let unmodified = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+        guard self.keyboardCommandsAreActive?() == true,
+              !TimelineKeyboardFocus.isInTimeline else { return event }
 
-            switch event.type {
-            case .keyDown:
-                if unmodified, !event.isARepeat, event.characters == ";" {
-                    self.createMarker?(self.precisePlayhead)
+        guard self.canControlPlayback else {
+            return Self.recognizesEditorKeyboardCommand(
+                type: event.type,
+                keyCode: event.keyCode,
+                character: event.charactersIgnoringModifiers,
+                modifiers: event.modifierFlags
+            ) ? nil : event
+        }
+
+        let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+        let modifiers = event.modifierFlags.intersection(commandSet)
+        let unmodified = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+
+        switch event.type {
+        case .keyDown:
+            if unmodified, !event.isARepeat, event.characters == ";" {
+                markerKeyDown = event.keyCode
+                self.createMarker?(self.precisePlayhead)
+                return nil
+            }
+            if modifiers.isEmpty, !event.isARepeat {
+                if event.keyCode == 36, self.editMarkerAtPlayhead?() == true { return nil }
+                if event.keyCode == 51, self.deleteMarkerAtPlayhead?() == true { return nil }
+            }
+            if modifiers == [.command, .option] {
+                if let offset = Self.trackSelectionOffset(
+                    keyCode: event.keyCode,
+                    commandAndOptionOnly: true
+                ) {
+                    if !event.isARepeat { self.selectAdjacentTrack?(offset) }
                     return nil
                 }
-                if modifiers.isEmpty, !event.isARepeat {
-                    if event.keyCode == 36, self.editMarkerAtPlayhead?() == true { return nil }
-                    if event.keyCode == 51, self.deleteMarkerAtPlayhead?() == true { return nil }
-                }
-                if modifiers == [.command, .option] {
-                    if let offset = Self.trackSelectionOffset(
-                        keyCode: event.keyCode,
-                        commandAndOptionOnly: true
-                    ) {
-                        if !event.isARepeat { self.selectAdjacentTrack?(offset) }
-                        return nil
+            }
+            if modifiers == .command {
+                if let edge = Self.trimEdge(
+                    character: event.charactersIgnoringModifiers,
+                    commandOnly: true
+                ) {
+                    if !event.isARepeat {
+                        if edge == .head { self.trimActiveClipStartToPlayhead() }
+                        else { self.trimActiveClipEndToPlayhead() }
                     }
-                }
-                if modifiers == .command {
-                    if let edge = Self.trimEdge(
-                        character: event.charactersIgnoringModifiers,
-                        commandOnly: true
-                    ) {
-                        if !event.isARepeat {
-                            if edge == .head { self.trimActiveClipStartToPlayhead() }
-                            else { self.trimActiveClipEndToPlayhead() }
-                        }
-                        return nil
-                    }
-                    switch event.keyCode {
-                    case 123:
-                        if !event.isARepeat { self.goToPreviousEdit() }
-                        return nil
-                    case 124:
-                        if !event.isARepeat { self.goToNextEdit() }
-                        return nil
-                    case 126:
-                        if !event.isARepeat { self.goToStart() }
-                        return nil
-                    case 125:
-                        if !event.isARepeat { self.goToEnd() }
-                        return nil
-                    default:
-                        break
-                    }
-                    if event.charactersIgnoringModifiers?.lowercased() == "b" {
-                        if !event.isARepeat { self.bladeAtPlayhead?() }
-                        return nil
-                    }
-                    if event.charactersIgnoringModifiers?.lowercased() == "t" {
-                        if !event.isARepeat { self.standardTransition?() }
-                        return nil
-                    }
+                    return nil
                 }
                 switch event.keyCode {
-                case 49:
-                    guard unmodified else { return event }
-                    if !event.isARepeat { self.togglePlayback() }
-                    return nil
                 case 123:
-                    guard unmodified else { return event }
-                    event.isARepeat ? self.arrowHeld(forward: false) : self.stepBackward()
+                    if !event.isARepeat { self.goToPreviousEdit() }
                     return nil
                 case 124:
-                    guard unmodified else { return event }
-                    event.isARepeat ? self.arrowHeld(forward: true) : self.stepForward()
+                    if !event.isARepeat { self.goToNextEdit() }
+                    return nil
+                case 126:
+                    if !event.isARepeat { self.goToStart() }
+                    return nil
+                case 125:
+                    if !event.isARepeat { self.goToEnd() }
                     return nil
                 default:
                     break
                 }
-                guard !event.isARepeat, unmodified else { return event }
-                if let edge = Self.absolutePositioningEdge(
-                    character: event.charactersIgnoringModifiers,
-                    unmodified: true
-                ) {
-                    if edge == .head { self.positionActiveClipHead?() }
-                    else { self.positionActiveClipTail?() }
+                if event.charactersIgnoringModifiers?.lowercased() == "b" {
+                    if !event.isARepeat { self.bladeAtPlayhead?() }
                     return nil
                 }
-                switch event.charactersIgnoringModifiers?.lowercased() {
-                case "g":
-                    guard modifiers.isEmpty else { return event }
-                    self.openGenerator?()
+                if event.charactersIgnoringModifiers?.lowercased() == "t" {
+                    if !event.isARepeat { self.standardTransition?() }
                     return nil
-                case "c": self.openClipAtPlayhead?(); return nil
-                case "x": self.quickCrossTransition?(); return nil
-                case "f": self.quickFade?(); return nil
-                case "t":
-                    self.announceCurrentTimecode()
-                    return nil
-                case "i": self.markIn(); return nil
-                case "o": self.markOut(); return nil
-                case "j": self.pressJ(); return nil
-                case "k": self.pressK(); return nil
-                case "l": self.pressL(); return nil
-                default: return event
                 }
-            case .keyUp:
+            }
+            switch event.keyCode {
+            case 49:
                 guard unmodified else { return event }
-                switch event.keyCode {
-                case 123, 124:
-                    self.arrowKeyUp()
-                    return nil
-                default:
-                    return event
-                }
+                if !event.isARepeat { self.togglePlayback() }
+                return nil
+            case 123:
+                guard unmodified else { return event }
+                event.isARepeat ? self.arrowHeld(forward: false) : self.stepBackward()
+                return nil
+            case 124:
+                guard unmodified else { return event }
+                event.isARepeat ? self.arrowHeld(forward: true) : self.stepForward()
+                return nil
+            default:
+                break
+            }
+            guard !event.isARepeat, unmodified else { return event }
+            if let edge = Self.absolutePositioningEdge(
+                character: event.charactersIgnoringModifiers,
+                unmodified: true
+            ) {
+                if edge == .head { self.positionActiveClipHead?() }
+                else { self.positionActiveClipTail?() }
+                return nil
+            }
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "g":
+                guard modifiers.isEmpty else { return event }
+                self.openGenerator?()
+                return nil
+            case "c": self.openClipAtPlayhead?(); return nil
+            case "x": self.quickCrossTransition?(); return nil
+            case "f": self.quickFade?(); return nil
+            case "t":
+                self.announceCurrentTimecode()
+                return nil
+            case "i": self.markIn(); return nil
+            case "o": self.markOut(); return nil
+            case "j": self.pressJ(); return nil
+            case "k": self.pressK(); return nil
+            case "l": self.pressL(); return nil
+            default: return event
+            }
+        case .keyUp:
+            guard unmodified else { return event }
+            switch event.keyCode {
+            case 123, 124:
+                self.arrowKeyUp()
+                return nil
             default:
                 return event
             }
+        default:
+            return event
         }
     }
 
