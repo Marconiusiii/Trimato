@@ -107,6 +107,14 @@ final class ProjectController: ObservableObject {
     private var movementNudgeOrigin: TrimatoProject?
     private var movementNudgeFrames = 0
     private(set) var timelineFocusRestoreTarget: TimelineElementSelection?
+    private struct PendingTrackAnnouncement {
+        let trackID: UUID
+        let target: TimelineElementSelection?
+        let itemRevision: Int
+        let listRevision: Int
+        let message: String
+    }
+    private var pendingTrackAnnouncement: PendingTrackAnnouncement?
 
     private var cancellables: Set<AnyCancellable> = []
     private var accessedURLs: [URL] = []
@@ -1157,14 +1165,48 @@ final class ProjectController: ObservableObject {
         let destination = min(max(current + offset, 0), tracks.count - 1)
         let track = tracks[destination]
         activeTimelineTrackID = track.id
-        let clip = Self.timelineNavigationClip(on: track, at: timelinePlayhead)
-        announce(Self.activeTrackAnnouncement(trackName: track.name, clipName: clip?.displayName))
-        guard restoreTimelineFocus else { return }
-        if let clip {
-            requestTimelineFocusRestore(to: .clip(clip.id))
+        let target = Self.timelineNavigationTarget(on: track, at: timelinePlayhead,
+            transitions: TimelineElementSequence.transitions(for: track, in: project))
+        TimelineFocusDiagnostics.record("track-command offset=\(offset) from=\(current) to=\(destination) track=\(track.id) role=\(track.role) target=\(String(describing: target?.selection)) restore=\(restoreTimelineFocus)")
+        let announcement = Self.activeTrackAnnouncement(trackName: track.name, clipName: target?.name)
+        pendingTrackAnnouncement = nil
+        guard restoreTimelineFocus else { announce(announcement); return }
+        selectedCaptionCueID = nil
+        selectedMarkerID = nil
+        switch target?.selection {
+        case .clip(let id): selection = .timelineClip(id)
+        case .transition(let id): selection = .transition(id)
+        case .caption(let id):
+            selection = .project
+            selectedCaptionCueID = id
+        case .marker(let id):
+            selection = .project
+            selectedMarkerID = id
+        case nil: selection = .project
+        }
+        if let target {
+            requestTimelineFocusRestore(to: target.selection)
         } else {
             requestTimelineListFocusRestore()
         }
+        pendingTrackAnnouncement = PendingTrackAnnouncement(trackID: track.id, target: target?.selection,
+            itemRevision: timelineFocusRestoreRequest, listRevision: timelineListFocusRestoreRequest,
+            message: announcement)
+    }
+
+    func timelineTrackKeyboardFocusArrived(_ target: TimelineElementSelection?, itemRevision: Int, listRevision: Int) {
+        guard let message = takePendingTrackAnnouncement(target, itemRevision: itemRevision, listRevision: listRevision) else { return }
+        TimelineFocusDiagnostics.record("track-announcement-after-keyboard-focus target=\(String(describing: target)) itemRevision=\(itemRevision) listRevision=\(listRevision)")
+        announce(message)
+    }
+
+    func takePendingTrackAnnouncement(_ target: TimelineElementSelection?, itemRevision: Int, listRevision: Int) -> String? {
+        guard let pending = pendingTrackAnnouncement,
+              pending.trackID == activeTimelineTrackID, pending.target == target,
+              pending.itemRevision == itemRevision, pending.listRevision == listRevision,
+              itemRevision == timelineFocusRestoreRequest, listRevision == timelineListFocusRestoreRequest else { return nil }
+        pendingTrackAnnouncement = nil
+        return pending.message
     }
 
     func positionActiveAdditionalTrackClip(edge: TimelineClipPositionEdge, at playhead: ProjectTime) {
@@ -1356,6 +1398,7 @@ final class ProjectController: ObservableObject {
     }
 
     func requestEditorFocusRestore() {
+        pendingTrackAnnouncement = nil
         editorFocusRestoreRequest += 1
     }
 
@@ -1367,6 +1410,7 @@ final class ProjectController: ObservableObject {
     }
 
     func requestWorkspaceFocus(_ pane: WorkspacePane) {
+        pendingTrackAnnouncement = nil
         guard acceptsWorkspaceCommands else { return }
         if pane == .tool {
             guard toolPane != nil else { return }
@@ -1391,6 +1435,7 @@ final class ProjectController: ObservableObject {
     }
 
     func requestProjectSourceFocus(to item: ProjectSourceItemID) {
+        pendingTrackAnnouncement = nil
         projectSourceFocusRequest.target = item
         projectSourceFocusRequest.revision += 1
     }
@@ -1404,12 +1449,22 @@ final class ProjectController: ObservableObject {
         requestEditorFocusRestore()
     }
 
+    func restoreTimelineClipAfterEditing(id: UUID) {
+        guard let track = project.tracks.first(where: { $0.clips.contains(where: { $0.id == id }) }) else { return }
+        activeTimelineTrackID = track.id
+        selection = .timelineClip(id)
+        requestTimelineFocusRestore(to: .clip(id))
+    }
+
     func requestTimelineFocusRestore(to element: TimelineElementSelection) {
+        pendingTrackAnnouncement = nil
+        TimelineFocusDiagnostics.record("controller-item-request target=\(element) nextRevision=\(timelineFocusRestoreRequest + 1)")
         timelineFocusRestoreTarget = element
         timelineFocusRestoreRequest += 1
     }
 
     func requestTimelineListFocusRestore() {
+        pendingTrackAnnouncement = nil
         timelineListFocusRestoreRequest += 1
     }
 
@@ -1546,6 +1601,37 @@ final class ProjectController: ObservableObject {
             ?? clips.first(where: { time >= $0.visibleTimelineStart && time < $0.visibleTimelineEnd })
             ?? clips.first(where: { $0.visibleTimelineStart > time })
             ?? clips.last
+    }
+
+    nonisolated struct TrackNavigationTarget: Equatable {
+        let selection: TimelineElementSelection
+        let name: String
+    }
+
+    nonisolated static func timelineNavigationTarget(
+        on track: TimelineTrack, at time: ProjectTime,
+        transitions: [TimelineTransition] = []
+    ) -> TrackNavigationTarget? {
+        switch track.kind {
+        case .video, .audio:
+            if let clip = timelineNavigationClip(on: track, at: time) {
+                return TrackNavigationTarget(selection: .clip(clip.id), name: clip.displayName)
+            }
+            // An orphaned transition is still an item displayed by the collection.
+            guard let transition = transitions.sorted(by: { $0.id.uuidString < $1.id.uuidString }).first else { return nil }
+            return TrackNavigationTarget(selection: .transition(transition.id), name: transition.displayName)
+        case .captions:
+            let cues = track.sortedCaptionCues
+            guard let cue = cues.first(where: { $0.start == time })
+                ?? cues.first(where: { $0.start <= time && time < $0.end })
+                ?? cues.first(where: { $0.start > time })
+                ?? cues.last else { return nil }
+            return TrackNavigationTarget(selection: .caption(cue.id), name: cue.displayName)
+        case .markers:
+            let markers = track.sortedMarkers
+            guard let marker = markers.first(where: { $0.time >= time }) ?? markers.last else { return nil }
+            return TrackNavigationTarget(selection: .marker(marker.id), name: marker.title)
+        }
     }
 
     private func editorDirectClip(on track: TimelineTrack, at time: ProjectTime) -> TimelineClip? {

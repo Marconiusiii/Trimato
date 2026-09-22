@@ -472,12 +472,44 @@ final class ClipPlacementCommandContext: ObservableObject {
 final class ClipEditorWindowCoordinator: ObservableObject {
     private let controller: ProjectController
     private var windows: [EditorSelection: ClipEditorWindowController] = [:]
+    private final class TimelineOrigin {
+        let clipID: UUID
+        weak var window: NSWindow?
+        init(clipID: UUID, window: NSWindow) { self.clipID = clipID; self.window = window }
+    }
+    private var timelineOrigins: [EditorSelection: TimelineOrigin] = [:]
+    private var pendingTimelineReturn: TimelineOrigin?
+    private var closingAll = false
 
     init(controller: ProjectController) {
         self.controller = controller
     }
 
     func open(_ editSelection: EditorSelection) {
+        timelineOrigins[editSelection] = nil
+        pendingTimelineReturn = nil
+        openEditor(editSelection)
+    }
+
+    func openFromTimeline(_ editSelection: EditorSelection) {
+        pendingTimelineReturn = nil
+        if case .timelineClip(let id) = editSelection, let window = NSApp.keyWindow {
+            timelineOrigins[editSelection] = TimelineOrigin(clipID: id, window: window)
+        }
+        openEditor(editSelection)
+    }
+
+    func restorePendingTimelineFocus(in window: NSWindow?) {
+        guard let origin = pendingTimelineReturn, let window,
+              origin.window === window, window.isKeyWindow,
+              window.attachedSheet == nil, controller.acceptsWorkspaceCommands,
+              !closingAll else { return }
+        pendingTimelineReturn = nil
+        controller.restoreTimelineClipAfterEditing(id: origin.clipID)
+    }
+
+    private func openEditor(_ editSelection: EditorSelection) {
+        TimelineFocusDiagnostics.record("clip-editor-open selection=\(editSelection) track=\(String(describing: controller.activeTimelineTrackID)) \(TimelineFocusDiagnostics.windowState(NSApp.keyWindow))")
         guard editSelection != .project,
               let asset = controller.asset(for: editSelection),
               let segments = controller.segments(for: editSelection) else { return }
@@ -506,14 +538,34 @@ final class ClipEditorWindowCoordinator: ObservableObject {
             commandContext: commandContext
         )
         windowController.onClose = { [weak self] in
-            self?.windows[editSelection] = nil
+            TimelineFocusDiagnostics.record("clip-editor-close selection=\(editSelection) \(TimelineFocusDiagnostics.windowState(NSApp.keyWindow))")
+            #if DEBUG
+            DispatchQueue.main.async {
+                TimelineFocusDiagnostics.record("clip-editor-after-close selection=\(editSelection) \(TimelineFocusDiagnostics.windowState(NSApp.keyWindow))")
+            }
+            #endif
+            guard let self else { return }
+            let origin = timelineOrigins.removeValue(forKey: editSelection)
+            windows[editSelection] = nil
+            if !closingAll, let origin {
+                pendingTimelineReturn = origin
+                Task { @MainActor [weak self, weak origin] in
+                    guard let self, let origin, pendingTimelineReturn === origin else { return }
+                    restorePendingTimelineFocus(in: origin.window)
+                }
+            }
         }
         windows[editSelection] = windowController
         windowController.showAndFocus()
     }
 
     func requestCloseAll(completion: @escaping (Bool) -> Void) {
-        close(Array(windows.values), at: 0, completion: completion)
+        closingAll = true
+        pendingTimelineReturn = nil
+        close(Array(windows.values), at: 0) { [weak self] result in
+            self?.closingAll = false
+            completion(result)
+        }
     }
 
     private func close(

@@ -36,6 +36,25 @@ nonisolated enum TimelineElementAccessibilityIdentifier {
 import AppKit
 import SwiftUI
 import Combine
+import OSLog
+
+@MainActor
+enum TimelineFocusDiagnostics {
+    private static let logger = Logger(subsystem: "com.marconius.trimato", category: "TimelineFocusDiagnostics")
+
+    static func record(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        let entry = message()
+        logger.notice("\(entry, privacy: .public)")
+        #endif
+    }
+
+    static func windowState(_ window: NSWindow?) -> String {
+        guard let window else { return "window=nil" }
+        let responder = window.firstResponder.map { "\(type(of: $0)):\(ObjectIdentifier($0))" } ?? "nil"
+        return "window=\(window.windowNumber) key=\(window.isKeyWindow) sheet=\(window.attachedSheet != nil) responder=\(responder)"
+    }
+}
 
 nonisolated enum NativeContextMenuShortcut {
     static func matches(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
@@ -97,6 +116,7 @@ final class TimelineNativeFocus {
     private(set) var keyboardSelection: TimelineElementSelection?
     private var keyboardOwner: UUID?
     var commandFocusProvider: () -> WorkspaceVoiceOverCommandFocus? = { nil }
+    var didObserveKeyboardFocus: ((TimelineElementSelection) -> Void)?
 
     var voiceOverSelection: TimelineElementSelection? {
         if let commands = commandFocusProvider() {
@@ -106,6 +126,7 @@ final class TimelineNativeFocus {
     }
 
     func record(_ selection: TimelineElementSelection, owner: UUID, focused: Bool, voiceOver: Bool) {
+        TimelineFocusDiagnostics.record("observed selection=\(selection) owner=\(owner) voiceOver=\(voiceOver) focused=\(focused)")
         if voiceOver {
             if focused {
                 voiceOverOwner = owner
@@ -120,6 +141,7 @@ final class TimelineNativeFocus {
             if focused { keyboardOwner = owner; keyboardSelection = selection }
             else if keyboardOwner == owner { keyboardOwner = nil; keyboardSelection = nil }
         }
+        if focused && !voiceOver { didObserveKeyboardFocus?(selection) }
     }
 
     func remove(owner: UUID) {
@@ -387,6 +409,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
     let movingClipID: UUID?
     let actions: TimelineCollectionActions
     let nativeFocus: TimelineNativeFocus
+    var keyboardFocusArrived: (TimelineElementSelection?, Int, Int) -> Void = { _, _, _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -439,16 +462,41 @@ struct TimelineClipsCollection: NSViewRepresentable {
         var movingClipID: UUID?
         var emptyTitle = "No clips on this track"
         var nativeFocus: TimelineNativeFocus?
+        var keyboardFocusArrived: ((TimelineElementSelection?, Int, Int) -> Void)?
+
+        // Track feedback follows the applied collection and keyboard focus request.
+        // VoiceOver cursor observations are independent and may never change.
+        private func reportKeyboardFocus(_ target: TimelineElementSelection?) {
+            let itemRevision = previousFocusRequest
+            let listRevision = previousListFocusRequest
+            DispatchQueue.main.async { [weak self] in
+                guard let self, previousFocusRequest == itemRevision, previousListFocusRequest == listRevision,
+                      let collectionView, let window = collectionView.window,
+                      window.isKeyWindow, window.attachedSheet == nil else { return }
+                if let target {
+                    guard nativeFocus?.keyboardSelection == target,
+                          models.contains(where: { $0.selection == target }) else { return }
+                } else {
+                    guard window.firstResponder === collectionView else { return }
+                }
+                keyboardFocusArrived?(target, itemRevision, listRevision)
+            }
+        }
 
         func update(from source: TimelineClipsCollection) {
             actions = source.actions
             nativeFocus = source.nativeFocus
+            keyboardFocusArrived = source.keyboardFocusArrived
+            nativeFocus?.didObserveKeyboardFocus = { [weak self] target in
+                self?.reportKeyboardFocus(target)
+            }
             movingClipID = source.movingClipID
             emptyTitle = source.emptyTitle
             collectionView?.setAccessibilityLabel(source.accessibilityLabel)
             let structureChanged = models.map(\.selection) != source.items.map(\.selection)
             models = source.items
             if structureChanged {
+                TimelineFocusDiagnostics.record("collection-reload items=\(models.map(\.selection)) \(TimelineFocusDiagnostics.windowState(collectionView?.window))")
                 collectionView?.reloadData()
             } else {
                 for item in collectionView?.visibleItems() ?? [] {
@@ -460,6 +508,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             }
             if previousFocusRequest != source.focusRequest, source.focusRequest > 0 {
                 previousFocusRequest = source.focusRequest
+                TimelineFocusDiagnostics.record("item-request revision=\(source.focusRequest) target=\(String(describing: source.focusTarget)) listRevision=\(source.listFocusRequest)")
                 if let target = source.focusTarget {
                     let request = source.focusRequest
                     let listRequest = source.listFocusRequest
@@ -475,6 +524,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             }
             if previousListFocusRequest != source.listFocusRequest, source.listFocusRequest > 0 {
                 previousListFocusRequest = source.listFocusRequest
+                TimelineFocusDiagnostics.record("list-request revision=\(source.listFocusRequest)")
                 pendingFocusTarget = nil
                 let request = source.listFocusRequest
                 let itemRequest = source.focusRequest
@@ -489,6 +539,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
                     if NSWorkspace.shared.isVoiceOverEnabled {
                         NSAccessibility.post(element: collection, notification: .focusedUIElementChanged)
                     }
+                    self.reportKeyboardFocus(nil)
                 }
             } else {
                 previousListFocusRequest = source.listFocusRequest
@@ -523,6 +574,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             willDisplay item: NSCollectionViewItem,
             forRepresentedObjectAt indexPath: IndexPath
         ) {
+            TimelineFocusDiagnostics.record("will-display index=\(indexPath.item) pending=\(String(describing: pendingFocusTarget)) item=\(String(describing: (item as? TimelineCollectionItem)?.button.selection)) \(TimelineFocusDiagnostics.windowState(collectionView.window))")
             guard let target = pendingFocusTarget,
                   models.indices.contains(indexPath.item),
                   models[indexPath.item].selection == target,
@@ -531,6 +583,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
                 guard let self, self.pendingFocusTarget == target, let timelineItem else { return }
                 self.pendingFocusTarget = nil
                 timelineItem.button.restoreFocus()
+                self.reportKeyboardFocus(target)
             }
         }
 
@@ -543,6 +596,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
         }
 
         private func select(_ target: TimelineElementSelection) {
+            TimelineFocusDiagnostics.record("select target=\(target) index=\(String(describing: models.firstIndex(where: { $0.selection == target }))) \(TimelineFocusDiagnostics.windowState(collectionView?.window))")
             guard let collectionView,
                   let window = collectionView.window, window.isKeyWindow,
                   window.attachedSheet == nil, NSApp.modalWindow == nil,
@@ -557,6 +611,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
             if let button = (collectionView.item(at: path) as? TimelineCollectionItem)?.button {
                 pendingFocusTarget = nil
                 button.restoreFocus()
+                // A repeated request can target the element already focused.
+                reportKeyboardFocus(target)
             }
         }
 
@@ -742,17 +798,21 @@ struct TimelineNativeButton: View {
             }
             .onChange(of: focusRequest.revision) { _, _ in
                 if focusRequest.consume() {
+                    TimelineFocusDiagnostics.record("consume-change target=\(model.selection) owner=\(owner) keyboardBefore=\(keyboardFocused) voiceOverBefore=\(voiceOverFocused)")
                     keyboardFocused = true
-                    if NSWorkspace.shared.isVoiceOverEnabled { voiceOverFocused = true }
                 }
             }
             .onAppear {
+                TimelineFocusDiagnostics.record("button-appear target=\(model.selection) owner=\(owner) keyboard=\(keyboardFocused) voiceOver=\(voiceOverFocused)")
                 if focusRequest.consume() {
+                    TimelineFocusDiagnostics.record("consume-appear target=\(model.selection) owner=\(owner)")
                     keyboardFocused = true
-                    if NSWorkspace.shared.isVoiceOverEnabled { voiceOverFocused = true }
                 }
             }
-            .onDisappear { nativeFocus?.remove(owner: owner) }
+            .onDisappear {
+                TimelineFocusDiagnostics.record("button-disappear target=\(model.selection) owner=\(owner)")
+                nativeFocus?.remove(owner: owner)
+            }
         } else {
             Button(emptyTitle) {}.disabled(true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -811,6 +871,7 @@ final class TimelineCollectionButton: NSHostingView<AnyView> {
                    focus: @escaping (TimelineElementSelection) -> Void,
                    menu: @escaping (TimelineElementSelection) -> NSMenu) {
         if selection != model.selection {
+            TimelineFocusDiagnostics.record("host-reuse previous=\(String(describing: selection)) next=\(model.selection) owner=\(owner)")
             self.nativeFocus?.remove(owner: owner)
             owner = UUID()
             focusRequest = TimelineItemFocusRequest()
@@ -834,7 +895,10 @@ final class TimelineCollectionButton: NSHostingView<AnyView> {
             keyboardFocus: { _ in }, menu: { _ in NSMenu() }).id(owner))
     }
 
-    func restoreFocus() { focusRequest.request() }
+    func restoreFocus() {
+        TimelineFocusDiagnostics.record("host-restore target=\(String(describing: selection)) owner=\(owner) attached=\(superview != nil) \(TimelineFocusDiagnostics.windowState(window))")
+        focusRequest.request()
+    }
 
     @discardableResult
     func showClipMenu(present: (NSMenu, NSView) -> Void = { menu, view in

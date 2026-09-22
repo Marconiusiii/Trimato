@@ -134,6 +134,32 @@ struct ProjectPlaybackTests {
         #expect(PlacementAction.append.confirmation == "Clip appended")
     }
 
+    @Test func clipEditorReturnUsesOpenedClipInsteadOfPlayheadClip() {
+        let asset = fixtureAsset(name: "Return fixture", duration: 4)
+        let first = TimelineClip(assetID: asset.id, name: "First", segments: asset.sourceEdit, timelineStart: .zero)
+        let opened = TimelineClip(assetID: asset.id, name: "Opened", segments: asset.sourceEdit, timelineStart: ProjectTime(seconds: 4))
+        let track = TimelineTrack(name: "Video", kind: .video, role: .primaryVideo, clips: [first, opened])
+        let other = TimelineTrack(name: "Other", kind: .audio, role: .additional, clips: [])
+        var project = TrimatoProject()
+        project.media = [asset]
+        project.tracks = [track, other]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = other.id
+        controller.selection = .timelineClip(first.id)
+        controller.restoreTimelineClipAfterEditing(id: opened.id)
+        #expect(controller.activeTimelineTrackID == track.id)
+        #expect(controller.timelineFocusRestoreTarget == .clip(opened.id))
+        #expect(controller.selection == .timelineClip(opened.id))
+        #expect(controller.timelinePlayhead == .zero)
+        #expect(controller.timelineFocusRestoreRequest == 1)
+        #expect(controller.timelineListFocusRestoreRequest == 0)
+
+        // A deleted origin must not silently redirect to the current/first clip.
+        controller.restoreTimelineClipAfterEditing(id: UUID())
+        #expect(controller.timelineFocusRestoreRequest == 1)
+        #expect(controller.timelineFocusRestoreTarget == .clip(opened.id))
+    }
+
     @Test func editorCommandScopeUsesVoiceOverControlFocusInsteadOfStaleKeyboardFocus() {
         #expect(EditorAccessibilityFocusScope.resolveInputFocus(
             voiceOverEnabled: true,

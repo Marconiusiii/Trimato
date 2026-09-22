@@ -289,7 +289,10 @@ struct ProjectTimelineView: View {
                 delete: deleteTimelineElement,
                 deleteMedia: beginDeletingMedia
             ),
-            nativeFocus: nativeTimelineFocus
+            nativeFocus: nativeTimelineFocus,
+            keyboardFocusArrived: { target, itemRevision, listRevision in
+                controller.timelineTrackKeyboardFocusArrived(target, itemRevision: itemRevision, listRevision: listRevision)
+            }
         )
         .frame(minHeight: 88)
     }

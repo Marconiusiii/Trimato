@@ -62,9 +62,10 @@ struct EditorWorkspaceView: View {
                     }
                 )
                 ExternalMediaOpenCoordinator.shared.activate(controller: controller)
-                projectWindowSaveCoordinator.onWindowBecameKey { [weak controller] in
+                projectWindowSaveCoordinator.onWindowBecameKey { [weak controller, weak clipEditorWindows, weak projectWindowSaveCoordinator] in
                     guard let controller else { return }
                     ExternalMediaOpenCoordinator.shared.activate(controller: controller)
+                    clipEditorWindows?.restorePendingTimelineFocus(in: projectWindowSaveCoordinator?.attachedWindow)
                 }
                 projectWindowSaveCoordinator.onLastProjectWindowWillClose {
                     openWindow(id: "project-launcher")
@@ -326,7 +327,7 @@ struct EditorWorkspaceView: View {
                 MacEditorPane("Timeline") {
                     ProjectTimelineView(
                         controller: controller,
-                        openClipEditor: clipEditorWindows.open,
+                        openClipEditor: clipEditorWindows.openFromTimeline,
                         openCaptionEditor: captionEditorWindows.open,
                         workspacePaneLinks: workspacePaneLinks
                     )
