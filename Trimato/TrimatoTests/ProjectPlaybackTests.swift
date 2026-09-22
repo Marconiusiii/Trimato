@@ -84,16 +84,16 @@ struct ProjectPlaybackTests {
                 windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
         }
         let space = try key(.keyDown, 49)
-        #expect(coordinator.handleKey(space, voiceOver: true, editingText: true,
+        #expect(coordinator.handleKey(space, voiceOver: true, editingText: false,
             currentAccessibilityFocus: TimelineAccessibilityFocus.selection(from: cell)) == nil)
         #expect(moving)
         let perform = try #require(coordinator.bridge).perform
         coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: nil, keyboardSelection: nil,
             movingClipID: id, perform: perform)
-        #expect(coordinator.handleKey(try key(.keyUp, 49), voiceOver: true, editingText: true) == nil)
-        #expect(coordinator.handleKey(try key(.keyDown, 124), voiceOver: true, editingText: true,
+        #expect(coordinator.handleKey(try key(.keyUp, 49), voiceOver: true, editingText: false) == nil)
+        #expect(coordinator.handleKey(try key(.keyDown, 124), voiceOver: true, editingText: false,
             currentAccessibilityFocus: TimelineAccessibilityFocus.selection(from: cell)) == nil)
-        #expect(coordinator.handleKey(space, voiceOver: true, editingText: true,
+        #expect(coordinator.handleKey(space, voiceOver: true, editingText: false,
             currentAccessibilityFocus: TimelineAccessibilityFocus.selection(from: cell)) == nil)
         #expect(!moving)
         #expect(actions == [.toggleMovement, .later, .toggleMovement])
@@ -252,7 +252,7 @@ struct ProjectPlaybackTests {
             actions.append(action)
         }
         let arrow = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 124))
-        #expect(coordinator.handleKey(arrow, voiceOver: true, editingText: true, currentAccessibilityFocus: clip) == nil)
+        #expect(coordinator.handleKey(arrow, voiceOver: true, editingText: false, currentAccessibilityFocus: clip) == nil)
         #expect(actions == [.later])
     }
 
@@ -269,10 +269,15 @@ struct ProjectPlaybackTests {
         #expect(actions == [.toggleMovement])
     }
 
-    @Test func timelineRoutingUsesVoiceOverRowEvenWithAnotherKeyboardResponder() {
+    @Test func timelineRoutingDefersToTextEditingBeforeVoiceOverOrMouseSelection() {
         let voiceOverRow = TimelineElementSelection.clip(UUID())
         let keyboardRow = TimelineElementSelection.clip(UUID())
-        #expect(TimelineKeyAction.target(voiceOver: true, accessibilityFocus: voiceOverRow, keyboardFocus: keyboardRow, editingText: true) == voiceOverRow)
+        #expect(TimelineKeyAction.target(voiceOver: true, accessibilityFocus: voiceOverRow, keyboardFocus: keyboardRow, editingText: true) == nil)
+        #expect(TimelineKeyAction.target(voiceOver: true, accessibilityFocus: voiceOverRow, keyboardFocus: keyboardRow, editingText: false) == voiceOverRow)
+        for voiceOver in [false, true] {
+            #expect(TimelineKeyAction.target(voiceOver: voiceOver, accessibilityFocus: voiceOverRow,
+                keyboardFocus: keyboardRow, editingText: true, mouseFocus: voiceOverRow) == nil)
+        }
         #expect(TimelineKeyAction.target(voiceOver: true, accessibilityFocus: nil, keyboardFocus: keyboardRow, editingText: false) == nil)
         #expect(TimelineKeyAction.target(voiceOver: false, accessibilityFocus: voiceOverRow, keyboardFocus: keyboardRow, editingText: true) == nil)
         #expect(TimelineKeyAction.target(voiceOver: false, accessibilityFocus: voiceOverRow, keyboardFocus: keyboardRow, editingText: false) == keyboardRow)
@@ -301,7 +306,7 @@ struct ProjectPlaybackTests {
         }
         #expect(coordinator.handleMouse(try mouse(.leftMouseDown), in: window) == nil)
         let arrow = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 124))
-        #expect(coordinator.handleKey(arrow, voiceOver: true, editingText: true, currentAccessibilityFocus: clip) == nil)
+        #expect(coordinator.handleKey(arrow, voiceOver: true, editingText: false, currentAccessibilityFocus: clip) == nil)
         #expect(coordinator.handleMouse(try mouse(.leftMouseUp), in: window) == nil)
         #expect(actions == [.beginMovement, .later, .finishMovement])
         actions.removeAll()

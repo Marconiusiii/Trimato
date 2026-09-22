@@ -9,8 +9,72 @@ import Darwin
         if !condition { print("FAIL: \(message)"); exit(1) }
     }
     static func fail(_ message: String) -> Never { print("FAIL: \(message)"); exit(1) }
+    @MainActor static func verifyTextEditingPrecedence() {
+        for description in [false, true] {
+            for voiceOver in [false, true] {
+                var cue = CaptionCue(start: .zero, end: ProjectTime(seconds: 2), text: "Editable text")
+                cue.isDescription = description
+                var track = TimelineTrack(name: description ? "Descriptions" : "Captions", kind: .captions)
+                track.captionCues = [cue]
+                var project = TrimatoProject()
+                project.tracks = [track]
+                let controller = ProjectController(document: ProjectDocument(project: project))
+                let target = TimelineElementSelection.caption(cue.id)
+                let nativeFocus = TimelineNativeFocus()
+                let owner = UUID()
+                nativeFocus.record(target, owner: owner, focused: true, voiceOver: true)
+                nativeFocus.record(target, owner: owner, focused: true, voiceOver: false)
+                let coordinator = TimelineKeyboardBridge.Coordinator()
+                var actions: [TimelineKeyAction] = []
+                coordinator.bridge = TimelineKeyboardBridge(accessibilitySelection: target,
+                    keyboardSelection: target, movingClipID: UUID(), nativeFocus: nativeFocus,
+                    allowsNudging: { _ in true }) { action, selection in
+                        actions.append(action)
+                        if action == .delete, case .caption(let id) = selection {
+                            do { try controller.deleteCaptionCue(id: id) }
+                            catch { fail("Unexpected caption deletion error") }
+                        }
+                    }
+                let original = controller.project
+                let keys: [(UInt16, NSEvent.ModifierFlags)] = [
+                    (51, []), (117, []), (49, []), (36, []), (76, []), (53, []),
+                    (123, []), (124, []), (125, []), (126, []), (8, .command), (9, .command),
+                    (9, [.command, .option])
+                ]
+                for (code, modifiers) in keys {
+                    for type in [NSEvent.EventType.keyDown, .keyUp] {
+                        coordinator.mouseSource = target
+                        // A key consumed before text editing began must not steal its new event.
+                        coordinator.consumedKeys.insert(code)
+                        let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers,
+                            timestamp: 0, windowNumber: 0, context: nil, characters: "",
+                            charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+                        verify(coordinator.handleKey(event, voiceOver: voiceOver, editingText: true,
+                            currentAccessibilityFocus: target, currentKeyboardFocus: target,
+                            useLiveKeyboardFocus: true) === event, "Text editing lost key \(code) with VoiceOver=\(voiceOver)")
+                        verify(actions.isEmpty && controller.project == original, "Text editing changed the Timeline")
+                        verify(!coordinator.consumedKeys.contains(code), "Text editing retained an intercepted key")
+                    }
+                }
+                // The alternate Delete-command path uses this same target policy.
+                verify(TimelineKeyAction.target(voiceOver: voiceOver, accessibilityFocus: target,
+                    keyboardFocus: target, editingText: true, mouseFocus: target) == nil,
+                    "Delete-command target ignored active text editing")
+                let deletion = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                    timestamp: 0, windowNumber: 0, context: nil, characters: "",
+                    charactersIgnoringModifiers: "", isARepeat: false, keyCode: 51)!
+                verify(coordinator.handleKey(deletion, voiceOver: voiceOver, editingText: false,
+                    currentAccessibilityFocus: target, currentKeyboardFocus: target,
+                    useLiveKeyboardFocus: true) == nil, "Timeline Delete failed after text editing ended")
+                verify(actions == [.delete] && controller.project.tracks[0].captionCues.isEmpty,
+                    "Timeline Delete did not remove only its intended caption")
+                print("PASS: \(description ? "description" : "caption") text editing, VoiceOver=\(voiceOver): keys pass through, model unchanged, Timeline Delete resumes afterward")
+            }
+        }
+    }
     @MainActor static func main() {
         verify(NSApp == nil)
+        verifyTextEditingPrecedence()
         for (kind, role) in [(TimelineTrackKind.video, TimelineTrackRole.primaryVideo),
                              (.audio, .primaryAudio), (.video, .additional), (.audio, .additional)] {
             var project = TrimatoProject(name: "Focus check")

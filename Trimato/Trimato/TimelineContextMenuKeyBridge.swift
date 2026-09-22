@@ -102,10 +102,11 @@ nonisolated enum TimelineKeyAction: Equatable {
     }
 
     static func target(voiceOver: Bool, accessibilityFocus: TimelineElementSelection?, keyboardFocus: TimelineElementSelection?, editingText: Bool, mouseFocus: TimelineElementSelection? = nil) -> TimelineElementSelection? {
-        // VoiceOver and the keyboard responder can legitimately be on different
-        // controls. An unrelated text responder must not steal this clip's Space.
+        // Editing keys belong to the native text responder, even if a Timeline
+        // selection or mouse press was recorded before the editor took focus.
+        guard !editingText else { return nil }
         if voiceOver { return accessibilityFocus }
-        return mouseFocus ?? (editingText ? nil : keyboardFocus)
+        return mouseFocus ?? keyboardFocus
     }
 }
 
@@ -249,6 +250,11 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
             if event.type == .leftMouseDown || event.type == .leftMouseDragged || event.type == .leftMouseUp {
                 return handleMouse(event, in: window)
             }
+            if (window.firstResponder as? NSTextView)?.isEditable == true {
+                consumedKeys.remove(event.keyCode)
+                clearMousePress()
+                return event
+            }
             if event.type == .keyDown,
                NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags) {
                 let accessibilityFocus = bridge?.nativeFocus?.voiceOverSelection
@@ -278,6 +284,11 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
                        currentKeyboardFocus: TimelineElementSelection? = nil,
                        useLiveKeyboardFocus: Bool = false) -> NSEvent? {
             guard let bridge else { return event }
+            guard !editingText else {
+                consumedKeys.remove(event.keyCode)
+                clearMousePress()
+                return event
+            }
             if event.type == .keyUp { return consumedKeys.remove(event.keyCode) != nil ? nil : event }
             // VoiceOver's mouse cursor may remain over another clip. It must not
             // override accessibility focus, even during a remembered mouse press.

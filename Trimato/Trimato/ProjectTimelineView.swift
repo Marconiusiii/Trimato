@@ -246,8 +246,12 @@ struct ProjectTimelineView: View {
     }
 
     private func deleteFocusedTimelineElement() {
-        let target = NSWorkspace.shared.isVoiceOverEnabled
-            ? nativeTimelineFocus.voiceOverSelection : nativeTimelineFocus.keyboardSelection
+        let target = TimelineKeyAction.target(
+            voiceOver: NSWorkspace.shared.isVoiceOverEnabled,
+            accessibilityFocus: nativeTimelineFocus.voiceOverSelection,
+            keyboardFocus: nativeTimelineFocus.keyboardSelection,
+            editingText: (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable == true
+        )
         switch target {
         case .clip(let id):
             deleteTimelineClip(id)
