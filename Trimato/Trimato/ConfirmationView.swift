@@ -7,7 +7,6 @@ struct ConfirmationView: View {
     let cancel: () -> Void
     let confirm: () -> Void
     @FocusState private var cancelKeyboardFocused: Bool
-    @AccessibilityFocusState private var cancelVoiceOverFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -20,7 +19,6 @@ struct ConfirmationView: View {
                 Button("Cancel", action: cancel)
                     .keyboardShortcut(.cancelAction)
                     .focused($cancelKeyboardFocused)
-                    .accessibilityFocused($cancelVoiceOverFocused)
                 Button(confirmTitle, role: .destructive, action: confirm)
             }
         }
@@ -30,7 +28,6 @@ struct ConfirmationView: View {
         .task {
             await Task.yield()
             cancelKeyboardFocused = true
-            cancelVoiceOverFocused = true
         }
     }
 }

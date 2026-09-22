@@ -419,7 +419,6 @@ struct ProjectRecordingView: View {
     @State private var appliedFocusRevision: Int?
     private enum Field: Hashable { case name, transcript }
     @FocusState private var keyboardFocus: Field?
-    @AccessibilityFocusState private var textFocus: Field?
     @StateObject private var voiceWork = VoiceAdjustmentWork()
 
     init(session: ProjectRecordingSession, focusRevision: Int = 0) {
@@ -468,7 +467,6 @@ struct ProjectRecordingView: View {
                     .font(.body)
                     .accessibilityLabel("Description text")
                     .focused($keyboardFocus, equals: .transcript)
-                    .accessibilityFocused($textFocus, equals: .transcript)
                     .frame(minHeight: 100, idealHeight: 220, maxHeight: .infinity)
                     .disabled(session.saving)
                 }
@@ -566,7 +564,6 @@ struct ProjectRecordingView: View {
             LabeledContent("\(session.purpose.toolTitle) Clip Name") {
                 TextField("", text: $session.name)
                     .focused($keyboardFocus, equals: .name)
-                    .accessibilityFocused($textFocus, equals: .name)
                     .disabled(session.saving)
                     .labelsHidden()
             }
@@ -600,7 +597,6 @@ struct ProjectRecordingView: View {
             guard !Task.isCancelled else { return }
             appliedFocusRevision = focusRevision
             keyboardFocus = .name
-            textFocus = .name
         }
         .task {
             if session.validRange, session.controller?.project.tracks.contains(where: { !$0.clips.isEmpty }) == true {

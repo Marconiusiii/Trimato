@@ -7,9 +7,8 @@ struct CaptionFinalizationResultsView: View {
     let done: () -> Void
 
     @State private var selection: UUID?
-    @AccessibilityFocusState private var resultsFocused: Bool
+    @FocusState private var resultsFocused: Bool
     @FocusState private var doneKeyboardFocused: Bool
-    @AccessibilityFocusState private var doneVoiceOverFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -42,7 +41,7 @@ struct CaptionFinalizationResultsView: View {
                     .width(min: 250, ideal: 330)
                 }
                 .frame(width: 720, height: 300)
-                .accessibilityFocused($resultsFocused)
+                .focused($resultsFocused)
             }
 
             HStack {
@@ -57,7 +56,6 @@ struct CaptionFinalizationResultsView: View {
                 Button("Done", action: done)
                     .keyboardShortcut(.cancelAction)
                     .focused($doneKeyboardFocused)
-                    .accessibilityFocused($doneVoiceOverFocused)
             }
         }
         .padding(24)
@@ -71,7 +69,6 @@ struct CaptionFinalizationResultsView: View {
                     resultsFocused = true
                 } else {
                     doneKeyboardFocused = true
-                    doneVoiceOverFocused = true
                 }
             }
         }

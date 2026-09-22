@@ -56,7 +56,6 @@ struct ProjectTimelineView: View {
     @State private var clipDeletionFallback: TimelineElementSelection?
     @State private var magneticTrackPendingConfirmation: TimelineTrack?
     @FocusState private var magneticKeyboardFocused: Bool
-    @AccessibilityFocusState private var magneticVoiceOverFocused: Bool
     @State private var errorMessage: String?
     @State private var errorTitle = "Timeline Change Failed"
 
@@ -105,7 +104,6 @@ struct ProjectTimelineView: View {
                     .toggleStyle(.checkbox)
                     .disabled(track.role != .additional)
                     .focused($magneticKeyboardFocused)
-                    .accessibilityFocused($magneticVoiceOverFocused)
                 }
                 Menu("Track Actions") {
                     Button("Add Track…") { beginAddTrack() }
@@ -171,7 +169,6 @@ struct ProjectTimelineView: View {
         }
         .sheet(item: $magneticTrackPendingConfirmation, onDismiss: {
             magneticKeyboardFocused = true
-            magneticVoiceOverFocused = true
         }) { track in
             ConfirmationView(
                 title: "Enable Magnetic for \(track.name)?",

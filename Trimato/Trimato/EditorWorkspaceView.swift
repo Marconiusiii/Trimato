@@ -698,7 +698,6 @@ struct ProjectViewerView: View {
         pendingProjectPlayheadFocus = false
         viewModel.refreshAccessibilityValueForFocus()
         paneCommandKeyboardTarget = .playhead
-        focusedAccessibilityTarget = .playhead
     }
 
     private func preparationChanged(_ isPreparing: Bool) {

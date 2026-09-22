@@ -17,7 +17,6 @@ struct ClipFiltersView: View {
     @State private var pendingVoice: VoiceAdjustment?
     private enum FocusTarget: Hashable { case list }
     @FocusState private var keyboardFocus: FocusTarget?
-    @AccessibilityFocusState private var voiceOverFocus: FocusTarget?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -26,7 +25,6 @@ struct ClipFiltersView: View {
                 .equatable()
                 .accessibilityLabel("Applied Filters")
                 .focused($keyboardFocus, equals: .list)
-                .accessibilityFocused($voiceOverFocus, equals: .list)
 
         }
         .onChange(of: context.audioSettings?.voice) { validateSelection() }
@@ -117,7 +115,6 @@ struct ClipFiltersView: View {
         Task { @MainActor in
             await Task.yield()
             keyboardFocus = .list
-            voiceOverFocus = keyboardFocus
         }
     }
 }
@@ -243,7 +240,6 @@ struct AddClipFilterView: View {
     @State private var voiceDraft: VoiceAdjustment
     @StateObject private var voiceWork = VoiceAdjustmentWork()
     @FocusState private var pickerKeyboardFocused: Bool
-    @AccessibilityFocusState private var pickerVoiceOverFocused: Bool
 
     init(
         audio: Bool,
@@ -288,7 +284,6 @@ struct AddClipFilterView: View {
                 }
                 .pickerStyle(.menu)
                 .focused($pickerKeyboardFocused)
-                .accessibilityFocused($pickerVoiceOverFocused)
                 switch selection {
                 case .filter:
                     ClipFilterParameters(filter: $draft)
@@ -344,7 +339,6 @@ struct AddClipFilterView: View {
             await Task.yield()
             guard !available.isEmpty else { return }
             pickerKeyboardFocused = true
-            pickerVoiceOverFocused = true
         }
         .onChange(of: selection) { _, choice in
             voiceWork.cancel()

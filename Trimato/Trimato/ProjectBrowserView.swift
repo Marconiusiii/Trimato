@@ -49,7 +49,6 @@ struct ProjectBrowserView: View {
     @State private var newTrackTimelineFocusTarget: TimelineElementSelection?
     @State private var handledInitialImportFocusRequest = 0
     @FocusState private var importFilesHasKeyboardFocus: Bool
-    @AccessibilityFocusState(for: .voiceOver) private var importFilesHasVoiceOverFocus: Bool
 
     init(
         controller: ProjectController,
@@ -165,7 +164,6 @@ struct ProjectBrowserView: View {
             guard request.pane == .project, controller.acceptsWorkspaceCommands else { return }
             if controller.project.media.isEmpty {
                 importFilesHasKeyboardFocus = true
-                importFilesHasVoiceOverFocus = true
             } else {
                 controller.requestProjectSourceFocus(to: sourceSelection ?? .clips(controller.project.id))
             }
@@ -176,7 +174,6 @@ struct ProjectBrowserView: View {
     private var sourceImportControls: some View {
         Button("Import Files\u{2026}") { controller.importFiles() }
             .focused($importFilesHasKeyboardFocus)
-            .accessibilityFocused($importFilesHasVoiceOverFocus)
         Button("New Folder") { showingNewFolder = true }
     }
 
@@ -186,7 +183,6 @@ struct ProjectBrowserView: View {
         Task { @MainActor in
             await Task.yield()
             importFilesHasKeyboardFocus = true
-            importFilesHasVoiceOverFocus = true
         }
     }
 

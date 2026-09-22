@@ -229,7 +229,6 @@ struct GeneratorView: View {
     @ObservedObject var focusRequest: NativeModalFocusRequest
     let close: () -> Void
     @FocusState private var typePickerKeyboardFocused: Bool
-    @AccessibilityFocusState private var typePickerVoiceOverFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -246,7 +245,6 @@ struct GeneratorView: View {
                 }
                 .pickerStyle(.menu)
                 .focused($typePickerKeyboardFocused)
-                .accessibilityFocused($typePickerVoiceOverFocused)
                 .help(session.definition.kind.description)
                 .disabled(session.editing != nil)
 
@@ -306,7 +304,6 @@ struct GeneratorView: View {
             Task { @MainActor in
                 await Task.yield()
                 typePickerKeyboardFocused = true
-                typePickerVoiceOverFocused = true
             }
         }
         .onChange(of: session.definition) { previous, _ in

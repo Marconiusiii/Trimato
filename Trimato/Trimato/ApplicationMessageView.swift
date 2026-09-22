@@ -115,7 +115,7 @@ struct ApplicationMessageView: View {
     let descriptor: ApplicationMessageDescriptor
     @ObservedObject var focusRequest: NativeModalFocusRequest
     let done: () -> Void
-    @AccessibilityFocusState private var okFocused: Bool
+    @FocusState private var okFocused: Bool
     @AccessibilityFocusState private var messageFocused: Bool
 
     var body: some View {
@@ -129,7 +129,7 @@ struct ApplicationMessageView: View {
             HStack {
                 Spacer()
                 NativeDefaultButton(title: "OK", action: done)
-                    .accessibilityFocused($okFocused)
+                    .focused($okFocused)
             }
         }
         .padding(24)

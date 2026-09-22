@@ -205,7 +205,6 @@ struct ProjectCreationView: View {
     @State private var targetSeconds: Double
     @State private var validationError: String?
     @FocusState private var nameKeyboardFocused: Bool
-    @AccessibilityFocusState private var nameVoiceOverFocused: Bool
     @AccessibilityFocusState private var validationErrorFocused: Bool
 
     init(
@@ -269,7 +268,6 @@ struct ProjectCreationView: View {
             Form {
                 TextField("Project Name", text: $name, prompt: Text(""))
                     .focused($nameKeyboardFocused)
-                    .accessibilityFocused($nameVoiceOverFocused)
 
                 Picker("Project Format", selection: $mode) {
                     Text("Automatic from First Clip").tag(ProjectFormatMode.automatic)
@@ -352,7 +350,6 @@ struct ProjectCreationView: View {
             await Task.yield()
             guard externalError == nil else { return }
             nameKeyboardFocused = true
-            nameVoiceOverFocused = true
         }
         .onChange(of: externalError) { _, message in
             if message != nil { validationErrorFocused = true }

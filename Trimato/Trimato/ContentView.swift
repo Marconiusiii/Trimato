@@ -15,7 +15,6 @@ struct ContentView: View {
     @State private var showingSilenceTrim = false
     @StateObject private var entryFocus = ClipEditorEntryFocus()
     @FocusState private var playheadKeyboardFocused: Bool
-    @AccessibilityFocusState private var playheadVoiceOverFocused: Bool
     @State private var entryCompletionPending = false
 
     init(
@@ -59,11 +58,11 @@ struct ContentView: View {
             viewModel.refreshAccessibilityValueForFocus()
             entryCompletionPending = true
             playheadKeyboardFocused = true
-            playheadVoiceOverFocused = true
         }
-        .task(id: entryCompletionPending && playheadKeyboardFocused && playheadVoiceOverFocused && entryFocusReady) {
+        // Native keyboard focus completes entry even when the VoiceOver cursor does not change.
+        .task(id: entryCompletionPending && playheadKeyboardFocused && entryFocusReady) {
             guard entryCompletionPending, playheadKeyboardFocused,
-                  playheadVoiceOverFocused, entryFocusReady else { return }
+                  entryFocusReady else { return }
             await Task.yield()
             guard !Task.isCancelled else { return }
             entryCompletionPending = false
@@ -177,7 +176,6 @@ struct ContentView: View {
             .accessibilityValue(viewModel.accessibilityTimecodeLabel)
             .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.playhead)
             .focused($playheadKeyboardFocused)
-            .accessibilityFocused($playheadVoiceOverFocused)
 
             playbackControls
             Button("Trim Silences…") { showingSilenceTrim = true }

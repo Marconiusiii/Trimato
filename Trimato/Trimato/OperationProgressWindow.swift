@@ -298,7 +298,6 @@ private struct OperationProgressContent: View {
     @ObservedObject var session: OperationProgressWindowSession
     @ObservedObject var focusRequest: NativeModalFocusRequest
     @FocusState private var cancelKeyboardFocused: Bool
-    @AccessibilityFocusState private var cancelVoiceOverFocused: Bool
     @AccessibilityFocusState private var progressVoiceOverFocused: Bool
     @State private var dismissalScheduled = false
 
@@ -325,7 +324,6 @@ private struct OperationProgressContent: View {
                 Button("Cancel", action: session.cancel)
                     .keyboardShortcut(.cancelAction)
                     .focused($cancelKeyboardFocused)
-                    .accessibilityFocused($cancelVoiceOverFocused)
             }
         }
         .padding(24)
@@ -338,7 +336,6 @@ private struct OperationProgressContent: View {
                 await Task.yield()
                 if session.canCancel {
                     cancelKeyboardFocused = true
-                    cancelVoiceOverFocused = true
                 } else {
                     progressVoiceOverFocused = true
                 }

@@ -32,7 +32,6 @@ struct SourceClipEditorView: View {
     @State private var addingFilter = false
     @State private var pendingVoice: VoiceAdjustment?
     @FocusState private var addFilterKeyboardFocused: Bool
-    @AccessibilityFocusState private var addFilterVoiceOverFocused: Bool
     @State private var pendingFilter: ClipFilter?
     @StateObject private var voiceWork = VoiceAdjustmentWork()
     @State private var selectedTab = "Markers"
@@ -106,7 +105,6 @@ struct SourceClipEditorView: View {
                         Text("Filters").font(.headline).accessibilityAddTraits(.isHeader)
                         Button("Add Filter…") { addingFilter = true }
                             .focused($addFilterKeyboardFocused)
-                            .accessibilityFocused($addFilterVoiceOverFocused)
                         ClipFiltersView(context: commandContext, beforePlayback: { viewModel.player.pause(); voiceWork.cancel() })
                             .frame(height: 130)
                         if currentAsset.generator != nil {
@@ -291,7 +289,6 @@ struct SourceClipEditorView: View {
         Task { @MainActor in
             await Task.yield()
             addFilterKeyboardFocused = true
-            addFilterVoiceOverFocused = true
         }
     }
 

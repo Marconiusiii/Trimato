@@ -99,7 +99,6 @@ extension ProjectController {
 struct ToolPaneCloseConfirmation: View {
     @ObservedObject var controller: ProjectController
     @FocusState private var cancelFocused: Bool
-    @AccessibilityFocusState private var cancelVoiceOverFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -112,7 +111,6 @@ struct ToolPaneCloseConfirmation: View {
                 Button("Cancel", action: controller.cancelToolCloseReview)
                     .keyboardShortcut(.cancelAction)
                     .focused($cancelFocused)
-                    .accessibilityFocused($cancelVoiceOverFocused)
             }
         }
         .padding(20)
@@ -121,7 +119,6 @@ struct ToolPaneCloseConfirmation: View {
         .task {
             await Task.yield()
             cancelFocused = true
-            cancelVoiceOverFocused = true
         }
     }
 }

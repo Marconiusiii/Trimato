@@ -10,7 +10,6 @@ struct MixerPlayheadSlider: View {
     var focusRevision = 0
     @Environment(\.controlActiveState) private var windowActivity
     @FocusState private var keyboardFocused: Bool
-    @AccessibilityFocusState private var voiceOverFocused: Bool
     @State private var needsInitialFocus = true
 
     var body: some View {
@@ -22,11 +21,9 @@ struct MixerPlayheadSlider: View {
                 .accessibilityAddTraits(playing ? .updatesFrequently : [])
                 .accessibilityIdentifier("trimato.mixer.playhead")
                 .focused($keyboardFocused)
-                .accessibilityFocused($voiceOverFocused)
         }
         .onChange(of: focusRevision) { _, _ in
             keyboardFocused = true
-            voiceOverFocused = true
         }
         .task(id: ready && windowActivity == .key) {
             guard needsInitialFocus, ready, windowActivity == .key else { return }
@@ -37,7 +34,6 @@ struct MixerPlayheadSlider: View {
                   application.modalWindow == nil else { return }
             needsInitialFocus = false
             keyboardFocused = true
-            voiceOverFocused = true
         }
     }
 }

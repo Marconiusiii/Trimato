@@ -181,7 +181,6 @@ struct CaptionEditorView: View {
     @Environment(\.controlActiveState) private var windowActivity
     @State private var appliedFocusRevision: Int?
     @FocusState private var textFocused: Bool
-    @AccessibilityFocusState private var textVoiceOverFocused: Bool
 
     private var actions: some View {
         HStack {
@@ -223,7 +222,6 @@ struct CaptionEditorView: View {
             TextEditor(text: $session.text)
                 .font(.body)
                 .focused($textFocused)
-                .accessibilityFocused($textVoiceOverFocused)
                 .accessibilityLabel("Caption Text")
                 .frame(minHeight: 100, idealHeight: 220, maxHeight: .infinity)
 
@@ -258,7 +256,6 @@ struct CaptionEditorView: View {
             guard !Task.isCancelled else { return }
             appliedFocusRevision = focusRevision
             textFocused = true
-            textVoiceOverFocused = true
         }
     }
 }

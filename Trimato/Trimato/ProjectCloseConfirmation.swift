@@ -5,7 +5,6 @@ nonisolated enum ProjectCloseDecision { case save, discard, cancel }
 struct ProjectCloseConfirmation: View {
     @ObservedObject var coordinator: ProjectWindowSaveCoordinator
     @FocusState private var cancelFocused: Bool
-    @AccessibilityFocusState private var cancelVoiceOverFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -25,7 +24,6 @@ struct ProjectCloseConfirmation: View {
                 Button("Cancel") { coordinator.chooseCloseDecision(.cancel) }
                     .keyboardShortcut(.cancelAction)
                     .focused($cancelFocused)
-                    .accessibilityFocused($cancelVoiceOverFocused)
                 Button(coordinator.isApplicationTerminating ? "Save and Quit" : "Save") { coordinator.chooseCloseDecision(.save) }
                     .keyboardShortcut(.defaultAction)
                     .editorPrimaryAction()
@@ -35,6 +33,6 @@ struct ProjectCloseConfirmation: View {
         .padding(20)
         .frame(width: 460)
         .interactiveDismissDisabled()
-        .onAppear { cancelFocused = true; cancelVoiceOverFocused = true }
+        .onAppear { cancelFocused = true }
     }
 }
