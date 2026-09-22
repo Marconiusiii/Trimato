@@ -383,7 +383,8 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
             // AppKit invokes local event monitors synchronously on the main thread.
             // Keep the non-Sendable event inside this callback.
             let handled = MainActor.assumeIsolated {
-                ProjectSaveKeyboard.handle(event, controller: ExternalMediaOpenCoordinator.shared.activeProjectController) == nil
+                WorkspaceCommandState.shared.recordShortcut(event)
+                return ProjectSaveKeyboard.handle(event, controller: ExternalMediaOpenCoordinator.shared.activeProjectController) == nil
             }
             return handled ? nil : event
         }

@@ -192,17 +192,35 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
 
         private func schedulePendingFocus() {
             guard focusTask == nil,
-                  pendingFocusRequest != nil else { return }
+                  pendingFocusRequest != nil || source?.controller.openingEntry.pendingTarget == .projectSource else { return }
             focusTask = Task { @MainActor [weak self] in
                 await Task.yield()
                 guard let self, !Task.isCancelled else { return }
                 let didFocus = self.focusNextPendingRequest()
+                self.enterPreparedProjectIfNeeded()
                 self.focusTask = nil
                 if didFocus,
                    self.pendingFocusRequest != nil {
                     self.schedulePendingFocus()
                 }
             }
+        }
+
+        private func enterPreparedProjectIfNeeded() {
+            guard let source, source.controller.openingEntry.pendingTarget == .projectSource,
+                  source.controller.canEnterInitialWorkspace,
+                  let outlineView, let window = outlineView.window,
+                  window === source.controller.projectSaveCoordinator?.attachedWindow,
+                  window.isVisible, window.isKeyWindow,
+                  let selected = source.selection, let node = nodes[selected],
+                  outlineView.row(forItem: node) >= 0,
+                  outlineView.acceptsFirstResponder else { return }
+            // The source hierarchy and selection were installed synchronously by
+            // updateNSView. This task runs afterward, also retriggered by native
+            // attachment/key/sheet/layout events if the destination was not ready.
+            guard window.makeFirstResponder(outlineView) else { return }
+            source.controller.confirmInitialWorkspaceEntry(.projectSource,
+                isKeyboardDestination: window.firstResponder === outlineView)
         }
 
         func projectSourceWindowDidBecomeKey() {
@@ -586,6 +604,12 @@ private final class ProjectSourceAppKitOutlineView: NSOutlineView {
                 MainActor.assumeIsolated { self?.owner?.projectSourceWindowDidBecomeKey() }
             })
         }
+        windowObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.owner?.projectSourceWindowDidBecomeKey() }
+        })
+        owner?.projectSourceWindowDidBecomeKey()
     }
 
     override func layout() {

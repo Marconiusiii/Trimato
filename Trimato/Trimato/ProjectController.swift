@@ -131,7 +131,12 @@ final class ProjectController: ObservableObject {
     private var closeCaptionEditorAction: (() -> Void)?
     private let cacheOwnerID = UUID()
 
-    init(document: ProjectDocument) {
+    @Published private(set) var openingEntry: ProjectOpeningEntry
+    @Published private(set) var isWorkspacePreparationPending: Bool
+
+    init(document: ProjectDocument, awaitingWorkspacePreparation: Bool = false) {
+        openingEntry = ProjectOpeningEntry(required: awaitingWorkspacePreparation)
+        isWorkspacePreparationPending = awaitingWorkspacePreparation
         var normalized = document.project
         GeneratorSourceNaming.normalize(in: &normalized)
         if normalized != document.project { document.project = normalized }
@@ -1402,7 +1407,47 @@ final class ProjectController: ObservableObject {
         editorFocusRestoreRequest += 1
     }
 
-    var isPreparingProject: Bool { projectPlayer?.isInitialPreparationPending == true }
+    // Initial presentation waits for all preview work, including a pending spatial
+    // mix rebuild. Later edits keep the existing workspace in place.
+    var canPresentWorkspace: Bool {
+        guard isWorkspacePreparationPending else { return true }
+        guard let projectPlayer else { return false }
+        return !projectPlayer.isInitialPreparationPending && !projectPlayer.isPreparing
+    }
+
+    @discardableResult
+    func finishWorkspacePreparation() -> Bool {
+        guard isWorkspacePreparationPending, canPresentWorkspace else { return false }
+        isWorkspacePreparationPending = false
+        let empty = project.media.isEmpty && project.folders.isEmpty &&
+            project.primaryTimeline.isEmpty && project.cutaways.isEmpty &&
+            project.tracks.allSatisfy { $0.clips.isEmpty && $0.captionCues.isEmpty && $0.markers.isEmpty }
+        openingEntry.install(target: empty ? .importFiles : .projectSource,
+                             hasFailure: projectPlayer?.errorMessage != nil)
+        return true
+    }
+
+    var canEnterInitialWorkspace: Bool {
+        openingEntry.pendingTarget != nil && acceptsWorkspaceCommands &&
+            projectPlayer?.isPreparing == false && projectPlayer?.presentedPreviewFailure == nil
+    }
+
+    func confirmInitialWorkspaceEntry(_ target: ProjectOpeningEntry.Target, isKeyboardDestination: Bool) {
+        guard openingEntry.confirm(target, windowReady: canEnterInitialWorkspace,
+                                   isKeyboardDestination: isKeyboardDestination) else { return }
+        recordWorkspaceReadiness("opening-keyboard-entry-confirmed")
+    }
+
+    func refreshInitialWorkspaceEntry() {
+        if openingEntry.pendingTarget != nil { objectWillChange.send() }
+    }
+
+    func finishInitialPreviewFailureReview() { openingEntry.finishFailureReview() }
+    func cancelInitialWorkspaceEntry() { openingEntry.cancel() }
+
+    var isPreparingProject: Bool {
+        isWorkspacePreparationPending || projectPlayer?.isInitialPreparationPending == true
+    }
 
     var acceptsWorkspaceCommands: Bool {
         projectSaveCoordinator?.acceptsWorkspaceCommands == true && !isPreparingProject && !isImporting &&
@@ -1410,13 +1455,25 @@ final class ProjectController: ObservableObject {
     }
 
     func requestWorkspaceFocus(_ pane: WorkspacePane) {
+        recordWorkspaceReadiness("command-\(pane.rawValue)")
         pendingTrackAnnouncement = nil
         guard acceptsWorkspaceCommands else { return }
+        // A user-selected pane supersedes any delayed initial entry.
+        cancelInitialWorkspaceEntry()
         if pane == .tool {
             guard toolPane != nil else { return }
+            if toolPane == .mixer {
+                TimelineFocusDiagnostics.record("mixer-workspace-request nextRevision=\(toolFocusRevision + 1) \(TimelineFocusDiagnostics.windowState(projectSaveCoordinator?.attachedWindow))")
+            }
             toolFocusRevision += 1
         }
         workspaceFocusRequest = WorkspaceFocusRequest(pane: pane, revision: workspaceFocusRequest.revision + 1)
+    }
+
+    func recordWorkspaceReadiness(_ reason: String) {
+        #if DEBUG
+        TimelineFocusDiagnostics.record("workspace-readiness \(reason) project=\(ObjectIdentifier(self)) accepts=\(acceptsWorkspaceCommands) preparing=\(isPreparingProject) opening=\(openingEntry.phase) importing=\(isImporting) exporting=\(isExporting) exportPanel=\(isPresentingExportPanel) transition=\(applyingTransitionName != nil) active=\(NSApp?.isActive == true) modal=\(NSApp?.modalWindow != nil) closing=\(projectSaveCoordinator?.isResolvingClose == true) quitting=\(projectSaveCoordinator?.isApplicationTerminating == true) \(TimelineFocusDiagnostics.windowState(projectSaveCoordinator?.attachedWindow))")
+        #endif
     }
 
     func beginProjectSourceImportFocus(returningTo item: ProjectSourceItemID?) {

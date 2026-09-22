@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 nonisolated enum ProjectSourceDeletionConfirmation {
@@ -33,6 +34,7 @@ nonisolated struct ProjectSourceFocusRequest: Equatable, Sendable {
 }
 
 struct ProjectBrowserView: View {
+    @Environment(\.controlActiveState) private var windowActivity
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
     let workspacePaneLinks: Namespace.ID
@@ -157,6 +159,25 @@ struct ProjectBrowserView: View {
                 confirm: confirmAssetDeletion
             )
         }
+        .task(id: initialImportEntryAvailable) {
+            guard initialImportEntryAvailable else { return }
+            await Task.yield()
+            guard !Task.isCancelled, initialImportEntryAvailable else { return }
+            enterInitialImportControl()
+        }
+        .onChange(of: importFilesHasKeyboardFocus) { _, focused in
+            if focused {
+                controller.confirmInitialWorkspaceEntry(.importFiles, isKeyboardDestination: true)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification)) { event in
+            guard let window = event.object as? NSWindow,
+                  window === controller.projectSaveCoordinator?.attachedWindow else { return }
+            Task { @MainActor in
+                await Task.yield()
+                enterInitialImportControl()
+            }
+        }
         .onChange(of: initialImportFocusRequest, initial: true) {
             focusImportFilesIfRequested()
         }
@@ -175,6 +196,20 @@ struct ProjectBrowserView: View {
         Button("Import Files\u{2026}") { controller.importFiles() }
             .focused($importFilesHasKeyboardFocus)
         Button("New Folder") { showingNewFolder = true }
+    }
+
+    private func enterInitialImportControl() {
+        guard initialImportEntryAvailable else { return }
+        if importFilesHasKeyboardFocus {
+            controller.confirmInitialWorkspaceEntry(.importFiles, isKeyboardDestination: true)
+        } else {
+            importFilesHasKeyboardFocus = true
+        }
+    }
+
+    private var initialImportEntryAvailable: Bool {
+        windowActivity == .key && controller.openingEntry.pendingTarget == .importFiles &&
+            controller.canEnterInitialWorkspace
     }
 
     private func focusImportFilesIfRequested() {

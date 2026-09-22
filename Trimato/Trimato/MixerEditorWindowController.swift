@@ -13,10 +13,12 @@ final class MixerWindowRegistry: ObservableObject {
     var activeSession: MixerSession? { window?.isKeyWindow == true ? session : nil }
 
     func open(controller: ProjectController) {
+        TimelineFocusDiagnostics.record("mixer-open-request existing=\(controller.toolPane == .mixer) revision=\(controller.toolFocusRevision) \(TimelineFocusDiagnostics.windowState(controller.projectSaveCoordinator?.attachedWindow))")
         controller.openToolPane(.mixer) { [weak self, weak controller] in
             guard let self, let controller, let player = controller.projectPlayer else { return }
             let session = MixerSession(controller: controller, player: player)
             self.session = session
+            TimelineFocusDiagnostics.record("mixer-session-created ready=\(player.canControlPlayback) revision=\(controller.toolFocusRevision)")
             changes = session.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -33,6 +35,7 @@ final class MixerWindowRegistry: ObservableObject {
 
     func close(for controller: ProjectController) {
         guard let closing = session, closing.controller === controller else { return }
+        TimelineFocusDiagnostics.record("mixer-close \(TimelineFocusDiagnostics.windowState(window))")
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         keyboardMonitor = nil
         focusScope = nil

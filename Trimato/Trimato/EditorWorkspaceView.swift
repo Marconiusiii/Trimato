@@ -3,6 +3,7 @@ import Combine
 import SwiftUI
 
 struct EditorWorkspaceView: View {
+    @AppStorage(AppPreferenceKey.preserveHDR) private var preserveHDR = true
     @Environment(\.openWindow) private var openWindow
     @Environment(\.controlActiveState) private var windowActivity
     @StateObject private var controller: ProjectController
@@ -24,11 +25,10 @@ struct EditorWorkspaceView: View {
     @Namespace private var workspacePaneLinks
 
     init(document: ProjectDocument) {
-        let controller = ProjectController(document: document)
-        let hasTimelineContent = document.project.tracks.contains { !$0.clips.isEmpty }
+        let controller = ProjectController(document: document, awaitingWorkspacePreparation: true)
         _controller = StateObject(wrappedValue: controller)
         _projectPlayer = StateObject(wrappedValue: ProjectPlayerViewModel(
-            awaitingInitialPreparation: hasTimelineContent
+            awaitingInitialPreparation: true
         ))
         _clipEditorWindows = StateObject(wrappedValue: ClipEditorWindowCoordinator(controller: controller))
         _captionEditorWindows = StateObject(wrappedValue: CaptionEditorWindowCoordinator(controller: controller))
@@ -37,20 +37,21 @@ struct EditorWorkspaceView: View {
         )
     }
 
-    var body: some View {
+    private var workspaceLifecycle: some View {
         progressEditor
             .blocksEditingDuringQuit()
             .disabled(projectWindowSaveCoordinator.isResolvingClose)
             .background(EditorTheme.workspace)
             .background(ProjectWindowSaveBridge(saveCoordinator: projectWindowSaveCoordinator))
-            .focusedSceneObject(projectPlayer.isInitialPreparationPending ? nil : controller)
+            .focusedSceneObject(controller.isPreparingProject ? nil : controller)
             .handlesTrimatoMediaOpening()
             .onAppear {
                 controller.installSaveCoordinator(projectWindowSaveCoordinator)
                 controller.installProjectPlayer(projectPlayer)
                 WorkspaceCommandState.shared.register(controller,
                     windowChanges: projectWindowSaveCoordinator.objectWillChange
-                        .merge(with: projectPlayer.$isInitialPreparationPending.map { _ in () })
+                        .merge(with: projectPlayer.$isInitialPreparationPending.map { _ in () },
+                                    projectPlayer.$isPreparing.map { _ in () })
                         .eraseToAnyPublisher())
                 projectWindowSaveCoordinator.onUndoManagerAvailable { [weak controller] undoManager in
                     controller?.installUndoManager(undoManager)
@@ -84,27 +85,44 @@ struct EditorWorkspaceView: View {
                     open: { [weak captionEditorWindows] in captionEditorWindows?.openNew() },
                     close: { [weak captionEditorWindows] in captionEditorWindows?.close() }
                 )
+                requestProjectPreparation()
                 NotificationCenter.default.post(name: .trimatoProjectDidOpen, object: nil)
             }
+            .onChange(of: controller.project) { previous, project in
+                if previous.withoutMarkers != project.withoutMarkers { projectPlayer.updateMix(project: project) }
+                projectPlayer.selectEditPointTrack(controller.activeTimelineTrackID, in: project)
+                guard !controller.consumePreparedTransitionPreview(for: project),
+                      ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
+                requestProjectPreparation()
+            }
+            .onChange(of: preserveHDR) { _, _ in requestProjectPreparation() }
             .task(id: canFinishInitialPreparation) {
-                guard canFinishInitialPreparation else { return }
-                // Let the enabled workspace update before requesting its initial focus.
                 await Task.yield()
-                guard !Task.isCancelled, canFinishInitialPreparation,
-                      projectWindowSaveCoordinator.acceptsWorkspaceCommands else { return }
-                hasHandledInitialPreparation = true
-                if projectPlayer.errorMessage != nil {
-                    projectPlayer.showPreviewFailure()
-                } else if controller.project.media.isEmpty,
-                          controller.project.folders.isEmpty,
-                          controller.project.primaryTimeline.isEmpty,
-                          controller.project.cutaways.isEmpty,
-                          controller.project.tracks.allSatisfy({
-                              $0.clips.isEmpty && $0.captionCues.isEmpty && $0.markers.isEmpty
-                          }) {
-                    initialImportFocusRequest += 1
+                guard !Task.isCancelled else { return }
+                finishInitialPreparationIfPossible()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
+                .merge(with: NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification),
+                       NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))) { event in
+                if let window = event.object as? NSWindow,
+                   window !== projectWindowSaveCoordinator.attachedWindow { return }
+                guard !hasHandledInitialPreparation || controller.openingEntry.pendingTarget != nil else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    finishInitialPreparationIfPossible()
+                    controller.refreshInitialWorkspaceEntry()
                 }
             }
+            .onChange(of: projectPlayer.isPreparing) { _, preparing in
+                if !preparing { controller.refreshInitialWorkspaceEntry() }
+            }
+            .onChange(of: projectPlayer.isInitialPreparationPending) { _, pending in
+                controller.recordWorkspaceReadiness("preparation-pending=\(pending)")
+            }
+    }
+
+    var body: some View {
+        workspaceLifecycle
             .focusedSceneValue(\.closeToolPane, controller.toolPane == nil ? nil : ToolPaneCloseAction(
                 title: "Close \(controller.toolPane!.title)", action: controller.requestCloseToolPane))
             .onChange(of: controller.toolPane) { old, new in
@@ -152,6 +170,7 @@ struct EditorWorkspaceView: View {
                 if let report { presentCaptionFinalizationReport(report) }
             }
             .onDisappear {
+                controller.cancelInitialWorkspaceEntry()
                 controller.closeToolPaneImmediately()
                 ExternalMediaOpenCoordinator.shared.unregister(controller: controller)
                 WorkspaceCommandState.shared.unregister(controller)
@@ -222,17 +241,28 @@ struct EditorWorkspaceView: View {
     }
 
     private var progressEditor: some View {
-        VStack(spacing: 0) {
-            if projectPlayer.isInitialPreparationPending {
-                ProgressView("Preparing Project", value: projectPlayer.preparationProgress)
+        Group {
+            if controller.canPresentWorkspace {
+                editor
+                    .onAppear {
+                        // Native onAppear actions finish before the first rendered
+                        // frame. Publish command availability in this handoff, not
+                        // in a later task after the workspace has been exposed.
+                        if controller.finishWorkspacePreparation() {
+                            WorkspaceCommandState.shared.refreshForWorkspacePresentation()
+                            controller.recordWorkspaceReadiness("workspace-presented")
+                        }
+                    }
+            } else {
+                // Player preparation has no measurable fraction of total work.
+                ProgressView("Preparing Project")
                     .progressViewStyle(.linear)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: 360)
+                    .padding(24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            editor
-                .disabled(projectPlayer.isInitialPreparationPending)
         }
+            .frame(minWidth: 800, minHeight: 720)
             .operationProgress(
                 exportOperation,
                 outcome: controller.presentedError == nil ? .completed : .failed,
@@ -254,13 +284,29 @@ struct EditorWorkspaceView: View {
                                dismissed: restoreTransitionFocus)
     }
 
+    private func requestProjectPreparation() {
+        projectPlayer.selectEditPointTrack(controller.activeTimelineTrackID, in: controller.project)
+        projectPlayer.requestPreparation(
+            project: controller.project,
+            mediaURLs: controller.resolvedMediaURLs(),
+            initialTime: controller.timelinePlayhead
+        )
+    }
+
+    private func finishInitialPreparationIfPossible() {
+        guard canFinishInitialPreparation, projectWindowSaveCoordinator.acceptsWorkspaceCommands else { return }
+        hasHandledInitialPreparation = true
+        if projectPlayer.errorMessage != nil { projectPlayer.showPreviewFailure() }
+    }
+
     private var canFinishInitialPreparation: Bool {
-        !hasHandledInitialPreparation && !projectPlayer.isInitialPreparationPending &&
+        !hasHandledInitialPreparation && !controller.isPreparingProject &&
             windowActivity == .key && projectWindowSaveCoordinator.attachedWindow != nil &&
             !projectWindowSaveCoordinator.isResolvingClose
     }
 
     private func finishPreviewRecovery() {
+        controller.finishInitialPreviewFailureReview()
         let recovery = pendingPreviewRecovery
         pendingPreviewRecovery = nil
         switch recovery {
@@ -474,7 +520,6 @@ struct EditorWorkspaceView: View {
 struct ProjectViewerView: View {
     @AppStorage(AppPreferenceKey.portraitVideo) private var portraitVideo = false
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
-    @AppStorage(AppPreferenceKey.preserveHDR) private var preserveHDR = true
     fileprivate enum AccessibilityTarget: Hashable {
         case heading
         case videoFrame
@@ -616,16 +661,7 @@ struct ProjectViewerView: View {
                 guard let controller, let viewModel else { return }
                 controller.trimActiveTrackClip(edge: .tail, at: viewModel.currentTime)
             }
-            requestPreparation()
         }
-        .onChange(of: controller.project) { previous, project in
-            if previous.withoutMarkers != project.withoutMarkers { viewModel.updateMix(project: project) }
-            viewModel.selectEditPointTrack(controller.activeTimelineTrackID, in: project)
-            guard !controller.consumePreparedTransitionPreview(for: project),
-                  ProjectPreviewInput(previous) != ProjectPreviewInput(project) else { return }
-            requestPreparation()
-        }
-        .onChange(of: preserveHDR) { _, _ in requestPreparation() }
         .onChange(of: controller.activeTimelineTrackID) { _, trackID in
             viewModel.selectEditPointTrack(trackID, in: controller.project)
         }
@@ -670,20 +706,11 @@ struct ProjectViewerView: View {
         }
     }
 
+    // Explicit Prepare Playback action; initial loading belongs to the workspace.
     private func prepare() {
-        viewModel.prepare(
-            project: controller.project,
-            mediaURLs: controller.resolvedMediaURLs(),
-            initialTime: controller.timelinePlayhead
-        )
-    }
-
-    private func requestPreparation() {
-        viewModel.requestPreparation(
-            project: controller.project,
-            mediaURLs: controller.resolvedMediaURLs(),
-            initialTime: controller.timelinePlayhead
-        )
+        viewModel.prepare(project: controller.project,
+                          mediaURLs: controller.resolvedMediaURLs(),
+                          initialTime: controller.timelinePlayhead)
     }
 
     private func restoreProjectPlayheadFocus() {

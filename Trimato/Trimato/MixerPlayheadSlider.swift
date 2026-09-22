@@ -9,8 +9,10 @@ struct MixerPlayheadSlider: View {
     let playing: Bool
     var focusRevision = 0
     @Environment(\.controlActiveState) private var windowActivity
-    @FocusState private var keyboardFocused: Bool
-    @State private var needsInitialFocus = true
+    var keyboardFocus: FocusState<Bool>.Binding
+    #if DEBUG
+    @AccessibilityFocusState(for: .voiceOver) private var observedVoiceOverFocus: Bool
+    #endif
 
     var body: some View {
         // An inline Slider label makes macOS lay out labels for its frame steps.
@@ -20,20 +22,25 @@ struct MixerPlayheadSlider: View {
                 .accessibilityValue(timecode)
                 .accessibilityAddTraits(playing ? .updatesFrequently : [])
                 .accessibilityIdentifier("trimato.mixer.playhead")
-                .focused($keyboardFocused)
+                .focused(keyboardFocus)
+                #if DEBUG
+                .accessibilityFocused($observedVoiceOverFocus)
+                .onChange(of: observedVoiceOverFocus) { _, focused in
+                    recordFocus("voiceover-observed=\(focused)")
+                }
+                #endif
         }
-        .onChange(of: focusRevision) { _, _ in
-            keyboardFocused = true
-        }
-        .task(id: ready && windowActivity == .key) {
-            guard needsInitialFocus, ready, windowActivity == .key else { return }
-            // Allow the native slider to join the active window before focusing it.
-            await Task.yield()
-            guard !Task.isCancelled, let application = NSApp, application.isActive,
-                  application.keyWindow?.attachedSheet == nil,
-                  application.modalWindow == nil else { return }
-            needsInitialFocus = false
-            keyboardFocused = true
-        }
+        .onAppear { recordFocus("appear") }
+        .onDisappear { recordFocus("disappear") }
+        .onChange(of: ready) { _, _ in recordFocus("readiness-changed") }
+        .onChange(of: windowActivity) { _, _ in recordFocus("window-activity-changed") }
+        .onChange(of: keyboardFocus.wrappedValue) { _, _ in recordFocus("keyboard-observed") }
+
+    }
+
+    private func recordFocus(_ event: String) {
+        #if DEBUG
+        TimelineFocusDiagnostics.record("mixer-slider \(event) revision=\(focusRevision) ready=\(ready) activity=\(windowActivity) keyboard=\(keyboardFocus.wrappedValue) voiceOver=\(observedVoiceOverFocus) active=\(NSApp?.isActive == true) modal=\(NSApp?.modalWindow != nil) \(TimelineFocusDiagnostics.windowState(NSApp?.keyWindow))")
+        #endif
     }
 }

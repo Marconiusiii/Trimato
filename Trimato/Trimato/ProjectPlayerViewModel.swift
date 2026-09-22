@@ -624,6 +624,15 @@ final class ProjectPlayerViewModel: ObservableObject {
             } catch {
                 Self.removeTemporaryMedia(at: pendingTemporaryMediaURLs)
                 if self.preparationID == preparationID {
+                    // A cancelled worker may throw its own error instead of
+                    // CancellationError. Respect cancellation before reporting it.
+                    if Task.isCancelled {
+                        preparationWasCancelled = true
+                        isPreparing = false
+                        isInitialPreparationPending = false
+                        preparationProgress = nil
+                        return
+                    }
                     player.replaceCurrentItem(with: nil)
                     hasPreparedPlayerItem = false
                     isPreparing = false
