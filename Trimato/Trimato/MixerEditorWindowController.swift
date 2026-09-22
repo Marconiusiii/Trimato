@@ -8,15 +8,19 @@ final class MixerWindowRegistry: ObservableObject {
     @Published private(set) var session: MixerSession?
     private var changes: AnyCancellable?
     private var keyboardMonitor: Any?
+    private var presentationID = UUID()
     weak var focusScope: EditorAccessibilityFocusScope?
     private var window: NSWindow? { session?.controller.projectSaveCoordinator?.attachedWindow }
     var activeSession: MixerSession? { window?.isKeyWindow == true ? session : nil }
 
     func open(controller: ProjectController) {
         TimelineFocusDiagnostics.record("mixer-open-request existing=\(controller.toolPane == .mixer) revision=\(controller.toolFocusRevision) \(TimelineFocusDiagnostics.windowState(controller.projectSaveCoordinator?.attachedWindow))")
+        let origin = TimelineKeyboardFocus.mixerOrigin(in: controller.projectSaveCoordinator?.attachedWindow,
+                                                       trackID: controller.activeTimelineTrack?.id)
         controller.openToolPane(.mixer) { [weak self, weak controller] in
             guard let self, let controller, let player = controller.projectPlayer else { return }
-            let session = MixerSession(controller: controller, player: player)
+            self.presentationID = UUID()
+            let session = MixerSession(controller: controller, player: player, origin: origin)
             self.session = session
             TimelineFocusDiagnostics.record("mixer-session-created ready=\(player.canControlPlayback) revision=\(controller.toolFocusRevision)")
             changes = session.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in
@@ -43,9 +47,14 @@ final class MixerWindowRegistry: ObservableObject {
         changes = nil
         closing.player.stopMixerPlayback()
         if controller.toolPane == .mixer { controller.toolPane = nil }
-        Task { @MainActor [weak controller] in
+        closing.close(restoreFocus: false)
+        let request = MixerReturnRequest(controller)
+        let presentationID = self.presentationID
+        Task { @MainActor [weak self, weak controller] in
             await Task.yield()
-            closing.close(restoreFocus: controller?.toolPane == nil)
+            guard let self, let controller, self.presentationID == presentationID,
+                  self.session == nil, request.isCurrent(in: controller) else { return }
+            closing.restoreOriginFocus()
         }
     }
 

@@ -10,6 +10,88 @@ struct MixerTrack: Equatable, Identifiable {
     let muted: Bool
 }
 
+// The opening destination is immutable; the playhead and selected clip are not focus.
+enum MixerFocusOrigin: Equatable {
+    case editor
+    case timeline(trackID: UUID?, item: TimelineElementSelection?)
+
+    static func resolve(voiceOver: Bool, observedItem: TimelineElementSelection?,
+                        keyboardItem: TimelineElementSelection?, collectionResponder: Bool,
+                        trackID: UUID?) -> Self {
+        if let item = voiceOver ? observedItem : keyboardItem {
+            return .timeline(trackID: trackID, item: item)
+        }
+        return collectionResponder ? .timeline(trackID: trackID, item: nil) : .editor
+    }
+
+    @MainActor func restore(in controller: ProjectController) {
+        switch self {
+        case .editor: controller.requestEditorFocusRestore()
+        case .timeline(let trackID, let item):
+            if let track = controller.project.tracks.first(where: { $0.id == trackID }) {
+                controller.activeTimelineTrackID = track.id
+                let exists = item.map { target in
+                    switch target {
+                    case .clip(let id): return track.clips.contains { $0.id == id }
+                    case .caption(let id): return track.captionCues.contains { $0.id == id }
+                    case .marker(let id): return track.markers.contains { $0.id == id }
+                    case .transition(let id):
+                        return TimelineElementSequence.transitions(for: track, in: controller.project).contains { $0.id == id }
+                    }
+                } ?? false
+                if exists, let item {
+                    controller.requestTimelineFocusRestore(to: item)
+                    return
+                }
+            }
+            controller.requestTimelineListFocusRestore()
+        }
+    }
+}
+
+// Captured at dismissal, so an older return cannot override a later command.
+struct MixerReturnRequest: Equatable {
+    let workspace: Int
+    let editor: Int
+    let item: Int
+    let collection: Int
+    let source: Int
+    let tool: Int
+    let track: UUID?
+
+    @MainActor init(_ controller: ProjectController) {
+        workspace = controller.workspaceFocusRequest.revision
+        editor = controller.editorFocusRestoreRequest
+        item = controller.timelineFocusRestoreRequest
+        collection = controller.timelineListFocusRestoreRequest
+        source = controller.projectSourceFocusRequest.revision
+        tool = controller.toolFocusRevision
+        track = controller.activeTimelineTrackID
+    }
+
+    @MainActor func isCurrent(in controller: ProjectController) -> Bool {
+        controller.toolPane == nil && self == MixerReturnRequest(controller)
+    }
+}
+
+// Issuing a keyboard request does not confirm either keyboard or VoiceOver entry.
+struct MixerEntryRequest: Equatable {
+    private(set) var revision: Int?
+    private(set) var keyboardConfirmed = false
+    private(set) var voiceOverObserved = false
+
+    mutating func issue(_ revision: Int, keyboardFocused: Bool, voiceOverFocused: Bool) -> Bool {
+        guard self.revision != revision else { return false }
+        self.revision = revision
+        keyboardConfirmed = keyboardFocused
+        voiceOverObserved = voiceOverFocused
+        return true
+    }
+
+    mutating func observeKeyboard(_ focused: Bool) { keyboardConfirmed = focused }
+    mutating func observeVoiceOver(_ focused: Bool) { voiceOverObserved = focused }
+}
+
 @MainActor
 final class MixerSession: ObservableObject {
     let controller: ProjectController
@@ -21,18 +103,11 @@ final class MixerSession: ObservableObject {
     @Published private(set) var waveformRevision = 0
     private var waveformProject: TrimatoProject?
     private var observation: AnyCancellable?
-    private let fromTimeline: Bool
-    private let origin: TimelineElementSelection?
+    private let origin: MixerFocusOrigin
 
-    init(controller: ProjectController, player: ProjectPlayerViewModel) {
+    init(controller: ProjectController, player: ProjectPlayerViewModel, origin: MixerFocusOrigin = .editor) {
         self.controller = controller; self.player = player
-        if NSWorkspace.shared.isVoiceOverEnabled, let window = controller.projectSaveCoordinator?.attachedWindow {
-            if case .timeline = WorkspaceVoiceOverCommandFocus.forWindow(window).owner { fromTimeline = true }
-            else { fromTimeline = false }
-        } else {
-            fromTimeline = controller.timelineHasKeyboardFocus || TimelineKeyboardFocus.isInTimeline
-        }
-        origin = controller.selectedTimelineClip.map { .clip($0.id) }
+        self.origin = origin
         refresh()
         selectedID = tracks.contains(where: { $0.id == controller.activeTimelineTrackID })
             ? controller.activeTimelineTrackID : tracks.first?.id
@@ -89,15 +164,17 @@ final class MixerSession: ObservableObject {
     func close(restoreFocus: Bool = true) {
         controller.mixerAdjustmentEditing(false)
         player.updateMix(project: controller.project, solo: [])
-        guard restoreFocus, controller.projectSaveCoordinator?.isApplicationTerminating != true,
+        if restoreFocus { restoreOriginFocus() }
+    }
+
+    func restoreOriginFocus() {
+        guard controller.projectSaveCoordinator?.isApplicationTerminating != true,
               controller.projectSaveCoordinator?.isResolvingClose != true,
               ExternalMediaOpenCoordinator.shared.activeProjectController === controller,
-              let window = controller.projectSaveCoordinator?.attachedWindow, window.isVisible else { return }
-        window.makeKeyAndOrderFront(nil)
-        if fromTimeline {
-            if let origin { controller.requestTimelineFocusRestore(to: origin) }
-            else { controller.requestTimelineListFocusRestore() }
-        } else { controller.requestEditorFocusRestore() }
+              let window = controller.projectSaveCoordinator?.attachedWindow,
+              window.isVisible, window.isKeyWindow, NSApp?.isActive == true,
+              window.attachedSheet == nil, NSApp?.modalWindow == nil else { return }
+        origin.restore(in: controller)
     }
 }
 
@@ -107,7 +184,7 @@ struct MixerView: View {
     var focusRevision = 0
     @FocusState private var playheadFocused: Bool
     @Environment(\.controlActiveState) private var windowActivity
-    @State private var appliedFocusRevision: Int?
+    @State private var entryRequest = MixerEntryRequest()
     @StateObject private var focusScope = EditorAccessibilityFocusScope(mixer: true)
     @AccessibilityFocusState private var containsVoiceOverFocus: Bool
 
@@ -126,19 +203,24 @@ struct MixerView: View {
         .defaultFocus($playheadFocused, true)
         .task(id: windowActivity == .key && player.canControlPlayback ? focusRevision : nil) {
             guard windowActivity == .key, player.canControlPlayback,
-                  appliedFocusRevision != focusRevision else { return }
+                  entryRequest.revision != focusRevision else { return }
             await Task.yield()
             guard !Task.isCancelled, let window = focusScope.boundaryView?.window,
                   window.isKeyWindow, NSApp.isActive, window.attachedSheet == nil,
                   NSApp.modalWindow == nil else { return }
             TimelineFocusDiagnostics.record("mixer-pane entry-request revision=\(focusRevision) \(TimelineFocusDiagnostics.windowState(window))")
-            appliedFocusRevision = focusRevision
+            guard entryRequest.issue(focusRevision, keyboardFocused: playheadFocused,
+                                     voiceOverFocused: containsVoiceOverFocus) else { return }
             playheadFocused = true
         }
         .background(EditorAccessibilityFocusBridge(scope: focusScope))
         .accessibilityFocused($containsVoiceOverFocus)
+        .onChange(of: playheadFocused) { _, focused in
+            entryRequest.observeKeyboard(focused)
+        }
         .onChange(of: containsVoiceOverFocus) { _, focused in
             TimelineFocusDiagnostics.record("mixer-pane voiceover-observed=\(focused) revision=\(focusRevision) \(TimelineFocusDiagnostics.windowState(focusScope.boundaryView?.window))")
+            entryRequest.observeVoiceOver(focused)
             focusScope.recordVoiceOverFocus(focused)
         }
         .onAppear {

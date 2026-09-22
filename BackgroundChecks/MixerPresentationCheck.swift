@@ -5,6 +5,7 @@ import Combine
 @main struct MixerPresentationCheck {
     @MainActor static func main() async {
         precondition(NSApp == nil)
+        checkFocusRouting()
         let player = ProjectPlayerViewModel()
         let presentation = MixerPlaybackPresentation(player: player)
         // Let the initial AVPlayer rate observation settle before advancing time.
@@ -67,4 +68,104 @@ import Combine
         withExtendedLifetime((observation, boundaryObservation)) {}
         print("PASS: 300 advancing clock ticks preserved workspace and Mixer controls, saved accessible values stay stable across clock ticks and T reads current time, no application created")
     }
+
+    @MainActor static func checkFocusRouting() {
+        let focused = TimelineElementSelection.clip(UUID())
+        let stale = TimelineElementSelection.clip(UUID())
+        let trackID = UUID()
+        precondition(MixerFocusOrigin.resolve(voiceOver: true, observedItem: focused,
+            keyboardItem: stale, collectionResponder: false, trackID: trackID)
+            == .timeline(trackID: trackID, item: focused))
+        precondition(MixerFocusOrigin.resolve(voiceOver: true, observedItem: nil,
+            keyboardItem: stale, collectionResponder: true, trackID: trackID)
+            == .timeline(trackID: trackID, item: nil))
+        precondition(MixerFocusOrigin.resolve(voiceOver: true, observedItem: nil,
+            keyboardItem: stale, collectionResponder: false, trackID: trackID) == .editor)
+        precondition(MixerFocusOrigin.resolve(voiceOver: false, observedItem: stale,
+            keyboardItem: focused, collectionResponder: false, trackID: trackID)
+            == .timeline(trackID: trackID, item: focused))
+        precondition(TimelineKeyboardFocus.mixerOrigin(in: nil, trackID: trackID) == .editor)
+
+        let segment = SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 2)))
+        let first = TimelineClip(assetID: UUID(), name: "At playhead", segments: [segment])
+        let second = TimelineClip(assetID: UUID(), name: "Opened from here", segments: [segment], timelineStart: ProjectTime(seconds: 4))
+        let caption = CaptionCue(start: .zero, end: ProjectTime(seconds: 2), text: "Caption")
+        var description = caption
+        description.id = UUID()
+        description.isDescription = true
+        let marker = TimelineMarker(index: 1, time: .zero, title: "Marker 1")
+        let video = TimelineTrack(name: "Primary Video", kind: .video, clips: [first, second])
+        let captions = TimelineTrack(name: "Captions", kind: .captions, captionCues: [caption])
+        let descriptions = TimelineTrack(name: "Descriptions", kind: .captions, captionCues: [description])
+        let markers = TimelineTrack(name: "Markers", kind: .markers, markers: [marker])
+        var project = TrimatoProject(name: "Mixer return")
+        project.tracks = [video, captions, descriptions, markers]
+        let transition = TimelineTransition(trackID: video.id, edge: .between, kind: .video(.crossDissolve),
+            duration: ProjectTime(seconds: 1), leadingClipID: first.id, trailingClipID: second.id)
+        project.transitions = [transition]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.selection = .timelineClip(first.id)
+        for (track, target) in [(video, TimelineElementSelection.clip(second.id)),
+                                (captions, .caption(caption.id)),
+                                (descriptions, .caption(description.id)), (markers, .marker(marker.id)),
+                                (video, .transition(transition.id))] {
+            controller.activeTimelineTrackID = video.id
+            let revision = controller.timelineFocusRestoreRequest
+            MixerFocusOrigin.timeline(trackID: track.id, item: target).restore(in: controller)
+            precondition(controller.activeTimelineTrackID == track.id)
+            precondition(controller.timelineFocusRestoreTarget == target)
+            precondition(controller.timelineFocusRestoreRequest == revision + 1)
+            precondition(controller.timelinePlayhead == .zero)
+        }
+        var revision = controller.timelineListFocusRestoreRequest
+        let itemRevision = controller.timelineFocusRestoreRequest
+        MixerFocusOrigin.timeline(trackID: video.id, item: nil).restore(in: controller)
+        precondition(controller.timelineListFocusRestoreRequest == revision + 1)
+        precondition(controller.timelineFocusRestoreRequest == itemRevision)
+        revision = controller.timelineListFocusRestoreRequest
+        MixerFocusOrigin.timeline(trackID: video.id, item: .clip(UUID())).restore(in: controller)
+        precondition(controller.timelineListFocusRestoreRequest == revision + 1)
+        revision = controller.timelineListFocusRestoreRequest
+        MixerFocusOrigin.timeline(trackID: UUID(), item: .clip(second.id)).restore(in: controller)
+        precondition(controller.timelineListFocusRestoreRequest == revision + 1)
+        let editorRevision = controller.editorFocusRestoreRequest
+        MixerFocusOrigin.editor.restore(in: controller)
+        precondition(controller.editorFocusRestoreRequest == editorRevision + 1)
+
+        let request = MixerReturnRequest(controller)
+        precondition(request.isCurrent(in: controller))
+        controller.toolPane = .mixer
+        precondition(!request.isCurrent(in: controller))
+        controller.toolPane = nil
+        // No active project window exists in this background check; rejected
+        // workspace commands must not invalidate an otherwise current return.
+        controller.requestWorkspaceFocus(.timeline)
+        precondition(request.isCurrent(in: controller))
+        controller.toolFocusRevision += 1
+        precondition(!request.isCurrent(in: controller))
+        let later = MixerReturnRequest(controller)
+        controller.requestTimelineListFocusRestore()
+        precondition(!later.isCurrent(in: controller))
+        let editorReturn = MixerReturnRequest(controller)
+        controller.requestEditorFocusRestore()
+        precondition(!editorReturn.isCurrent(in: controller))
+
+        var entry = MixerEntryRequest()
+        precondition(entry.issue(1, keyboardFocused: false, voiceOverFocused: false))
+        precondition(!entry.keyboardConfirmed && !entry.voiceOverObserved)
+        entry.observeKeyboard(true)
+        precondition(entry.keyboardConfirmed && !entry.voiceOverObserved)
+        precondition(!entry.issue(1, keyboardFocused: false, voiceOverFocused: false))
+        precondition(entry.issue(2, keyboardFocused: true, voiceOverFocused: false))
+        precondition(entry.keyboardConfirmed && !entry.voiceOverObserved)
+        entry.observeVoiceOver(true)
+        precondition(entry.keyboardConfirmed && entry.voiceOverObserved)
+        entry.observeKeyboard(false)
+        precondition(!entry.keyboardConfirmed && entry.voiceOverObserved)
+        entry.observeVoiceOver(false)
+        precondition(!entry.keyboardConfirmed && !entry.voiceOverObserved)
+        precondition(NSApp == nil)
+        print("PASS: Mixer return routing preserves collection, exact clip, caption, description, marker and transition origins; missing destinations fall back to collection; later navigation supersedes returns; keyboard and VoiceOver entry are independent")
+    }
+
 }
