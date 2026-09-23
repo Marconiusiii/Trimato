@@ -122,7 +122,7 @@ struct ContentView: View {
 
     private var entryFocusReady: Bool {
         viewModel.hasMedia && viewModel.duration > 0 && !isPreparingSource &&
-            !viewModel.isLoadingMedia && !viewModel.isPreparingWaveform && !isPreparingClipPreview
+            !viewModel.isLoadingMedia && !isPreparingClipPreview
     }
 
     // MARK: - Video area
@@ -138,9 +138,8 @@ struct ContentView: View {
                 if viewModel.hasVideo {
                     VideoPlayerView(player: viewModel.player)
                         .accessibilityHidden(true)
-                } else {
-                    ClipLiveWaveform(clock: viewModel.playbackClock, samples: viewModel.waveformSamples,
-                        duration: viewModel.duration, isLoading: viewModel.isPreparingWaveform)
+                } else if viewModel.showsAudioWaveforms {
+                    AudioWaveformView(samples: viewModel.waveformSamples, isLoading: viewModel.isPreparingWaveform)
                 }
             } else if !viewModel.isLoadingMedia {
                 VStack(spacing: 16) {
@@ -462,16 +461,5 @@ private struct ClipLivePlayhead: View {
     var body: some View {
         Slider(value: Binding(get: { duration > 0 ? clock.time / duration : 0 }, set: seek),
             in: 0...1, step: step)
-    }
-}
-
-private struct ClipLiveWaveform: View {
-    @ObservedObject var clock: ClipPlaybackClock
-    let samples: [Float]
-    let duration: Double
-    let isLoading: Bool
-    var body: some View {
-        AudioWaveformView(samples: samples, playbackFraction: duration > 0 ? clock.time / duration : 0,
-            isLoading: isLoading)
     }
 }

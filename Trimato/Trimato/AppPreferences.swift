@@ -5,6 +5,7 @@ nonisolated enum AppPreferenceKey {
     static let processingSounds = "processingSounds"
     static let exportCompletionSound = "exportCompletionSound"
     static let preserveHDR = "preserveHDR"
+    static let showAudioWaveforms = "showAudioWaveforms"
     static let appearance = "appearance"
     static let portraitVideo = "portraitVideo"
     static let accentColor = "accentColor"
@@ -53,6 +54,10 @@ nonisolated enum TimecodeVerbosity: String, CaseIterable, Identifiable, Sendable
 }
 
 nonisolated enum AppPreferences {
+    static func showAudioWaveforms(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: AppPreferenceKey.showAudioWaveforms)
+    }
+
     static func preserveHDR(in defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: AppPreferenceKey.preserveHDR) as? Bool ?? true
     }

@@ -211,9 +211,6 @@ struct SourceClipEditorView: View {
             viewModel.preparePlayback = { ensureLatestPlayback() }
             scheduleAudioPreview(for: commandContext.audioSettings, debounce: false)
         }
-        .onChange(of: viewModel.isPreparingWaveform) {
-            if !viewModel.isPreparingWaveform { scheduleAudioPreview(for: commandContext.audioSettings, debounce: false) }
-        }
         .onChange(of: commandContext.filters) {
             scheduleAudioPreview(for: commandContext.audioSettings,
                                  userInitiated: commandContext.hasUncommittedChanges)
@@ -586,7 +583,7 @@ struct SourceClipEditorView: View {
         force: Bool = false,
         userInitiated: Bool = false
     ) {
-        guard !viewModel.isLoadingMedia, !viewModel.isPreparingWaveform else { return }
+        guard !viewModel.isLoadingMedia else { return }
         guard viewModel.hasMedia,
               let sourceURL = controller.resolveURL(for: currentAsset),
               !viewModel.audioPreviewSegments.isEmpty else {

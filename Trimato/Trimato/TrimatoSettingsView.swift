@@ -93,6 +93,7 @@ enum SettingsToolbarAccessibility {
 }
 
 struct GeneralSettingsView: View {
+    @AppStorage(AppPreferenceKey.showAudioWaveforms) private var showAudioWaveforms = false
     @AppStorage(AppPreferenceKey.markerAudio) private var markerAudio = true
     @AppStorage(AppPreferenceKey.processingSounds) private var processingSounds = true
     @AppStorage(AppPreferenceKey.exportCompletionSound) private var exportCompletionSound = true
@@ -125,6 +126,8 @@ struct GeneralSettingsView: View {
                 ForEach(EditorAccent.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.menu)
+
+            Toggle("Show Audio Waveforms", isOn: $showAudioWaveforms)
 
             Text("Saving")
                 .font(.headline)

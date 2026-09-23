@@ -18,8 +18,6 @@ final class MixerSession: ObservableObject {
     @Published var selectedID: UUID?
     @Published private(set) var soloIDs: Set<UUID> = []
     @Published private(set) var masterVolumeDB: Double = 0
-    @Published private(set) var waveformRevision = 0
-    private var waveformProject: TrimatoProject?
     private var observation: AnyCancellable?
 
     init(controller: ProjectController, player: ProjectPlayerViewModel) {
@@ -32,10 +30,6 @@ final class MixerSession: ObservableObject {
     }
     var selected: MixerTrack? { tracks.first { $0.id == selectedID } }
     func refresh() {
-        if waveformProject != controller.project {
-            waveformProject = controller.project
-            waveformRevision &+= 1
-        }
         let next = controller.project.orderedTimelineTracks.filter { $0.kind == .audio }.map {
             MixerTrack(id: $0.id, name: $0.name, mix: $0.mix, muted: $0.isMuted)
         }
@@ -63,12 +57,11 @@ final class MixerSession: ObservableObject {
     func solo(_ value: Bool) {
         guard let selectedID else { return }
         if value { soloIDs.insert(selectedID) } else { soloIDs.remove(selectedID) }
-        waveformRevision &+= 1
         player.updateMix(project: controller.project, solo: soloIDs)
     }
     func reset() {
         guard let selectedID else { return }
-        if soloIDs.remove(selectedID) != nil { waveformRevision &+= 1 }
+        soloIDs.remove(selectedID)
         controller.resetTrackMix(selectedID); refresh()
     }
     func selectAdjacentTrack(_ direction: Int) {
@@ -118,7 +111,7 @@ struct MixerView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Mixer").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
-            MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, play: session.togglePlayback)
+            MixerPlaybackControls(player: player, play: session.togglePlayback)
             Divider()
             Text("Track controls").font(.headline).accessibilityAddTraits(.isHeader)
             Picker("Audio track", selection: $session.selectedID) {
@@ -129,20 +122,20 @@ struct MixerView: View {
             Group {
                 AudioValueSlider(label: "Volume", value: value(\.volumeDB), range: -60...12, step: 0.5,
                     unit: "dB", identifier: "trimato.mixer.volume", spokenValue: MixerValue.decibels,
-                    onEditingChanged: session.controller.mixerAdjustmentEditing)
+                    onEditingChanged: session.controller.mixerSliderEditingChanged)
                 HStack {
                     Toggle("Mute", isOn: Binding(get: { session.selected?.muted ?? false }, set: session.mute))
                     Toggle("Solo", isOn: Binding(get: { session.selectedID.map { session.soloIDs.contains($0) } ?? false }, set: session.solo))
                 }
                 AudioValueSlider(label: "Pan", value: value(\.pan), range: -1...1, step: 0.01,
                     unit: "", identifier: "trimato.mixer.pan", spokenValue: MixerValue.position,
-                    onEditingChanged: session.controller.mixerAdjustmentEditing)
+                    onEditingChanged: session.controller.mixerSliderEditingChanged)
                 AudioValueSlider(label: "Stereo balance", value: value(\.balance), range: -1...1, step: 0.01,
                     unit: "", identifier: "trimato.mixer.balance", spokenValue: MixerValue.position,
-                    onEditingChanged: session.controller.mixerAdjustmentEditing)
+                    onEditingChanged: session.controller.mixerSliderEditingChanged)
                 AudioValueSlider(label: "Stereo width", value: value(\.width), range: 0...2, step: 0.01,
                     unit: "", identifier: "trimato.mixer.width", spokenValue: MixerValue.width,
-                    onEditingChanged: session.controller.mixerAdjustmentEditing)
+                    onEditingChanged: session.controller.mixerSliderEditingChanged)
                 Picker("Channel routing", selection: Binding(get: { session.selected?.mix.routing ?? .both }, set: session.route)) {
                     ForEach(TrackChannelRouting.allCases) { Text($0.title).tag($0) }
                 }
@@ -153,7 +146,7 @@ struct MixerView: View {
             AudioValueSlider(label: "Master Volume", value: Binding(get: { session.masterVolumeDB }, set: {
                 session.controller.setMasterVolume($0); session.refresh()
             }), range: -60...12, step: 0.5, unit: "dB", identifier: "trimato.mixer.master",
-                spokenValue: MixerValue.decibels, onEditingChanged: session.controller.mixerAdjustmentEditing)
+                spokenValue: MixerValue.decibels, onEditingChanged: session.controller.mixerSliderEditingChanged)
 
         }
         .padding(EditorTheme.dialogPadding)
@@ -220,63 +213,47 @@ private struct MixerLivePlayhead: View {
 
 private struct MixerWaveform: View {
     let player: ProjectPlayerViewModel
-    let revision: Int
     let playing: Bool
     let itemID: ObjectIdentifier?
     @State private var samples: [Float] = []
     @State private var loading = false
-    @State private var completed: Request?
+    @State private var completed: ObjectIdentifier?
     private struct Request: Equatable {
-        let revision: Int
         let itemID: ObjectIdentifier?
         let playing: Bool
     }
     var body: some View {
-        MixerWaveformDisplay(clock: player.playbackClock, samples: samples,
-            duration: player.duration.seconds, loading: loading)
+        AudioWaveformView(samples: completed == itemID ? samples : [], isLoading: loading || completed != itemID)
             .frame(minHeight: 80, idealHeight: 120, maxHeight: 160)
-            .task(id: Request(revision: revision, itemID: itemID, playing: playing)) {
-                let request = Request(revision: revision, itemID: itemID, playing: false)
-                guard !playing, completed != request, itemID != nil else { return }
+            .task(id: Request(itemID: itemID, playing: playing)) {
+                guard !playing, completed != itemID, let itemID else { return }
                 loading = true
                 defer { loading = false }
                 do {
-                    // Coalesce rapid mix edits and yield to actual playback.
                     try await Task.sleep(for: .milliseconds(300))
-                    guard let (asset, mix) = try player.waveformInput() else { return }
-                    let waveform = try await AudioWaveformAnalyzer.analyzeProject(asset: asset, audioMix: mix)
+                    guard let asset = player.waveformAsset() else { return }
+                    let waveform = try await AudioWaveformAnalyzer.analyzeProject(asset: asset, audioMix: nil)
                     try Task.checkCancellation()
                     samples = waveform.samples
-                    completed = request
+                    completed = itemID
                 } catch is CancellationError {
                     return
                 } catch {
                     samples = []
+                    completed = itemID
                 }
             }
     }
 }
 
-private struct MixerWaveformDisplay: View {
-    @ObservedObject var clock: ProjectPlaybackClock
-    let samples: [Float]
-    let duration: Double
-    let loading: Bool
-    var body: some View {
-        AudioWaveformView(samples: samples, playbackFraction: duration > 0 ? clock.time.seconds / duration : 0,
-            isLoading: loading)
-    }
-}
-
 private struct MixerPlaybackControls: View {
+    @AppStorage(AppPreferenceKey.showAudioWaveforms) private var showAudioWaveforms = false
     let player: ProjectPlayerViewModel
     @StateObject private var presentation: MixerPlaybackPresentation
-    let waveformRevision: Int
     let play: () -> Void
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @StateObject private var keyboard = SettingsSliderKeyboard(identifier: "trimato.mixer.playhead")
-    init(player: ProjectPlayerViewModel, waveformRevision: Int, play: @escaping () -> Void) {
-        self.waveformRevision = waveformRevision
+    init(player: ProjectPlayerViewModel, play: @escaping () -> Void) {
         self.player = player
         self.play = play
         _presentation = StateObject(wrappedValue: MixerPlaybackPresentation(player: player))
@@ -287,8 +264,9 @@ private struct MixerPlaybackControls: View {
             if let message = presentation.state.error {
                 Text(message).textSelection(.enabled)
             }
-            MixerWaveform(player: player, revision: waveformRevision, playing: presentation.state.playing,
-                itemID: presentation.state.itemID)
+            if showAudioWaveforms {
+                MixerWaveform(player: player, playing: presentation.state.playing, itemID: presentation.state.itemID)
+            }
             MixerLivePlayhead(player: player)
                 .tint(EditorTheme.playhead)
                 .onAppear { keyboard.start() }
@@ -396,7 +374,7 @@ struct MixerUndoCommands: Commands {
                     session.controller.mixerAdjustmentEditing(false)
                     session.controller.mixerUndoManager?.undo(); session.refresh()
                 }.keyboardShortcut("z", modifiers: .command)
-                    .disabled(session.controller.mixerUndoManager?.canUndo != true)
+                    .disabled(session.controller.mixerUndoManager?.canUndo != true && !session.controller.hasPendingMixerAdjustment)
                 Button(session.controller.mixerUndoManager?.redoMenuItemTitle ?? "Redo") {
                     session.controller.mixerAdjustmentEditing(false)
                     session.controller.mixerUndoManager?.redo(); session.refresh()

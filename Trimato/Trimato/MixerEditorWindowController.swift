@@ -101,7 +101,10 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
         onKeyChange?(true)
         ExternalMediaOpenCoordinator.shared.activate(controller: session.controller)
     }
-    func windowDidResignKey(_ notification: Notification) { onKeyChange?(false) }
+    func windowDidResignKey(_ notification: Notification) {
+        session.controller.mixerAdjustmentEditing(false)
+        onKeyChange?(false)
+    }
     func windowWillClose(_ notification: Notification) {
         AuthoringWindowArrangement.shared.release(window)
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }

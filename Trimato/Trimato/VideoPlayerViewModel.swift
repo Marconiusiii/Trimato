@@ -161,7 +161,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var projectSourceSegments: [SourceSegment] = []
     @Published private(set) var placementSourceSegments: [SourceSegment] = []
 
-    var isPreparingMedia: Bool { isLoadingMedia || isPreparingWaveform }
+    var isPreparingMedia: Bool { isLoadingMedia }
 
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
@@ -185,6 +185,9 @@ final class VideoPlayerViewModel: ObservableObject {
     private var frameStepPosition: CMTime?
     private var exportTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
+    private let waveformPreferences: UserDefaults
+    private var waveformPreferenceObservation: AnyCancellable?
+    @Published private(set) var showsAudioWaveforms: Bool
     private var waveformTask: Task<Void, Never>?
     private var sourceWaveform: AudioWaveformData?
     private var editTask: Task<Void, Never>?
@@ -198,7 +201,12 @@ final class VideoPlayerViewModel: ObservableObject {
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8, 16]
 
-    init() {
+    init(waveformPreferences: UserDefaults = .standard) {
+        self.waveformPreferences = waveformPreferences
+        showsAudioWaveforms = AppPreferences.showAudioWaveforms(in: waveformPreferences)
+        waveformPreferenceObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshWaveformPreference() }
+
         // Disable stall-avoidance so play() starts outputting audio immediately after a seek —
         // essential for short audio preview windows during frame stepping.
         AudioOutputManager.shared.register(player)
@@ -495,13 +503,10 @@ final class VideoPlayerViewModel: ObservableObject {
                     sourceRanges: timeline.sourceRanges
                 )
                 self.hasMedia = true
+                self.mediaProgress = nil
+                self.mediaStatus = source.usesProxy && !self.hasSpatialAudio ? "Ready using a playback proxy" : "Ready"
                 if source.hasAudio && !source.hasVideo {
                     self.prepareWaveform(asset: source.playbackAsset)
-                } else {
-                    self.mediaProgress = nil
-                    self.mediaStatus = source.usesProxy && !self.hasSpatialAudio
-                        ? "Ready using a playback proxy"
-                        : "Ready"
                 }
                 self.isLoadingMedia = false
                 self.loadID = nil
@@ -529,7 +534,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func cancelMediaLoad() {
-        guard isLoadingMedia || isPreparingWaveform else { return }
+        guard isLoadingMedia else { return }
         waveformID = UUID()
         waveformTask?.cancel()
         waveformTask = nil
@@ -1547,42 +1552,41 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private var waveformID = UUID()
 
+    func refreshWaveformPreference() {
+        let enabled = AppPreferences.showAudioWaveforms(in: waveformPreferences)
+        guard showsAudioWaveforms != enabled else { return }
+        showsAudioWaveforms = enabled
+        waveformID = UUID()
+        waveformTask?.cancel()
+        waveformTask = nil
+        isPreparingWaveform = false
+        sourceWaveform = nil
+        waveformSamples = []
+        if enabled, hasMedia, !hasVideo, let asset = mediaSource?.playbackAsset {
+            prepareWaveform(asset: asset)
+        }
+    }
+
     private func prepareWaveform(asset: AVAsset) {
+        guard showsAudioWaveforms else { return }
         let requestID = UUID()
         waveformID = requestID
         waveformTask?.cancel()
         sourceWaveform = nil
         waveformSamples = []
         isPreparingWaveform = true
-        mediaStatus = "Preparing audio waveform"
-        mediaProgress = 0
         waveformTask = Task { @MainActor [weak self] in
             do {
-                let waveform = try await AudioWaveformAnalyzer.analyze(
-                    asset: asset,
-                    progress: { [weak self] progress in
-                        self?.mediaProgress = progress
-                    }
-                )
+                let waveform = try await AudioWaveformAnalyzer.analyze(asset: asset)
                 try Task.checkCancellation()
-                guard let self, self.waveformID == requestID else { return }
+                guard let self, self.waveformID == requestID, self.showsAudioWaveforms else { return }
                 self.sourceWaveform = waveform
                 self.refreshWaveformSamples()
                 self.isPreparingWaveform = false
-                self.mediaProgress = nil
-                self.mediaStatus = "Ready"
                 self.waveformTask = nil
-            } catch is CancellationError {
-                guard self?.waveformID == requestID else { return }
-                self?.isPreparingWaveform = false
-                self?.mediaProgress = nil
-                self?.waveformTask = nil
             } catch {
                 guard self?.waveformID == requestID else { return }
-                self?.waveformSamples = []
                 self?.isPreparingWaveform = false
-                self?.mediaProgress = nil
-                self?.mediaStatus = "Ready"
                 self?.waveformTask = nil
             }
         }

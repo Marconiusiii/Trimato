@@ -105,6 +105,11 @@ final class ProjectController: ObservableObject {
     @Published private(set) var movementPreview: TrimatoProject?
     private var movementBaseline: TrimatoProject?
     private var mixerAdjustmentOrigin: TrimatoProject?
+    private var mixerAdjustmentTask: Task<Void, Never>?
+    private var mixerAdjustmentRevision = 0
+    private var mixerAdjustmentIsDragging = false
+    private var mixerAdjustmentName = "Adjust Mix"
+    var hasPendingMixerAdjustment: Bool { mixerAdjustmentOrigin != nil }
     private var movementNudgeOrigin: TrimatoProject?
     private var movementNudgeFrames = 0
     private(set) var timelineFocusRestoreTarget: TimelineElementSelection?
@@ -511,6 +516,7 @@ final class ProjectController: ObservableObject {
     }
 
     func closeProject(completion: @escaping (Bool) -> Void = { _ in }) {
+        mixerAdjustmentEditing(false)
         guard !mediaFiles.isBusy, !isImporting, !isRelinkingMedia else {
             presentedError = .init(title: "Media Operation in Progress", message: "Finish or cancel the media operation before closing the project.")
             completion(false); return
@@ -523,6 +529,7 @@ final class ProjectController: ObservableObject {
     let quitEdits = ProjectQuitEdits()
 
     func closeProjectForQuit(completion: @escaping (Bool) -> Void) {
+        mixerAdjustmentEditing(false)
         guard !mediaFiles.isBusy, !isImporting, !isRelinkingMedia else {
             presentedError = .init(title: "Media Operation in Progress", message: "Finish or cancel the media operation before quitting.")
             completion(false); return
@@ -546,12 +553,14 @@ final class ProjectController: ObservableObject {
     }
 
     func saveProjectDocument() {
+        mixerAdjustmentEditing(false)
         projectSaveCoordinator?.save { [weak self] succeeded in
             if succeeded { self?.announce("Project saved", priority: .high) }
         }
     }
 
     func saveProjectDocumentAs() {
+        mixerAdjustmentEditing(false)
         projectSaveCoordinator?.saveAs { [weak self] succeeded in
             if succeeded { self?.announce("Project saved", priority: .high) }
         }
@@ -2829,6 +2838,7 @@ final class ProjectController: ObservableObject {
     }
 
     private func mutateProject(actionName: String, _ mutation: (inout TrimatoProject) -> Void) {
+        mixerAdjustmentEditing(false)
         let before = document.project
         var after = before
         mutation(&after)
@@ -2846,6 +2856,7 @@ final class ProjectController: ObservableObject {
     }
 
     private func apply(_ project: TrimatoProject, undoingTo previous: TrimatoProject, actionName: String) {
+        mixerAdjustmentEditing(false)
         guard project != previous else { return }
         if movingTimelineClipID != nil { clearClipMovement() }
         var located = project
@@ -3000,23 +3011,61 @@ extension ProjectController {
 
 
 extension ProjectController {
-    func mixerAdjustmentEditing(_ editing: Bool) {
-        if editing {
-            if mixerAdjustmentOrigin == nil { mixerAdjustmentOrigin = project }
-        } else if let before = mixerAdjustmentOrigin {
-            mixerAdjustmentOrigin = nil
-            registerMixerUndo(before: before, after: project, actionName: "Adjust Mix")
+    func mixerSliderEditingChanged(_ editing: Bool) {
+        if editing { mixerAdjustmentEditing(true) }
+        else {
+            mixerAdjustmentIsDragging = false
+            if hasPendingMixerAdjustment { scheduleMixerAdjustmentCompletion() }
         }
     }
+
+    func mixerAdjustmentEditing(_ editing: Bool) {
+        mixerAdjustmentIsDragging = editing
+        if editing {
+            if mixerAdjustmentOrigin == nil {
+                mixerAdjustmentOrigin = project
+                mixerAdjustmentName = "Adjust Mix"
+            }
+        } else {
+            mixerAdjustmentTask?.cancel()
+            mixerAdjustmentTask = nil
+            if let before = mixerAdjustmentOrigin {
+                mixerAdjustmentOrigin = nil
+                registerMixerUndo(before: before, after: project, actionName: mixerAdjustmentName)
+            }
+            document.flushLiveMixNotification()
+        }
+    }
+
+    private func scheduleMixerAdjustmentCompletion() {
+        mixerAdjustmentRevision &+= 1
+        guard mixerAdjustmentTask == nil else { return }
+        mixerAdjustmentTask = Task { @MainActor [weak self] in
+            while let revision = self?.mixerAdjustmentRevision {
+                do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+                guard let self else { return }
+                guard revision == self.mixerAdjustmentRevision else { continue }
+                self.mixerAdjustmentTask = nil
+                if self.mixerAdjustmentIsDragging { self.document.flushLiveMixNotification() }
+                else { self.mixerAdjustmentEditing(false) }
+                return
+            }
+        }
+    }
+
     private func mutateMixer(actionName: String, _ mutation: (inout TrimatoProject) -> Void) {
         guard projectSaveCoordinator?.isResolvingClose != true else { return }
         let before = project
         var after = before
         mutation(&after)
         guard after != before else { return }
-        document.project = after
+        if mixerAdjustmentOrigin == nil {
+            mixerAdjustmentOrigin = before
+            mixerAdjustmentName = actionName
+        }
+        document.updateLiveMix(after)
         projectPlayer?.updateMix(project: after)
-        if mixerAdjustmentOrigin == nil { registerMixerUndo(before: before, after: after, actionName: actionName) }
+        scheduleMixerAdjustmentCompletion()
     }
     private func registerMixerUndo(before: TrimatoProject, after: TrimatoProject, actionName: String) {
         guard before != after, let undoManager = projectUndoManager else { return }

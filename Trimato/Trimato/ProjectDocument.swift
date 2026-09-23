@@ -14,11 +14,28 @@ final class ProjectDocument: ReferenceFileDocument {
     var project: TrimatoProject {
         get { storedProject }
         set {
+            hasPendingMixNotification = false
             objectWillChange.send()
             storedProject = newValue
             setHasUnsavedChanges(newValue != explicitlySavedProject)
         }
     }
+    private var hasPendingMixNotification = false
+
+    /// Keep saves and dirty-state checks current without invalidating every
+    /// workspace view for each step of a live audio adjustment.
+    func updateLiveMix(_ project: TrimatoProject) {
+        storedProject = project
+        hasPendingMixNotification = true
+        setHasUnsavedChanges(project != explicitlySavedProject)
+    }
+
+    func flushLiveMixNotification() {
+        guard hasPendingMixNotification else { return }
+        hasPendingMixNotification = false
+        objectWillChange.send()
+    }
+
     private(set) var hasUnsavedChanges = false
     let unsavedChangesDidChange: CurrentValueSubject<Bool, Never>
 

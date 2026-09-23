@@ -1840,22 +1840,8 @@ final class ProjectPlayerViewModel: ObservableObject {
 }
 
 extension ProjectPlayerViewModel {
-    /// Analysis gets independent taps, never the live renderer's processing state.
-    func waveformInput() throws -> (AVAsset, AVAudioMix?)? {
-        guard let item = player.currentItem else { return nil }
-        let asset = item.asset.copy() as! AVAsset
-        guard let original = item.audioMix else { return (asset, nil) }
-        let mix = AVMutableAudioMix()
-        mix.inputParameters = try original.inputParameters.map { input in
-            let copy = input.mutableCopy() as! AVMutableAudioMixInputParameters
-            if let binding = mixBindings[input.trackID],
-               let processor = mixProcessors.first(where: { $0.trackID == binding.sourceID }) {
-                copy.audioTapProcessor = try processor.copyProcessor().makeTap()
-            } else {
-                copy.audioTapProcessor = nil
-            }
-            return copy
-        }
-        return (asset, mix)
+    /// Source overview only: live mixer settings never require waveform analysis.
+    func waveformAsset() -> AVAsset? {
+        player.currentItem?.asset.copy() as? AVAsset
     }
 }
