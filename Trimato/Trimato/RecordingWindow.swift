@@ -1,14 +1,13 @@
 import SwiftUI
 
 nonisolated enum WorkspaceTool: Equatable {
-    case caption, describer, voicer, mixer
+    case caption, describer, voicer
 
     var title: String {
         switch self {
         case .caption: "Captioner"
         case .describer: "Describer"
         case .voicer: "Voicer"
-        case .mixer: "Mixer"
         }
     }
 }
@@ -87,7 +86,6 @@ extension ProjectController {
         switch toolPane {
         case .caption: closeCaptionEditor()
         case .describer, .voicer: dismissRecording()
-        case .mixer: MixerWindowRegistry.shared.close(for: self)
         case nil:
             // Also release sessions created by project-close and test workflows.
             if recordingSession != nil { dismissRecording() }

@@ -21,21 +21,18 @@ struct ToolPanePresentationTests {
         return ""
     }
 
-    @Test(arguments: ["Captioner", "Describer", "Voicer", "Mixer"], [720.0, 850.0])
+    @Test(arguments: ["Captioner", "Describer", "Voicer"], [720.0, 850.0])
     func actionsRemainVisibleAndHelpIsLast(tool: String, height: Double) async throws {
         let controller = ProjectController(document: ProjectDocument())
-        let player = ProjectPlayerViewModel()
         let recording = ProjectRecordingSession(controller: controller,
             purpose: tool == "Describer" ? .audioDescription : .voiceOver, prepareCapture: {})
         let caption = CaptionEditorWindowSession(cue: nil,
             range: ProjectTimeRange(start: ProjectTime(seconds: 2), duration: ProjectTime(seconds: 3)),
             save: { _ in }, play: {}, finished: {})
         caption.text = "Pour the water slowly over the coffee."
-        let mixer = MixerSession(controller: controller, player: player)
         let content: AnyView
         switch tool {
         case "Captioner": content = AnyView(CaptionEditorView(session: caption, focusRevision: 0, cancel: {}))
-        case "Mixer": content = AnyView(MixerView(session: mixer, player: player))
         default: content = AnyView(ProjectRecordingView(session: recording))
         }
         let host = NSHostingView(rootView: content)
@@ -44,7 +41,7 @@ struct ToolPanePresentationTests {
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.orderBack(nil)
-        defer { window.close(); recording.close(); mixer.close(restoreFocus: false) }
+        defer { window.close(); recording.close() }
         host.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(300))
         func checkScrollAreas() {
@@ -63,8 +60,7 @@ struct ToolPanePresentationTests {
              "AXPopUpButton", "AXMenuButton"].contains(attribute($0, "accessibilityRole") as? String ?? "")
         }
         #expect(controls.last.map(title) == "Help")
-        let footerTitles = tool == "Mixer" ? ["Close", "Help"]
-            : ["Cancel", tool == "Captioner" ? "Add Caption" : recording.saveTitle, "Help"]
+        let footerTitles = ["Cancel", tool == "Captioner" ? "Add Caption" : recording.saveTitle, "Help"]
         let hostFrame = try #require(attribute(host, "accessibilityFrame") as? NSValue).rectValue
         for name in footerTitles {
             let control = try #require(controls.first { title($0) == name })

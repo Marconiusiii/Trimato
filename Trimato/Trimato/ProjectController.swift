@@ -1409,7 +1409,6 @@ final class ProjectController: ObservableObject {
 
     func requestToolFocus() {
         guard toolPane != nil else { return }
-        if toolPane == .mixer { MixerWindowRegistry.shared.prepareForEntry(controller: self) }
         beginWorkspaceNavigation(.tool)
         toolFocusRevision += 1
     }
@@ -1475,9 +1474,6 @@ final class ProjectController: ObservableObject {
         cancelInitialWorkspaceEntry()
         if pane == .tool {
             guard toolPane != nil else { return }
-            if toolPane == .mixer {
-                TimelineFocusDiagnostics.record("mixer-workspace-request nextRevision=\(toolFocusRevision + 1) \(TimelineFocusDiagnostics.windowState(projectSaveCoordinator?.attachedWindow))")
-            }
             requestToolFocus()
         } else { beginWorkspaceNavigation(pane) }
         workspaceFocusRequest = WorkspaceFocusRequest(pane: pane, revision: workspaceFocusRequest.revision + 1)

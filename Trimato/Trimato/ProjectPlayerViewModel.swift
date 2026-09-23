@@ -235,14 +235,14 @@ final class ProjectPlayerViewModel: ObservableObject {
     @Published private(set) var playheadAccessibilityValue = "0 seconds, 0 milliseconds"
     @Published private(set) var showingFrames = false
     @Published private(set) var playbackRate: Float = 0
-    @Published private(set) var inMarker: ProjectTime?
-    @Published private(set) var outMarker: ProjectTime?
+    @Published private(set) var inMarker: ProjectTime? { didSet { refreshMixerLoop() } }
+    @Published private(set) var outMarker: ProjectTime? { didSet { refreshMixerLoop() } }
 
     @Published private(set) var authoringPlaybackID: UUID?
 
     func beginAuthoringPlayback(id: UUID) {
         stopCaptionRangePlayback(preservingSettlingPosition: false)
-        stopMixerPlayback()
+        endMixerPlayback()
         player.pause()
         authoringPlaybackID = id
     }
@@ -352,6 +352,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                     self.updateDisplayedTime(settlingTime)
                     return
                 }
+                self.repeatMixerRangeIfNeeded()
                 let projectTime = self.player.rate == 0 && !self.isScrubbing
                     ? (self.frameStepPosition ?? ProjectTime(self.player.currentTime()))
                     : ProjectTime(time)
@@ -368,6 +369,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     deinit {
+        mixerRestartTask?.cancel()
+        if let mixerLoopObserver { player.removeTimeObserver(mixerLoopObserver) }
         preparationRequestTask?.cancel()
         buildTask?.cancel()
         scrubTask?.cancel()
@@ -512,6 +515,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         mediaURLs: [UUID: URL],
         initialTime: ProjectTime
     ) {
+        setMixerLoopEnabled(false)
         navigationPoint = nil
         let presentsFailure = presentsNextPreparationFailure
         presentsNextPreparationFailure = false
@@ -874,29 +878,84 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
+    @Published private(set) var mixerLoopEnabled = false
+    private var mixerLoopObserver: Any?
     private var mixerRestartTask: Task<Void, Never>?
-    func toggleMixerPlayback() {
-        guard canControlPlayback else { return }
-        if let task = mixerRestartTask {
-            task.cancel(); mixerRestartTask = nil
-            return
+
+    var mixerLoopRange: ProjectTimeRange? {
+        guard let range = exportRange, range.start >= .zero, range.end <= projectDuration else { return nil }
+        return range
+    }
+
+    func setMixerLoopEnabled(_ enabled: Bool) {
+        mixerLoopEnabled = enabled && mixerLoopRange != nil
+        refreshMixerLoop()
+    }
+
+    private func refreshMixerLoop() {
+        cancelMixerRestart()
+        if let observer = mixerLoopObserver { player.removeTimeObserver(observer) }
+        mixerLoopObserver = nil
+        guard mixerLoopEnabled else { return }
+        guard let range = mixerLoopRange else { mixerLoopEnabled = false; return }
+        mixerLoopObserver = player.addBoundaryTimeObserver(forTimes: [NSValue(time: range.end.cmTime)], queue: .main) { [weak self] in
+            MainActor.assumeIsolated { self?.repeatMixerRangeIfNeeded() }
         }
-        guard !isPlaying, max(currentTime.seconds, player.currentTime().seconds) >= projectDuration.seconds, projectDuration > .zero else {
-            togglePlayback(); return
-        }
-        cancelFrameStepping()
-        stopCaptionRangePlayback(preservingSettlingPosition: false)
+        repeatMixerRangeIfNeeded()
+    }
+
+    private func repeatMixerRangeIfNeeded() {
+        guard mixerLoopEnabled, let range = mixerLoopRange, jklIndex > 0,
+              mixerRestartTask == nil, canControlPlayback,
+              ProjectTime(player.currentTime()) >= range.end else { return }
+        restartMixerPlayback(at: range.start, rate: max(player.rate, 1))
+    }
+
+    private func cancelMixerRestart() {
+        mixerRestartTask?.cancel()
+        mixerRestartTask = nil
+    }
+
+    private func restartMixerPlayback(at time: ProjectTime, rate: Float = 1) {
+        cancelMixerRestart()
         let item = player.currentItem
+        // Seeking preserves a running player rate, avoiding a false pause at each loop.
         mixerRestartTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let finished = await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+            let finished = await player.seek(to: time.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
             guard !Task.isCancelled else { return }
             mixerRestartTask = nil
             guard finished, player.currentItem === item, canControlPlayback else { return }
-            updateDisplayedTime(.zero)
-            jklIndex = 1
-            player.rate = 1
+            updateDisplayedTime(time)
+            jklIndex = max(jklIndex, 1)
+            player.rate = rate
         }
+    }
+
+    func endMixerPlayback() {
+        setMixerLoopEnabled(false)
+        stopMixerPlayback()
+    }
+
+    func toggleMixerPlayback() {
+        guard canControlPlayback else { return }
+        if mixerRestartTask != nil {
+            stopMixerPlayback()
+            return
+        }
+        if player.rate != 0 { stopMixerPlayback(); return }
+        if mixerLoopEnabled, let range = mixerLoopRange {
+            let time = ProjectTime(player.currentTime())
+            if time < range.start || time >= range.end {
+                restartMixerPlayback(at: range.start)
+                return
+            }
+        }
+        guard max(currentTime.seconds, player.currentTime().seconds) >= projectDuration.seconds,
+              projectDuration > .zero else { togglePlayback(); return }
+        cancelFrameStepping()
+        stopCaptionRangePlayback(preservingSettlingPosition: false)
+        restartMixerPlayback(at: .zero)
     }
 
     func stopMixerPlayback() {
@@ -929,6 +988,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func playCaptionRange(_ range: ProjectTimeRange) {
         guard canControlPlayback, range.isValid else { return }
+        setMixerLoopEnabled(false)
         stopCaptionRangePlayback(preservingSettlingPosition: false)
         let playbackID = UUID()
         captionPlaybackID = playbackID
@@ -1167,6 +1227,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func stop() {
+        cancelMixerRestart()
         jklIndex = 0
         player.pause()
         if !isScrubbing, !isSteppingFrames, hasPreparedPlayerItem {
@@ -1176,6 +1237,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func applyJKLRate() {
+        cancelMixerRestart()
         guard jklIndex != 0 else {
             player.pause()
             return
@@ -1219,6 +1281,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func seekPrecisely(to time: ProjectTime, navigationValue: String? = nil) {
+        cancelMixerRestart()
         let bounded = min(max(time, .zero), projectDuration)
         navigationPoint = navigationValue.map { (bounded, $0) }
         player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
@@ -1361,8 +1424,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func announce(_ message: String) {
-        guard !AudioCaptureSession.suppressesAnnouncements else { return }
-        let element: Any = NSApp.mainWindow?.contentView ?? NSApp!
+        guard !AudioCaptureSession.suppressesAnnouncements, let app = NSApp else { return }
+        let element: Any = app.keyWindow?.contentView ?? app
         NSAccessibility.post(
             element: element,
             notification: .announcementRequested,

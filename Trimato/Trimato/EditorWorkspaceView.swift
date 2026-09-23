@@ -10,7 +10,6 @@ struct EditorWorkspaceView: View {
     @StateObject private var projectPlayer: ProjectPlayerViewModel
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var captionEditorWindows: CaptionEditorWindowCoordinator
-    @ObservedObject private var mixer = MixerWindowRegistry.shared
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
     @State private var restoresEditorFocusAfterTransitionSheet = false
     @State private var timelineFocusAfterTransitionSheet: TimelineElementSelection?
@@ -406,10 +405,7 @@ struct EditorWorkspaceView: View {
                 ProjectRecordingView(session: session, focusRevision: controller.toolFocusRevision)
                     .id(session.id)
             }
-        case .mixer:
-            if let session = mixer.session, session.controller === controller {
-                MixerView(session: session, player: session.player, focusRevision: controller.toolFocusRevision, navigation: controller.workspaceNavigation)
-            }
+
         }
     }
 

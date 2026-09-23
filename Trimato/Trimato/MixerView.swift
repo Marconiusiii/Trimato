@@ -10,72 +10,6 @@ struct MixerTrack: Equatable, Identifiable {
     let muted: Bool
 }
 
-// The return destination follows entry from another pane, never the playhead selection.
-enum MixerFocusOrigin: Equatable {
-    case editor
-    case timeline(trackID: UUID?, item: TimelineElementSelection?)
-
-    static func resolve(voiceOver: Bool, observedItem: TimelineElementSelection?,
-                        keyboardItem: TimelineElementSelection?, collectionResponder: Bool,
-                        trackID: UUID?) -> Self {
-        if let item = voiceOver ? observedItem : keyboardItem {
-            return .timeline(trackID: trackID, item: item)
-        }
-        return collectionResponder ? .timeline(trackID: trackID, item: nil) : .editor
-    }
-
-    @MainActor func restore(in controller: ProjectController) {
-        switch self {
-        case .editor: controller.requestEditorFocusRestore()
-        case .timeline(let trackID, let item):
-            if let track = controller.project.tracks.first(where: { $0.id == trackID }) {
-                controller.activeTimelineTrackID = track.id
-                let exists = item.map { target in
-                    switch target {
-                    case .clip(let id): return track.clips.contains { $0.id == id }
-                    case .caption(let id): return track.captionCues.contains { $0.id == id }
-                    case .marker(let id): return track.markers.contains { $0.id == id }
-                    case .transition(let id):
-                        return TimelineElementSequence.transitions(for: track, in: controller.project).contains { $0.id == id }
-                    }
-                } ?? false
-                if exists, let item {
-                    controller.requestTimelineFocusRestore(to: item)
-                    return
-                }
-            }
-            controller.requestTimelineListFocusRestore()
-        }
-    }
-}
-
-// Captured at dismissal, so an older return cannot override a later command.
-struct MixerReturnRequest: Equatable {
-    let navigation: WorkspaceFocusRequest
-    let workspace: Int
-    let editor: Int
-    let item: Int
-    let collection: Int
-    let source: Int
-    let tool: Int
-    let track: UUID?
-
-    @MainActor init(_ controller: ProjectController) {
-        navigation = controller.workspaceNavigation
-        workspace = controller.workspaceFocusRequest.revision
-        editor = controller.editorFocusRestoreRequest
-        item = controller.timelineFocusRestoreRequest
-        collection = controller.timelineListFocusRestoreRequest
-        source = controller.projectSourceFocusRequest.revision
-        tool = controller.toolFocusRevision
-        track = controller.activeTimelineTrackID
-    }
-
-    @MainActor func isCurrent(in controller: ProjectController) -> Bool {
-        controller.toolPane == nil && self == MixerReturnRequest(controller)
-    }
-}
-
 @MainActor
 final class MixerSession: ObservableObject {
     let controller: ProjectController
@@ -87,22 +21,15 @@ final class MixerSession: ObservableObject {
     @Published private(set) var waveformRevision = 0
     private var waveformProject: TrimatoProject?
     private var observation: AnyCancellable?
-    private(set) var origin: MixerFocusOrigin
 
-    init(controller: ProjectController, player: ProjectPlayerViewModel, origin: MixerFocusOrigin = .editor) {
+    init(controller: ProjectController, player: ProjectPlayerViewModel) {
         self.controller = controller; self.player = player
-        self.origin = origin
         refresh()
         selectedID = tracks.contains(where: { $0.id == controller.activeTimelineTrackID })
             ? controller.activeTimelineTrackID : tracks.first?.id
         observation = controller.document.objectWillChange.receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.refresh() }
     }
-    func updateReturnOrigin(_ destination: MixerFocusOrigin, enteringFromMixer: Bool) {
-        guard !enteringFromMixer else { return }
-        origin = destination
-    }
-
     var selected: MixerTrack? { tracks.first { $0.id == selectedID } }
     func refresh() {
         if waveformProject != controller.project {
@@ -150,30 +77,17 @@ final class MixerSession: ObservableObject {
         selectedID = MixerTrackNavigation.adjacent(direction, selected: selectedID, tracks: tracks.map(\.id))
     }
     func togglePlayback() { player.toggleMixerPlayback() }
-    func close(restoreFocus: Bool = true) {
+    func close() {
+        player.endMixerPlayback()
         controller.mixerAdjustmentEditing(false)
         player.updateMix(project: controller.project, solo: [])
-        if restoreFocus { restoreOriginFocus() }
     }
 
-    func restoreOriginFocus() {
-        guard controller.projectSaveCoordinator?.isApplicationTerminating != true,
-              controller.projectSaveCoordinator?.isResolvingClose != true,
-              ExternalMediaOpenCoordinator.shared.activeProjectController === controller,
-              let window = controller.projectSaveCoordinator?.attachedWindow,
-              window.isVisible, window.isKeyWindow, NSApp?.isActive == true,
-              window.attachedSheet == nil, NSApp?.modalWindow == nil else { return }
-        origin.restore(in: controller)
-    }
 }
 
 struct MixerView: View {
     @ObservedObject var session: MixerSession
     let player: ProjectPlayerViewModel
-    var focusRevision = 0
-    var navigation = WorkspaceFocusRequest()
-    @StateObject private var focusScope = EditorAccessibilityFocusScope(mixer: true)
-    @AccessibilityFocusState private var containsVoiceOverFocus: Bool
 
     private func value(_ key: WritableKeyPath<TrackMixSettings, Double>) -> Binding<Double> {
         Binding(get: { session.selected?.mix[keyPath: key] ?? TrackMixSettings.neutral[keyPath: key] },
@@ -181,26 +95,13 @@ struct MixerView: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            controls
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            ScrollView {
+                controls.fixedSize(horizontal: false, vertical: true)
+            }
             Divider()
             actions.padding(EditorTheme.dialogPadding)
         }
         .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
-        .background(EditorAccessibilityFocusBridge(scope: focusScope))
-        .accessibilityFocused($containsVoiceOverFocus)
-        .onChange(of: containsVoiceOverFocus) { _, focused in
-            TimelineFocusDiagnostics.record("mixer-pane voiceover-observed=\(focused) revision=\(focusRevision) \(TimelineFocusDiagnostics.windowState(focusScope.boundaryView?.window))")
-            focusScope.recordVoiceOverFocus(focused)
-        }
-        .onAppear {
-            TimelineFocusDiagnostics.record("mixer-pane appear revision=\(focusRevision) ready=\(player.canControlPlayback)")
-            MixerWindowRegistry.shared.focusScope = focusScope
-        }
-        .onDisappear {
-            TimelineFocusDiagnostics.record("mixer-pane disappear revision=\(focusRevision)")
-            focusScope.recordVoiceOverFocus(false)
-        }
         .background(EditorTheme.controlSurface)
         .blocksEditingDuringQuit()
     }
@@ -208,7 +109,7 @@ struct MixerView: View {
     private var actions: some View {
         HStack {
             Spacer()
-            Button("Close") { session.controller.requestCloseToolPane() }
+            Button("Close") { MixerWindowRegistry.shared.activeWindow?.performClose(nil) }
                 .keyboardShortcut(.cancelAction)
             ContextualHelpButton(topic: .mixer)
         }
@@ -217,7 +118,7 @@ struct MixerView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Mixer").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
-            MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, focusRevision: focusRevision, navigation: navigation, session: session, play: session.togglePlayback)
+            MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, play: session.togglePlayback)
             Divider()
             Text("Track controls").font(.headline).accessibilityAddTraits(.isHeader)
             Picker("Audio track", selection: $session.selectedID) {
@@ -304,14 +205,8 @@ final class MixerPlaybackPresentation: ObservableObject {
 private struct MixerLivePlayhead: View {
     @ObservedObject var player: ProjectPlayerViewModel
     @ObservedObject private var clock: ProjectPlaybackClock
-    let focusRevision: Int
-    let navigation: WorkspaceFocusRequest
-    let session: MixerSession
-    init(player: ProjectPlayerViewModel, focusRevision: Int, navigation: WorkspaceFocusRequest, session: MixerSession) {
-        self.navigation = navigation
-        self.session = session
+    init(player: ProjectPlayerViewModel) {
         self.player = player
-        self.focusRevision = focusRevision
         clock = player.playbackClock
     }
     var body: some View {
@@ -319,7 +214,7 @@ private struct MixerLivePlayhead: View {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }),
             step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
-            ready: player.canControlPlayback, playing: player.isPlaying, focusRevision: focusRevision, navigation: navigation, session: session)
+            ready: player.canControlPlayback, playing: player.isPlaying)
     }
 }
 
@@ -377,17 +272,11 @@ private struct MixerPlaybackControls: View {
     let player: ProjectPlayerViewModel
     @StateObject private var presentation: MixerPlaybackPresentation
     let waveformRevision: Int
-    let focusRevision: Int
-    let navigation: WorkspaceFocusRequest
-    let session: MixerSession
     let play: () -> Void
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @StateObject private var keyboard = SettingsSliderKeyboard(identifier: "trimato.mixer.playhead")
-    init(player: ProjectPlayerViewModel, waveformRevision: Int, focusRevision: Int, navigation: WorkspaceFocusRequest, session: MixerSession, play: @escaping () -> Void) {
-        self.navigation = navigation
-        self.session = session
+    init(player: ProjectPlayerViewModel, waveformRevision: Int, play: @escaping () -> Void) {
         self.waveformRevision = waveformRevision
-        self.focusRevision = focusRevision
         self.player = player
         self.play = play
         _presentation = StateObject(wrappedValue: MixerPlaybackPresentation(player: player))
@@ -400,11 +289,13 @@ private struct MixerPlaybackControls: View {
             }
             MixerWaveform(player: player, revision: waveformRevision, playing: presentation.state.playing,
                 itemID: presentation.state.itemID)
-            MixerLivePlayhead(player: player, focusRevision: focusRevision, navigation: navigation, session: session)
+            MixerLivePlayhead(player: player)
                 .tint(EditorTheme.playhead)
                 .onAppear { keyboard.start() }
                 .onDisappear { keyboard.stop() }
+            MixerLoopToggle(player: player)
             playbackControls
+            MixerMarkerControls(player: player)
         }
         .disabled(!presentation.state.ready)
     }
@@ -460,6 +351,39 @@ private struct MixerPlaybackControls: View {
         }
         .buttonStyle(.bordered)
         .accessibilityLabel(title)
+    }
+}
+
+private struct MixerLoopToggle: View {
+    @ObservedObject var player: ProjectPlayerViewModel
+    var body: some View {
+        Toggle("Loop", isOn: Binding(get: { player.mixerLoopEnabled }, set: player.setMixerLoopEnabled))
+            .disabled(player.mixerLoopRange == nil)
+    }
+}
+
+private struct MixerMarkerControls: View {
+    @ObservedObject var player: ProjectPlayerViewModel
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading) {
+                HStack {
+                    Button("Mark In", action: player.markIn)
+                    LabeledContent("In", value: player.inMarkerDisplay)
+                    Button("Clear In", action: player.clearIn).disabled(player.inMarker == nil)
+                }
+                HStack {
+                    Button("Mark Out", action: player.markOut)
+                    LabeledContent("Out", value: player.outMarkerDisplay)
+                    Button("Clear Out", action: player.clearOut).disabled(player.outMarker == nil)
+                }
+            }
+        } label: {
+            Text("Markers").accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Markers")
     }
 }
 

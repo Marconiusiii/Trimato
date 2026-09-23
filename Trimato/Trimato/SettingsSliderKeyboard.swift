@@ -15,10 +15,10 @@ final class SettingsSliderKeyboard: ObservableObject {
         }
     }
 
-    static func handle(_ event: NSEvent, focused: NSObject?, identifier: String = SettingsSliderKeyboard.identifier) -> NSEvent? {
+    static func handle(_ event: NSEvent, focused: @autoclosure () -> NSObject?, identifier: String = SettingsSliderKeyboard.identifier) -> NSEvent? {
         guard event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
               event.keyCode == 126 || event.keyCode == 125 else { return event }
-        var candidate = focused
+        var candidate = focused()
         var visited = Set<ObjectIdentifier>()
         while let element = candidate, visited.insert(ObjectIdentifier(element)).inserted {
             let identifierSelector = NSSelectorFromString("accessibilityIdentifier")

@@ -11,7 +11,7 @@ Created by Marco Salsiccia.
 - Work with portrait or landscape video, step through individual frames, and edit audio against a waveform.
 - Write and time captions with Captioner, import SRT and WebVTT files, and export captions as separate files or include them in the video.
 - Record audio description with Describer and narration with Voicer. Adjust voice levels, match loudness, and reduce other audio during descriptions.
-- Use Captioner, Describer, Voicer, and Mixer beside the main video preview in the project window.
+- Use Captioner, Describer, and Voicer beside the main video preview. Mix audio live and loop an In–Out range in a separate Mixer window.
 - Mix audio tracks with volume, mute, solo, pan, stereo balance, stereo width, and channel routing controls.
 - Add transitions, video and audio filters, titles, lower thirds, backgrounds, and other generated clips.
 - Tap out absolute markers during playback, edit their titles, and mark chapter boundaries.

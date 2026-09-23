@@ -166,15 +166,11 @@ final class TimelineInputScope {
 enum TimelineKeyboardFocus {
     static var scopes: [UUID: TimelineInputScope] = [:]
 
-    static func mixerOrigin(in window: NSWindow?, trackID: UUID?) -> MixerFocusOrigin {
-        guard let window else { return .editor }
-        let voiceOver = NSWorkspace.shared.isVoiceOverEnabled
-        let observed = scopes.values.lazy.filter { $0.view?.window === window }
-            .compactMap { $0.nativeFocus?.voiceOverSelection }.first
-        let keyboardItem = voiceOver ? nil : TimelineAccessibilityFocus.selection(from: window.firstResponder)
-        return MixerFocusOrigin.resolve(voiceOver: voiceOver, observedItem: observed,
-            keyboardItem: keyboardItem, collectionResponder: window.firstResponder is TimelineCollectionView,
-            trackID: trackID)
+    static func selection(in window: NSWindow, voiceOver: Bool) -> TimelineElementSelection? {
+        guard window.isKeyWindow else { return nil }
+        return scopes.values.lazy.filter { $0.view?.window === window }.compactMap {
+            voiceOver ? $0.nativeFocus?.voiceOverSelection : $0.nativeFocus?.keyboardSelection
+        }.first
     }
 
     static var isInTimeline: Bool {

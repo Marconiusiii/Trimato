@@ -19,7 +19,7 @@ struct TrimatoApp: App {
     @Environment(\.openWindow) private var openWindow
 
     private var projectCommandController: ProjectController? {
-        ProjectCommandContext.resolve(
+        mixer.activeSession?.controller ?? ProjectCommandContext.resolve(
             focused: projectController,
             active: activeProjects.activeProjectController
         )
@@ -93,7 +93,8 @@ struct TrimatoApp: App {
                 }
                 .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
                 Button("Play or Pause (K)") {
-                    if let projectPlayer { projectPlayer.pressK() }
+                    if let session = mixer.activeSession { session.togglePlayback() }
+                    else if let projectPlayer { projectPlayer.pressK() }
                     else { viewModel?.pressK() }
                 }
                 .disabled(projectPlayer?.canControlPlayback != true && viewModel?.hasMedia != true)
@@ -415,7 +416,7 @@ private struct ProjectFileCommands: Commands {
     @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
 
     private var controller: ProjectController? {
-        projectController ?? clipPlacement?.controller ?? activeProjects.activeProjectController
+        mixer.activeSession?.controller ?? projectController ?? clipPlacement?.controller ?? activeProjects.activeProjectController
     }
 
     var body: some Commands {
@@ -439,9 +440,10 @@ private struct ProjectFileCommands: Commands {
         }
         CommandGroup(replacing: .saveItem) {
             Button(quitReview.coordinator != nil ? "Cancel Quit" : closeSettings != nil ? "Close Settings" :
-                closeToolPane?.title ?? (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project")) {
+                (mixer.activeSession != nil ? "Close Mixer" : nil) ?? closeToolPane?.title ?? (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project")) {
                 if let coordinator = quitReview.coordinator { coordinator.cancelQuitReview() }
                 else if let closeSettings { closeSettings() }
+                else if let window = mixer.activeWindow { window.performClose(nil) }
                 else if let closeToolPane { closeToolPane.action() }
                 else if let standaloneContext { standaloneContext.close() }
                 else if let window = clipPlacement?.hostWindow, clipPlacement?.isKeyWindow == true { window.performClose(nil) }
@@ -449,7 +451,7 @@ private struct ProjectFileCommands: Commands {
             }
             .keyboardShortcut("w", modifiers: .command)
             .disabled(quitReview.coordinator?.isResolvingClose == true ||
-                (closeToolPane == nil && closeSettings == nil && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil))
+                (mixer.activeSession == nil && closeToolPane == nil && closeSettings == nil && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil))
             Divider()
             Button(quitReview.coordinator != nil ? "Save and Quit" : "Save") {
                 if let coordinator = quitReview.coordinator { coordinator.chooseCloseDecision(.save) }

@@ -11,22 +11,8 @@ struct AudioWaveformView: View {
             ZStack {
                 EditorTheme.workspace
 
-                Canvas(opaque: false, colorMode: .nonLinear, rendersAsynchronously: true) { context, size in
-                    var waveform = Path()
-                    let centerY = size.height / 2
-                    let count = max(samples.count, 1)
-                    for (index, amplitude) in samples.enumerated() {
-                        let x = (CGFloat(index) + 0.5) / CGFloat(count) * size.width
-                        let halfHeight = max(CGFloat(amplitude) * (size.height * 0.42), 1)
-                        waveform.move(to: CGPoint(x: x, y: centerY - halfHeight))
-                        waveform.addLine(to: CGPoint(x: x, y: centerY + halfHeight))
-                    }
-                    context.stroke(
-                        waveform,
-                        with: .color(EditorTheme.accent(for: accentChoice)),
-                        lineWidth: max(size.width / CGFloat(count), 1)
-                    )
-                }
+                AudioWaveformDrawing(samples: samples, accent: accentChoice)
+                    .equatable()
 
                 Rectangle()
                     .fill(EditorTheme.separator)
@@ -58,5 +44,30 @@ struct AudioWaveformView: View {
             .clipped()
         }
         .accessibilityHidden(true)
+    }
+}
+
+// The waveform does not depend on playback position. Only the playhead overlay
+// changes on a clock tick; a new mix, size or accent can redraw this layer.
+private struct AudioWaveformDrawing: View, Equatable {
+    let samples: [Float]
+    let accent: EditorAccent
+    var body: some View {
+        Canvas(opaque: false, colorMode: .nonLinear, rendersAsynchronously: true) { context, size in
+            var waveform = Path()
+            let centerY = size.height / 2
+            let count = max(samples.count, 1)
+            for (index, amplitude) in samples.enumerated() {
+                let x = (CGFloat(index) + 0.5) / CGFloat(count) * size.width
+                let halfHeight = max(CGFloat(amplitude) * (size.height * 0.42), 1)
+                waveform.move(to: CGPoint(x: x, y: centerY - halfHeight))
+                waveform.addLine(to: CGPoint(x: x, y: centerY + halfHeight))
+            }
+            context.stroke(
+                waveform,
+                with: .color(EditorTheme.accent(for: accent)),
+                lineWidth: max(size.width / CGFloat(count), 1)
+            )
+        }
     }
 }
