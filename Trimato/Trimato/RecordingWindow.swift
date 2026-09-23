@@ -41,7 +41,7 @@ extension ProjectController {
 
     func openToolPane(_ tool: WorkspaceTool, open: @escaping () -> Void) {
         if toolPane == tool {
-            toolFocusRevision += 1
+            requestToolFocus()
             return
         }
         requestToolChange { [weak self] in
@@ -49,7 +49,7 @@ extension ProjectController {
             closeToolPaneImmediately()
             toolPane = tool
             open()
-            toolFocusRevision += 1
+            requestToolFocus()
         }
     }
 
@@ -80,7 +80,7 @@ extension ProjectController {
         let action = pendingToolAction
         pendingToolAction = nil
         if let action { action() }
-        else { toolFocusRevision += 1 }
+        else { requestToolFocus() }
     }
 
     func closeToolPaneImmediately() {

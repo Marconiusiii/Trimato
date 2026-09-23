@@ -10,7 +10,7 @@ struct MixerTrack: Equatable, Identifiable {
     let muted: Bool
 }
 
-// The opening destination is immutable; the playhead and selected clip are not focus.
+// The return destination follows entry from another pane, never the playhead selection.
 enum MixerFocusOrigin: Equatable {
     case editor
     case timeline(trackID: UUID?, item: TimelineElementSelection?)
@@ -51,6 +51,7 @@ enum MixerFocusOrigin: Equatable {
 
 // Captured at dismissal, so an older return cannot override a later command.
 struct MixerReturnRequest: Equatable {
+    let navigation: WorkspaceFocusRequest
     let workspace: Int
     let editor: Int
     let item: Int
@@ -60,6 +61,7 @@ struct MixerReturnRequest: Equatable {
     let track: UUID?
 
     @MainActor init(_ controller: ProjectController) {
+        navigation = controller.workspaceNavigation
         workspace = controller.workspaceFocusRequest.revision
         editor = controller.editorFocusRestoreRequest
         item = controller.timelineFocusRestoreRequest
@@ -74,24 +76,6 @@ struct MixerReturnRequest: Equatable {
     }
 }
 
-// Issuing a keyboard request does not confirm either keyboard or VoiceOver entry.
-struct MixerEntryRequest: Equatable {
-    private(set) var revision: Int?
-    private(set) var keyboardConfirmed = false
-    private(set) var voiceOverObserved = false
-
-    mutating func issue(_ revision: Int, keyboardFocused: Bool, voiceOverFocused: Bool) -> Bool {
-        guard self.revision != revision else { return false }
-        self.revision = revision
-        keyboardConfirmed = keyboardFocused
-        voiceOverObserved = voiceOverFocused
-        return true
-    }
-
-    mutating func observeKeyboard(_ focused: Bool) { keyboardConfirmed = focused }
-    mutating func observeVoiceOver(_ focused: Bool) { voiceOverObserved = focused }
-}
-
 @MainActor
 final class MixerSession: ObservableObject {
     let controller: ProjectController
@@ -103,7 +87,7 @@ final class MixerSession: ObservableObject {
     @Published private(set) var waveformRevision = 0
     private var waveformProject: TrimatoProject?
     private var observation: AnyCancellable?
-    private let origin: MixerFocusOrigin
+    private(set) var origin: MixerFocusOrigin
 
     init(controller: ProjectController, player: ProjectPlayerViewModel, origin: MixerFocusOrigin = .editor) {
         self.controller = controller; self.player = player
@@ -114,6 +98,11 @@ final class MixerSession: ObservableObject {
         observation = controller.document.objectWillChange.receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.refresh() }
     }
+    func updateReturnOrigin(_ destination: MixerFocusOrigin, enteringFromMixer: Bool) {
+        guard !enteringFromMixer else { return }
+        origin = destination
+    }
+
     var selected: MixerTrack? { tracks.first { $0.id == selectedID } }
     func refresh() {
         if waveformProject != controller.project {
@@ -180,11 +169,9 @@ final class MixerSession: ObservableObject {
 
 struct MixerView: View {
     @ObservedObject var session: MixerSession
-    @ObservedObject var player: ProjectPlayerViewModel
+    let player: ProjectPlayerViewModel
     var focusRevision = 0
-    @FocusState private var playheadFocused: Bool
-    @Environment(\.controlActiveState) private var windowActivity
-    @State private var entryRequest = MixerEntryRequest()
+    var navigation = WorkspaceFocusRequest()
     @StateObject private var focusScope = EditorAccessibilityFocusScope(mixer: true)
     @AccessibilityFocusState private var containsVoiceOverFocus: Bool
 
@@ -200,27 +187,10 @@ struct MixerView: View {
             actions.padding(EditorTheme.dialogPadding)
         }
         .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
-        .defaultFocus($playheadFocused, true)
-        .task(id: windowActivity == .key && player.canControlPlayback ? focusRevision : nil) {
-            guard windowActivity == .key, player.canControlPlayback,
-                  entryRequest.revision != focusRevision else { return }
-            await Task.yield()
-            guard !Task.isCancelled, let window = focusScope.boundaryView?.window,
-                  window.isKeyWindow, NSApp.isActive, window.attachedSheet == nil,
-                  NSApp.modalWindow == nil else { return }
-            TimelineFocusDiagnostics.record("mixer-pane entry-request revision=\(focusRevision) \(TimelineFocusDiagnostics.windowState(window))")
-            guard entryRequest.issue(focusRevision, keyboardFocused: playheadFocused,
-                                     voiceOverFocused: containsVoiceOverFocus) else { return }
-            playheadFocused = true
-        }
         .background(EditorAccessibilityFocusBridge(scope: focusScope))
         .accessibilityFocused($containsVoiceOverFocus)
-        .onChange(of: playheadFocused) { _, focused in
-            entryRequest.observeKeyboard(focused)
-        }
         .onChange(of: containsVoiceOverFocus) { _, focused in
             TimelineFocusDiagnostics.record("mixer-pane voiceover-observed=\(focused) revision=\(focusRevision) \(TimelineFocusDiagnostics.windowState(focusScope.boundaryView?.window))")
-            entryRequest.observeVoiceOver(focused)
             focusScope.recordVoiceOverFocus(focused)
         }
         .onAppear {
@@ -247,7 +217,7 @@ struct MixerView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Mixer").font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
-            MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, focusRevision: focusRevision, keyboardFocus: $playheadFocused, play: session.togglePlayback)
+            MixerPlaybackControls(player: player, waveformRevision: session.waveformRevision, focusRevision: focusRevision, navigation: navigation, session: session, play: session.togglePlayback)
             Divider()
             Text("Track controls").font(.headline).accessibilityAddTraits(.isHeader)
             Picker("Audio track", selection: $session.selectedID) {
@@ -335,11 +305,13 @@ private struct MixerLivePlayhead: View {
     @ObservedObject var player: ProjectPlayerViewModel
     @ObservedObject private var clock: ProjectPlaybackClock
     let focusRevision: Int
-    let keyboardFocus: FocusState<Bool>.Binding
-    init(player: ProjectPlayerViewModel, focusRevision: Int, keyboardFocus: FocusState<Bool>.Binding) {
+    let navigation: WorkspaceFocusRequest
+    let session: MixerSession
+    init(player: ProjectPlayerViewModel, focusRevision: Int, navigation: WorkspaceFocusRequest, session: MixerSession) {
+        self.navigation = navigation
+        self.session = session
         self.player = player
         self.focusRevision = focusRevision
-        self.keyboardFocus = keyboardFocus
         clock = player.playbackClock
     }
     var body: some View {
@@ -347,7 +319,7 @@ private struct MixerLivePlayhead: View {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
         }, set: { player.seek(toFraction: $0) }),
             step: player.playbackFractionStep, timecode: player.accessibilityTimecodeLabel,
-            ready: player.canControlPlayback, playing: player.isPlaying, focusRevision: focusRevision, keyboardFocus: keyboardFocus)
+            ready: player.canControlPlayback, playing: player.isPlaying, focusRevision: focusRevision, navigation: navigation, session: session)
     }
 }
 
@@ -406,12 +378,14 @@ private struct MixerPlaybackControls: View {
     @StateObject private var presentation: MixerPlaybackPresentation
     let waveformRevision: Int
     let focusRevision: Int
-    let keyboardFocus: FocusState<Bool>.Binding
+    let navigation: WorkspaceFocusRequest
+    let session: MixerSession
     let play: () -> Void
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @StateObject private var keyboard = SettingsSliderKeyboard(identifier: "trimato.mixer.playhead")
-    init(player: ProjectPlayerViewModel, waveformRevision: Int, focusRevision: Int, keyboardFocus: FocusState<Bool>.Binding, play: @escaping () -> Void) {
-        self.keyboardFocus = keyboardFocus
+    init(player: ProjectPlayerViewModel, waveformRevision: Int, focusRevision: Int, navigation: WorkspaceFocusRequest, session: MixerSession, play: @escaping () -> Void) {
+        self.navigation = navigation
+        self.session = session
         self.waveformRevision = waveformRevision
         self.focusRevision = focusRevision
         self.player = player
@@ -426,7 +400,7 @@ private struct MixerPlaybackControls: View {
             }
             MixerWaveform(player: player, revision: waveformRevision, playing: presentation.state.playing,
                 itemID: presentation.state.itemID)
-            MixerLivePlayhead(player: player, focusRevision: focusRevision, keyboardFocus: keyboardFocus)
+            MixerLivePlayhead(player: player, focusRevision: focusRevision, navigation: navigation, session: session)
                 .tint(EditorTheme.playhead)
                 .onAppear { keyboard.start() }
                 .onDisappear { keyboard.stop() }

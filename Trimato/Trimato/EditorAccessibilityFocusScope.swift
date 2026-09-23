@@ -62,7 +62,7 @@ final class EditorAccessibilityFocusScope: ObservableObject {
         voiceOverEnabled ? voiceOverContainsFocus : keyboardContainsFocus
     }
 
-    private var containsKeyboardFocus: Bool {
+    var containsKeyboardFocus: Bool {
         guard let boundaryView, let window = boundaryView.window, window.isKeyWindow,
               let responder = window.firstResponder as? NSView else { return false }
         if responder === boundaryView || responder.isDescendant(of: boundaryView) { return true }

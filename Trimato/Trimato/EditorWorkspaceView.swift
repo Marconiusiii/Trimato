@@ -408,7 +408,7 @@ struct EditorWorkspaceView: View {
             }
         case .mixer:
             if let session = mixer.session, session.controller === controller {
-                MixerView(session: session, player: session.player, focusRevision: controller.toolFocusRevision)
+                MixerView(session: session, player: session.player, focusRevision: controller.toolFocusRevision, navigation: controller.workspaceNavigation)
             }
         }
     }
@@ -549,7 +549,7 @@ struct ProjectViewerView: View {
     @StateObject private var focusScope = EditorAccessibilityFocusScope()
     @AccessibilityFocusState(for: .voiceOver) private var focusedAccessibilityTarget: AccessibilityTarget?
     @Environment(\.controlActiveState) private var windowActivity
-    @State private var pendingProjectPlayheadFocus = false
+    @State private var pendingProjectPlayheadFocus: WorkspaceFocusRequest?
     @State private var controlsHeight: CGFloat = 240
     @State private var availableWidth: CGFloat = 0
     @FocusState private var paneCommandKeyboardTarget: AccessibilityTarget?
@@ -675,15 +675,21 @@ struct ProjectViewerView: View {
                 focusScope.recordVoiceOverFocus(true)
             }
         }
-        .task(id: windowActivity == .key && pendingProjectPlayheadFocus && viewModel.canControlPlayback) {
-            guard windowActivity == .key, pendingProjectPlayheadFocus, viewModel.canControlPlayback else { return }
+        .onChange(of: controller.workspaceNavigation) { _, request in
+            guard request.pane != .editor else { return }
+            pendingProjectPlayheadFocus = nil
+            paneCommandKeyboardTarget = nil
+        }
+        .task(id: windowActivity == .key && viewModel.canControlPlayback ? pendingProjectPlayheadFocus : nil) {
+            guard windowActivity == .key, let request = pendingProjectPlayheadFocus,
+                  viewModel.canControlPlayback else { return }
             await Task.yield()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, controller.workspaceNavigation == request else { return }
             restoreProjectPlayheadFocus()
         }
         .onChange(of: controller.workspaceFocusRequest) { _, request in
-            guard request.pane == .editor, controller.acceptsWorkspaceCommands else { return }
-            pendingProjectPlayheadFocus = false
+            guard request.pane == .editor, controller.workspaceNavigation.pane == .editor, controller.acceptsWorkspaceCommands else { return }
+            pendingProjectPlayheadFocus = nil
             let target: AccessibilityTarget = viewModel.canControlPlayback && controller.recordingSession == nil ? .playhead : .heading
             viewModel.refreshAccessibilityValueForFocus()
             // Preserve ownership when a repeated shortcut leaves the observed
@@ -714,24 +720,30 @@ struct ProjectViewerView: View {
     }
 
     private func restoreProjectPlayheadFocus() {
+        guard controller.workspaceNavigation.pane == .editor else {
+            pendingProjectPlayheadFocus = nil
+            return
+        }
         guard focusScope.boundaryView?.window?.isKeyWindow == true else {
-            pendingProjectPlayheadFocus = true
+            pendingProjectPlayheadFocus = controller.workspaceNavigation
             return
         }
         guard viewModel.canControlPlayback else {
-            pendingProjectPlayheadFocus = true
+            pendingProjectPlayheadFocus = controller.workspaceNavigation
             return
         }
-        pendingProjectPlayheadFocus = false
+        pendingProjectPlayheadFocus = nil
         viewModel.refreshAccessibilityValueForFocus()
         paneCommandKeyboardTarget = .playhead
     }
 
     private func preparationChanged(_ isPreparing: Bool) {
         if isPreparing { return }
+        let request = pendingProjectPlayheadFocus
         Task { @MainActor in
             await Task.yield()
-            if pendingProjectPlayheadFocus,
+            if let request, pendingProjectPlayheadFocus == request,
+               controller.workspaceNavigation == request,
                viewModel.presentedPreviewFailure == nil,
                viewModel.canControlPlayback {
                 restoreProjectPlayheadFocus()

@@ -150,22 +150,54 @@ import Combine
         controller.requestEditorFocusRestore()
         precondition(!editorReturn.isCurrent(in: controller))
 
-        var entry = MixerEntryRequest()
-        precondition(entry.issue(1, keyboardFocused: false, voiceOverFocused: false))
-        precondition(!entry.keyboardConfirmed && !entry.voiceOverObserved)
-        entry.observeKeyboard(true)
-        precondition(entry.keyboardConfirmed && !entry.voiceOverObserved)
-        precondition(!entry.issue(1, keyboardFocused: false, voiceOverFocused: false))
-        precondition(entry.issue(2, keyboardFocused: true, voiceOverFocused: false))
-        precondition(entry.keyboardConfirmed && !entry.voiceOverObserved)
-        entry.observeVoiceOver(true)
-        precondition(entry.keyboardConfirmed && entry.voiceOverObserved)
-        entry.observeKeyboard(false)
-        precondition(!entry.keyboardConfirmed && entry.voiceOverObserved)
-        entry.observeVoiceOver(false)
-        precondition(!entry.keyboardConfirmed && !entry.voiceOverObserved)
+        // Exercise full command ordering without creating an application/window.
+        let session = MixerSession(controller: controller, player: ProjectPlayerViewModel(), origin: .editor)
+        controller.openToolPane(.mixer) {}
+        let firstEntry = controller.workspaceNavigation
+        precondition(firstEntry.pane == .tool)
+        controller.requestTimelineListFocusRestore()
+        precondition(controller.workspaceNavigation.pane == .timeline)
+        precondition(controller.workspaceNavigation != firstEntry, "Timeline must supersede pending Mixer entry")
+        session.updateReturnOrigin(.timeline(trackID: video.id, item: nil), enteringFromMixer: false)
+        controller.requestToolFocus()
+        let reentry = controller.workspaceNavigation
+        precondition(reentry.pane == .tool && reentry != firstEntry)
+        session.updateReturnOrigin(.editor, enteringFromMixer: true)
+        controller.requestToolFocus()
+        precondition(session.origin == .timeline(trackID: video.id, item: nil), "Repeated Mixer entry replaced return destination")
+        precondition(controller.workspaceNavigation != reentry, "Repeated entry reused a stale request")
+        session.updateReturnOrigin(.timeline(trackID: video.id, item: .clip(second.id)), enteringFromMixer: false)
+        controller.requestToolFocus()
+        controller.toolPane = nil
+        session.origin.restore(in: controller)
+        precondition(controller.workspaceNavigation.pane == .timeline)
+        precondition(controller.timelineFocusRestoreTarget == .clip(second.id))
+        controller.requestEditorFocusRestore()
+        let pendingEditor = controller.workspaceNavigation
+        controller.openToolPane(.mixer) {}
+        precondition(controller.workspaceNavigation.pane == .tool && controller.workspaceNavigation != pendingEditor)
+        let pendingMixer = controller.workspaceNavigation
+        let itemRequest = TimelineItemFocusRequest()
+        itemRequest.request { controller.workspaceNavigation == pendingMixer }
+        controller.requestProjectSourceFocus(to: .clips(controller.project.id))
+        precondition(controller.workspaceNavigation.pane == .project && controller.workspaceNavigation != pendingMixer)
+        precondition(!itemRequest.consume(), "A native item consumed a request after navigation superseded it")
+        let current = controller.workspaceNavigation
+        itemRequest.request { controller.workspaceNavigation == current }
+        precondition(itemRequest.consume() && !itemRequest.consume(), "Current native focus request must be consumed once")
+        controller.toolPane = nil
+        let closed = MixerReturnRequest(controller)
+        precondition(closed.isCurrent(in: controller))
+        controller.beginWorkspaceNavigation(.editor)
+        precondition(!closed.isCurrent(in: controller))
+        controller.toolPane = nil
+        let beforeMissingTool = controller.workspaceNavigation
+        controller.requestToolFocus()
+        precondition(controller.workspaceNavigation == beforeMissingTool)
         precondition(NSApp == nil)
-        print("PASS: Mixer return routing preserves collection, exact clip, caption, description, marker and transition origins; missing destinations fall back to collection; later navigation supersedes returns; keyboard and VoiceOver entry are independent")
+        print("PASS: Mixer opening, Timeline re-entry, repeated tool commands, exact-item return, Editor cancellation, Project supersession and absent-tool rejection")
+        precondition(NSApp == nil)
+        print("PASS: Mixer return routing preserves collection, exact clip, caption, description, marker and transition origins; missing destinations fall back to collection; later navigation supersedes returns")
     }
 
 }

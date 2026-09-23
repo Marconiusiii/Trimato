@@ -37,6 +37,24 @@ final class MixerWindowRegistry: ObservableObject {
         }
     }
 
+    func prepareForEntry(controller: ProjectController) {
+        guard let session, session.controller === controller else { return }
+        let navigation = controller.workspaceNavigation
+        var origin = TimelineKeyboardFocus.mixerOrigin(in: controller.projectSaveCoordinator?.attachedWindow,
+                                                       trackID: controller.activeTimelineTrack?.id)
+        var insideMixer = focusScope?.containsInputFocus == true
+        if case .editor = origin, focusScope?.containsKeyboardFocus == true {
+            insideMixer = true
+        }
+        // A requested Timeline destination takes precedence over a late Mixer
+        // observation. Preserve an observed Timeline item when one is available.
+        if navigation.pane == .timeline, case .editor = origin {
+            origin = .timeline(trackID: controller.activeTimelineTrack?.id, item: nil)
+        }
+        session.updateReturnOrigin(origin, enteringFromMixer: insideMixer && navigation.pane == .tool)
+        TimelineFocusDiagnostics.record("mixer-return-origin \(session.origin) navigation=\(navigation)")
+    }
+
     func close(for controller: ProjectController) {
         guard let closing = session, closing.controller === controller else { return }
         TimelineFocusDiagnostics.record("mixer-close \(TimelineFocusDiagnostics.windowState(window))")

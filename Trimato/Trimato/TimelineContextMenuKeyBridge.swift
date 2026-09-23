@@ -432,6 +432,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
     let actions: TimelineCollectionActions
     let nativeFocus: TimelineNativeFocus
     var keyboardFocusArrived: (TimelineElementSelection?, Int, Int) -> Void = { _, _, _ in }
+    var isFocusRequestCurrent: () -> Bool = { true }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -485,6 +486,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
         var emptyTitle = "No clips on this track"
         var nativeFocus: TimelineNativeFocus?
         var keyboardFocusArrived: ((TimelineElementSelection?, Int, Int) -> Void)?
+        var isFocusRequestCurrent: () -> Bool = { true }
 
         // Track feedback follows the applied collection and keyboard focus request.
         // VoiceOver cursor observations are independent and may never change.
@@ -492,7 +494,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             let itemRevision = previousFocusRequest
             let listRevision = previousListFocusRequest
             DispatchQueue.main.async { [weak self] in
-                guard let self, previousFocusRequest == itemRevision, previousListFocusRequest == listRevision,
+                guard let self, isFocusRequestCurrent(), previousFocusRequest == itemRevision, previousListFocusRequest == listRevision,
                       let collectionView, let window = collectionView.window,
                       window.isKeyWindow, window.attachedSheet == nil else { return }
                 if let target {
@@ -509,6 +511,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
             actions = source.actions
             nativeFocus = source.nativeFocus
             keyboardFocusArrived = source.keyboardFocusArrived
+            isFocusRequestCurrent = source.isFocusRequestCurrent
+            if !isFocusRequestCurrent() { pendingFocusTarget = nil }
             nativeFocus?.didObserveKeyboardFocus = { [weak self] target in
                 self?.reportKeyboardFocus(target)
             }
@@ -535,7 +539,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
                     let request = source.focusRequest
                     let listRequest = source.listFocusRequest
                     DispatchQueue.main.async { [weak self] in
-                        guard let self, self.previousFocusRequest == request,
+                        guard let self, self.isFocusRequestCurrent(), self.previousFocusRequest == request,
                               self.previousListFocusRequest == listRequest else { return }
                         self.pendingFocusTarget = target
                         self.select(target)
@@ -551,7 +555,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
                 let request = source.listFocusRequest
                 let itemRequest = source.focusRequest
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, self.previousListFocusRequest == request,
+                    guard let self, self.isFocusRequestCurrent(), self.previousListFocusRequest == request,
                           self.previousFocusRequest == itemRequest,
                           let collection = self.collectionView,
                           let window = collection.window, window.isKeyWindow,
@@ -602,9 +606,9 @@ struct TimelineClipsCollection: NSViewRepresentable {
                   models[indexPath.item].selection == target,
                   let timelineItem = item as? TimelineCollectionItem else { return }
             DispatchQueue.main.async { [weak self, weak timelineItem] in
-                guard let self, self.pendingFocusTarget == target, let timelineItem else { return }
+                guard let self, self.isFocusRequestCurrent(), self.pendingFocusTarget == target, let timelineItem else { return }
                 self.pendingFocusTarget = nil
-                timelineItem.button.restoreFocus()
+                timelineItem.button.restoreFocus(isCurrent: self.isFocusRequestCurrent)
                 self.reportKeyboardFocus(target)
             }
         }
@@ -632,7 +636,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             // nested layout from selection while SwiftUI may be rendering the host.
             if let button = (collectionView.item(at: path) as? TimelineCollectionItem)?.button {
                 pendingFocusTarget = nil
-                button.restoreFocus()
+                button.restoreFocus(isCurrent: isFocusRequestCurrent)
                 // A repeated request can target the element already focused.
                 reportKeyboardFocus(target)
             }
@@ -757,11 +761,16 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
 final class TimelineItemFocusRequest: ObservableObject {
     @Published private(set) var revision = 0
     private var pending = false
-    func request() { pending = true; revision += 1 }
+    private var isCurrent: () -> Bool = { true }
+    func request(isCurrent: @escaping () -> Bool = { true }) {
+        self.isCurrent = isCurrent
+        pending = true
+        revision += 1
+    }
     func consume() -> Bool {
         guard pending else { return false }
         pending = false
-        return true
+        return isCurrent()
     }
 }
 
@@ -917,9 +926,9 @@ final class TimelineCollectionButton: NSHostingView<AnyView> {
             keyboardFocus: { _ in }, menu: { _ in NSMenu() }).id(owner))
     }
 
-    func restoreFocus() {
+    func restoreFocus(isCurrent: @escaping () -> Bool = { true }) {
         TimelineFocusDiagnostics.record("host-restore target=\(String(describing: selection)) owner=\(owner) attached=\(superview != nil) \(TimelineFocusDiagnostics.windowState(window))")
-        focusRequest.request()
+        focusRequest.request(isCurrent: isCurrent)
     }
 
     @discardableResult

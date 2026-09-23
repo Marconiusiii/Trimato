@@ -72,6 +72,7 @@ final class ProjectController: ObservableObject {
     @Published private(set) var transitionRequestReturnsToEditor = false
     @Published private(set) var editorFocusRestoreRequest = 0
     @Published private(set) var workspaceFocusRequest = WorkspaceFocusRequest()
+    @Published private(set) var workspaceNavigation = WorkspaceFocusRequest()
     @Published private(set) var projectSourceFocusRequest = ProjectSourceFocusRequest()
     @Published private(set) var timelineFocusRestoreRequest = 0
     @Published private(set) var timelineListFocusRestoreRequest = 0
@@ -1402,7 +1403,19 @@ final class ProjectController: ObservableObject {
         requestTransition(at: time, mode: mode)
     }
 
+    func beginWorkspaceNavigation(_ pane: WorkspacePane) {
+        workspaceNavigation = WorkspaceFocusRequest(pane: pane, revision: workspaceNavigation.revision + 1)
+    }
+
+    func requestToolFocus() {
+        guard toolPane != nil else { return }
+        if toolPane == .mixer { MixerWindowRegistry.shared.prepareForEntry(controller: self) }
+        beginWorkspaceNavigation(.tool)
+        toolFocusRevision += 1
+    }
+
     func requestEditorFocusRestore() {
+        beginWorkspaceNavigation(.editor)
         pendingTrackAnnouncement = nil
         editorFocusRestoreRequest += 1
     }
@@ -1465,8 +1478,8 @@ final class ProjectController: ObservableObject {
             if toolPane == .mixer {
                 TimelineFocusDiagnostics.record("mixer-workspace-request nextRevision=\(toolFocusRevision + 1) \(TimelineFocusDiagnostics.windowState(projectSaveCoordinator?.attachedWindow))")
             }
-            toolFocusRevision += 1
-        }
+            requestToolFocus()
+        } else { beginWorkspaceNavigation(pane) }
         workspaceFocusRequest = WorkspaceFocusRequest(pane: pane, revision: workspaceFocusRequest.revision + 1)
     }
 
@@ -1492,6 +1505,7 @@ final class ProjectController: ObservableObject {
     }
 
     func requestProjectSourceFocus(to item: ProjectSourceItemID) {
+        beginWorkspaceNavigation(.project)
         pendingTrackAnnouncement = nil
         projectSourceFocusRequest.target = item
         projectSourceFocusRequest.revision += 1
@@ -1514,6 +1528,7 @@ final class ProjectController: ObservableObject {
     }
 
     func requestTimelineFocusRestore(to element: TimelineElementSelection) {
+        beginWorkspaceNavigation(.timeline)
         pendingTrackAnnouncement = nil
         TimelineFocusDiagnostics.record("controller-item-request target=\(element) nextRevision=\(timelineFocusRestoreRequest + 1)")
         timelineFocusRestoreTarget = element
@@ -1521,6 +1536,7 @@ final class ProjectController: ObservableObject {
     }
 
     func requestTimelineListFocusRestore() {
+        beginWorkspaceNavigation(.timeline)
         pendingTrackAnnouncement = nil
         timelineListFocusRestoreRequest += 1
     }

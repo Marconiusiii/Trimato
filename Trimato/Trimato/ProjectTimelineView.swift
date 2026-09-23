@@ -266,7 +266,8 @@ struct ProjectTimelineView: View {
     }
 
     private var timelineScrollView: some View {
-        TimelineClipsCollection(
+        let navigation = controller.workspaceNavigation
+        return TimelineClipsCollection(
             items: timelineCollectionItems,
             accessibilityLabel: timelineListAccessibilityLabel,
             emptyTitle: controller.activeTimelineTrack?.recordingPurpose == .descriptionTranscript
@@ -293,6 +294,9 @@ struct ProjectTimelineView: View {
             nativeFocus: nativeTimelineFocus,
             keyboardFocusArrived: { target, itemRevision, listRevision in
                 controller.timelineTrackKeyboardFocusArrived(target, itemRevision: itemRevision, listRevision: listRevision)
+            },
+            isFocusRequestCurrent: {
+                navigation.pane == .timeline && controller.workspaceNavigation == navigation
             }
         )
         .frame(minHeight: 88)

@@ -65,7 +65,7 @@ nonisolated enum WorkspacePane: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-nonisolated struct WorkspaceFocusRequest: Equatable {
+nonisolated struct WorkspaceFocusRequest: Hashable {
     var pane = WorkspacePane.project
     var revision = 0
 }
