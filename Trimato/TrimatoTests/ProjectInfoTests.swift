@@ -21,7 +21,7 @@ struct ProjectInfoTests {
 
         #expect(snapshot.title == "Interview Info")
         #expect(snapshot.rows.contains(ProjectInfoRow("Name", "Interview")))
-        #expect(snapshot.rows.contains(ProjectInfoRow("Target Length", "1 minute, 30 seconds, 0 milliseconds")))
+        #expect(snapshot.rows.contains { $0.label == "Target Length" && $0.time == ProjectTime(seconds: 90) && $0.displayValue(milliseconds: true) == "1 minute, 30 seconds" })
         #expect(!snapshot.rows.contains { $0.value == "Revised Interview" })
     }
 
@@ -76,7 +76,7 @@ struct ProjectInfoTests {
             technicalDetails: details
         )
 
-        #expect(snapshot.rows.contains(ProjectInfoRow("Length", "9 seconds, 238 milliseconds")))
+        #expect(snapshot.rows.contains { $0.label == "Length" && $0.time == ProjectTime(seconds: 9.238) && $0.displayValue(milliseconds: true) == "9 seconds, 238 milliseconds" })
         #expect(snapshot.rows.contains(ProjectInfoRow("Container", "QuickTime / MOV")))
         #expect(snapshot.rows.contains(ProjectInfoRow("Video Codec", "H.264")))
         #expect(snapshot.rows.contains(ProjectInfoRow("Audio Codec", "AAC")))

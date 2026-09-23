@@ -172,7 +172,7 @@ struct ContentView: View {
             .disabled(viewModel.duration <= 0)
             .tint(EditorTheme.playhead)
             .accessibilityLabel("Clip playhead")
-            .accessibilityValue(viewModel.accessibilityTimecodeLabel)
+            .accessibilityValue(viewModel.playheadAccessibilityValue)
             .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.playhead)
             .focused($playheadKeyboardFocused)
 
@@ -444,12 +444,13 @@ private struct ClipEditorEntryFocusBridge: NSViewRepresentable {
 }
 
 private struct ClipLiveTimecode: View {
+    @AppStorage(AppPreferenceKey.timecodeStyle) private var storedStyle = ""
     @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @ObservedObject var clock: ClipPlaybackClock
     let showingFrames: Bool
     var body: some View {
-        Text(showingFrames ? String(format: "%06d", clock.frame)
-             : AppPreferences.passiveTimecode(seconds: clock.time, precision: precisionTimecode))
+        Text(AppPreferences.displayTimecode(seconds: clock.time, frame: clock.frame, milliseconds: precisionTimecode,
+            style: showingFrames ? .frames : (TimecodeStyle(rawValue: storedStyle) ?? AppPreferences.timecodeStyle)))
     }
 }
 

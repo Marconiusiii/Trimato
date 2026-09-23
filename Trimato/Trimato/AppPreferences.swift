@@ -18,6 +18,7 @@ nonisolated enum AppPreferenceKey {
     static let audioRecordingBitDepth = "audioRecordingBitDepth"
     static let timecodeFeedback = "timecodeFeedback"
     static let timecodeVerbosity = "timecodeVerbosity"
+    static let timecodeStyle = "timecodeStyle"
     // Keep the persisted key so existing preferences survive the label change.
     static let showMilliseconds = "precisionTimecode"
     static let precisionTimecode = showMilliseconds
@@ -50,6 +51,18 @@ nonisolated enum TimecodeVerbosity: String, CaseIterable, Identifiable, Sendable
         switch self {
         case .default: "Default"
         case .short: "Short"
+        case .frames: "Frames"
+        }
+    }
+}
+
+nonisolated enum TimecodeStyle: String, CaseIterable, Identifiable, Sendable {
+    case numeric, timeUnits, frames
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .numeric: "Numeric"
+        case .timeUnits: "Time units"
         case .frames: "Frames"
         }
     }
@@ -98,11 +111,8 @@ nonisolated enum AppPreferences {
                           milliseconds / 60_000 % 60, milliseconds / 1_000 % 60, milliseconds % 1_000)
         }
         let wholeSeconds = Int64(safeSeconds.rounded(.down))
-        if wholeSeconds >= 3_600 {
-            return String(format: "%lld:%02lld:%02lld", wholeSeconds / 3_600,
-                          wholeSeconds / 60 % 60, wholeSeconds % 60)
-        }
-        return String(format: "%lld:%02lld", wholeSeconds / 60, wholeSeconds % 60)
+        return String(format: "%02lld:%02lld:%02lld", wholeSeconds / 3_600,
+                      wholeSeconds / 60 % 60, wholeSeconds % 60)
     }
 
     static var timecodeFeedback: TimecodeFeedback {
@@ -125,20 +135,43 @@ nonisolated enum AppPreferences {
         ) ?? "") ?? .default
     }
 
+    static var timecodeStyle: TimecodeStyle { timecodeStyle(in: .standard) }
+
+    static func timecodeStyle(in defaults: UserDefaults) -> TimecodeStyle {
+        if let raw = defaults.string(forKey: AppPreferenceKey.timecodeStyle), let style = TimecodeStyle(rawValue: raw) {
+            return style
+        }
+        return timecodeVerbosity(in: defaults) == .frames ? .frames : .timeUnits
+    }
+
+    static func playheadValue(_ value: String, feedback: TimecodeFeedback? = nil) -> String {
+        (feedback ?? timecodeFeedback) == .live ? value : ""
+    }
+
+    static func displayTimecode(seconds: Double, frame: Int, milliseconds: Bool, style: TimecodeStyle? = nil) -> String {
+        switch style ?? timecodeStyle {
+        case .numeric: return passiveTimecode(seconds: seconds, precision: milliseconds)
+        case .timeUnits: return spokenTimecode(seconds: seconds, frameRate: 30, milliseconds: milliseconds, style: .timeUnits)
+        case .frames: return "Frame \(frame)"
+        }
+    }
+
     static func spokenTimecode(
         seconds rawSeconds: Double,
         frameRate rawFrameRate: Double,
         verbosity: TimecodeVerbosity? = nil,
-        milliseconds: Bool? = nil
+        milliseconds: Bool? = nil,
+        style: TimecodeStyle? = nil
     ) -> String {
         let seconds = rawSeconds.isFinite ? min(max(rawSeconds, 0), 359_999_999) : 0
         let precise = milliseconds ?? showMilliseconds()
         let frameRate = rawFrameRate.isFinite ? max(rawFrameRate, 1) : 30
-        switch verbosity ?? timecodeVerbosity {
-        case .default:
+        let selectedStyle = style ?? verbosity.map { $0 == .frames ? TimecodeStyle.frames : .timeUnits } ?? timecodeStyle
+        switch selectedStyle {
+        case .numeric:
+            return passiveTimecode(seconds: seconds, precision: precise)
+        case .timeUnits:
             return fullTimecode(seconds: seconds, milliseconds: precise)
-        case .short:
-            return shortTimecode(seconds: seconds, milliseconds: precise)
         case .frames:
             let frame = max(Int((seconds * frameRate).rounded(.towardZero)), 0)
             return "Frame \(frame)"
@@ -154,27 +187,10 @@ nonisolated enum AppPreferences {
         var components: [String] = []
         if hours > 0 { components.append(unit(hours, singular: "hour")) }
         if minutes > 0 { components.append(unit(minutes, singular: "minute")) }
-        components.append(unit(wholeSeconds, singular: "second"))
-        if showMilliseconds { components.append(unit(remainder, singular: "millisecond")) }
-        return components.joined(separator: ", ")
-    }
-
-    private static func shortTimecode(seconds: Double, milliseconds: Bool) -> String {
-        let ticks = milliseconds ? Int64((seconds * 1_000).rounded()) : Int64(seconds.rounded(.down)) * 1_000
-        let hours = ticks / 3_600_000
-        let minutes = ticks / 60_000 % 60
-        let wholeSeconds = ticks / 1_000 % 60
-        let fraction = ticks % 1_000
-        var components: [String] = []
-        if hours > 0 { components.append(unit(Int(hours), singular: "hour")) }
-        if minutes > 0 { components.append(unit(Int(minutes), singular: "minute")) }
-        if milliseconds && fraction > 0 {
-            let decimal = String(format: "%lld.%03lld", wholeSeconds, fraction)
-                .replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
-            components.append("\(decimal) seconds")
-        } else if wholeSeconds > 0 || components.isEmpty {
-            components.append(unit(Int(wholeSeconds), singular: "second"))
+        if wholeSeconds > 0 || components.isEmpty && remainder == 0 {
+            components.append(unit(wholeSeconds, singular: "second"))
         }
+        if showMilliseconds && remainder > 0 { components.append(unit(remainder, singular: "millisecond")) }
         return components.joined(separator: ", ")
     }
 
@@ -186,5 +202,6 @@ nonisolated enum AppPreferences {
 /// Only explicit formatting preference changes invalidate cached accessibility values.
 nonisolated struct TimecodePresentationPreference: Equatable {
     var milliseconds = AppPreferences.showMilliseconds()
-    var verbosity = AppPreferences.timecodeVerbosity
+    var style = AppPreferences.timecodeStyle
+    var feedback = AppPreferences.timecodeFeedback
 }

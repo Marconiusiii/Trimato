@@ -659,7 +659,7 @@ struct ProjectPlaybackTests {
             showingFrames: false,
             frameRate: 30,
             navigationCallout: nil
-        ) == "5 seconds, 0 milliseconds")
+        ) == "5 seconds")
     }
 
     @Test func stoppedPlayheadValueUsesCurrentTimeInsteadOfAPercentage() {
@@ -670,13 +670,13 @@ struct ProjectPlaybackTests {
             frameRate: 30,
             verbosity: .short,
             navigationCallout: nil
-        ) == "3.4 seconds")
+        ) == "3 seconds, 400 milliseconds")
         #expect(ProjectPlayerViewModel.accessibilityTimecodeValue(
             time: ProjectTime(seconds: 4.2),
             frameRate: 30,
             verbosity: .short,
             navigationCallout: nil
-        ) == "4.2 seconds")
+        ) == "4 seconds, 200 milliseconds")
     }
 
     @Test func frameSteppingUsesTheProjectRateAndStopsAtProjectBoundaries() {
@@ -1035,8 +1035,8 @@ struct ProjectPlaybackTests {
         #expect(fades.first?.trailingClipID == selected.id)
         #expect(fades.last?.leadingClipID == selected.id)
         _ = try project.addTransitionBatch(fades)
-        #expect(FadeTransitionLabels.duration(edge: .intro) == "Fade In Duration")
-        #expect(FadeTransitionLabels.duration(edge: .outro) == "Fade Out Duration")
+        #expect(FadeTransitionLabels.duration(edge: .intro) == "Fade In Duration in seconds")
+        #expect(FadeTransitionLabels.duration(edge: .outro) == "Fade Out Duration in seconds")
     }
 
     @Test func quickFadeUsesTheActiveAdditionalTrackAndCustomClipNames() throws {

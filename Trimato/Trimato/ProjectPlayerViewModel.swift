@@ -232,8 +232,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         set { playbackClock.timecode = newValue }
     }
     @Published private(set) var accessibilityTimecodeLabel = AppPreferences.spokenTimecode(seconds: 0, frameRate: 30)
-    @Published private(set) var playheadAccessibilityValue = AppPreferences.spokenTimecode(seconds: 0, frameRate: 30)
-    @Published private(set) var showingFrames = false
+    @Published private(set) var playheadAccessibilityValue = AppPreferences.playheadValue(AppPreferences.spokenTimecode(seconds: 0, frameRate: 30))
+    @Published private(set) var showingFrames = AppPreferences.timecodeStyle == .frames
     @Published private(set) var playbackRate: Float = 0
     @Published private(set) var inMarker: ProjectTime? { didSet { refreshMixerLoop() } }
     @Published private(set) var outMarker: ProjectTime? { didSet { refreshMixerLoop() } }
@@ -306,6 +306,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     private let jklSpeeds: [Float] = [1, 2, 4, 8]
     private var arrowHolding = false
     private var scrubTask: Task<Void, Never>?
+    let frameAudioPreview = FrameAudioPreview()
+    private let frameSeeker = FrameSeekCoordinator()
     private var frameStepPosition: ProjectTime?
     private var isScrubbing = false
     private var isSteppingFrames = false
@@ -1110,7 +1112,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func toggleTimecodeDisplay() {
-        showingFrames.toggle()
+        UserDefaults.standard.set((showingFrames ? TimecodeStyle.numeric : .frames).rawValue, forKey: AppPreferenceKey.timecodeStyle)
+        refreshTimecodePreference()
         refreshAccessibilityTimecode()
     }
 
@@ -1272,15 +1275,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         )
         frameStepPosition = destination
         updateDisplayedTime(destination)
-        player.seek(
-            to: destination.cmTime,
-            toleranceBefore: .zero,
-            toleranceAfter: .zero
-        ) { [weak self] finished in
-            guard finished else { return }
-            Task { @MainActor [weak self] in
-                self?.scheduleScrubAudio(returningTo: destination)
-            }
+        frameSeeker.seek(player, to: destination.cmTime) { [weak self] in
+            self?.scheduleScrubAudio(returningTo: destination)
         }
     }
 
@@ -1309,7 +1305,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             outMarker: outMarker,
             frameRate: projectFrameRate,
             editPoint: editPoint,
-            includeTimecode: editPoint?.markerTitle == nil || AppPreferences.timecodeFeedback == .live
+            includeTimecode: AppPreferences.timecodeFeedback == .live
         )
         seekPrecisely(to: destination, navigationValue: editPoint?.markerTitle ?? announcement)
         announce(announcement)
@@ -1325,6 +1321,43 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func scheduleScrubAudio(returningTo target: ProjectTime) {
+        guard frameStepPosition == target, let item = player.currentItem else { return }
+        if hasSpatialAudio { schedulePlayerScrubAudio(returningTo: target); return }
+        isScrubbing = true
+        scrubTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                // Reader taps have independent render state; never share the player's tap.
+                let mix: AVAudioMix?
+                if let original = item.audioMix {
+                    let copy = AVMutableAudioMix()
+                    copy.inputParameters = try original.inputParameters.enumerated().map { index, input in
+                        let parameters = input.mutableCopy() as! AVMutableAudioMixInputParameters
+                        if input.audioTapProcessor != nil {
+                            guard self.mixProcessors.indices.contains(index) else { throw CocoaError(.featureUnsupported) }
+                            parameters.audioTapProcessor = try self.mixProcessors[index].copyProcessor().makeTap()
+                        }
+                        return parameters
+                    }
+                    mix = copy
+                } else { mix = nil }
+                let samples = try await FrameAudioSamples.read(asset: item.asset, mix: mix, at: target.cmTime)
+                try Task.checkCancellation()
+                guard self.frameStepPosition == target, self.player.currentItem === item else { return }
+                try self.frameAudioPreview.play(samples, volume: self.player.volume, muted: self.player.isMuted)
+                self.isScrubbing = false
+                self.finishFrameStepping()
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, self.frameStepPosition == target, self.player.currentItem === item else { return }
+                // Preserve audible jogging if a source cannot be read as mixed PCM.
+                self.schedulePlayerScrubAudio(returningTo: target)
+            }
+        }
+    }
+
+    private func schedulePlayerScrubAudio(returningTo target: ProjectTime) {
         guard frameStepPosition == target else { return }
         isScrubbing = true
         player.play()
@@ -1360,6 +1393,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func cancelScrub(preservingFrameStepPosition: Bool = false) {
+        frameAudioPreview.stop()
+        frameSeeker.cancel()
         scrubTask?.cancel()
         scrubTask = nil
         if isScrubbing {
@@ -1380,11 +1415,13 @@ final class ProjectPlayerViewModel: ObservableObject {
         let next = TimecodePresentationPreference()
         guard next != timecodePreference else { return }
         timecodePreference = next
+        showingFrames = next.style == .frames
         if let point = navigationPoint {
             let editPoint = editPoints.first { $0.time == point.time }
             navigationPoint = (point.time, editPoint?.markerTitle ?? Self.navigationAnnouncement(
                 destination: point.time, duration: projectDuration, inMarker: inMarker,
-                outMarker: outMarker, frameRate: projectFrameRate, editPoint: editPoint))
+                outMarker: outMarker, frameRate: projectFrameRate, editPoint: editPoint,
+                includeTimecode: AppPreferences.timecodeFeedback == .live))
         }
         objectWillChange.send()
         updateAccessibilityValues(timecode: spokenTimecode(at: currentTime))
@@ -1392,10 +1429,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func refreshAccessibilityTimecode() {
         guard player.rate == 0, !isScrubbing, !isSteppingFrames else { return }
-        let value = Self.accessibilityTimecodeValue(
-            time: currentTime, frameRate: projectFrameRate,
-            verbosity: AppPreferences.timecodeVerbosity, navigationCallout: nil
-        )
+        let value = spokenTimecode(at: currentTime)
         updateAccessibilityValues(timecode: value)
     }
 
@@ -1416,7 +1450,7 @@ final class ProjectPlayerViewModel: ObservableObject {
            abs(currentTime.seconds - point.time.seconds) >= 0.5 / max(projectFrameRate, 1) {
             navigationPoint = nil
         }
-        let playheadValue = navigationPoint?.title ?? timecode
+        let playheadValue = navigationPoint?.title ?? AppPreferences.playheadValue(timecode)
         if accessibilityTimecodeLabel != timecode { accessibilityTimecodeLabel = timecode }
         if playheadAccessibilityValue != playheadValue { playheadAccessibilityValue = playheadValue }
     }

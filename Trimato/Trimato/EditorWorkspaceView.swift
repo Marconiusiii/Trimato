@@ -1149,11 +1149,12 @@ struct ProjectMarkerIndicators: View {
 }
 
 struct ProjectLiveTimecode: View {
+    @AppStorage(AppPreferenceKey.timecodeStyle) private var storedStyle = ""
     @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @ObservedObject var clock: ProjectPlaybackClock
     let showingFrames: Bool
     var body: some View {
-        Text(showingFrames ? String(format: "%06d", clock.frame)
-             : AppPreferences.passiveTimecode(seconds: clock.time.seconds, precision: precisionTimecode))
+        Text(AppPreferences.displayTimecode(seconds: clock.time.seconds, frame: clock.frame, milliseconds: precisionTimecode,
+            style: showingFrames ? .frames : (TimecodeStyle(rawValue: storedStyle) ?? AppPreferences.timecodeStyle)))
     }
 }

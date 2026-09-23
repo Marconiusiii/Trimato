@@ -45,13 +45,13 @@ struct AppPreferencesTests {
 
     @Test func passiveCountersUseCompletedSecondsWithoutChangingPreciseTimes() throws {
         for (seconds, simplified, precise) in [
-            (0.0, "0:00", "00:00:00.000"),
-            (1.25, "0:01", "00:00:01.250"),
-            (59.999, "0:59", "00:00:59.999"),
-            (60.0, "1:00", "00:01:00.000"),
-            (3599.999, "59:59", "00:59:59.999"),
-            (3600.0, "1:00:00", "01:00:00.000"),
-            (3661.042, "1:01:01", "01:01:01.042")
+            (0.0, "00:00:00", "00:00:00.000"),
+            (1.25, "00:00:01", "00:00:01.250"),
+            (59.999, "00:00:59", "00:00:59.999"),
+            (60.0, "00:01:00", "00:01:00.000"),
+            (3599.999, "00:59:59", "00:59:59.999"),
+            (3600.0, "01:00:00", "01:00:00.000"),
+            (3661.042, "01:01:01", "01:01:01.042")
         ] {
             #expect(AppPreferences.passiveTimecode(seconds: seconds, precision: false) == simplified)
             #expect(AppPreferences.passiveTimecode(seconds: seconds, precision: true) == precise)
@@ -59,13 +59,13 @@ struct AppPreferencesTests {
             #expect(abs(try RecordingTimeFormat().parseStrategy.parse(precise) - seconds) < 0.000_001)
         }
         for invalid in [-1.0, Double.nan, Double.infinity] {
-            #expect(AppPreferences.passiveTimecode(seconds: invalid, precision: false) == "0:00")
+            #expect(AppPreferences.passiveTimecode(seconds: invalid, precision: false) == "00:00:00")
         }
     }
 
     @Test func timecodeChoicesStayInTheSettingsOrder() {
         #expect(TimecodeFeedback.allCases == [.live, .onDemand, .off])
-        #expect(TimecodeVerbosity.allCases == [.default, .short, .frames])
+        #expect(TimecodeStyle.allCases == [.numeric, .timeUnits, .frames])
     }
 
     @Test func missingOrInvalidTimecodePreferencesUseTheDefaults() throws {
@@ -87,6 +87,35 @@ struct AppPreferencesTests {
         #expect(AppPreferences.timecodeVerbosity(in: defaults) == .frames)
     }
 
+    @Test func timecodeStyleMigratesAndExplicitChoiceWins() throws {
+        let name = "TimecodeStyleTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        #expect(AppPreferences.timecodeStyle(in: defaults) == .timeUnits)
+        for legacy in TimecodeVerbosity.allCases {
+            defaults.set(legacy.rawValue, forKey: AppPreferenceKey.timecodeVerbosity)
+            #expect(AppPreferences.timecodeStyle(in: defaults) == (legacy == .frames ? .frames : .timeUnits))
+        }
+        defaults.set(TimecodeStyle.numeric.rawValue, forKey: AppPreferenceKey.timecodeStyle)
+        #expect(AppPreferences.timecodeStyle(in: defaults) == .numeric)
+    }
+
+    @Test func timecodeStylesAndFeedbackHaveSeparateScopes() {
+        for milliseconds in [false, true] {
+            #expect(AppPreferences.spokenTimecode(seconds: 3842.344, frameRate: 24, milliseconds: milliseconds, style: .numeric)
+                == (milliseconds ? "01:04:02.344" : "01:04:02"))
+            #expect(AppPreferences.spokenTimecode(seconds: 3842.344, frameRate: 24, milliseconds: milliseconds, style: .timeUnits)
+                == (milliseconds ? "1 hour, 4 minutes, 2 seconds, 344 milliseconds" : "1 hour, 4 minutes, 2 seconds"))
+            #expect(AppPreferences.spokenTimecode(seconds: 1.5, frameRate: 24, milliseconds: milliseconds, style: .frames) == "Frame 36")
+        }
+        for feedback in TimecodeFeedback.allCases {
+            #expect(AppPreferences.playheadValue("1 second", feedback: feedback) == (feedback == .live ? "1 second" : ""))
+        }
+        #expect(AppPreferences.spokenTimecode(seconds: 4500, frameRate: 30, milliseconds: true, style: .timeUnits) == "1 hour, 15 minutes")
+        #expect(AppPreferences.spokenTimecode(seconds: 0, frameRate: 30, milliseconds: true, style: .timeUnits) == "0 seconds")
+        #expect(AppPreferences.spokenTimecode(seconds: 59.9996, frameRate: 30, milliseconds: true, style: .timeUnits) == "1 minute")
+    }
+
     @Test func defaultTimecodeSpeaksMillisecondsAsAUnit() {
         #expect(AppPreferences.spokenTimecode(
             seconds: 3_661.042,
@@ -95,25 +124,25 @@ struct AppPreferencesTests {
         ) == "1 hour, 1 minute, 1 second, 42 milliseconds")
     }
 
-    @Test func shortTimecodePreservesMillisecondsBelowAMinute() {
+    @Test func legacyShortTimecodeUsesExplicitMillisecondUnits() {
         #expect(AppPreferences.spokenTimecode(
             seconds: 35.44,
             frameRate: 30,
             verbosity: .short, milliseconds: true
-        ) == "35.44 seconds")
+        ) == "35 seconds, 440 milliseconds")
     }
 
-    @Test func shortTimecodePreservesMillisecondsAtAMinuteOrLonger() {
+    @Test func timeUnitsIncludeMinutesAndHours() {
         #expect(AppPreferences.spokenTimecode(
             seconds: 63.4,
             frameRate: 30,
             verbosity: .short, milliseconds: true
-        ) == "1 minute, 3.4 seconds")
+        ) == "1 minute, 3 seconds, 400 milliseconds")
         #expect(AppPreferences.spokenTimecode(
             seconds: 3_663.4,
             frameRate: 30,
             verbosity: .short, milliseconds: true
-        ) == "1 hour, 1 minute, 3.4 seconds")
+        ) == "1 hour, 1 minute, 3 seconds, 400 milliseconds")
     }
 
     @Test func frameTimecodeUsesTheCurrentFrameRate() {

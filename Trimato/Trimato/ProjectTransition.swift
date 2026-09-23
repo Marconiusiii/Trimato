@@ -139,7 +139,7 @@ nonisolated enum FadeTransitionLabels {
     }
 
     static func duration(edge: TimelineTransitionEdge) -> String {
-        edge == .intro ? "Fade In Duration" : "Fade Out Duration"
+        edge == .intro ? "Fade In Duration in seconds" : "Fade Out Duration in seconds"
     }
 }
 

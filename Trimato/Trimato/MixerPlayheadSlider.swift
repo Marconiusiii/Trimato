@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct MixerPlayheadSlider: View {
+    @AppStorage(AppPreferenceKey.timecodeFeedback) private var feedback = TimecodeFeedback.live
     @Binding var value: Double
     let step: Double
     let timecode: String
@@ -17,7 +18,7 @@ struct MixerPlayheadSlider: View {
         // Native LabeledContent keeps the label associated without that work.
         LabeledContent("Project playhead") {
             Slider(value: $value, in: 0...1, step: step)
-                .accessibilityValue(timecode)
+                .accessibilityValue(AppPreferences.playheadValue(timecode, feedback: feedback))
                 .accessibilityAddTraits(playing ? .updatesFrequently : [])
                 .accessibilityIdentifier("trimato.mixer.playhead")
                 .focused($keyboardFocused)

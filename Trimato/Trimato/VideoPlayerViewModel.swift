@@ -138,7 +138,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var hasVideo = false
     @Published private(set) var waveformSamples: [Float] = []
     @Published private(set) var isPreparingWaveform = false
-    @Published var showingFrames: Bool = false
+    @Published var showingFrames: Bool = AppPreferences.timecodeStyle == .frames
     var currentFrame: Int {
         get { playbackClock.frame }
         set { playbackClock.frame = newValue }
@@ -182,6 +182,8 @@ final class VideoPlayerViewModel: ObservableObject {
     private var createProjectFromClipAction: (() -> Void)?
     private var isScrubbing = false
     private var scrubTask: Task<Void, Never>?
+    let frameAudioPreview = FrameAudioPreview()
+    private let frameSeeker = FrameSeekCoordinator()
     private var frameStepPosition: CMTime?
     private var exportTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
@@ -244,6 +246,8 @@ final class VideoPlayerViewModel: ObservableObject {
     func configureCreateProjectFromClipAction(_ action: @escaping () -> Void) {
         createProjectFromClipAction = action
     }
+
+    var playheadAccessibilityValue: String { AppPreferences.playheadValue(accessibilityTimecodeLabel) }
 
     var inMarkerDisplay: String {
         guard let inMarker else { return "Not set" }
@@ -657,6 +661,8 @@ final class VideoPlayerViewModel: ObservableObject {
         guard hasMedia, !arrowHolding else { return }
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
+        jklIndex = 0
+        player.pause()
         seekOneFrame(forward: true) { [weak self] target in
             self?.scheduleScrubAudio(returningTo: target)
         }
@@ -666,6 +672,8 @@ final class VideoPlayerViewModel: ObservableObject {
         guard hasMedia, !arrowHolding else { return }
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
+        jklIndex = 0
+        player.pause()
         seekOneFrame(forward: false) { [weak self] target in
             self?.scheduleScrubAudio(returningTo: target)
         }
@@ -682,7 +690,8 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func toggleTimecodeDisplay() {
         guard hasVideo else { return }
-        showingFrames.toggle()
+        UserDefaults.standard.set((showingFrames ? TimecodeStyle.numeric : .frames).rawValue, forKey: AppPreferenceKey.timecodeStyle)
+        refreshTimecodePreference()
         accessibilityTimecodeLabel = buildAccessibilityLabel()
     }
 
@@ -1145,7 +1154,7 @@ final class VideoPlayerViewModel: ObservableObject {
 
     // Seeks forward or backward by exactly one frame using the track's minFrameDuration
     // (or a computed fallback) and calls the completion handler once the seek has landed.
-    // This ensures player.play() starts from the correct frame, not the pre-seek position.
+    // Audio preview starts only after the selected video frame is ready.
     private func seekOneFrame(forward: Bool, completion: @escaping (CMTime) -> Void) {
         if !editedFrameTimestamps.isEmpty {
             let timestamps = editedFrameTimestamps
@@ -1157,10 +1166,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 target = timestamps.last { CMTimeCompare($0, current) < 0 } ?? .zero
             }
             frameStepPosition = target
-            player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
-                guard finished else { return }
-                completion(target)
-            }
+            frameSeeker.seek(player, to: target) { completion(target) }
             return
         }
 
@@ -1183,27 +1189,47 @@ final class VideoPlayerViewModel: ObservableObject {
             : nonnegativeTarget
         frameStepPosition = target
 
-        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
-            guard finished else { return }
-            completion(target)
-        }
+        frameSeeker.seek(player, to: target) { completion(target) }
     }
 
     // MARK: - Private: audio scrub
 
-    // Plays briefly so the user hears the audio at the current frame.
-    // 200 ms ensures the clip survives audio output latency (~50 ms) and
-    // AVPlayer's internal buffer fill time after a seek.
     private func scheduleScrubAudio(returningTo target: CMTime) {
+        guard frameStepPosition == target, let item = player.currentItem else { return }
+        if hasSpatialAudio { schedulePlayerScrubAudio(returningTo: target); return }
+        isScrubbing = true
+        scrubTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let samples = try await FrameAudioSamples.read(asset: item.asset, mix: item.audioMix, at: target)
+                try Task.checkCancellation()
+                guard self.frameStepPosition == target, self.player.currentItem === item else { return }
+                try self.frameAudioPreview.play(samples, volume: self.player.volume, muted: self.player.isMuted)
+                self.isScrubbing = false
+                self.finishFrameStepping()
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, self.frameStepPosition == target, self.player.currentItem === item else { return }
+                self.schedulePlayerScrubAudio(returningTo: target)
+            }
+        }
+    }
+
+    private func schedulePlayerScrubAudio(returningTo target: CMTime) {
         guard frameStepPosition == target else { return }
         isScrubbing = true
         updatePlaybackBounds(respectingMarkers: false)
         player.play()
         scrubTask = Task { [weak self] in
             guard let self else { return }
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled, self.isScrubbing,
-                  self.frameStepPosition == target else { return }
+            let end = min(target.seconds + 0.2, self.duration)
+            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            while self.player.currentTime().seconds < end, ContinuousClock.now < deadline {
+                do { try await Task.sleep(for: .milliseconds(20)) } catch { return }
+                guard !Task.isCancelled, self.isScrubbing, self.frameStepPosition == target else { return }
+            }
+            guard !Task.isCancelled, self.isScrubbing, self.frameStepPosition == target else { return }
             self.isScrubbing = false
             self.player.pause()
             await self.player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -1218,6 +1244,8 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func cancelScrub(preservingFrameStepPosition: Bool = false) {
+        frameAudioPreview.stop()
+        frameSeeker.cancel()
         scrubTask?.cancel()
         scrubTask = nil
         if isScrubbing { isScrubbing = false; player.pause() }
@@ -1348,7 +1376,8 @@ final class VideoPlayerViewModel: ObservableObject {
         guard hasMedia else { return }
         cancelScrub()
         seekTo(seconds: point.time.seconds)
-        announce("\(point.kind.spokenName), \(spokenTime(point.time))")
+        announce(AppPreferences.timecodeFeedback == .live
+            ? "\(point.kind.spokenName), \(spokenTime(point.time))" : point.kind.spokenName)
     }
 
     private func spokenTime(_ time: CMTime) -> String {
@@ -1730,6 +1759,7 @@ final class VideoPlayerViewModel: ObservableObject {
         let next = TimecodePresentationPreference()
         guard next != timecodePreference else { return }
         timecodePreference = next
+        showingFrames = next.style == .frames
         objectWillChange.send()
         accessibilityTimecodeLabel = buildAccessibilityLabel()
     }

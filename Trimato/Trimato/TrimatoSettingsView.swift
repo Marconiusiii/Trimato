@@ -192,8 +192,11 @@ struct AccessibilitySettingsView: View {
     @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @AppStorage(AppPreferenceKey.timecodeFeedback)
     private var timecodeFeedback = TimecodeFeedback.live
-    @AppStorage(AppPreferenceKey.timecodeVerbosity)
-    private var timecodeVerbosity = TimecodeVerbosity.default
+    @AppStorage(AppPreferenceKey.timecodeStyle) private var storedTimecodeStyle = ""
+    private var timecodeStyle: Binding<TimecodeStyle> {
+        Binding(get: { TimecodeStyle(rawValue: storedTimecodeStyle) ?? AppPreferences.timecodeStyle },
+                set: { storedTimecodeStyle = $0.rawValue })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -211,14 +214,12 @@ struct AccessibilitySettingsView: View {
 
                     Toggle("Show milliseconds", isOn: $precisionTimecode)
 
-                    if timecodeFeedback != .off {
-                        Picker("Timecode Verbosity", selection: $timecodeVerbosity) {
-                            ForEach(TimecodeVerbosity.allCases) { option in
-                                Text(option.title).tag(option)
-                            }
+                    Picker("Timecode style", selection: timecodeStyle) {
+                        ForEach(TimecodeStyle.allCases) { option in
+                            Text(option.title).tag(option)
                         }
-                        .pickerStyle(.segmented)
                     }
+                    .pickerStyle(.segmented)
 
                 }
             }

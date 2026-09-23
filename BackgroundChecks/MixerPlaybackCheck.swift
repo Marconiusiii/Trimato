@@ -26,7 +26,7 @@ import AVFoundation
   let controller = ProjectController(document: ProjectDocument(project: project))
   let player = ProjectPlayerViewModel()
   controller.installProjectPlayer(player)
-  player.player.isMuted = true // Exercise transport without sending sound to any output.
+  player.player.volume = 0 // Remain silent even if output-device discovery updates isMuted.
   player.prepare(project: project, mediaURLs: [asset.id: url])
   for _ in 0..<100 { if player.canControlPlayback { break }; try await Task.sleep(for: .milliseconds(50)) }
   guard player.canControlPlayback, let item = player.player.currentItem else { fatalError("Preparation failed: \(String(describing: player.errorMessage))") }

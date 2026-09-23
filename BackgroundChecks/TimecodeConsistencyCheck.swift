@@ -9,10 +9,11 @@ import AVFoundation
         precondition(NSApp == nil)
         setbuf(stdout, nil)
         // Volatile, process-local preferences do not modify the running app's settings.
-        func preferences(_ milliseconds: Bool, _ verbosity: TimecodeVerbosity = .default) {
+        func preferences(_ milliseconds: Bool, _ style: TimecodeStyle = .timeUnits, _ feedback: TimecodeFeedback = .live) {
             UserDefaults.standard.setVolatileDomain([
                 AppPreferenceKey.showMilliseconds: milliseconds,
-                AppPreferenceKey.timecodeVerbosity: verbosity.rawValue
+                AppPreferenceKey.timecodeStyle: style.rawValue,
+                AppPreferenceKey.timecodeFeedback: feedback.rawValue
             ], forName: UserDefaults.argumentDomain)
         }
         defer { UserDefaults.standard.removeVolatileDomain(forName: UserDefaults.argumentDomain) }
@@ -20,9 +21,9 @@ import AVFoundation
         for precise in [false, true] {
             preferences(precise)
             precondition(AppPreferences.showMilliseconds() == precise)
-            for (seconds, whole, exact) in [(0.0,"0:00","00:00:00.000"), (12.347,"0:12","00:00:12.347"),
-                (59.999,"0:59","00:00:59.999"), (60.0,"1:00","00:01:00.000"),
-                (3599.999,"59:59","00:59:59.999"), (3600.0,"1:00:00","01:00:00.000")] {
+            for (seconds, whole, exact) in [(0.0,"00:00:00","00:00:00.000"), (12.347,"00:00:12","00:00:12.347"),
+                (59.999,"00:00:59","00:00:59.999"), (60.0,"00:01:00","00:01:00.000"),
+                (3599.999,"00:59:59","00:59:59.999"), (3600.0,"01:00:00","01:00:00.000")] {
                 let expected = precise ? exact : whole
                 let time = ProjectTime(seconds: seconds)
                 precondition(AppPreferences.passiveTimecode(seconds: seconds) == expected)
@@ -34,15 +35,15 @@ import AVFoundation
                 let changed = try format.parseStrategy.parse("23.456")
                 precondition(abs(changed - 23.456) < 0.000001)
                 let spoken = AppPreferences.spokenTimecode(seconds: seconds, frameRate: 30)
-                precondition(spoken.contains("millisecond") == precise)
+                precondition(spoken.contains("millisecond") == (precise && seconds.truncatingRemainder(dividingBy: 1) > 0))
                 precondition(ProjectInfoTimeFormatter.string(time) == spoken)
                 let row = ProjectInfoRow("Position", time: time)
                 precondition(row.displayValue(milliseconds: precise) == spoken)
                 let decoded = try JSONDecoder().decode(ProjectInfoRow.self, from: JSONEncoder().encode(row))
                 precondition(decoded.time == time)
             }
-            precondition(AppPreferences.spokenTimecode(seconds: 12.347, frameRate: 30, verbosity: .short) == (precise ? "12.347 seconds" : "12 seconds"))
-            precondition(AppPreferences.spokenTimecode(seconds: 62.347, frameRate: 30, verbosity: .short) == (precise ? "1 minute, 2.347 seconds" : "1 minute, 2 seconds"))
+            precondition(AppPreferences.spokenTimecode(seconds: 12.347, frameRate: 30, verbosity: .short) == (precise ? "12 seconds, 347 milliseconds" : "12 seconds"))
+            precondition(AppPreferences.spokenTimecode(seconds: 62.347, frameRate: 30, verbosity: .short) == (precise ? "1 minute, 2 seconds, 347 milliseconds" : "1 minute, 2 seconds"))
             precondition(AppPreferences.spokenTimecode(seconds: 1.5, frameRate: 30, verbosity: .frames) == "Frame 45")
             let point = ProjectEditPoint(time: ProjectTime(seconds: 12.347), hasVideo: true, hasAudio: false)
             let announcement = ProjectPlayerViewModel.navigationAnnouncement(destination: point.time,
@@ -67,12 +68,30 @@ import AVFoundation
         try await Task.sleep(for: .milliseconds(100))
         precondition(project.accessibilityTimecodeLabel == "12 seconds")
         precondition(clip.accessibilityTimecodeLabel == "12 seconds")
-        precondition(clip.inMarkerDisplay == "0:12" && clip.outMarkerDisplay == "0:23")
+        precondition(clip.inMarkerDisplay == "00:00:12" && clip.outMarkerDisplay == "00:00:23")
         precondition(!presentation.state.milliseconds)
         precondition(clip.inMarker == exactIn && clip.outMarker == exactOut)
+        for style in TimecodeStyle.allCases {
+            for feedback in TimecodeFeedback.allCases {
+                preferences(true, style, feedback)
+                project.refreshTimecodePreference(); clip.refreshTimecodePreference()
+                let requested = project.currentTimecodeForAnnouncement
+                precondition(!requested.isEmpty)
+                precondition(project.playheadAccessibilityValue == (feedback == .live ? requested : ""))
+                precondition(clip.playheadAccessibilityValue == (feedback == .live ? clip.accessibilityTimecodeLabel : ""))
+                precondition(!clip.inMarkerDisplay.isEmpty && !clip.outMarkerDisplay.isEmpty)
+                precondition(!ProjectInfoTimeFormatter.string(ProjectTime(seconds: 12.347)).isEmpty)
+            }
+        }
+        preferences(false)
+        project.refreshTimecodePreference(); clip.refreshTimecodePreference()
+        try await Task.sleep(for: .milliseconds(50))
+        precondition(FadeTransitionLabels.duration(edge: .intro) == "Fade In Duration in seconds")
+        precondition(FadeTransitionLabels.duration(edge: .outro) == "Fade Out Duration in seconds")
+        print("PASS: all style/feedback combinations preserve requested times and other time values; On Demand and Off expose no playhead time; fade duration units restored")
         var updates = 0
         let observation = project.objectWillChange.sink { updates += 1 }
-        for tick in 1...200 { project.playbackClock.update(ProjectTime(seconds: Double(tick) / 10), frameRate: 30) }
+        for tick in 1...200 { project.playbackClock.update(ProjectTime(seconds: Double(tick) / 10 + 0.123), frameRate: 30) }
         NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
         try await Task.sleep(for: .milliseconds(50))
         precondition(updates == 0, "Clock or unchanged preference invalidated the player")
