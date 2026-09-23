@@ -13,6 +13,7 @@ struct PictureExportRequest: Identifiable {
 }
 
 struct PictureExportSheet: View {
+    @AppStorage(AppPreferenceKey.showMilliseconds) private var showMilliseconds = true
     let request: PictureExportRequest
     let cancel: () -> Void
     let export: (Bool, String) -> Void
@@ -27,7 +28,7 @@ struct PictureExportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(request.web ? "Export Web Video" : "Export Frame").font(.headline)
-            LabeledContent(request.web ? "Poster frame" : "Frame", value: ProjectTimecodeFormatter.string(request.time))
+            LabeledContent(request.web ? "Poster frame" : "Frame", value: ProjectTimecodeFormatter.string(request.time, milliseconds: showMilliseconds))
             if request.project.captionTrack?.captionCues.isEmpty == false {
                 Toggle("Include captions", isOn: $includeCaptions)
                 if request.web && includeCaptions {

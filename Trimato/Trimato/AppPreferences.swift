@@ -18,7 +18,9 @@ nonisolated enum AppPreferenceKey {
     static let audioRecordingBitDepth = "audioRecordingBitDepth"
     static let timecodeFeedback = "timecodeFeedback"
     static let timecodeVerbosity = "timecodeVerbosity"
-    static let precisionTimecode = "precisionTimecode"
+    // Keep the persisted key so existing preferences survive the label change.
+    static let showMilliseconds = "precisionTimecode"
+    static let precisionTimecode = showMilliseconds
 }
 
 nonisolated enum TimecodeFeedback: String, CaseIterable, Identifiable, Sendable {
@@ -79,12 +81,16 @@ nonisolated enum AppPreferences {
         defaults.integer(forKey: AppPreferenceKey.audioRecordingBitDepth) == 16 ? 16 : 24
     }
 
-    static func precisionTimecode(in defaults: UserDefaults = .standard) -> Bool {
+    static func showMilliseconds(in defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: AppPreferenceKey.precisionTimecode) as? Bool ?? true
     }
 
+    static func precisionTimecode(in defaults: UserDefaults = .standard) -> Bool {
+        showMilliseconds(in: defaults)
+    }
+
     /// Presentation only: never use the whole-second result to update an edit boundary.
-    static func passiveTimecode(seconds: Double, precision: Bool) -> String {
+    static func passiveTimecode(seconds: Double, precision: Bool = showMilliseconds()) -> String {
         let safeSeconds = seconds.isFinite ? min(max(seconds, 0), 359_999_999) : 0
         if precision {
             let milliseconds = Int64((safeSeconds * 1_000).rounded())
@@ -122,23 +128,25 @@ nonisolated enum AppPreferences {
     static func spokenTimecode(
         seconds rawSeconds: Double,
         frameRate rawFrameRate: Double,
-        verbosity: TimecodeVerbosity? = nil
+        verbosity: TimecodeVerbosity? = nil,
+        milliseconds: Bool? = nil
     ) -> String {
-        let seconds = rawSeconds.isFinite ? max(rawSeconds, 0) : 0
+        let seconds = rawSeconds.isFinite ? min(max(rawSeconds, 0), 359_999_999) : 0
+        let precise = milliseconds ?? showMilliseconds()
         let frameRate = rawFrameRate.isFinite ? max(rawFrameRate, 1) : 30
         switch verbosity ?? timecodeVerbosity {
         case .default:
-            return fullTimecode(seconds: seconds)
+            return fullTimecode(seconds: seconds, milliseconds: precise)
         case .short:
-            return shortTimecode(seconds: seconds)
+            return shortTimecode(seconds: seconds, milliseconds: precise)
         case .frames:
             let frame = max(Int((seconds * frameRate).rounded(.towardZero)), 0)
             return "Frame \(frame)"
         }
     }
 
-    private static func fullTimecode(seconds: Double) -> String {
-        let milliseconds = max(Int((seconds * 1_000).rounded()), 0)
+    private static func fullTimecode(seconds: Double, milliseconds showMilliseconds: Bool) -> String {
+        let milliseconds = showMilliseconds ? Int((seconds * 1_000).rounded()) : Int(seconds.rounded(.down)) * 1_000
         let hours = milliseconds / 3_600_000
         let minutes = (milliseconds / 60_000) % 60
         let wholeSeconds = (milliseconds / 1_000) % 60
@@ -147,29 +155,25 @@ nonisolated enum AppPreferences {
         if hours > 0 { components.append(unit(hours, singular: "hour")) }
         if minutes > 0 { components.append(unit(minutes, singular: "minute")) }
         components.append(unit(wholeSeconds, singular: "second"))
-        components.append(unit(remainder, singular: "millisecond"))
+        if showMilliseconds { components.append(unit(remainder, singular: "millisecond")) }
         return components.joined(separator: ", ")
     }
 
-    private static func shortTimecode(seconds: Double) -> String {
-        if seconds < 60 {
-            let tenths = Int((seconds * 10).rounded())
-            if tenths % 10 == 0 {
-                return unit(tenths / 10, singular: "second")
-            }
-            let value = String(format: "%.1f", Double(tenths) / 10)
-            return "\(value) seconds"
-        }
-
-        let totalSeconds = max(Int(seconds.rounded()), 0)
-        let hours = totalSeconds / 3_600
-        let minutes = (totalSeconds / 60) % 60
-        let remainder = totalSeconds % 60
+    private static func shortTimecode(seconds: Double, milliseconds: Bool) -> String {
+        let ticks = milliseconds ? Int64((seconds * 1_000).rounded()) : Int64(seconds.rounded(.down)) * 1_000
+        let hours = ticks / 3_600_000
+        let minutes = ticks / 60_000 % 60
+        let wholeSeconds = ticks / 1_000 % 60
+        let fraction = ticks % 1_000
         var components: [String] = []
-        if hours > 0 { components.append(unit(hours, singular: "hour")) }
-        if minutes > 0 { components.append(unit(minutes, singular: "minute")) }
-        if remainder > 0 || components.isEmpty {
-            components.append(unit(remainder, singular: "second"))
+        if hours > 0 { components.append(unit(Int(hours), singular: "hour")) }
+        if minutes > 0 { components.append(unit(Int(minutes), singular: "minute")) }
+        if milliseconds && fraction > 0 {
+            let decimal = String(format: "%lld.%03lld", wholeSeconds, fraction)
+                .replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
+            components.append("\(decimal) seconds")
+        } else if wholeSeconds > 0 || components.isEmpty {
+            components.append(unit(Int(wholeSeconds), singular: "second"))
         }
         return components.joined(separator: ", ")
     }
@@ -177,4 +181,10 @@ nonisolated enum AppPreferences {
     private static func unit(_ value: Int, singular: String) -> String {
         "\(value) \(singular)\(value == 1 ? "" : "s")"
     }
+}
+
+/// Only explicit formatting preference changes invalidate cached accessibility values.
+nonisolated struct TimecodePresentationPreference: Equatable {
+    var milliseconds = AppPreferences.showMilliseconds()
+    var verbosity = AppPreferences.timecodeVerbosity
 }

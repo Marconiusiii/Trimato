@@ -175,6 +175,7 @@ final class CaptionEditorWindowSession: ObservableObject, Identifiable {
 }
 
 struct CaptionEditorView: View {
+    @AppStorage(AppPreferenceKey.showMilliseconds) private var showMilliseconds = true
     @ObservedObject var session: CaptionEditorWindowSession
     let focusRevision: Int
     let cancel: () -> Void
@@ -213,9 +214,9 @@ struct CaptionEditorView: View {
                 .accessibilityAddTraits(.isHeader)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("In Time: \(ProjectTimecodeFormatter.string(session.range.start))")
+                Text("In Time: \(ProjectTimecodeFormatter.string(session.range.start, milliseconds: showMilliseconds))")
                     .monospacedDigit()
-                Text("Out Time: \(ProjectTimecodeFormatter.string(session.range.end))")
+                Text("Out Time: \(ProjectTimecodeFormatter.string(session.range.end, milliseconds: showMilliseconds))")
                     .monospacedDigit()
             }
 

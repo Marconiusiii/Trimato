@@ -164,6 +164,7 @@ final class MixerPlaybackPresentation: ObservableObject {
         var ready: Bool
         var playing: Bool
         var showingFrames: Bool
+        var milliseconds: Bool
         var timecode: String
         var duration: Double
         var step: Double
@@ -174,6 +175,7 @@ final class MixerPlaybackPresentation: ObservableObject {
             ready = player.canControlPlayback
             playing = player.isPlaying
             showingFrames = player.showingFrames
+            milliseconds = AppPreferences.showMilliseconds()
             timecode = player.accessibilityTimecodeLabel
             duration = player.duration.seconds
             step = player.playbackFractionStep

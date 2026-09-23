@@ -298,8 +298,8 @@ private struct GetInfoCommands: Commands {
         if let viewModel {
             let filename = viewModel.sourceFilename ?? "Clip"
             return ProjectInfoSnapshot(title: "\(filename) Info", rows: [
-                ProjectInfoRow("Current Time", ProjectInfoTimeFormatter.string(ProjectTime(seconds: viewModel.currentTime))),
-                ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(ProjectTime(seconds: viewModel.duration)))
+                ProjectInfoRow("Current Time", time: ProjectTime(seconds: viewModel.currentTime)),
+                ProjectInfoRow("Length", time: ProjectTime(seconds: viewModel.duration))
             ])
         }
         return activeProjects.activeProjectController?.projectInfoSnapshot()

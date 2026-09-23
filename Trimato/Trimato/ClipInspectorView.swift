@@ -41,12 +41,24 @@ struct ProjectInfoRow: Codable, Hashable, Identifiable, Sendable {
     let id: String
     let label: String
     let value: String
+    var time: ProjectTime? = nil
 
     init(_ label: String, _ value: String, id: String? = nil) {
         self.id = id ?? label
         self.label = label
         self.value = value
     }
+    init(_ label: String, time: ProjectTime, id: String? = nil) {
+        self.init(label, ProjectInfoTimeFormatter.string(time), id: id)
+        self.time = time
+    }
+
+    func displayValue(milliseconds: Bool) -> String {
+        guard let time else { return value }
+        return AppPreferences.spokenTimecode(seconds: time.seconds, frameRate: 30,
+                                            verbosity: .default, milliseconds: milliseconds)
+    }
+
 }
 
 struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
@@ -70,7 +82,7 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
                 track.sortedClips.first(where: { $0.timelineStart == playhead }) ??
                     track.sortedClips.first(where: { playhead >= $0.timelineStart && playhead < $0.timelineEnd })
             }
-            var rows = [ProjectInfoRow("Project Time", ProjectInfoTimeFormatter.string(playhead))]
+            var rows = [ProjectInfoRow("Project Time", time: playhead)]
             if let activeTrack { rows.append(ProjectInfoRow("Track", activeTrack.name)) }
             if let directClip { rows.append(ProjectInfoRow("Clip", directClip.displayName)) }
             rows.append(ProjectInfoRow("Project", project.name))
@@ -109,8 +121,8 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
                 return projectSnapshot(project)
             }
             var rows = [
-                ProjectInfoRow("Timeline Start", ProjectInfoTimeFormatter.string(cutaway.start)),
-                ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(cutaway.duration)),
+                ProjectInfoRow("Timeline Start", time: cutaway.start),
+                ProjectInfoRow("Length", time: cutaway.duration),
                 ProjectInfoRow("Audio", cutaway.audioMode == .sourceAudio ? "Source Audio" : "Primary Audio")
             ]
             if let asset = project.asset(id: cutaway.assetID) {
@@ -126,7 +138,7 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
             case .between: position = "Between Clips"
             }
             return Self(title: infoTitle(transition.displayName), rows: [
-                ProjectInfoRow("Duration", ProjectInfoTimeFormatter.string(transition.duration)),
+                ProjectInfoRow("Duration", time: transition.duration),
                 ProjectInfoRow("Position", position)
             ])
         case .track(let id):
@@ -143,10 +155,10 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
     private static func projectSnapshot(_ project: TrimatoProject) -> Self {
         var rows = [
             ProjectInfoRow("Name", project.name),
-            ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(project.duration))
+            ProjectInfoRow("Length", time: project.duration)
         ]
         if let target = project.targetDuration {
-            rows.append(ProjectInfoRow("Target Length", ProjectInfoTimeFormatter.string(target)))
+            rows.append(ProjectInfoRow("Target Length", time: target))
         }
         if let width = project.format.width, let height = project.format.height {
             rows.append(ProjectInfoRow("Resolution", "\(width) by \(height)"))
@@ -165,23 +177,23 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
         project: TrimatoProject,
         technicalDetails: FFmpegMediaProbe.Report.TechnicalDetails?
     ) -> Self {
-        var rows = [ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(asset.editedDuration))]
+        var rows = [ProjectInfoRow("Length", time: asset.editedDuration)]
         rows.append(contentsOf: mediaRows(asset, project: project, technicalDetails: technicalDetails))
         return Self(title: infoTitle(asset.name), rows: rows)
     }
 
     private static func clipRows(_ clip: TimelineClip, project: TrimatoProject) -> [ProjectInfoRow] {
-        var rows = [ProjectInfoRow("Length", ProjectInfoTimeFormatter.string(clip.duration))]
+        var rows = [ProjectInfoRow("Length", time: clip.duration)]
         if project.tracks.contains(where: {
             $0.role == .additional && $0.clips.contains { $0.id == clip.id }
         }) {
-            rows.append(ProjectInfoRow("Timeline Start", ProjectInfoTimeFormatter.string(clip.visibleTimelineStart)))
+            rows.append(ProjectInfoRow("Timeline Start", time: clip.visibleTimelineStart))
             if clip.hiddenBeforeTimeline.isPositive {
-                rows.append(ProjectInfoRow("Hidden Before Timeline", ProjectInfoTimeFormatter.string(clip.hiddenBeforeTimeline)))
-                rows.append(ProjectInfoRow("Visible Length", ProjectInfoTimeFormatter.string(clip.visibleDuration)))
+                rows.append(ProjectInfoRow("Hidden Before Timeline", time: clip.hiddenBeforeTimeline))
+                rows.append(ProjectInfoRow("Visible Length", time: clip.visibleDuration))
             }
         } else if let start = project.startTime(of: clip.id) {
-            rows.append(ProjectInfoRow("Timeline Start", ProjectInfoTimeFormatter.string(start)))
+            rows.append(ProjectInfoRow("Timeline Start", time: start))
         }
         rows.append(ProjectInfoRow("Source Segments", "\(clip.segments.count)"))
         if project.tracks.contains(where: { $0.kind == .audio && $0.clips.contains { $0.id == clip.id } }) {
@@ -228,16 +240,13 @@ struct ProjectInfoSnapshot: Codable, Hashable, Identifiable, Sendable {
 }
 
 enum ProjectInfoTimeFormatter {
-    static func string(_ time: ProjectTime) -> String {
-        ProjectPlayerViewModel.accessibilityTimeLabel(
-            time: time,
-            showingFrames: false,
-            frameRate: 30
-        )
+    static func string(_ time: ProjectTime, milliseconds: Bool = AppPreferences.showMilliseconds()) -> String {
+        AppPreferences.spokenTimecode(seconds: time.seconds, frameRate: 30, verbosity: .default, milliseconds: milliseconds)
     }
 }
 
 struct ProjectInfoView: View {
+    @AppStorage(AppPreferenceKey.showMilliseconds) private var showMilliseconds = true
     let snapshot: ProjectInfoSnapshot
     @AccessibilityFocusState private var focusedRowID: String?
 
@@ -247,7 +256,7 @@ struct ProjectInfoView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             ForEach(snapshot.rows) { row in
-                Text("\(row.label): \(row.value)")
+                Text("\(row.label): \(row.displayValue(milliseconds: showMilliseconds))")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityFocused($focusedRowID, equals: row.id)
             }

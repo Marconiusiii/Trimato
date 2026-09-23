@@ -231,8 +231,8 @@ final class ProjectPlayerViewModel: ObservableObject {
         get { playbackClock.timecode }
         set { playbackClock.timecode = newValue }
     }
-    @Published private(set) var accessibilityTimecodeLabel = "0 seconds, 0 milliseconds"
-    @Published private(set) var playheadAccessibilityValue = "0 seconds, 0 milliseconds"
+    @Published private(set) var accessibilityTimecodeLabel = AppPreferences.spokenTimecode(seconds: 0, frameRate: 30)
+    @Published private(set) var playheadAccessibilityValue = AppPreferences.spokenTimecode(seconds: 0, frameRate: 30)
     @Published private(set) var showingFrames = false
     @Published private(set) var playbackRate: Float = 0
     @Published private(set) var inMarker: ProjectTime? { didSet { refreshMixerLoop() } }
@@ -268,8 +268,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     var playbackFractionStep: Double {
         Self.playbackFractionStep(duration: projectDuration, frameRate: projectFrameRate)
     }
-    var inMarkerDisplay: String { inMarker.map(ProjectTimecodeFormatter.string) ?? "Not set" }
-    var outMarkerDisplay: String { outMarker.map(ProjectTimecodeFormatter.string) ?? "Not set" }
+    var inMarkerDisplay: String { inMarker.map { ProjectTimecodeFormatter.string($0) } ?? "Not set" }
+    var outMarkerDisplay: String { outMarker.map { ProjectTimecodeFormatter.string($0) } ?? "Not set" }
     var canExport: Bool {
         if inMarker == nil, outMarker == nil { return projectDuration > .zero }
         return exportRange != nil
@@ -299,6 +299,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var projectFrameRate = 30.0
     private var editPoints: [ProjectEditPoint] = []
     private var navigationTrackID: UUID?
+    private var timecodePreferenceObservation: AnyCancellable?
+    private var timecodePreference = TimecodePresentationPreference()
     private var navigationPoint: (time: ProjectTime, title: String)?
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8]
@@ -327,6 +329,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     init(awaitingInitialPreparation: Bool = false) {
         isInitialPreparationPending = awaitingInitialPreparation
         preparationProgress = awaitingInitialPreparation ? 0 : nil
+        timecodePreferenceObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshTimecodePreference() }
         AudioOutputManager.shared.register(player)
         player.automaticallyWaitsToMinimizeStalling = false
         rateObserver = player.publisher(for: \.rate)
@@ -1113,13 +1117,13 @@ final class ProjectPlayerViewModel: ObservableObject {
     func markIn() {
         guard canControlPlayback else { return }
         inMarker = currentTime
-        announce("In marked at \(Self.accessibilityTimeLabel(time: currentTime, showingFrames: false, frameRate: projectFrameRate))")
+        announce("In marked at \(spokenTimecode(at: currentTime))")
     }
 
     func markOut() {
         guard canControlPlayback else { return }
         outMarker = currentTime
-        announce("Out marked at \(Self.accessibilityTimeLabel(time: currentTime, showingFrames: false, frameRate: projectFrameRate))")
+        announce("Out marked at \(spokenTimecode(at: currentTime))")
     }
 
     func clearIn() {
@@ -1372,6 +1376,20 @@ final class ProjectPlayerViewModel: ObservableObject {
         cancelScrub()
     }
 
+    func refreshTimecodePreference() {
+        let next = TimecodePresentationPreference()
+        guard next != timecodePreference else { return }
+        timecodePreference = next
+        if let point = navigationPoint {
+            let editPoint = editPoints.first { $0.time == point.time }
+            navigationPoint = (point.time, editPoint?.markerTitle ?? Self.navigationAnnouncement(
+                destination: point.time, duration: projectDuration, inMarker: inMarker,
+                outMarker: outMarker, frameRate: projectFrameRate, editPoint: editPoint))
+        }
+        objectWillChange.send()
+        updateAccessibilityValues(timecode: spokenTimecode(at: currentTime))
+    }
+
     private func refreshAccessibilityTimecode() {
         guard player.rate == 0, !isScrubbing, !isSteppingFrames else { return }
         let value = Self.accessibilityTimecodeValue(
@@ -1444,7 +1462,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         AppPreferences.spokenTimecode(
             seconds: time.seconds,
             frameRate: frameRate,
-            verbosity: showingFrames ? .frames : .default
+            verbosity: showingFrames ? .frames : nil
         )
     }
 

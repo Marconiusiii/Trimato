@@ -19,14 +19,15 @@ struct AudioValueSlider: View {
         _keyboard = StateObject(wrappedValue: SettingsSliderKeyboard(identifier: identifier))
     }
     var body: some View {
-        HStack {
-        Slider(value: $value, in: range, step: preservesStep ? step : max(step, (range.upperBound - range.lowerBound) / 200), onEditingChanged: onEditingChanged) { Text(label) }
-            .accessibilityValue((spokenValue?(value) ?? String(format: "%.1f %@", value, unit)))
-            .accessibilityIdentifier(identifier)
-            .onAppear { keyboard.start() }
-            .onDisappear { keyboard.stop() }
-        Text((spokenValue?(value) ?? String(format: "%.1f %@", value, unit))).monospacedDigit().accessibilityHidden(true)
+        LabeledContent(label) {
+            HStack {
+                Slider(value: $value, in: range, step: preservesStep ? step : max(step, (range.upperBound - range.lowerBound) / 200), onEditingChanged: onEditingChanged)
+                    .accessibilityValue((spokenValue?(value) ?? String(format: "%.1f %@", value, unit)))
+                    .accessibilityIdentifier(identifier)
+                    .onAppear { keyboard.start() }
+                    .onDisappear { keyboard.stop() }
+                Text((spokenValue?(value) ?? String(format: "%.1f %@", value, unit))).monospacedDigit().accessibilityHidden(true)
+            }
         }
     }
 }
-

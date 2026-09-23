@@ -143,7 +143,7 @@ final class VideoPlayerViewModel: ObservableObject {
         get { playbackClock.frame }
         set { playbackClock.frame = newValue }
     }
-    @Published private(set) var accessibilityTimecodeLabel: String = "0 seconds, 0 milliseconds"
+    @Published private(set) var accessibilityTimecodeLabel: String = AppPreferences.spokenTimecode(seconds: 0, frameRate: 30)
     @Published private(set) var inMarker: CMTime?
     @Published private(set) var outMarker: CMTime?
     @Published private(set) var isExporting = false
@@ -186,6 +186,8 @@ final class VideoPlayerViewModel: ObservableObject {
     private var exportTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private let waveformPreferences: UserDefaults
+    private var timecodePreferenceObservation: AnyCancellable?
+    private var timecodePreference = TimecodePresentationPreference()
     private var waveformPreferenceObservation: AnyCancellable?
     @Published private(set) var showsAudioWaveforms: Bool
     private var waveformTask: Task<Void, Never>?
@@ -206,6 +208,9 @@ final class VideoPlayerViewModel: ObservableObject {
         showsAudioWaveforms = AppPreferences.showAudioWaveforms(in: waveformPreferences)
         waveformPreferenceObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshWaveformPreference() }
+
+        timecodePreferenceObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshTimecodePreference() }
 
         // Disable stall-avoidance so play() starts outputting audio immediately after a seek —
         // essential for short audio preview windows during frame stepping.
@@ -242,7 +247,7 @@ final class VideoPlayerViewModel: ObservableObject {
 
     var inMarkerDisplay: String {
         guard let inMarker else { return "Not set" }
-        return Self.formatTimecode(inMarker)
+        return AppPreferences.passiveTimecode(seconds: inMarker.seconds)
     }
 
     var playbackFractionStep: Double {
@@ -260,7 +265,7 @@ final class VideoPlayerViewModel: ObservableObject {
 
     var outMarkerDisplay: String {
         guard let outMarker else { return "Not set" }
-        return Self.formatTimecode(outMarker)
+        return AppPreferences.passiveTimecode(seconds: outMarker.seconds)
     }
 
     var canExport: Bool {
@@ -422,7 +427,7 @@ final class VideoPlayerViewModel: ObservableObject {
         displayTimecode = "00:00:00.000"
         currentTime = 0; currentFrame = 0; frameRate = 0; duration = 0
         minFrameDuration = .invalid
-        accessibilityTimecodeLabel = "0 seconds, 0 milliseconds"
+        accessibilityTimecodeLabel = AppPreferences.spokenTimecode(seconds: 0, frameRate: 30)
         announcedImportProgress = 0
         let operationID = UUID()
         silenceEditGeneration = UUID()
@@ -1347,19 +1352,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func spokenTime(_ time: CMTime) -> String {
-        let parts = Self.formatTimecode(time).split(separator: ":")
-        guard parts.count == 3 else { return Self.formatTimecode(time) }
-        let h = Int(parts[0]) ?? 0
-        let m = Int(parts[1]) ?? 0
-        let secMs = parts[2].split(separator: ".")
-        let s = Int(secMs.first ?? "0") ?? 0
-        let ms = Int(secMs.last ?? "0") ?? 0
-        var components: [String] = []
-        if h > 0 { components.append("\(h) hour\(h == 1 ? "" : "s")") }
-        if m > 0 { components.append("\(m) minute\(m == 1 ? "" : "s")") }
-        components.append("\(s) second\(s == 1 ? "" : "s")")
-        components.append("\(ms) millisecond\(ms == 1 ? "" : "s")")
-        return components.joined(separator: ", ")
+        AppPreferences.spokenTimecode(seconds: time.seconds, frameRate: effectiveFeedbackFrameRate)
     }
 
     private func announce(_ message: String) {
@@ -1732,6 +1725,14 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     // MARK: - Private: accessibility & timecode formatting
+
+    func refreshTimecodePreference() {
+        let next = TimecodePresentationPreference()
+        guard next != timecodePreference else { return }
+        timecodePreference = next
+        objectWillChange.send()
+        accessibilityTimecodeLabel = buildAccessibilityLabel()
+    }
 
     private func buildAccessibilityLabel() -> String {
         AppPreferences.spokenTimecode(

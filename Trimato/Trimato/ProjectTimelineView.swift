@@ -932,12 +932,7 @@ enum TimelineElementSequence {
 }
 
 enum ProjectTimecodeFormatter {
-    static func string(_ time: ProjectTime) -> String {
-        let milliseconds = max(Int((time.seconds * 1_000).rounded()), 0)
-        let hours = milliseconds / 3_600_000
-        let minutes = (milliseconds / 60_000) % 60
-        let seconds = (milliseconds / 1_000) % 60
-        let remainder = milliseconds % 1_000
-        return String(format: "%02d:%02d:%02d.%03d", hours, minutes, seconds, remainder)
+    static func string(_ time: ProjectTime, milliseconds: Bool = AppPreferences.showMilliseconds()) -> String {
+        AppPreferences.passiveTimecode(seconds: time.seconds, precision: milliseconds)
     }
 }

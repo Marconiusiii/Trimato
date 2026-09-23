@@ -14,10 +14,11 @@
     <h2>Timecode Feedback</h2>
 <ul><li>Live provides timecode feedback as playback advances.</li><li>On Demand lets you request the timecode without continuous feedback.</li><li>Off disables automatic timecode feedback.</li></ul>
 <p>Press T in Editor or Mixer to hear the current timecode while playing or paused. In Clip Editor, T is available when On Demand is selected.</p>
-<h2>Precision Timecode</h2>
-<p>Precision Timecode is on by default. Turn it off to show playback positions as minutes and seconds, with hours when needed, in Editor, Clip Editor, Mixer, Voicer, and Describer. Editable timing fields, In and Out boundaries, and take-length measurements keep their precision. Frame display and Timecode Verbosity work independently of this setting.</p>
+<h2>Show milliseconds</h2>
+<p>Show milliseconds is on by default. Turn it off to hide fractional seconds in displayed and spoken timeline positions, In and Out points, marker positions, caption boundaries, recording times, and project information. Turn it on to include milliseconds again. The setting applies to open views.</p>
+<p>This changes how times are presented. Existing edit positions retain their exact timing. Timing fields accept fractional seconds even when milliseconds are hidden. Effect parameters, such as audio delay and transition duration, retain their precise values.</p>
 <h2>Timecode Verbosity</h2>
-<p>With Live or On Demand selected, choose Default, Short, or Frames. Default reads time units including milliseconds. Short uses a shorter time description. Frames reads the frame number.</p>
+<p>With Live or On Demand selected, choose Default, Short, or Frames. Default reads time units, including milliseconds when Show milliseconds is on. Short expresses fractional seconds as a decimal when that setting is on. Frames reads the frame number and is independent of Show milliseconds.</p>
 <p><a href="voiceover.html">Navigate and edit with VoiceOver.</a> <a href="keyboard-shortcuts.html">Review keyboard shortcuts.</a></p>
 </main>
 </body>

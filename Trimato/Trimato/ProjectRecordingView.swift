@@ -453,10 +453,10 @@ struct ProjectRecordingView: View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
                 LabeledContent(session.isDescriber ? "In" : "Insert at") {
-                    TextField("", value: $session.start, format: RecordingTimeFormat()).labelsHidden()
+                    TextField("", value: $session.start, format: RecordingTimeFormat(milliseconds: precisionTimecode, originalValue: session.start)).labelsHidden()
                 }
                 if session.isDescriber {
-                    LabeledContent("Out") { TextField("", value: $session.end, format: RecordingTimeFormat()).labelsHidden() }
+                    LabeledContent("Out") { TextField("", value: $session.end, format: RecordingTimeFormat(milliseconds: precisionTimecode, originalValue: session.end)).labelsHidden() }
                 }
             }
             .disabled(capture.isBusy || session.busy)
@@ -514,9 +514,9 @@ struct ProjectRecordingView: View {
                     .disabled(capture.testURL == nil || capture.isBusy || session.busy)
             }
             if let summary = capture.summary {
-                Text("Take length: \(summary.duration, specifier: "%.2f") seconds")
+                Text("Take length: \(AppPreferences.spokenTimecode(seconds: summary.duration, frameRate: 30, verbosity: .default, milliseconds: precisionTimecode))")
                 if session.isDescriber && summary.duration > session.end - session.start {
-                    Text("Beyond Out: \(summary.duration - (session.end - session.start), specifier: "%.2f") seconds")
+                    Text("Beyond Out: \(AppPreferences.spokenTimecode(seconds: summary.duration - (session.end - session.start), frameRate: 30, verbosity: .default, milliseconds: precisionTimecode))")
                 }
             }
         }

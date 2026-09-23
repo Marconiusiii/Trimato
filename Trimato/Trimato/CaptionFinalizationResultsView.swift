@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct CaptionFinalizationResultsView: View {
+    @AppStorage(AppPreferenceKey.showMilliseconds) private var showMilliseconds = true
     let report: CaptionFinalizationReport
     @ObservedObject var focusRequest: NativeModalFocusRequest
     let showCaption: (UUID) -> Void
@@ -88,13 +89,13 @@ struct CaptionFinalizationResultsView: View {
     }
 
     private func markedTime(for issue: CaptionFinalizationIssue) -> String {
-        "\(ProjectInfoTimeFormatter.string(issue.markedStart)) to \(ProjectInfoTimeFormatter.string(issue.markedEnd))"
+        "\(ProjectInfoTimeFormatter.string(issue.markedStart, milliseconds: showMilliseconds)) to \(ProjectInfoTimeFormatter.string(issue.markedEnd, milliseconds: showMilliseconds))"
     }
 
     private func problem(for issue: CaptionFinalizationIssue) -> String {
         guard let required = issue.requiredDuration else { return issue.message }
-        let requiredTime = ProjectInfoTimeFormatter.string(ProjectTime(seconds: required))
-        let availableTime = ProjectInfoTimeFormatter.string(ProjectTime(seconds: issue.availableDuration))
+        let requiredTime = ProjectInfoTimeFormatter.string(ProjectTime(seconds: required), milliseconds: showMilliseconds)
+        let availableTime = ProjectInfoTimeFormatter.string(ProjectTime(seconds: issue.availableDuration), milliseconds: showMilliseconds)
         return "\(issue.message) Required time: \(requiredTime). Available time: \(availableTime)."
     }
 

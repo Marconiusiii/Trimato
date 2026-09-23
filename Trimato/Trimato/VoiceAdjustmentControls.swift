@@ -77,6 +77,7 @@ final class VoiceAdjustmentWork: ObservableObject {
 
 /// The recording tools and existing narration clips share the same native controls.
 struct VoiceAdjustmentControls: View {
+    @AppStorage(AppPreferenceKey.showMilliseconds) private var showMilliseconds = true
     @Binding var settings: VoiceAdjustment
     @ObservedObject var controller: ProjectController
     @ObservedObject var work: VoiceAdjustmentWork
@@ -94,10 +95,10 @@ struct VoiceAdjustmentControls: View {
             Text("Voice adjustments").font(.headline).accessibilityAddTraits(.isHeader)
             rowLayout {
                 LabeledContent("Dialogue reference In") {
-                    TextField("", value: $settings.referenceStart, format: RecordingTimeFormat()).labelsHidden()
+                    TextField("", value: $settings.referenceStart, format: RecordingTimeFormat(milliseconds: showMilliseconds, originalValue: settings.referenceStart)).labelsHidden()
                 }
                 LabeledContent("Dialogue reference Out") {
-                    TextField("", value: $settings.referenceEnd, format: RecordingTimeFormat()).labelsHidden()
+                    TextField("", value: $settings.referenceEnd, format: RecordingTimeFormat(milliseconds: showMilliseconds, originalValue: settings.referenceEnd)).labelsHidden()
                 }
             }
             rowLayout {

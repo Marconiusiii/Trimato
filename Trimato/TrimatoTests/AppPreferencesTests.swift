@@ -91,29 +91,29 @@ struct AppPreferencesTests {
         #expect(AppPreferences.spokenTimecode(
             seconds: 3_661.042,
             frameRate: 30,
-            verbosity: .default
+            verbosity: .default, milliseconds: true
         ) == "1 hour, 1 minute, 1 second, 42 milliseconds")
     }
 
-    @Test func shortTimecodeUsesTenthsBelowAMinute() {
+    @Test func shortTimecodePreservesMillisecondsBelowAMinute() {
         #expect(AppPreferences.spokenTimecode(
             seconds: 35.44,
             frameRate: 30,
-            verbosity: .short
-        ) == "35.4 seconds")
+            verbosity: .short, milliseconds: true
+        ) == "35.44 seconds")
     }
 
-    @Test func shortTimecodeUsesWholeSecondsAtAMinuteOrLonger() {
+    @Test func shortTimecodePreservesMillisecondsAtAMinuteOrLonger() {
         #expect(AppPreferences.spokenTimecode(
             seconds: 63.4,
             frameRate: 30,
-            verbosity: .short
-        ) == "1 minute, 3 seconds")
+            verbosity: .short, milliseconds: true
+        ) == "1 minute, 3.4 seconds")
         #expect(AppPreferences.spokenTimecode(
             seconds: 3_663.4,
             frameRate: 30,
-            verbosity: .short
-        ) == "1 hour, 1 minute, 3 seconds")
+            verbosity: .short, milliseconds: true
+        ) == "1 hour, 1 minute, 3.4 seconds")
     }
 
     @Test func frameTimecodeUsesTheCurrentFrameRate() {

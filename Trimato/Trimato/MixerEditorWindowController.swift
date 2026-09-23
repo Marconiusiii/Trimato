@@ -57,13 +57,18 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Mixer — \(session.controller.project.name)"
-        window.contentViewController = NSHostingController(rootView:
+        let hostingController = NSHostingController(rootView:
             MixerView(session: session, player: session.player)
                 .editorAppearance()
                 .onExitCommand { [weak window] in
                     guard window?.attachedSheet == nil, NSApp.modalWindow == nil else { return }
                     window?.performClose(nil)
                 })
+        // The resizable window provides the viewport; the ScrollView handles
+        // overflowing controls. Do not remeasure minimum/ideal/maximum content
+        // sizes on each playback tick or live control adjustment.
+        hostingController.sizingOptions = []
+        window.contentViewController = hostingController
         window.collectionBehavior.insert(.participatesInCycle)
         window.isExcludedFromWindowsMenu = false
         window.isReleasedWhenClosed = false

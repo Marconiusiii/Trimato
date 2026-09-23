@@ -4,6 +4,7 @@ import Combine
 import SwiftUI
 
 struct AudioRecordingSettingsView: View {
+    @AppStorage(AppPreferenceKey.showMilliseconds) private var showMilliseconds = true
     @StateObject private var sliderKeyboard = SettingsSliderKeyboard()
     @StateObject private var input = AudioInputManager.shared
     @ObservedObject private var capture: AudioCaptureSession
@@ -101,7 +102,7 @@ struct AudioRecordingSettingsView: View {
                     }
                     LabeledContent("Status", value: status)
                         .accessibilityElement(children: .combine)
-                    LabeledContent("Length", value: capture.summary.map { String(format: "%.2f seconds", $0.duration) } ?? "No recording")
+                    LabeledContent("Length", value: capture.summary.map { AppPreferences.spokenTimecode(seconds: $0.duration, frameRate: 30, verbosity: .default, milliseconds: showMilliseconds) } ?? "No recording")
                         .accessibilityElement(children: .combine)
                     LabeledContent("Recording level", value: recordingLevel)
                         .accessibilityElement(children: .combine)

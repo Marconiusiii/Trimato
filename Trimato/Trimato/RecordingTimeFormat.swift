@@ -1,18 +1,25 @@
 import Foundation
 
-/// Native text-field formatting: seconds or colon-separated time in, millisecond timecode out.
+/// Native time-field formatting preserves hidden fractions when the displayed text is unchanged.
 nonisolated struct RecordingTimeFormat: ParseableFormatStyle {
-    var parseStrategy = Strategy()
+    var milliseconds: Bool = true
+    var originalValue: Double? = nil
+
+    var parseStrategy: Strategy {
+        Strategy(unchangedText: originalValue.map(format), originalValue: originalValue)
+    }
 
     func format(_ value: Double) -> String {
-        guard value.isFinite, value >= 0, value < 360_000_000 else { return "00:00:00.000" }
-        let milliseconds = Int64((value * 1_000).rounded())
-        return String(format: "%02lld:%02lld:%02lld.%03lld", milliseconds / 3_600_000,
-                      milliseconds / 60_000 % 60, milliseconds / 1_000 % 60, milliseconds % 1_000)
+        AppPreferences.passiveTimecode(seconds: value, precision: milliseconds)
     }
 
     struct Strategy: ParseStrategy {
+        var unchangedText: String? = nil
+        var originalValue: Double? = nil
         func parse(_ value: String) throws -> Double {
+            if let originalValue, value.trimmingCharacters(in: .whitespacesAndNewlines) == unchangedText {
+                return originalValue
+            }
             let parts = value.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ":", omittingEmptySubsequences: false)
             guard (1...3).contains(parts.count) else { throw CocoaError(.formatting) }
             var result = 0.0

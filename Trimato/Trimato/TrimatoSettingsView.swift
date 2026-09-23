@@ -209,7 +209,7 @@ struct AccessibilitySettingsView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    Toggle("Precision Timecode", isOn: $precisionTimecode)
+                    Toggle("Show milliseconds", isOn: $precisionTimecode)
 
                     if timecodeFeedback != .off {
                         Picker("Timecode Verbosity", selection: $timecodeVerbosity) {
@@ -250,9 +250,21 @@ struct SettingsHelpPage<Content: View>: View {
         self.content = content()
     }
 
+    var scrollAreaLabel: String {
+        switch topic {
+        case .generalSettings: "General"
+        case .audioSettings: "Audio"
+        case .videoSettings: "Video"
+        case .accessibilitySettings: "Accessibility"
+        case .storageSettings: "Storage"
+        default: "Settings"
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView { content }
+                .accessibilityLabel(scrollAreaLabel)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             HStack {
                 Spacer()
