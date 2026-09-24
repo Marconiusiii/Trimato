@@ -24,20 +24,26 @@ nonisolated enum AppPreferenceKey {
     static let precisionTimecode = showMilliseconds
 }
 
-nonisolated enum TimecodeFeedback: String, CaseIterable, Identifiable, Sendable {
-    case live
+nonisolated enum TimecodeFeedback: RawRepresentable, CaseIterable, Identifiable, Equatable, Sendable {
+    case whenStopped
     case onDemand
-    case off
 
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .live: "Live"
-        case .onDemand: "On Demand"
-        case .off: "Off"
+    init?(rawValue: String) {
+        switch rawValue {
+        case "live", "whenStopped": self = .whenStopped
+        case "off", "onDemand": self = .onDemand
+        default: return nil
         }
     }
+
+    var rawValue: String {
+        switch self {
+        case .whenStopped: "whenStopped"
+        case .onDemand: "onDemand"
+        }
+    }
+    var id: String { rawValue }
+    var title: String { self == .whenStopped ? "When stopped" : "On Demand" }
 }
 
 nonisolated enum TimecodeVerbosity: String, CaseIterable, Identifiable, Sendable {
@@ -107,10 +113,16 @@ nonisolated enum AppPreferences {
         let safeSeconds = seconds.isFinite ? min(max(seconds, 0), 359_999_999) : 0
         if precision {
             let milliseconds = Int64((safeSeconds * 1_000).rounded())
+            if milliseconds < 3_600_000 {
+                return String(format: "%02lld:%02lld.%03lld", milliseconds / 60_000, milliseconds / 1_000 % 60, milliseconds % 1_000)
+            }
             return String(format: "%02lld:%02lld:%02lld.%03lld", milliseconds / 3_600_000,
                           milliseconds / 60_000 % 60, milliseconds / 1_000 % 60, milliseconds % 1_000)
         }
         let wholeSeconds = Int64(safeSeconds.rounded(.down))
+        if wholeSeconds < 3_600 {
+            return String(format: "%02lld:%02lld", wholeSeconds / 60, wholeSeconds % 60)
+        }
         return String(format: "%02lld:%02lld:%02lld", wholeSeconds / 3_600,
                       wholeSeconds / 60 % 60, wholeSeconds % 60)
     }
@@ -126,7 +138,7 @@ nonisolated enum AppPreferences {
     static func timecodeFeedback(in defaults: UserDefaults) -> TimecodeFeedback {
         TimecodeFeedback(rawValue: defaults.string(
             forKey: AppPreferenceKey.timecodeFeedback
-        ) ?? "") ?? .live
+        ) ?? "") ?? .whenStopped
     }
 
     static func timecodeVerbosity(in defaults: UserDefaults) -> TimecodeVerbosity {
@@ -145,7 +157,7 @@ nonisolated enum AppPreferences {
     }
 
     static func playheadValue(_ value: String, feedback: TimecodeFeedback? = nil) -> String {
-        (feedback ?? timecodeFeedback) == .live ? value : ""
+        (feedback ?? timecodeFeedback) == .whenStopped ? value : ""
     }
 
     static func displayTimecode(seconds: Double, frame: Int, milliseconds: Bool, style: TimecodeStyle? = nil) -> String {

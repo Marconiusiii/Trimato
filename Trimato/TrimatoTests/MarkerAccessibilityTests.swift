@@ -104,7 +104,7 @@ struct MarkerAccessibilityTests {
     @Test func markerNavigationKeepsConciseNamesAfterSeekAndFocusRefresh() async throws {
         let restore = preservePreference(AppPreferenceKey.timecodeFeedback)
         defer { restore() }
-        UserDefaults.standard.set(TimecodeFeedback.live.rawValue, forKey: AppPreferenceKey.timecodeFeedback)
+        UserDefaults.standard.set(TimecodeFeedback.whenStopped.rawValue, forKey: AppPreferenceKey.timecodeFeedback)
         let fixture = try silentProject()
         defer { try? FileManager.default.removeItem(at: fixture.url) }
         var project = fixture.project
@@ -146,7 +146,7 @@ struct MarkerAccessibilityTests {
     }
 
     @Test(arguments: ["Primary video", "Primary audio", "Voicer", "Audio description", "Captions"],
-          [TimecodeFeedback.live, .onDemand])
+          [TimecodeFeedback.whenStopped, .onDemand])
     func cutNavigationRetainsTypeAndTimecodeAfterSeekAndFocusRefresh(
         trackName: String, feedback: TimecodeFeedback
     ) async throws {
@@ -409,7 +409,7 @@ struct MarkerAccessibilityTests {
         let marker = project.insertMarker(at: ProjectTime(seconds: 5.125))
         let (host, window) = host(MarkerEditorSheet(marker: marker, save: { _ in }, cancel: {}))
         defer { window.close() }
-        for (precision, expected) in [(true, "00:00:05.125"), (false, "0:05"), (true, "00:00:05.125")] {
+        for (precision, expected) in [(true, "00:05.125"), (false, "00:05"), (true, "00:05.125")] {
             UserDefaults.standard.set(precision, forKey: AppPreferenceKey.precisionTimecode)
             try await Task.sleep(for: .milliseconds(250))
             let strings = descendants(host).flatMap { item in

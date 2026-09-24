@@ -309,8 +309,14 @@ final class ProjectPlayerViewModel: ObservableObject {
     let frameAudioPreview = FrameAudioPreview()
     private let frameSeeker = FrameSeekCoordinator()
     private var frameStepPosition: ProjectTime?
-    private var isScrubbing = false
-    private var isSteppingFrames = false
+    var isPlayheadMoving: Bool { player.rate != 0 || isScrubbing || isSteppingFrames }
+
+    private var isScrubbing = false {
+        didSet { playbackClock.updateMotion(isPlayheadMoving) }
+    }
+    private var isSteppingFrames = false {
+        didSet { playbackClock.updateMotion(isPlayheadMoving) }
+    }
     private var keyEventMonitor: Any?
     private var markerKeyDown: UInt16?
     private var keyboardCommandsAreActive: (() -> Bool)?
@@ -339,6 +345,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] rate in
                 guard let self else { return }
+                self.playbackClock.updateMotion(self.isPlayheadMoving)
                 self.isPlaying = rate != 0
                 self.playbackRate = rate
                 if rate == 0, !self.isScrubbing, !self.isSteppingFrames {
@@ -1305,7 +1312,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             outMarker: outMarker,
             frameRate: projectFrameRate,
             editPoint: editPoint,
-            includeTimecode: AppPreferences.timecodeFeedback == .live
+            includeTimecode: AppPreferences.timecodeFeedback == .whenStopped
         )
         seekPrecisely(to: destination, navigationValue: editPoint?.markerTitle ?? announcement)
         announce(announcement)
@@ -1421,7 +1428,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             navigationPoint = (point.time, editPoint?.markerTitle ?? Self.navigationAnnouncement(
                 destination: point.time, duration: projectDuration, inMarker: inMarker,
                 outMarker: outMarker, frameRate: projectFrameRate, editPoint: editPoint,
-                includeTimecode: AppPreferences.timecodeFeedback == .live))
+                includeTimecode: AppPreferences.timecodeFeedback == .whenStopped))
         }
         objectWillChange.send()
         updateAccessibilityValues(timecode: spokenTimecode(at: currentTime))
@@ -1878,6 +1885,12 @@ final class ProjectPlayerViewModel: ObservableObject {
 
 /// Clock-only changes must not invalidate the surrounding project workspace.
 @MainActor final class ProjectPlaybackClock: ObservableObject {
+    @Published private(set) var isMoving = false
+
+    func updateMotion(_ moving: Bool) {
+        if isMoving != moving { isMoving = moving }
+    }
+
     @Published var time = ProjectTime.zero
     @Published var frame = 0
     @Published var timecode = "00:00:00.000"

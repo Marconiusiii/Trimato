@@ -12,14 +12,14 @@
     <h1>Accessibility settings</h1>
     <p>Choose Trimato &gt; Settings, then Accessibility.</p>
     <h2>Timecode Feedback</h2>
-<ul><li>Live provides timecode feedback as playback advances.</li><li>On Demand speaks the timeline playhead time only when you press T. Focusing or moving a timeline slider does not speak its time.</li><li>Off disables automatic timecode feedback.</li></ul>
-<p>Press T in Editor or Mixer to hear the current timecode while playing or paused. In Clip Editor, T is available when On Demand is selected.</p>
+<ul><li>When stopped speaks the time when you focus a stopped timeline playhead and after you finish adjusting it. Playback and continuous jogging do not speak changing timecodes.</li><li>On Demand speaks the timeline playhead time only when you press T. Focusing or moving a timeline slider does not speak its time.</li></ul>
+<p>Press T in Editor or Mixer to hear the current timecode while playing or paused. T also works in Clip Editor with either feedback setting.</p>
 <h2>Show milliseconds</h2>
 <p>Show milliseconds is on by default. Turn it off to hide fractional seconds in displayed and spoken timeline positions, In and Out points, marker positions, caption boundaries, recording times, and project information. Turn it on to include milliseconds again. The setting applies to open views.</p>
 <p>This changes how times are presented. Existing edit positions retain their exact timing. Timing fields accept fractional seconds even when milliseconds are hidden. Effect parameters, such as audio delay and transition duration, retain their precise values.</p>
 <h2>Timecode style</h2>
 <ul>
-    <li>Numeric uses hours, minutes, and seconds: 01:04:12.344. With Show milliseconds off, the same time is 01:04:12.</li>
+    <li>Numeric always includes minutes and seconds, such as 01:23.115. Hours appear when the time reaches one hour, such as 01:04:12.344. Show milliseconds hides or shows the fractional part.</li>
     <li>Time units uses names: 1 hour, 4 minutes, 12 seconds, 344 milliseconds. It omits zero units. Show milliseconds controls whether the fractional part is included.</li>
     <li>Frames uses the frame number at the current frame rate. Show milliseconds does not affect frame numbers.</li>
 </ul>

@@ -168,12 +168,12 @@ struct ContentView: View {
     private var controlsArea: some View {
         VStack(spacing: 10) {
             ClipLivePlayhead(clock: viewModel.playbackClock, duration: viewModel.duration,
-                step: viewModel.playbackFractionStep, seek: viewModel.seek)
+                step: viewModel.playbackFractionStep,
+                spokenValue: { fraction in
+                    viewModel.spokenTime(CMTime(seconds: fraction * viewModel.duration, preferredTimescale: 600_000))
+                }, isMoving: { viewModel.isPlayheadMoving }, seek: viewModel.seek)
             .disabled(viewModel.duration <= 0)
             .tint(EditorTheme.playhead)
-            .accessibilityLabel("Clip playhead")
-            .accessibilityValue(viewModel.playheadAccessibilityValue)
-            .accessibilityIdentifier(ClipEditorAccessibilityIdentifier.playhead)
             .focused($playheadKeyboardFocused)
 
             playbackControls
@@ -455,12 +455,16 @@ private struct ClipLiveTimecode: View {
 }
 
 private struct ClipLivePlayhead: View {
+    @AppStorage(AppPreferenceKey.timecodeFeedback) private var feedback = TimecodeFeedback.whenStopped
     @ObservedObject var clock: ClipPlaybackClock
     let duration: Double
     let step: Double
+    let spokenValue: (Double) -> String
+    let isMoving: () -> Bool
     let seek: (Double) -> Void
     var body: some View {
-        Slider(value: Binding(get: { duration > 0 ? clock.time / duration : 0 }, set: seek),
-            in: 0...1, step: step)
+        NativePlayheadSlider(value: Binding(get: { duration > 0 ? clock.time / duration : 0 }, set: seek),
+            step: step, label: "Clip playhead", identifier: ClipEditorAccessibilityIdentifier.playhead,
+            spokenValue: spokenValue, feedback: feedback, isMoving: isMoving)
     }
 }

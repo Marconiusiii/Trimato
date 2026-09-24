@@ -180,7 +180,11 @@ final class VideoPlayerViewModel: ObservableObject {
     private var keyEventMonitor: Any?
     private var keyboardCommandsAreActive: (() -> Bool)?
     private var createProjectFromClipAction: (() -> Void)?
-    private var isScrubbing = false
+    var isPlayheadMoving: Bool { player.rate != 0 || isScrubbing || isSteppingFrames }
+
+    private var isScrubbing = false {
+        didSet { playbackClock.updateMotion(isPlayheadMoving) }
+    }
     private var scrubTask: Task<Void, Never>?
     let frameAudioPreview = FrameAudioPreview()
     private let frameSeeker = FrameSeekCoordinator()
@@ -198,7 +202,9 @@ final class VideoPlayerViewModel: ObservableObject {
     private var editID: UUID?
     private var loadID: UUID?
     private var announcedImportProgress = 0
-    private var isSteppingFrames = false
+    private var isSteppingFrames = false {
+        didSet { playbackClock.updateMotion(isPlayheadMoving) }
+    }
     private var arrowHolding = false
     // JKL state: 0=paused, +N=forward at jklSpeeds[N-1], -N=backward at jklSpeeds[N-1]
     private var pendingPlaybackStart: UUID?
@@ -1376,11 +1382,11 @@ final class VideoPlayerViewModel: ObservableObject {
         guard hasMedia else { return }
         cancelScrub()
         seekTo(seconds: point.time.seconds)
-        announce(AppPreferences.timecodeFeedback == .live
+        announce(AppPreferences.timecodeFeedback == .whenStopped
             ? "\(point.kind.spokenName), \(spokenTime(point.time))" : point.kind.spokenName)
     }
 
-    private func spokenTime(_ time: CMTime) -> String {
+    func spokenTime(_ time: CMTime) -> String {
         AppPreferences.spokenTimecode(seconds: time.seconds, frameRate: effectiveFeedbackFrameRate)
     }
 
@@ -1430,6 +1436,7 @@ final class VideoPlayerViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] rate in
                 guard let self else { return }
+                self.playbackClock.updateMotion(self.isPlayheadMoving)
                 self.isPlaying = rate != 0
                 self.playbackRate = rate
                 if rate == 0 { self.updateStoppedPlayhead() }
@@ -1526,7 +1533,6 @@ final class VideoPlayerViewModel: ObservableObject {
                 if !event.isARepeat, unmodified {
                     switch event.charactersIgnoringModifiers?.lowercased() {
                     case "t":
-                        guard AppPreferences.timecodeFeedback == .onDemand else { return event }
                         self.announceCurrentTimecodeOnDemand()
                         return nil
                     case "i": self.markIn(); return nil
@@ -1787,7 +1793,6 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func announceCurrentTimecodeOnDemand() {
-        guard AppPreferences.timecodeFeedback == .onDemand else { return }
         announce(AppPreferences.spokenTimecode(
             seconds: max(CMTimeGetSeconds(effectivePlayheadTime), 0),
             frameRate: effectiveFeedbackFrameRate
@@ -1809,6 +1814,12 @@ final class VideoPlayerViewModel: ObservableObject {
 /// Only the changing playback display observes this clock. Playback controls and
 /// the surrounding editor must not rebuild for every AVPlayer time callback.
 @MainActor final class ClipPlaybackClock: ObservableObject {
+    @Published private(set) var isMoving = false
+
+    func updateMotion(_ moving: Bool) {
+        if isMoving != moving { isMoving = moving }
+    }
+
     @Published var time = 0.0
     @Published var frame = 0
     @Published var timecode = "00:00:00.000"

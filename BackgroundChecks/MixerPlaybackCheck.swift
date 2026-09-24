@@ -32,7 +32,14 @@ import AVFoundation
   guard player.canControlPlayback, let item = player.player.currentItem else { fatalError("Preparation failed: \(String(describing: player.errorMessage))") }
   let session = MixerSession(controller: controller, player: player)
   session.togglePlayback()
-  try await Task.sleep(for: .milliseconds(500))
+  let startup = ContinuousClock.now
+  let startupDeadline = startup.advanced(by: .seconds(3))
+  while player.player.currentTime().seconds <= 0.05 {
+   precondition(ContinuousClock.now < startupDeadline && item.status != .failed,
+                "Playback did not start: \(String(describing: item.error))")
+   try await Task.sleep(for: .milliseconds(20))
+  }
+  print("Playback startup reached media progress in", startup.duration(to: .now))
   let before = player.player.currentTime().seconds
   session.change(\.volumeDB, to: -6)
   session.selectAdjacentTrack(1)

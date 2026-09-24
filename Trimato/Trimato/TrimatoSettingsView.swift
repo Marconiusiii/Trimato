@@ -191,7 +191,7 @@ struct GeneralSettingsView: View {
 struct AccessibilitySettingsView: View {
     @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @AppStorage(AppPreferenceKey.timecodeFeedback)
-    private var timecodeFeedback = TimecodeFeedback.live
+    private var timecodeFeedback = TimecodeFeedback.whenStopped
     @AppStorage(AppPreferenceKey.timecodeStyle) private var storedTimecodeStyle = ""
     private var timecodeStyle: Binding<TimecodeStyle> {
         Binding(get: { TimecodeStyle(rawValue: storedTimecodeStyle) ?? AppPreferences.timecodeStyle },

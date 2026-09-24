@@ -1103,23 +1103,26 @@ private struct ProjectPlayheadPresentation: View {
                               paneCommandKeyboardTarget: paneCommandKeyboardTarget)
             .disabled(!player.canControlPlayback)
             .tint(EditorTheme.playhead)
-            .accessibilityLabel("Project playhead")
-            .accessibilityValue(player.playheadAccessibilityValue)
-            .accessibilityIdentifier("trimato.editor.playhead")
-            .accessibilityAddTraits(player.isPlaying ? .updatesFrequently : [])
     }
 }
 
 private struct ProjectPlayheadSlider: View {
+    @AppStorage(AppPreferenceKey.timecodeFeedback) private var feedback = TimecodeFeedback.whenStopped
     let player: ProjectPlayerViewModel
     @ObservedObject var clock: ProjectPlaybackClock
     var focusedAccessibilityTarget: AccessibilityFocusState<ProjectViewerView.AccessibilityTarget?>.Binding
     var paneCommandKeyboardTarget: FocusState<ProjectViewerView.AccessibilityTarget?>.Binding
 
     var body: some View {
-        Slider(value: Binding(get: {
+        NativePlayheadSlider(value: Binding(get: {
             player.duration.isPositive ? clock.time.seconds / player.duration.seconds : 0
-        }, set: { player.seek(toFraction: $0) }), in: 0...1, step: player.playbackFractionStep)
+        }, set: { player.seek(toFraction: $0) }), step: player.playbackFractionStep,
+            label: "Project playhead", identifier: "trimato.editor.playhead",
+            spokenValue: { fraction in
+                player.isPlaying
+                    ? player.spokenTimecode(at: ProjectTime(seconds: fraction * player.duration.seconds))
+                    : player.playheadAccessibilityValue
+            }, feedback: feedback, isMoving: { player.isPlayheadMoving })
             .accessibilityFocused(focusedAccessibilityTarget, equals: .playhead)
             .focused(paneCommandKeyboardTarget, equals: .playhead)
     }

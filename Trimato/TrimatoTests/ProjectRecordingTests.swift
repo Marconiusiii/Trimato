@@ -202,8 +202,8 @@ struct ProjectRecordingTests {
 
     @Test func recordingTimecodeFormatsAndParsesHumanReadableTimes() throws {
         let format = RecordingTimeFormat()
-        #expect(format.format(2.234435) == "00:00:02.234")
-        #expect(format.format(59.9999) == "00:01:00.000")
+        #expect(format.format(2.234435) == "00:02.234")
+        #expect(format.format(59.9999) == "01:00.000")
         #expect(try format.parseStrategy.parse("01:02:03.456") == 3723.456)
         #expect(try format.parseStrategy.parse("2.25") == 2.25)
         #expect(try format.parseStrategy.parse("02:03.5") == 123.5)

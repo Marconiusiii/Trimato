@@ -22,8 +22,8 @@ struct CaptionWorkflowTests {
         try await Task.sleep(for: .milliseconds(250))
         let elements = accessibilityDescendants(host)
         let values = elements.compactMap { accessibilityAttribute($0, "accessibilityValue") as? String }
-        #expect(values.contains("In Time: 00:00:02.000"))
-        #expect(values.contains("Out Time: 00:00:05.000"))
+        #expect(values.contains("In Time: 00:02.000"))
+        #expect(values.contains("Out Time: 00:05.000"))
         let controls = elements.filter {
             ["AXTextArea", "AXButton", "AXMenuButton", "AXPopUpButton"].contains(
                 accessibilityAttribute($0, "accessibilityRole") as? String ?? "")

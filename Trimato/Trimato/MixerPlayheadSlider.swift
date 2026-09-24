@@ -2,25 +2,23 @@ import AppKit
 import SwiftUI
 
 struct MixerPlayheadSlider: View {
-    @AppStorage(AppPreferenceKey.timecodeFeedback) private var feedback = TimecodeFeedback.live
+    @AppStorage(AppPreferenceKey.timecodeFeedback) private var feedback = TimecodeFeedback.whenStopped
     @Binding var value: Double
     let step: Double
-    let timecode: String
+    let timecode: (Double) -> String
     let ready: Bool
     let playing: Bool
+    var isMoving: () -> Bool = { false }
     @Environment(\.controlActiveState) private var windowActivity
     @FocusState private var keyboardFocused: Bool
     @AccessibilityFocusState private var voiceOverFocused: Bool
     @State private var needsInitialFocus = true
 
     var body: some View {
-        // An inline Slider label makes macOS lay out labels for its frame steps.
-        // Native LabeledContent keeps the label associated without that work.
         LabeledContent("Project playhead") {
-            Slider(value: $value, in: 0...1, step: step)
-                .accessibilityValue(AppPreferences.playheadValue(timecode, feedback: feedback))
-                .accessibilityAddTraits(playing ? .updatesFrequently : [])
-                .accessibilityIdentifier("trimato.mixer.playhead")
+            NativePlayheadSlider(value: $value, step: step, label: "Project playhead",
+                identifier: "trimato.mixer.playhead", spokenValue: timecode, feedback: feedback, isMoving: { playing || isMoving() })
+                .disabled(!ready)
                 .focused($keyboardFocused)
                 .accessibilityFocused($voiceOverFocused)
         }

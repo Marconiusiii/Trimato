@@ -28,7 +28,7 @@ Created by Marco Salsiccia.
 
 Choose Trim a Clip on the welcome screen to edit a single file, New Project to arrange media, or Open Project to continue saved work.
 
-In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open Captioner, Describer, Voicer, or Mixer as needed. Choose Settings to configure recording devices, playback, timecode, and storage preferences. Choose Numeric, Time units, or Frames for timeline timecodes. Show milliseconds controls fractional seconds in displayed and spoken times. On Demand keeps timeline playhead time silent until you press T.
+In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open Captioner, Describer, Voicer, or Mixer as needed. Choose Settings to configure recording devices, playback, timecode, and storage preferences. Choose Numeric, Time units, or Frames for timeline timecodes. Show milliseconds controls fractional seconds in displayed and spoken times. When stopped speaks playhead time while paused and after adjustments settle. On Demand keeps timeline playhead time silent until you press T. Numeric timecodes include minutes and seconds, adding hours when needed.
 
 For editing instructions and keyboard shortcuts, open the Trimato Manual from the app's Help menu. Help buttons open the topic for the current tool or Settings page.
 

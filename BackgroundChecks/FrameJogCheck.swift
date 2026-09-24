@@ -31,10 +31,12 @@ import QuartzCore
             let target = project.currentTime.seconds + (index % 2 == 0 ? 1.0 / 30 : -1.0 / 30)
             let started = CACurrentMediaTime()
             if index % 2 == 0 { project.stepForward() } else { project.stepBackward() }
+            precondition(project.playbackClock.isMoving, "Project jog did not invalidate its clock presentation")
             while !project.frameAudioPreview.isPlaying && CACurrentMediaTime() - started < 3 {
                 try await Task.sleep(for: .milliseconds(1))
             }
             precondition(project.frameAudioPreview.isPlaying, "PCM preview was not scheduled")
+            precondition(!project.playbackClock.isMoving, "Project jog completion did not refresh its clock presentation")
             onset.append((CACurrentMediaTime() - started) * 1000)
             precondition(project.player.rate == 0 && abs(project.player.currentTime().seconds - target) < 0.001,
                 "Video must remain paused on the selected frame throughout its audio preview")
@@ -78,10 +80,12 @@ import QuartzCore
             let target = index % 2 == 0 ? 2 + 1.0 / 30 : 2
             let start = CACurrentMediaTime()
             if index % 2 == 0 { clip.stepForward() } else { clip.stepBackward() }
+            precondition(clip.playbackClock.isMoving, "Clip jog did not invalidate its clock presentation")
             while !clip.frameAudioPreview.isPlaying && CACurrentMediaTime() - start < 3 {
                 try await Task.sleep(for: .milliseconds(1))
             }
             precondition(clip.frameAudioPreview.isPlaying, "Clip audio preview did not start")
+            precondition(!clip.playbackClock.isMoving, "Clip jog completion did not refresh its clock presentation")
             clipOnset.append((CACurrentMediaTime()-start)*1000)
             precondition(clip.player.rate == 0 && abs(clip.player.currentTime().seconds - target) < 0.002)
             try await Task.sleep(for: .milliseconds(220))

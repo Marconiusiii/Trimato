@@ -45,11 +45,11 @@ struct AppPreferencesTests {
 
     @Test func passiveCountersUseCompletedSecondsWithoutChangingPreciseTimes() throws {
         for (seconds, simplified, precise) in [
-            (0.0, "00:00:00", "00:00:00.000"),
-            (1.25, "00:00:01", "00:00:01.250"),
-            (59.999, "00:00:59", "00:00:59.999"),
-            (60.0, "00:01:00", "00:01:00.000"),
-            (3599.999, "00:59:59", "00:59:59.999"),
+            (0.0, "00:00", "00:00.000"),
+            (1.25, "00:01", "00:01.250"),
+            (59.999, "00:59", "00:59.999"),
+            (60.0, "01:00", "01:00.000"),
+            (3599.999, "59:59", "59:59.999"),
             (3600.0, "01:00:00", "01:00:00.000"),
             (3661.042, "01:01:01", "01:01:01.042")
         ] {
@@ -59,12 +59,12 @@ struct AppPreferencesTests {
             #expect(abs(try RecordingTimeFormat().parseStrategy.parse(precise) - seconds) < 0.000_001)
         }
         for invalid in [-1.0, Double.nan, Double.infinity] {
-            #expect(AppPreferences.passiveTimecode(seconds: invalid, precision: false) == "00:00:00")
+            #expect(AppPreferences.passiveTimecode(seconds: invalid, precision: false) == "00:00")
         }
     }
 
     @Test func timecodeChoicesStayInTheSettingsOrder() {
-        #expect(TimecodeFeedback.allCases == [.live, .onDemand, .off])
+        #expect(TimecodeFeedback.allCases == [.whenStopped, .onDemand])
         #expect(TimecodeStyle.allCases == [.numeric, .timeUnits, .frames])
     }
 
@@ -73,14 +73,20 @@ struct AppPreferencesTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(AppPreferences.timecodeFeedback(in: defaults) == .live)
+        #expect(AppPreferences.timecodeFeedback(in: defaults) == .whenStopped)
         #expect(AppPreferences.timecodeVerbosity(in: defaults) == .default)
 
         defaults.set("unknown", forKey: AppPreferenceKey.timecodeFeedback)
         defaults.set("unknown", forKey: AppPreferenceKey.timecodeVerbosity)
-        #expect(AppPreferences.timecodeFeedback(in: defaults) == .live)
+        #expect(AppPreferences.timecodeFeedback(in: defaults) == .whenStopped)
         #expect(AppPreferences.timecodeVerbosity(in: defaults) == .default)
 
+        for (raw, expected) in [("live", TimecodeFeedback.whenStopped), ("off", .onDemand),
+                                ("whenStopped", .whenStopped), ("onDemand", .onDemand)] {
+            defaults.set(raw, forKey: AppPreferenceKey.timecodeFeedback)
+            #expect(AppPreferences.timecodeFeedback(in: defaults) == expected)
+            #expect(TimecodeFeedback(rawValue: expected.rawValue) == expected)
+        }
         defaults.set(TimecodeFeedback.onDemand.rawValue, forKey: AppPreferenceKey.timecodeFeedback)
         defaults.set(TimecodeVerbosity.frames.rawValue, forKey: AppPreferenceKey.timecodeVerbosity)
         #expect(AppPreferences.timecodeFeedback(in: defaults) == .onDemand)
@@ -109,7 +115,7 @@ struct AppPreferencesTests {
             #expect(AppPreferences.spokenTimecode(seconds: 1.5, frameRate: 24, milliseconds: milliseconds, style: .frames) == "Frame 36")
         }
         for feedback in TimecodeFeedback.allCases {
-            #expect(AppPreferences.playheadValue("1 second", feedback: feedback) == (feedback == .live ? "1 second" : ""))
+            #expect(AppPreferences.playheadValue("1 second", feedback: feedback) == (feedback == .whenStopped ? "1 second" : ""))
         }
         #expect(AppPreferences.spokenTimecode(seconds: 4500, frameRate: 30, milliseconds: true, style: .timeUnits) == "1 hour, 15 minutes")
         #expect(AppPreferences.spokenTimecode(seconds: 0, frameRate: 30, milliseconds: true, style: .timeUnits) == "0 seconds")
