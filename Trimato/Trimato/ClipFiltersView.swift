@@ -416,6 +416,13 @@ struct ClipFilterParameters: View {
             if filter.kind.isAudio {
                 AudioValueSlider(label: parameter.label, value: valueBinding(parameter), range: parameter.range,
                     step: parameter.step, unit: unit(parameter), identifier: "trimato.filter.\(parameter.id)")
+            } else if filter.kind == .technicolor, parameter.id != "amount" {
+                Picker(parameter.label, selection: valueBinding(parameter, snap: true)) {
+                    ForEach(-20...20, id: \.self) { offset in
+                        Text(FilmLook.offsetDescription(Double(offset))).tag(Double(offset))
+                    }
+                }
+                .pickerStyle(.menu)
             } else {
                 Slider(value: valueBinding(parameter, snap: true), in: parameter.range) { Text(parameter.label) }
             }

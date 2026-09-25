@@ -45,7 +45,7 @@ nonisolated enum HDRVideoRenderer {
         }
     }
 
-    private static func apply(_ filter: ClipFilter, to image: CIImage) -> CIImage {
+    static func apply(_ filter: ClipFilter, to image: CIImage) -> CIImage {
         switch filter.kind {
         case .brightnessContrast:
             return image.applyingFilter("CIColorControls", parameters: [kCIInputBrightnessKey: filter.value("brightness"),
@@ -58,6 +58,8 @@ nonisolated enum HDRVideoRenderer {
                 "inputBVector": CIVector(x: 0, y: 0, z: 1 - filter.value("warmth") * 0.3, w: 0)])
         case .blackAndWhite:
             return image.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
+        case .bleachBypass, .technicolor:
+            return FilmLook(filter: filter).apply(to: image)
         case .sharpen:
             return image.clampedToExtent().applyingFilter("CIUnsharpMask", parameters: [kCIInputRadiusKey: 2,
                 kCIInputIntensityKey: filter.value("amount")]).cropped(to: image.extent)

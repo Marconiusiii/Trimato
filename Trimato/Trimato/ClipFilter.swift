@@ -9,7 +9,7 @@ nonisolated struct FilterParameter: Identifiable, Sendable {
 }
 
 nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Sendable {
-    case brightnessContrast, colorAdjustment, blackAndWhite, sharpen, videoNoise, cropOrientation
+    case brightnessContrast, colorAdjustment, blackAndWhite, bleachBypass, technicolor, sharpen, videoNoise, cropOrientation
     case tone, backgroundNoise, evenVolume, matchLoudness, reverb, echo, softenS, limitPeaks
     var id: Self { self }
     var isAudio: Bool { [.tone, .backgroundNoise, .evenVolume, .matchLoudness, .reverb, .echo, .softenS, .limitPeaks].contains(self) }
@@ -18,6 +18,8 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .brightnessContrast: "Brightness and Contrast"
         case .colorAdjustment: "Color Adjustment"
         case .blackAndWhite: "Black and White"
+        case .bleachBypass: "Bleach Bypass"
+        case .technicolor: "Technicolor"
         case .sharpen: "Sharpen"
         case .videoNoise: "Reduce Video Noise"
         case .cropOrientation: "Crop and Orientation"
@@ -36,6 +38,8 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .brightnessContrast: "Adjust overall lightness and the difference between dark and bright areas."
         case .colorAdjustment: "Adjust color intensity, warmth, and green or magenta tint."
         case .blackAndWhite: "Remove color while preserving differences in brightness."
+        case .bleachBypass: "Reduce color saturation and deepen contrast. Amount controls the strength."
+        case .technicolor: "Adjust color and contrast, with optional horizontal color offsets."
         case .sharpen: "Emphasize edges. Strong settings can add visible outlines."
         case .videoNoise: "Soften fine image noise. Strong settings can remove detail."
         case .cropOrientation: "Remove pixels from the edges, then rotate or flip the image. The result fits the project frame."
@@ -54,6 +58,11 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .brightnessContrast: [p("brightness", "Brightness", -0.5...0.5, 0, 0.01), p("contrast", "Contrast", 0.5...2, 1, 0.05)]
         case .colorAdjustment: [p("saturation", "Saturation", 0...2, 1), p("warmth", "Warmth", -1...1, 0), p("tint", "Tint", -1...1, 0)]
         case .blackAndWhite: []
+        case .bleachBypass: [p("amount", "Amount", 0...100, 50, 1)]
+        case .technicolor: [p("amount", "Effect strength", 0...100, 50, 1),
+            p("cyanOffset", "Cyan horizontal offset", -20...20, 0, 1),
+            p("magentaOffset", "Magenta horizontal offset", -20...20, 0, 1),
+            p("yellowOffset", "Yellow horizontal offset", -20...20, 0, 1)]
         case .sharpen: [p("amount", "Sharpness", 0...2, 0.5)]
         case .videoNoise: [p("amount", "Noise Reduction", 1...10, 2)]
         case .cropOrientation: [p("left", "Crop Left in Pixels", 0...8190, 0, 1), p("right", "Crop Right in Pixels", 0...8190, 0, 1), p("top", "Crop Top in Pixels", 0...8190, 0, 1), p("bottom", "Crop Bottom in Pixels", 0...8190, 0, 1)]
@@ -100,6 +109,7 @@ nonisolated struct ClipFilter: Codable, Hashable, Identifiable, Sendable {
         case .brightnessContrast: "format=yuv420p,lutyuv=y='clip((val-128)*\(value("contrast"))+128+\(value("brightness") * 255),0,255)'"
         case .colorAdjustment: "hue=s=\(value("saturation")),colorbalance=rm=\(value("warmth") * 0.3):bm=\(-value("warmth") * 0.3):gm=\(value("tint") * 0.3)"
         case .blackAndWhite: "hue=s=0"
+        case .bleachBypass, .technicolor: FilmLook(filter: self).graph
         case .sharpen: "unsharp=5:5:\(value("amount")):5:5:0"
         case .videoNoise: "nlmeans=s=\(value("amount"))"
         case .cropOrientation: orientationGraph
