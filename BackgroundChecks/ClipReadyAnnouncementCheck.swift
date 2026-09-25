@@ -1,6 +1,8 @@
 import Foundation
 import AppKit
 import Darwin
+import AVFoundation
+import Combine
 @testable import Trimato
 
 @main struct ClipReadyAnnouncementCheck {
@@ -8,7 +10,7 @@ import Darwin
         guard condition else { print("FAIL: \(message)"); exit(1) }
     }
 
-    @MainActor static func main() async {
+    @MainActor static func main() async throws {
         verify(NSApp == nil, "Background check must not create an application")
         for outcome in [OperationProgressOutcome.completed, .cancelled, .failed] {
             var operation = OperationProgress(
@@ -31,6 +33,19 @@ import Darwin
         var legacy = OperationProgressAnnouncements()
         verify(legacy.update(progress: 0.5) == "50 percent.", "Existing progress speech changed")
         verify(legacy.finish(outcome: .completed) == "100 percent, complete.", "Existing completion speech changed")
+        var stages = OperationProgressAnnouncements()
+        verify(stages.update(progress: 0.9, stage: "Indexing frames") == "90 percent.", "Index progress missing")
+        verify(stages.update(progress: 1, stage: "Indexing frames") == nil, "Stage claimed overall completion")
+        verify(stages.update(progress: 0, stage: "Creating playback proxy") == "0 percent.", "Proxy stage did not reset")
+        verify(stages.update(progress: 0.1, stage: "Creating playback proxy") == "10 percent.", "Proxy milestone lost")
+        verify(stages.update(progress: 0.11, stage: "Creating playback proxy") == nil, "Repeated milestone")
+        verify(stages.update(progress: nil, stage: "Preparing playback") == nil, "Unknown work invented a percentage")
+        verify(stages.finish(outcome: .completed, announceCompletion: false) == nil, "Duplicate generic completion")
+        verify(stages.update(progress: 0.5, stage: "Old callback") == nil, "Progress followed completion")
+        for invalid in [Double.nan, Double.infinity] {
+            var progress = OperationProgressAnnouncements()
+            verify(progress.update(progress: invalid, stage: "Preparing playback") == nil, "Invalid percentage spoken")
+        }
         let quickLoad = ClipLoadingPresentation()
         quickLoad.begin()
         quickLoad.finish()
@@ -69,6 +84,44 @@ import Darwin
         var announcement = ClipReadyAnnouncementPolicy()
         verify(announcement.message(ready: false, outcome: .completed) == nil, "Unprepared clip announced ready")
         verify(announcement.message(ready: true, outcome: .completed) == "Clip Ready", "Early update consumed readiness")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("trimato-loading-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("silent.mov")
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+            "-v", "error", "-nostdin", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=1",
+            "-c:v", "prores_ks", "-an", url.path
+        ])
+        let clip = VideoPlayerViewModel()
+        clip.player.volume = 0
+        var measured = false
+        var playbackPreparation = false
+        let progressObservation = clip.$mediaProgress.sink { value in
+            if let value, value.isFinite { measured = true }
+        }
+        let statusObservation = clip.$mediaStatus.sink { status in
+            if status == "Preparing playback" { playbackPreparation = true }
+        }
+        for prepared in [false, true] {
+            let source: MediaSource? = prepared ? .native(
+                url: url, asset: AVURLAsset(url: url), contentType: nil,
+                mode: .nativePassthrough,
+                frameTimestamps: (0..<10).map { CMTime(value: Int64($0), timescale: 10) },
+                hasAudio: false
+            ) : nil
+            clip.load(url: url, preparedSource: source)
+            for _ in 0..<1000 {
+                if !clip.isPreparingMedia { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            verify(!clip.isPreparingMedia && clip.hasMedia && clip.duration > 0, "Real clip failed to become editable")
+            verify(clip.mediaProgress == nil, "Ready clip retained a stale loading percentage")
+            verify(clip.mediaPreparationOutcome == .completed, "Real load did not succeed")
+            verify(clip.player.rate == 0, "Background check started playback")
+            clip.closeMedia()
+        }
+        verify(measured && playbackPreparation, "Real loading omitted indexing or final preparation")
+        withExtendedLifetime((progressObservation, statusObservation)) {}
+        print("PASS: real silent video loads, measured indexing, final preparation, and prepared-source reopening")
         verify(NSApp == nil, "Background check created an application")
         print("PASS: quiet quick loads, delayed long loads, cancellation, dismissal gating, late update rejection, cached and uncached entry, progress dismissal, inactive window, one announcement, cancellation, and failure")
     }

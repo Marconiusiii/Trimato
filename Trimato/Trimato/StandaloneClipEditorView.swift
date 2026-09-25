@@ -276,9 +276,11 @@ struct StandaloneClipEditorView: View {
         guard viewModel.isPreparingMedia, loadingPresentation.isPresented else { return nil }
         return OperationProgress(
             title: "Preparing Clip",
+            progress: viewModel.mediaProgress,
+            detail: viewModel.mediaStatus,
             cancel: viewModel.cancelMediaLoad,
             announceCompletion: false,
-            announcesUpdates: false
+            progressStage: viewModel.mediaStatus
         )
     }
 }

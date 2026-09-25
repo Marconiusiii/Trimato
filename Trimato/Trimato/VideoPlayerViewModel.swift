@@ -456,6 +456,8 @@ final class VideoPlayerViewModel: ObservableObject {
                 guard self.loadID == operationID else {
                     throw CancellationError()
                 }
+                self.mediaProgress = nil
+                self.mediaStatus = "Preparing playback"
                 self.hasSpatialAudio = try await SpatialAudioPlan.detect(in: source.originalAsset)
                 let editingAsset = self.hasSpatialAudio ? source.originalAsset : source.playbackAsset
                 self.mediaSource = source
@@ -485,6 +487,8 @@ final class VideoPlayerViewModel: ObservableObject {
                     }
                     try Task.checkCancellation()
                 }
+                self.mediaProgress = nil
+                self.mediaStatus = "Preparing playback"
                 self.mediaSource = MediaSource(originalURL: source.originalURL, playbackURL: source.playbackURL,
                     originalAsset: source.originalAsset, playbackAsset: source.playbackAsset, contentType: source.contentType,
                     mode: source.mode, frameTimestamps: sourceFrameTimestamps, hasVideo: source.hasVideo, hasAudio: source.hasAudio)

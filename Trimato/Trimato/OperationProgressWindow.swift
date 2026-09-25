@@ -7,9 +7,15 @@ nonisolated struct OperationProgressAnnouncements {
     private(set) var milestone = -1
     private(set) var finished = false
     private var determinate = false
+    private var stage: String?
 
-    mutating func update(progress: Double?) -> String? {
+    mutating func update(progress: Double?, stage: String? = nil) -> String? {
         guard !finished else { return nil }
+        if self.stage != stage {
+            self.stage = stage
+            milestone = -1
+            determinate = false
+        }
         guard let progress, progress.isFinite else {
             guard milestone == -1 else { return nil }
             milestone = 0
@@ -53,12 +59,15 @@ struct OperationProgress {
     var cancel: (() -> Void)? = nil
     var announceCompletion = true
     var announcesUpdates = true
+    // Opt in to stage-scoped percentages and interruptible loading speech.
+    var progressStage: String? = nil
 }
 
 private struct OperationProgressSnapshot: Equatable {
     let title: String?
     let progress: Double?
     let detail: String?
+    let progressStage: String?
     let canCancel: Bool
     let announceCompletion: Bool
     let announcesUpdates: Bool
@@ -104,6 +113,7 @@ private struct OperationProgressPresenter: ViewModifier {
             title: operation?.title,
             progress: operation?.progress,
             detail: operation?.detail,
+            progressStage: operation?.progressStage,
             canCancel: operation?.cancel != nil,
             announceCompletion: operation?.announceCompletion ?? true,
             announcesUpdates: operation?.announcesUpdates ?? true,
@@ -167,6 +177,7 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
     private var wasCancelled = false
     private let postsAnnouncements: Bool
     private let announcesUpdates: Bool
+    private var progressStage: String?
 
     init(operation: OperationProgress, postsAnnouncements: Bool = true) {
         title = operation.title
@@ -176,8 +187,11 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
         announceCompletion = operation.announceCompletion
         self.postsAnnouncements = postsAnnouncements
         announcesUpdates = operation.announcesUpdates
-        _ = announcements.update(progress: operation.progress)
+        progressStage = operation.progressStage
+        _ = announcements.update(progress: operation.progress, stage: operation.progressStage)
     }
+
+    var usesStageProgress: Bool { progressStage != nil }
 
     var canCancel: Bool {
         cancelAction != nil && !wasCancelled && !isFinished
@@ -191,10 +205,16 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
         detail = operation.detail
         cancelAction = operation.cancel
         announceCompletion = operation.announceCompletion
-        let milestone = announcements.update(progress: operation.progress)
+        progressStage = operation.progressStage
+        let milestone = announcements.update(progress: operation.progress, stage: operation.progressStage)
         if announcesUpdates {
-            if detailChanged, let detail = operation.detail { speak(detail) }
-            speak(milestone)
+            if let stage = progressStage {
+                if let milestone { speak("\(stage), \(milestone)") }
+                else if detailChanged { speak(stage) }
+            } else {
+                if detailChanged, let detail = operation.detail { speak(detail) }
+                speak(milestone)
+            }
         }
     }
 
@@ -224,7 +244,7 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
 
     private func speak(_ message: String?) {
         guard postsAnnouncements, let message, let application = NSApp, application.isActive else { return }
-        if !announcesUpdates {
+        if !announcesUpdates || progressStage != nil {
             var announcement = AttributedString(message)
             announcement.accessibilitySpeechAnnouncementPriority = .default
             AccessibilityNotification.Announcement(announcement).post()
@@ -311,7 +331,11 @@ private struct OperationProgressContent: View {
                 Text(detail)
             }
 
-            if let progress = session.progress, progress.isFinite {
+            if session.usesStageProgress {
+                ProgressView(value: session.progress.flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }, total: 1)
+                    .progressViewStyle(.linear)
+                    .accessibilityFocused($progressVoiceOverFocused)
+            } else if let progress = session.progress, progress.isFinite {
                 let bounded = min(max(progress, 0), 1)
                 ProgressView(value: bounded, total: 1)
                     .accessibilityFocused($progressVoiceOverFocused)

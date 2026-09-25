@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import Accessibility
 import AVFoundation
 
 nonisolated enum AudioClipPreviewPlan {
@@ -18,6 +20,8 @@ struct SourceClipEditorView: View {
     @StateObject private var viewModel = VideoPlayerViewModel()
     @State private var loadedAssetID: UUID?
     @State private var preparingSource = false
+    @State private var preparationHandoffPending = false
+    @State private var readyAnnouncement = ClipReadyAnnouncementPolicy()
     @State private var preparationID = UUID()
     @State private var preparationTask: Task<Void, Never>?
     @State private var sourcePreparationError: String?
@@ -59,9 +63,9 @@ struct SourceClipEditorView: View {
                     allowsFileOpening: false,
                     editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo),
                     compact: true,
-                    isPreparingSource: preparingSource,
+                    isPreparingSource: preparingSource || preparationHandoffPending,
                     isPreparingClipPreview: preview.state == .preparing,
-                    entryCompleted: commandContext.finishOpening
+                    entryCompleted: finishClipEntry
                 )
 
                 TabView(selection: $selectedTab) {
@@ -152,7 +156,8 @@ struct SourceClipEditorView: View {
             clipPreparationOperation,
             outcome: clipPreparationOutcome,
             returnWindow: commandContext.hostWindow,
-            waitsForReturnWindow: true
+            waitsForReturnWindow: true,
+            dismissed: { preparationHandoffPending = false }
         )
         .operationProgress(showsPreviewProgress && preview.state == .preparing ? OperationProgress(
             title: "Applying Clip Effects", progress: preview.progress,
@@ -365,6 +370,8 @@ struct SourceClipEditorView: View {
         let requestID = UUID()
         preparationID = requestID
         preparingSource = true
+        preparationHandoffPending = true
+        readyAnnouncement = ClipReadyAnnouncementPolicy()
         sourcePreparationError = nil
         sourcePreparationProgress = nil
         sourcePreparationDetail = "\(currentAsset.name): Preparing media"
@@ -436,7 +443,9 @@ struct SourceClipEditorView: View {
                 title: "Preparing Clip",
                 progress: sourcePreparationProgress,
                 detail: sourcePreparationDetail,
-                cancel: cancelClipPreparation
+                cancel: cancelClipPreparation,
+                announceCompletion: false,
+                progressStage: sourcePreparationProgress == nil ? "Preparing media" : "Creating playback proxy"
             )
         }
         guard viewModel.isPreparingMedia else { return nil }
@@ -444,7 +453,9 @@ struct SourceClipEditorView: View {
             title: "Preparing Clip",
             progress: viewModel.mediaProgress,
             detail: clipPreparationDetail,
-            cancel: cancelClipPreparation
+            cancel: cancelClipPreparation,
+            announceCompletion: false,
+            progressStage: viewModel.mediaStatus
         )
     }
 
@@ -467,6 +478,21 @@ struct SourceClipEditorView: View {
         sourcePreparationProgress = nil
         sourcePreparationOutcome = .cancelled
         viewModel.cancelMediaLoad()
+    }
+
+    private func finishClipEntry() {
+        commandContext.finishOpening()
+        guard commandContext.isKeyWindow, NSApp?.isActive == true,
+              commandContext.hostWindow?.attachedSheet == nil,
+              !AudioCaptureSession.suppressesAnnouncements,
+              let message = readyAnnouncement.message(
+                ready: !preparingSource && !preparationHandoffPending &&
+                    viewModel.hasMedia && viewModel.duration > 0 && !viewModel.isPreparingMedia,
+                outcome: clipPreparationOutcome
+              ) else { return }
+        var announcement = AttributedString(message)
+        announcement.accessibilitySpeechAnnouncementPriority = .high
+        AccessibilityNotification.Announcement(announcement).post()
     }
 
     private func place(_ placement: PlacementAction) {
