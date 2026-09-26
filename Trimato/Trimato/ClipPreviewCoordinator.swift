@@ -59,6 +59,11 @@ final class ClipPreviewCoordinator: ObservableObject {
         self.remove = remove
     }
 
+    func isReady(for request: Request?) -> Bool {
+        guard let request else { return false }
+        return state == .ready && lastSuccessfulRequest == request
+    }
+
     func update(
         _ request: Request,
         debounce: Bool = true,

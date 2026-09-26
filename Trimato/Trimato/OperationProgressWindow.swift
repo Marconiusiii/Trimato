@@ -176,10 +176,13 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
     private var announcements = OperationProgressAnnouncements()
     private var wasCancelled = false
     private let postsAnnouncements: Bool
+    private let announcementHandler: ((String) -> Void)?
     private let announcesUpdates: Bool
     private var progressStage: String?
 
-    init(operation: OperationProgress, postsAnnouncements: Bool = true) {
+    init(operation: OperationProgress, postsAnnouncements: Bool = true,
+         announcementHandler: ((String) -> Void)? = nil) {
+        self.announcementHandler = announcementHandler
         title = operation.title
         progress = operation.progress
         detail = operation.detail
@@ -210,7 +213,8 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
         if announcesUpdates {
             if let stage = progressStage {
                 if let milestone { speak("\(stage), \(milestone)") }
-                else if detailChanged { speak(stage) }
+                // The native progress window exposes brief stage changes.
+                // Only measured milestones need an additional announcement.
             } else {
                 if detailChanged, let detail = operation.detail { speak(detail) }
                 speak(milestone)
@@ -243,7 +247,9 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
     }
 
     private func speak(_ message: String?) {
-        guard postsAnnouncements, let message, let application = NSApp, application.isActive else { return }
+        guard let message else { return }
+        if let announcementHandler { announcementHandler(message); return }
+        guard postsAnnouncements, let application = NSApp, application.isActive else { return }
         if !announcesUpdates || progressStage != nil {
             var announcement = AttributedString(message)
             announcement.accessibilitySpeechAnnouncementPriority = .default

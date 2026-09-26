@@ -63,7 +63,7 @@ struct SourceClipEditorView: View {
                     editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo),
                     compact: true,
                     isPreparingSource: preparingSource || preparationHandoffPending,
-                    isPreparingClipPreview: preview.state == .preparing,
+                    isPreparingClipPreview: !entryPlaybackReady && !previewNeedsRecovery,
                     entryCompleted: finishClipEntry
                 )
 
@@ -154,6 +154,8 @@ struct SourceClipEditorView: View {
         .operationProgress(
             clipPreparationOperation,
             outcome: clipPreparationOutcome,
+            completionPending: preparationHandoffPending && viewModel.hasMedia && !viewModel.isPreparingMedia &&
+                !entryPlaybackReady && !previewNeedsRecovery,
             returnWindow: commandContext.hostWindow,
             waitsForReturnWindow: true,
             dismissed: { preparationHandoffPending = false }
@@ -209,6 +211,9 @@ struct SourceClipEditorView: View {
         .onChange(of: viewModel.placementSourceSegments) { _, segments in
             guard loadedAssetID == currentAsset.id, !preparingSource else { return }
             commandContext.setSegments(segments)
+        }
+        .onChange(of: viewModel.isLoadingMedia) { _, loading in
+            if !loading { scheduleAudioPreview(for: commandContext.audioSettings, debounce: false) }
         }
         .onChange(of: viewModel.hasMedia) {
             guard viewModel.hasMedia else { return }
@@ -447,6 +452,13 @@ struct SourceClipEditorView: View {
                 progressStage: sourcePreparationProgress == nil ? "Preparing media" : "Creating playback proxy"
             )
         }
+        if preparationHandoffPending && !viewModel.isPreparingMedia && preview.state == .preparing {
+            return OperationProgress(
+                title: "Preparing Clip", progress: preview.progress,
+                detail: "Applying clip effects", cancel: cancelClipPreparation,
+                announceCompletion: false, progressStage: "Applying clip effects"
+            )
+        }
         guard viewModel.isPreparingMedia else { return nil }
         return OperationProgress(
             title: "Preparing Clip",
@@ -476,6 +488,7 @@ struct SourceClipEditorView: View {
         loadedAssetID = nil
         sourcePreparationProgress = nil
         sourcePreparationOutcome = .cancelled
+        preview.cancel()
         viewModel.cancelMediaLoad()
     }
 
@@ -486,7 +499,8 @@ struct SourceClipEditorView: View {
               !AudioCaptureSession.suppressesAnnouncements,
               let message = readyAnnouncement.message(
                 ready: !preparingSource && !preparationHandoffPending &&
-                    viewModel.hasMedia && viewModel.duration > 0 && !viewModel.isPreparingMedia,
+                    viewModel.hasMedia && viewModel.duration > 0 && !viewModel.isPreparingMedia &&
+                    entryPlaybackReady,
                 outcome: clipPreparationOutcome
               ) else { return }
         var announcement = AttributedString(message)
@@ -589,6 +603,17 @@ struct SourceClipEditorView: View {
             commandContext.audioSettings = previous?.audioSettings ?? .neutral
         }
         scheduleAudioPreview(for: commandContext.audioSettings, debounce: false, force: true, userInitiated: true)
+    }
+
+    private var entryPlaybackReady: Bool {
+        guard let source = controller.resolveURL(for: currentAsset),
+              !viewModel.audioPreviewSegments.isEmpty else { return false }
+        let desired = ClipPreviewCoordinator.Request(
+            source: source, filters: commandContext.filters,
+            audio: commandContext.audioSettings != nil,
+            segments: viewModel.audioPreviewSegments, audioSettings: commandContext.audioSettings
+        )
+        return preview.isReady(for: desired) && commandContext.effectsReady
     }
 
     private func ensureLatestPlayback() -> Bool {

@@ -125,14 +125,14 @@ final class VideoPlayerViewModel: ObservableObject {
     let playbackClock = ClipPlaybackClock()
     var displayTimecode: String {
         get { playbackClock.timecode }
-        set { playbackClock.timecode = newValue }
+        set { if playbackClock.timecode != newValue { playbackClock.timecode = newValue } }
     }
     @Published var isPlaying: Bool = false
     @Published var playbackRate: Float = 0
     @Published var duration: Double = 0
     var currentTime: Double {
         get { playbackClock.time }
-        set { playbackClock.time = newValue }
+        set { if playbackClock.time != newValue { playbackClock.time = newValue } }
     }
     @Published private(set) var sourceFilename: String?
     @Published private(set) var hasMedia = false
@@ -142,7 +142,7 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published var showingFrames: Bool = AppPreferences.timecodeStyle == .frames
     var currentFrame: Int {
         get { playbackClock.frame }
-        set { playbackClock.frame = newValue }
+        set { if playbackClock.frame != newValue { playbackClock.frame = newValue } }
     }
     @Published private(set) var accessibilityTimecodeLabel: String = AppPreferences.spokenTimecode(seconds: 0, frameRate: 30)
     @Published private(set) var inMarker: CMTime?
@@ -208,11 +208,14 @@ final class VideoPlayerViewModel: ObservableObject {
     }
     private var arrowHolding = false
     // JKL state: 0=paused, +N=forward at jklSpeeds[N-1], -N=backward at jklSpeeds[N-1]
+    private var navigationRequest: UUID?
+    private let announcementHandler: ((String) -> Void)?
     private var pendingPlaybackStart: UUID?
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8, 16]
 
-    init(waveformPreferences: UserDefaults = .standard) {
+    init(waveformPreferences: UserDefaults = .standard, announcementHandler: ((String) -> Void)? = nil) {
+        self.announcementHandler = announcementHandler
         self.waveformPreferences = waveformPreferences
         showsAudioWaveforms = AppPreferences.showAudioWaveforms(in: waveformPreferences)
         waveformPreferenceObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
@@ -631,7 +634,7 @@ final class VideoPlayerViewModel: ObservableObject {
             jklIndex = 0
             player.currentItem?.cancelPendingSeeks()
             player.pause()
-            updateStoppedPlayhead()
+            synchronizePlaybackState()
             return
         }
         if preparePlayback?() == false { waitingForClipPreview = true; return }
@@ -698,6 +701,8 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func markIn() {
         guard hasMedia, NSApp.modalWindow == nil else { return }
+        navigationRequest = nil
+        synchronizePlaybackState()
         let time = effectivePlayheadTime
         setInMarker(at: time)
         Logger(subsystem: "com.marconius.trimato", category: "Clip markers").debug("Mark In applied at \(time.seconds, privacy: .public)")
@@ -706,6 +711,8 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func markOut() {
         guard hasMedia, NSApp.modalWindow == nil else { return }
+        navigationRequest = nil
+        synchronizePlaybackState()
         let time = effectivePlayheadTime
         setOutMarker(at: time)
         Logger(subsystem: "com.marconius.trimato", category: "Clip markers").debug("Mark Out applied at \(time.seconds, privacy: .public)")
@@ -1248,6 +1255,7 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func cancelScrub(preservingFrameStepPosition: Bool = false) {
+        navigationRequest = nil
         frameAudioPreview.stop()
         frameSeeker.cancel()
         scrubTask?.cancel()
@@ -1259,11 +1267,16 @@ final class VideoPlayerViewModel: ObservableObject {
         }
     }
 
-    private func seekTo(seconds: Double) {
+    private func seekTo(seconds: Double, completion: (() -> Void)? = nil) {
+        let item = player.currentItem
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
                     toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
             guard finished else { return }
-            Task { @MainActor [weak self] in self?.updateStoppedPlayhead() }
+            Task { @MainActor [weak self] in
+                guard let self, self.player.currentItem === item else { return }
+                self.updateStoppedPlayhead()
+                completion?()
+            }
         }
     }
 
@@ -1379,9 +1392,14 @@ final class VideoPlayerViewModel: ObservableObject {
     private func jump(to point: TimelinePoint) {
         guard hasMedia else { return }
         cancelScrub()
-        seekTo(seconds: point.time.seconds)
-        announce(AppPreferences.timecodeFeedback == .whenStopped
-            ? "\(point.kind.spokenName), \(spokenTime(point.time))" : point.kind.spokenName)
+        let request = UUID()
+        navigationRequest = request
+        seekTo(seconds: point.time.seconds) { [weak self] in
+            guard let self, self.navigationRequest == request else { return }
+            self.navigationRequest = nil
+            self.announce(AppPreferences.timecodeFeedback == .whenStopped
+                ? "\(point.kind.spokenName), \(self.spokenTime(point.time))" : point.kind.spokenName)
+        }
     }
 
     func spokenTime(_ time: CMTime) -> String {
@@ -1390,7 +1408,8 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private func announce(_ message: String) {
         guard !AudioCaptureSession.suppressesAnnouncements else { return }
-        let element: Any = NSApp.mainWindow?.contentView ?? NSApp!
+        if let announcementHandler { announcementHandler(message); return }
+        let element: Any = NSApp.keyWindow?.contentView ?? NSApp!
         NSAccessibility.post(
             element: element,
             notification: .announcementRequested,
@@ -1429,16 +1448,19 @@ final class VideoPlayerViewModel: ObservableObject {
         }
     }
 
+    private func synchronizePlaybackState() {
+        // Queued KVO values can be stale after another command. Read the player now.
+        let rate = player.rate
+        playbackClock.updateMotion(isPlayheadMoving)
+        if isPlaying != (rate != 0) { isPlaying = rate != 0 }
+        if playbackRate != rate { playbackRate = rate }
+        if rate == 0 { updateStoppedPlayhead() }
+    }
+
     private func setupRateObserver() {
         rateObserver = player.publisher(for: \.rate)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] rate in
-                guard let self else { return }
-                self.playbackClock.updateMotion(self.isPlayheadMoving)
-                self.isPlaying = rate != 0
-                self.playbackRate = rate
-                if rate == 0 { self.updateStoppedPlayhead() }
-            }
+            .sink { [weak self] _ in self?.synchronizePlaybackState() }
     }
 
     private func setupKeyEventMonitor() {

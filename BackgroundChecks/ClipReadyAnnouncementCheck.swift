@@ -10,6 +10,58 @@ import Combine
         guard condition else { print("FAIL: \(message)"); exit(1) }
     }
 
+    @MainActor static func checkPreviewReadiness() async throws {
+        var renders: [URL: CheckedContinuation<URL, Error>] = [:]
+        var callbacks: [URL: @MainActor @Sendable (Double) -> Void] = [:]
+        var commits: [URL] = []
+        let preview = ClipPreviewCoordinator(render: { request, progress in
+            callbacks[request.source] = progress
+            return try await withCheckedThrowingContinuation { renders[request.source] = $0 }
+        }, prepare: { _, _ in AVMutableComposition() }, remove: { _ in })
+        func request(_ name: String, filtered: Bool) -> ClipPreviewCoordinator.Request {
+            .init(source: URL(fileURLWithPath: "/tmp/\(name).mov"),
+                  filters: filtered ? [ClipFilter(kind: .blackAndWhite)] : [], audio: false,
+                  segments: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 1)))],
+                  audioSettings: nil)
+        }
+        func update(_ request: ClipPreviewCoordinator.Request) {
+            preview.update(request, debounce: false, readiness: { _ in }, restoreOriginal: {},
+                           commit: { _, url, _ in commits.append(url) })
+        }
+        func waitFor(_ predicate: () -> Bool) async throws {
+            for _ in 0..<1000 {
+                if predicate() { return }
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            verify(false, "Preview check timed out")
+        }
+        let original = request("original", filtered: false)
+        verify(!preview.isReady(for: original) && !preview.isReady(for: nil), "Unstarted preview was ready")
+        update(original)
+        verify(preview.isReady(for: original), "Unfiltered preview was not ready")
+        let first = request("first", filtered: true)
+        let second = request("second", filtered: true)
+        update(first)
+        try await waitFor { renders[first.source] != nil }
+        verify(!preview.isReady(for: first), "Rendering clip was ready")
+        update(second)
+        try await waitFor { renders[second.source] != nil }
+        callbacks[second.source]?(0.4)
+        callbacks[first.source]?(0.9)
+        verify(preview.progress == 0.4, "Replaced preview posted stale progress")
+        renders.removeValue(forKey: first.source)?.resume(returning: first.source)
+        renders.removeValue(forKey: second.source)?.resume(returning: second.source)
+        try await waitFor { preview.isReady(for: second) }
+        verify(commits == [second.source] && !preview.isReady(for: first), "Stale preview became ready")
+        update(first)
+        try await waitFor { renders[first.source] != nil }
+        preview.cancel()
+        renders.removeValue(forKey: first.source)?.resume(returning: first.source)
+        try await Task.sleep(for: .milliseconds(20))
+        verify(!preview.isReady(for: first) && commits == [second.source], "Cancelled preview became ready")
+        print("PASS: current preview readiness, effects preparation, cancellation, replaced requests, and stale progress")
+    }
+
     @MainActor static func main() async throws {
         verify(NSApp == nil, "Background check must not create an application")
         for outcome in [OperationProgressOutcome.completed, .cancelled, .failed] {
@@ -30,6 +82,31 @@ import Combine
             session.completeDismissal()
             verify(dismissed, "Completion lost the existing dismissal handoff")
         }
+        var spoken: [String] = []
+        var loading = OperationProgress(title: "Preparing Clip", detail: "Identifying clip",
+                                        announceCompletion: false, progressStage: "Identifying clip")
+        let loadingSession = OperationProgressWindowSession(operation: loading,
+            postsAnnouncements: false, announcementHandler: { spoken.append($0) })
+        for stage in ["Identifying clip", "Preparing clip for playback", "Preparing playback"] {
+            loading.detail = stage
+            loading.progressStage = stage
+            loadingSession.update(loading)
+        }
+        verify(spoken.isEmpty, "Brief loading stages queued redundant speech")
+        loading.progressStage = "Indexing frames"
+        loading.progress = 0.3
+        loadingSession.update(loading)
+        loading.detail = "Additional indexing detail"
+        loadingSession.update(loading)
+        verify(spoken == ["Indexing frames, 30 percent."], "Measured progress missing or repeated")
+        loading.progress = nil
+        loading.progressStage = "Preparing clip for playback"
+        loadingSession.update(loading)
+        loadingSession.finish(outcome: .completed) {}
+        loading.progress = 0.8
+        loadingSession.update(loading)
+        verify(spoken.count == 1, "Late stage or completion queued additional speech")
+        try await checkPreviewReadiness()
         var legacy = OperationProgressAnnouncements()
         verify(legacy.update(progress: 0.5) == "50 percent.", "Existing progress speech changed")
         verify(legacy.finish(outcome: .completed) == "100 percent, complete.", "Existing completion speech changed")

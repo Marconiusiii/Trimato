@@ -248,7 +248,8 @@ struct StandaloneClipEditorView: View {
               let window = application.keyWindow, window.attachedSheet == nil,
               !AudioCaptureSession.suppressesAnnouncements,
               let message = readyAnnouncement.message(
-                ready: viewModel.hasMedia && viewModel.duration > 0 && !viewModel.isPreparingMedia,
+                ready: viewModel.hasMedia && viewModel.duration > 0 && !viewModel.isPreparingMedia &&
+                    !loadingPresentation.isPresented,
                 outcome: viewModel.mediaPreparationOutcome
               ) else { return }
         var announcement = AttributedString(message)
