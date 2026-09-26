@@ -16,7 +16,7 @@ Created by Marco Salsiccia.
 - Add transitions, video and audio filters, titles, lower thirds, backgrounds, and other generated clips.
 - Tap out absolute markers during playback, edit their titles, and mark chapter boundaries.
 - Export a full-resolution PNG from the playhead, or export web video with a poster, optional captions, and an HTML embed fragment.
-- Export video in H.264, HEVC, or ProRes, and audio in AAC, Apple Lossless, FLAC, or WAV. Preserve HDR and compatible iPhone Spatial Audio in supported exports.
+- Export video in H.264, HEVC, or ProRes, and audio in AAC, Apple Lossless, FLAC, or WAV. Preserve HDR and compatible iPhone Spatial Audio in supported exports. Trim a Clip converts HDR video automatically when you choose H.264. A smaller-file MP4 preset is available for clips and projects.
 
 ## Requirements
 

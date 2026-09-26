@@ -2,6 +2,7 @@ import AVFoundation
 import AppKit
 import Combine
 import UniformTypeIdentifiers
+import OSLog
 
 enum StandaloneProjectCreationError: LocalizedError {
     case clipNotReady
@@ -220,8 +221,8 @@ final class VideoPlayerViewModel: ObservableObject {
         timecodePreferenceObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshTimecodePreference() }
 
-        // Disable stall-avoidance so play() starts outputting audio immediately after a seek —
-        // essential for short audio preview windows during frame stepping.
+        // Disable stall-avoidance so play() starts outputting audio immediately after a seek.
+        // This is essential for short audio preview windows during frame stepping.
         AudioOutputManager.shared.register(player)
         player.automaticallyWaitsToMinimizeStalling = false
         setupTimeObserver()
@@ -699,6 +700,7 @@ final class VideoPlayerViewModel: ObservableObject {
         guard hasMedia, NSApp.modalWindow == nil else { return }
         let time = effectivePlayheadTime
         setInMarker(at: time)
+        Logger(subsystem: "com.marconius.trimato", category: "Clip markers").debug("Mark In applied at \(time.seconds, privacy: .public)")
         announce("In marked at \(spokenTime(time))")
     }
 
@@ -706,6 +708,7 @@ final class VideoPlayerViewModel: ObservableObject {
         guard hasMedia, NSApp.modalWindow == nil else { return }
         let time = effectivePlayheadTime
         setOutMarker(at: time)
+        Logger(subsystem: "com.marconius.trimato", category: "Clip markers").debug("Mark Out applied at \(time.seconds, privacy: .public)")
         announce("Out marked at \(spokenTime(time))")
     }
 
@@ -940,7 +943,6 @@ final class VideoPlayerViewModel: ObservableObject {
             title: "Export Clip",
             baseName: baseName,
             formats: formats,
-            outputSummary: "Converted exports do not include editable Cinematic focus information.",
             offersAudioChoice: hasSpatialAudio,
             originalExtension: mediaSource.originalURL.pathExtension,
             originalContentType: mediaSource.contentType
@@ -997,10 +999,12 @@ final class VideoPlayerViewModel: ObservableObject {
                         self?.exportProgress = progress
                     }
                 }
+                try Task.checkCancellation()
                 self.isExporting = false
                 self.exportProgress = nil
                 self.exportTask = nil
                 self.exportStatus = "Export complete: \(outputURL.lastPathComponent)"
+                InterfaceSounds.shared.exportCompleted()
                 ExportNotificationCenter.postExportCompleted(filename: outputURL.lastPathComponent)
                 self.announce("Export complete")
             } catch is CancellationError {
@@ -1439,118 +1443,124 @@ final class VideoPlayerViewModel: ObservableObject {
 
     private func setupKeyEventMonitor() {
         keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-            guard let self, !self.isLoadingMedia, !self.isExporting, !self.isApplyingEdit,
-                  self.hasMedia, NSApp.modalWindow == nil,
-                  event.window?.sheetParent == nil, event.window?.attachedSheet == nil,
-                  self.keyboardCommandsAreActive?() != false else {
-                return event
+            guard let self else { return event }
+            return self.handleKeyEvent(event)
+        }
+    }
+
+    // Shared with silent regression checks so they exercise the actual keyboard route.
+    func handleKeyEvent(_ event: NSEvent) -> NSEvent? {
+        guard !self.isLoadingMedia, !self.isExporting, !self.isApplyingEdit,
+              self.hasMedia, NSApp.modalWindow == nil,
+              event.window?.sheetParent == nil, event.window?.attachedSheet == nil,
+              self.keyboardCommandsAreActive?() != false else {
+            return event
+        }
+
+        if let editor = event.window?.firstResponder as? NSTextView, editor.isEditable { return event }
+        let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+        let commandModifiers = event.modifierFlags.intersection(commandSet)
+        let unmodified = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+
+        switch event.type {
+        case .keyDown:
+            if commandModifiers == .command {
+                if event.charactersIgnoringModifiers == "[" {
+                    if !event.isARepeat { self.trimStartToPlayhead() }
+                    return nil
+                }
+                if event.charactersIgnoringModifiers == "]" {
+                    if !event.isARepeat { self.trimEndFromPlayhead() }
+                    return nil
+                }
+                if event.charactersIgnoringModifiers?.lowercased() == "e" {
+                    if !event.isARepeat {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.exportTrimmedClip()
+                        }
+                    }
+                    return nil
+                }
+                if event.charactersIgnoringModifiers?.lowercased() == "r",
+                   let createProjectFromClipAction = self.createProjectFromClipAction {
+                    if !event.isARepeat {
+                        DispatchQueue.main.async {
+                            createProjectFromClipAction()
+                        }
+                    }
+                    return nil
+                }
+                switch event.keyCode {
+                case 123: // Command+Left arrow
+                    if !event.isARepeat { self.goToPreviousTimelinePoint() }
+                    return nil
+                case 124: // Command+Right arrow
+                    if !event.isARepeat { self.goToNextTimelinePoint() }
+                    return nil
+                case 126: // Command+Up arrow
+                    if !event.isARepeat { self.goToStart() }
+                    return nil
+                case 125: // Command+Down arrow
+                    if !event.isARepeat { self.goToEnd() }
+                    return nil
+                default:
+                    break
+                }
             }
 
-            if let editor = event.window?.firstResponder as? NSTextView, editor.isEditable { return event }
-            let commandSet: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
-            let commandModifiers = event.modifierFlags.intersection(commandSet)
-            let unmodified = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
-
-            switch event.type {
-            case .keyDown:
-                if commandModifiers == .command {
-                    if event.charactersIgnoringModifiers == "[" {
-                        if !event.isARepeat { self.trimStartToPlayhead() }
-                        return nil
-                    }
-                    if event.charactersIgnoringModifiers == "]" {
-                        if !event.isARepeat { self.trimEndFromPlayhead() }
-                        return nil
-                    }
-                    if event.charactersIgnoringModifiers?.lowercased() == "e" {
-                        if !event.isARepeat {
-                            DispatchQueue.main.async { [weak self] in
-                                self?.exportTrimmedClip()
-                            }
-                        }
-                        return nil
-                    }
-                    if event.charactersIgnoringModifiers?.lowercased() == "r",
-                       let createProjectFromClipAction = self.createProjectFromClipAction {
-                        if !event.isARepeat {
-                            DispatchQueue.main.async {
-                                createProjectFromClipAction()
-                            }
-                        }
-                        return nil
-                    }
-                    switch event.keyCode {
-                    case 123: // Command+Left arrow
-                        if !event.isARepeat { self.goToPreviousTimelinePoint() }
-                        return nil
-                    case 124: // Command+Right arrow
-                        if !event.isARepeat { self.goToNextTimelinePoint() }
-                        return nil
-                    case 126: // Command+Up arrow
-                        if !event.isARepeat { self.goToStart() }
-                        return nil
-                    case 125: // Command+Down arrow
-                        if !event.isARepeat { self.goToEnd() }
-                        return nil
-                    default:
-                        break
-                    }
+            switch event.keyCode {
+            case 51, 117: // Delete and Forward Delete
+                guard unmodified else { return event }
+                if !event.isARepeat { self.deleteSelection() }
+                return nil
+            case 49: // Space: toggle, ignore repeat
+                guard unmodified else { return event }
+                guard !ClipEditorKeyboardRouting.focusedControlReservesSpace(in: event.window) else {
+                    return event
                 }
-
-                switch event.keyCode {
-                case 51, 117: // Delete and Forward Delete
-                    guard unmodified else { return event }
-                    if !event.isARepeat { self.deleteSelection() }
+                if !event.isARepeat { self.togglePlayPause() }
+                return nil
+            case 123: // Left arrow
+                guard unmodified else { return event }
+                guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
+                if event.isARepeat { self.arrowHeld(forward: false) }
+                else               { self.stepBackward() }
+                return nil
+            case 124: // Right arrow
+                guard unmodified else { return event }
+                guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
+                if event.isARepeat { self.arrowHeld(forward: true) }
+                else               { self.stepForward() }
+                return nil
+            default: break
+            }
+            // Letter shortcuts ignore key repeat.
+            if !event.isARepeat, unmodified {
+                switch event.charactersIgnoringModifiers?.lowercased() {
+                case "t":
+                    self.announceCurrentTimecodeOnDemand()
                     return nil
-                case 49: // Space — toggle, ignore repeat
-                    guard unmodified else { return event }
-                    guard !ClipEditorKeyboardRouting.focusedControlReservesSpace(in: event.window) else {
-                        return event
-                    }
-                    if !event.isARepeat { self.togglePlayPause() }
-                    return nil
-                case 123: // Left arrow
-                    guard unmodified else { return event }
-                    guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
-                    if event.isARepeat { self.arrowHeld(forward: false) }
-                    else               { self.stepBackward() }
-                    return nil
-                case 124: // Right arrow
-                    guard unmodified else { return event }
-                    guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
-                    if event.isARepeat { self.arrowHeld(forward: true) }
-                    else               { self.stepForward() }
-                    return nil
-                default: break
-                }
-                // Letter shortcuts — ignore key repeat.
-                if !event.isARepeat, unmodified {
-                    switch event.charactersIgnoringModifiers?.lowercased() {
-                    case "t":
-                        self.announceCurrentTimecodeOnDemand()
-                        return nil
-                    case "i": self.markIn(); return nil
-                    case "o": self.markOut(); return nil
-                    case "j": self.pressJ(); return nil
-                    case "k": self.pressK(); return nil
-                    case "l": self.pressL(); return nil
-                    default: return event
-                    }
-                }
-                return event
-
-            case .keyUp:
-                switch event.keyCode {
-                case 123, 124:
-                    guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
-                    self.arrowKeyUp()
-                    return nil
+                case "i": self.markIn(); return nil
+                case "o": self.markOut(); return nil
+                case "j": self.pressJ(); return nil
+                case "k": self.pressK(); return nil
+                case "l": self.pressL(); return nil
                 default: return event
                 }
-
-            default:
-                return event
             }
+            return event
+
+        case .keyUp:
+            switch event.keyCode {
+            case 123, 124:
+                guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
+                self.arrowKeyUp()
+                return nil
+            default: return event
+            }
+
+        default:
+            return event
         }
     }
 

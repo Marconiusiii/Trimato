@@ -36,14 +36,18 @@
     <p>An audio-only timeline section inside a video project uses black picture for that section unless a video cutaway supplies the picture.</p>
     <p>The exported file uses the project frame rate. When a clip uses a different frame rate, its speed and audio length stay the same.</p>
 
+    <p>Choose MP4 for broad compatibility (H.264) for sharing with a wide range of players. HEVC can use less space at similar picture quality, but requires a compatible player. ProRes is intended for further editing and usually creates larger files. H.264 and HEVC both compress video; converting a clip does not guarantee a smaller file.</p>
+
+    <p>Choose MP4 for smaller files (H.264) to reduce file size while keeping the output dimensions and frame rate. This preset uses compressed audio and converts HDR video to standard video automatically, including for project exports. For spatial recordings, choose High-quality Stereo to make this format available. File size and picture quality depend on the recording; an already compressed file may not become smaller. Use the other formats when retaining more detail or spatial sound matters more than file size.</p>
+
     <h2 id="hdr">Preserve HDR or export SDR video</h2>
     <ol>
         <li>Open Trimato &gt; Settings &gt; Video.</li>
         <li>Leave Preserve HDR on to retain HDR brightness and color from supported recordings. It is on by default.</li>
-        <li>Export as HEVC MP4, HEVC movie, ProRes 422 LT, ProRes 422, or ProRes 422 HQ.</li>
+        <li>Choose an HEVC or ProRes video format.</li>
     </ol>
     <p>HDR output supports video filters, transitions, and burned-in captions. HEVC HDR exports use 10-bit video with Dolby Vision metadata; ProRes exports retain HLG HDR.</p>
-    <p>Turn Preserve HDR off to convert HDR video to standard dynamic range, or SDR. Use this when you need H.264 output. HDR project exports offer compatible formats; an incompatible HDR format request fails instead of silently converting the picture. The standalone Original format option passes through supported media and does not apply SDR conversion.</p>
+    <p>For project exports, turn Preserve HDR off when you need standard dynamic range, or SDR, including H.264 output. With Preserve HDR on, project exports offer compatible formats. When exporting from Trim a Clip, choosing H.264 automatically converts HDR video to SDR without changing your settings. Choose HEVC or ProRes with Preserve HDR on to retain HDR. Same as original retains the source format for supported clips and does not apply SDR conversion.</p>
     <p>Open File &gt; Project Settings to match the intended resolution and frame rate. A 4K recording placed in a 1080p project exports at 1080p. A 120 fps recording placed in a 30 fps project exports at 30 fps. Variable-frame-rate sources use the project's fixed frame grid rather than their exact original frame timing.</p>
     <p>Preserving HDR does not make video encoding lossless. The project format, filters, and export codec still affect the finished picture.</p>
 
@@ -53,11 +57,11 @@
         <caption>Audio export choices</caption>
         <thead><tr><th scope="col">Format</th><th scope="col">When to choose it</th></tr></thead>
         <tbody>
-            <tr><th scope="row">M4A Apple Lossless or FLAC</th><td>Keep the rendered audio without lossy compression.</td></tr>
-            <tr><th scope="row">WAV audio, 24-bit</th><td>Save uncompressed audio for further editing.</td></tr>
-            <tr><th scope="row">WAV audio, 16-bit</th><td>Use when delivery requires 16-bit uncompressed audio.</td></tr>
-            <tr><th scope="row">ProRes 422 LT, 422, or 422 HQ movie</th><td>Keep uncompressed 24-bit audio inside the video file.</td></tr>
-            <tr><th scope="row">M4A AAC audio, H.264, or HEVC video</th><td>Use compressed AAC audio for delivery. This re-encodes audio and is not lossless.</td></tr>
+            <tr><th scope="row">Lossless audio (M4A Apple Lossless or FLAC)</th><td>Keep the rendered audio without lossy compression.</td></tr>
+            <tr><th scope="row">Uncompressed audio (WAV, 24-bit)</th><td>Save uncompressed audio for further editing.</td></tr>
+            <tr><th scope="row">Uncompressed audio (WAV, 16-bit)</th><td>Use when delivery requires 16-bit uncompressed audio.</td></tr>
+            <tr><th scope="row">ProRes for editing (422 LT, 422, or 422 HQ)</th><td>Keep uncompressed 24-bit audio inside the video file.</td></tr>
+            <tr><th scope="row">Compressed audio (M4A AAC), H.264, or HEVC video</th><td>Use compressed AAC audio for delivery. This re-encodes audio and is not lossless.</td></tr>
         </tbody>
     </table>
     <p>Clip processing retains the source audio sample rate. A project mixes at the highest sample rate among its source audio, converting lower-rate sources to that common rate. Mixed project exports are stereo; standalone mono audio can remain mono. Spatial exports retain the spatial channels and a stereo playback alternative. Unsupported multichannel sources without a usable mono or stereo track cannot be mixed.</p>
@@ -73,8 +77,8 @@
     </ol>
     <p>Trimato remembers your audio choice. Combining spatial recordings or changing their audio creates larger files with uncompressed audio and a stereo playback alternative. Ordered cuts from one recording with unchanged audio keep the original encoding. Processed spatial exports do not include the original Apple Audio Mix analysis information.</p>
     <p>Spatial preservation supports compatible recording layouts and sample rates, including standard iPhone and Cinematic recordings together. Other audio effects, voice adjustments, pan, balance, width, channel routing, ducking, and mixing spatial recordings with ordinary audio currently use a stereo preview. Export explains when High-quality Stereo is required.</p>
-    <p>Wait for preview preparation after changing the edit. In Settings &gt; Video, keep Preserve HDR on for compatible HDR output; turn it off for SDR, including H.264 QuickTime.</p>
-    <p>Cinematic video can be edited as picture, but converted exports do not retain editable focus and depth information. Select the clip and press Command-I to check its actual dimensions and frame rate; Cinematic mode can use different recording settings.</p>
+    <p>Wait for preview preparation after changing the edit. In Settings &gt; Video, keep Preserve HDR on for compatible HDR output. Trim a Clip automatically converts to SDR when you choose H.264 QuickTime.</p>
+    <p>When you export Cinematic video to another format, you cannot change its focus afterward using the exported copy. Select the clip and press Command-I to check its actual dimensions and frame rate; Cinematic mode can use different recording settings.</p>
 
     <p>Choose an export filename that is different from your original source files. Wait for Export complete before opening the finished file. If you cancel before the finished file is put in place, an existing file at that destination is kept.</p>
 

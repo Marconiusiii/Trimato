@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
     case original
     case h264MP4
+    case compactMP4
     case hevcMP4
     case hevcMovie
     case h264QuickTime
@@ -20,33 +21,34 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
     case wav24
 
     static let projectFormats: [ExportFormat] = [
-        .h264MP4, .hevcMP4, .h264QuickTime, .hevcMovie,
+        .h264MP4, .compactMP4, .hevcMP4, .h264QuickTime, .hevcMovie,
         .proRes422LT, .proRes422, .proRes422HQ,
         .m4a, .m4aAppleLossless, .flac, .wav, .wav24,
     ]
 
     var title: String {
         switch self {
-        case .original: "Original format"
-        case .h264MP4: "H.264 MP4"
-        case .hevcMP4: "HEVC MP4"
-        case .hevcMovie: "HEVC movie"
-        case .h264QuickTime: "H.264 QuickTime movie"
-        case .proRes422LT: "ProRes 422 LT movie"
-        case .proRes422: "ProRes 422 movie"
-        case .proRes422HQ: "ProRes 422 HQ movie"
-        case .m4a: "M4A AAC audio"
-        case .m4aAppleLossless: "M4A Apple Lossless audio"
-        case .flac: "FLAC audio"
-        case .wav: "WAV audio, 16-bit"
-        case .wav24: "WAV audio, 24-bit"
+        case .original: "Same as original"
+        case .compactMP4: "MP4 for smaller files (H.264)"
+        case .h264MP4: "MP4 for broad compatibility (H.264)"
+        case .hevcMP4: "MP4 for smaller video files (HEVC)"
+        case .hevcMovie: "QuickTime for smaller video files (HEVC)"
+        case .h264QuickTime: "QuickTime for broad compatibility (H.264)"
+        case .proRes422LT: "ProRes for editing, smaller files (422 LT)"
+        case .proRes422: "ProRes for editing, standard quality (422)"
+        case .proRes422HQ: "ProRes for editing, higher quality (422 HQ)"
+        case .m4a: "Compressed audio (M4A AAC)"
+        case .m4aAppleLossless: "Lossless audio (M4A Apple Lossless)"
+        case .flac: "Lossless audio (FLAC)"
+        case .wav: "Uncompressed audio (WAV, 16-bit)"
+        case .wav24: "Uncompressed audio (WAV, 24-bit)"
         }
     }
 
     var fileExtension: String {
         switch self {
         case .original: ""
-        case .h264MP4, .hevcMP4: "mp4"
+        case .h264MP4, .compactMP4, .hevcMP4: "mp4"
         case .hevcMovie, .h264QuickTime, .proRes422LT, .proRes422, .proRes422HQ: "mov"
         case .m4a, .m4aAppleLossless: "m4a"
         case .flac: "flac"
@@ -57,7 +59,7 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
     var contentType: UTType {
         switch self {
         case .original: .data
-        case .h264MP4, .hevcMP4: .mpeg4Movie
+        case .h264MP4, .compactMP4, .hevcMP4: .mpeg4Movie
         case .hevcMovie, .h264QuickTime, .proRes422LT, .proRes422, .proRes422HQ: .quickTimeMovie
         case .m4a, .m4aAppleLossless: UTType(filenameExtension: "m4a") ?? .audio
         case .flac: UTType(filenameExtension: "flac") ?? .audio
@@ -68,7 +70,7 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
     var fileType: AVFileType? {
         switch self {
         case .original: nil
-        case .h264MP4, .hevcMP4: .mp4
+        case .h264MP4, .compactMP4, .hevcMP4: .mp4
         case .hevcMovie, .h264QuickTime, .proRes422LT, .proRes422, .proRes422HQ: .mov
         case .m4a, .m4aAppleLossless: .m4a
         case .flac: AVFileType(rawValue: "org.xiph.flac")
@@ -78,7 +80,7 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
 
     var exportPreset: String? {
         switch self {
-        case .original, .proRes422LT, .proRes422HQ,
+        case .original, .compactMP4, .proRes422LT, .proRes422HQ,
              .m4a, .m4aAppleLossless, .flac, .wav, .wav24: nil
         case .h264MP4, .h264QuickTime: AVAssetExportPresetHighestQuality
         case .hevcMP4, .hevcMovie: AVAssetExportPresetHEVCHighestQuality
@@ -93,6 +95,13 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
         }
     }
 
+    // A shared budget for native and fallback compact exports; retain dimensions and cadence.
+    static func compactVideoBitRate(width: Double, height: Double, frameRate: Double) -> Int {
+        let pixels = max(width, 1) * max(height, 1)
+        let rate = frameRate.isFinite && frameRate > 0 ? frameRate : 30
+        return max(Int(pixels * rate * 0.08), 250_000)
+    }
+
     var supportsHDR: Bool {
         [.original, .hevcMP4, .hevcMovie, .proRes422LT, .proRes422, .proRes422HQ].contains(self)
     }
@@ -102,12 +111,12 @@ nonisolated enum ExportFormat: String, CaseIterable, Equatable, Sendable {
     }
 
     var requiresCustomVideoWriter: Bool {
-        self == .proRes422LT || self == .proRes422 || self == .proRes422HQ
+        self == .compactMP4 || self == .proRes422LT || self == .proRes422 || self == .proRes422HQ
     }
 
     var supportsFastStart: Bool {
         switch self {
-        case .h264MP4, .hevcMP4, .h264QuickTime, .hevcMovie, .m4a, .m4aAppleLossless: true
+        case .h264MP4, .compactMP4, .hevcMP4, .h264QuickTime, .hevcMovie, .m4a, .m4aAppleLossless: true
         default: false
         }
     }
@@ -248,7 +257,7 @@ private struct ExportFormatAccessoryView: View {
                 }
             }
             if !model.selectedFormat.isAudioOnly, let summary = model.outputSummary {
-                Text(summary).frame(width: 330, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                Text(model.selectedFormat == .compactMP4 ? "SDR video" : summary).frame(width: 330, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             }
             if model.hasCaptions {
                 Toggle("Include captions", isOn: $model.includeCaptions)
@@ -291,8 +300,6 @@ final class ExportSavePanel {
         originalContentType: UTType? = nil
     ) {
         precondition(!formats.isEmpty)
-        let outputSummary = outputSummary ?? (formats.contains { !$0.isAudioOnly && $0 != .original }
-            ? "Converted exports do not include editable Cinematic focus information." : nil)
         self.formats = formats
         self.originalExtension = originalExtension
         self.originalContentType = originalContentType
@@ -316,7 +323,7 @@ final class ExportSavePanel {
             model: formatModel,
             formats: formats
         ).editorAppearance())
-        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 144 : 76) + (hasDescriptions ? 32 : 0) + (outputSummary == nil ? 0 : 110) + (offersAudioChoice ? 160 : 0) + (spatialUnavailableReason == nil ? 0 : 100))
+        accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 144 : 76) + (hasDescriptions ? 32 : 0) + (outputSummary == nil ? 0 : 26) + (offersAudioChoice ? 160 : 0) + (spatialUnavailableReason == nil ? 0 : 100))
         panel.accessoryView = accessory
 
         panel.nameFieldStringValue = formatModel.selectedFormat.filename(

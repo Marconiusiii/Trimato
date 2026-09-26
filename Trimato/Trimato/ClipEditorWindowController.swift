@@ -533,7 +533,7 @@ final class ClipEditorWindowCoordinator: ObservableObject {
         )
         let editorName = ClipEditorMediaKind.name(hasVideo: asset.hasVideo)
         let windowController = ClipEditorWindowController(
-            title: "\(asset.name) — \(editorName)",
+            title: "\(asset.name) (\(editorName))",
             rootView: rootView,
             commandContext: commandContext
         )

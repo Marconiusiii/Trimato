@@ -84,6 +84,10 @@ struct FFmpegClipExporter {
         hasAudio: Bool
     ) -> [String] {
         switch format {
+        case .compactMP4:
+            var result = ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-tag:v", "avc1", "-profile:v", "high"]
+            if hasAudio { result += ["-c:a", "aac", "-b:a", "160k"] }
+            return result
         case .h264MP4, .h264QuickTime:
             var result = ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-tag:v", "avc1"]
             if hasAudio { result += ["-c:a", "aac", "-b:a", "320k"] }
@@ -149,8 +153,16 @@ struct FFmpegClipExporter {
                 sourceContentType: nil, format: format, to: outputURL, preserveSpatialAudio: audioMode == .preserveSpatial, progress: progress)
             return
         }
+        var compactBitRate: Int?
         if !format.isAudioOnly {
             let report = try await FFmpegMediaProbe.inspect(url: sourceURL)
+            if format == .compactMP4 {
+                guard let video = report.videoStream, let width = video.width, let height = video.height,
+                      width > 0, height > 0 else {
+                    throw ProjectExporter.ExportError.encodingFailed("The video dimensions could not be read. Choose another source file.")
+                }
+                compactBitRate = ExportFormat.compactVideoBitRate(width: Double(width), height: Double(height), frameRate: report.frameRate ?? 30)
+            }
             if report.isHDR {
                 try await ClipExporter.export(asset: AVURLAsset(url: sourceURL), sourceRanges: sourceRanges,
                     sourceContentType: nil, format: format, to: outputURL, progress: progress)
@@ -170,11 +182,15 @@ struct FFmpegClipExporter {
             .appendingPathExtension(format.fileExtension)
         let duration = sourceRanges.reduce(0) { $0 + max(CMTimeGetSeconds($1.duration), 0) }
 
+        var exportArguments = arguments(sourceURL: sourceURL, sourceRanges: sourceRanges,
+            hasAudio: hasAudio, outputURL: temporaryURL, format: format)
+        if let compactBitRate {
+            exportArguments.insert(contentsOf: ["-b:v", String(compactBitRate)], at: exportArguments.count - 1)
+        }
         do {
             _ = try await FFmpegRunner.run(
                 tool: .ffmpeg,
-                arguments: arguments(sourceURL: sourceURL, sourceRanges: sourceRanges,
-                                     hasAudio: hasAudio, outputURL: temporaryURL, format: format),
+                arguments: exportArguments,
                 progress: { progress(min($0, 0.99)) },
                 expectedDuration: duration
             )

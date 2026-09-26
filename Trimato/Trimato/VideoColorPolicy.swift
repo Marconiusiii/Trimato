@@ -45,7 +45,7 @@ nonisolated enum VideoColorPolicy: String, Sendable {
     func validate(format: ExportFormat) throws {
         if self == .hlg, !format.isAudioOnly, !format.supportsHDR {
             throw ProjectExporter.ExportError.encodingFailed(
-                "This project contains HDR video. Choose HEVC or ProRes to preserve HDR, or turn off Preserve HDR in Video Settings to export in SDR.")
+                "The selected format cannot retain the video’s full brightness and color range. Choose another video format.")
         }
     }
 

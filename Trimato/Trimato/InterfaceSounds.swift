@@ -11,6 +11,7 @@ final class InterfaceSounds {
     private var sound: NSSound?
     private var completionSound: NSSound?
     private var markerSound: NSSound?
+    private static let exportData = exportWave()
     private let markerData = InterfaceSounds.wave(notes: [660], noteLength: 0.055, volume: 0.065)
     private let defaults: UserDefaults
     private let playback: ((Data) -> Void)?
@@ -73,7 +74,11 @@ final class InterfaceSounds {
     func exportCompleted() {
         guard captures.isEmpty, enabled(AppPreferenceKey.exportCompletionSound) else { return }
         stopLoop()
-        play(notes: [523.25, 659.25, 783.99, 1046.5], noteLength: 0.14, volume: 0.12, completion: true)
+        let data = Self.exportData
+        if let playback { playback(data); return }
+        completionSound?.stop()
+        completionSound = NSSound(data: data)
+        completionSound?.play()
     }
 
     func silenceForPlayback() {
@@ -87,18 +92,54 @@ final class InterfaceSounds {
         stopPlayback?()
     }
 
-    private func play(notes: [Double], noteLength: Double, volume: Double, completion: Bool = false) {
+    private func play(notes: [Double], noteLength: Double, volume: Double) {
         let data = Self.wave(notes: notes, noteLength: noteLength, volume: volume)
         if let playback { playback(data); return }
-        if completion {
-            completionSound?.stop()
-            completionSound = NSSound(data: data)
-            completionSound?.play()
-        } else {
-            sound?.stop()
-            sound = NSSound(data: data)
-            sound?.play()
+        sound?.stop()
+        sound = NSSound(data: data)
+        sound?.play()
+    }
+
+    /// A downward mallet turn resolves upward into a bell that gently rings out.
+    nonisolated private static func exportWave() -> Data {
+        let rate = 48000
+        let duration = 1.2
+        let strikes: [(start: Double, frequency: Double, strength: Double, decay: Double)] = [
+            (0, 783.99, 0.72, 0.105),
+            (0.105, 659.25, 0.59, 0.095),
+            (0.255, 1046.5, 1, 0.205)
+        ]
+        var samples = [Double](repeating: 0, count: Int(duration * Double(rate)))
+        for (frame, _) in samples.enumerated() {
+            let time = Double(frame) / Double(rate)
+            var value = 0.0
+            for (index, strike) in strikes.enumerated() {
+                let t = time - strike.start
+                guard t >= 0 else { continue }
+                let attack = 1 - exp(-t / 0.004)
+                let phase = 2 * Double.pi * strike.frequency * t
+                let body = sin(phase) * exp(-t / strike.decay)
+                let ring = 0.24 * sin(phase * 2.01) * exp(-t / 0.065)
+                    + 0.09 * sin(phase * 3.97) * exp(-t / 0.032)
+                let wood = 0.12 * sin(2 * Double.pi * 1850 * t) * exp(-t / 0.012)
+                // A quiet octave and fifth give the final strike a rounded resolution.
+                let support = index == 2
+                    ? (0.32 * sin(phase * 0.5) + 0.12 * sin(phase * 0.75)) * exp(-t / 0.182)
+                    : 0
+                value += strike.strength * attack * (body + ring + wood + support)
+            }
+            let fadePosition = min(1, max(0, (duration - time) / 0.145))
+            let fade = 0.5 - 0.5 * cos(Double.pi * fadePosition)
+            samples[frame] = value * fade
         }
+        let peak = samples.map { abs($0) }.max() ?? 1
+        let gain = 0.4 / max(peak, 0.001)
+        var pcm = Data(capacity: samples.count * 2)
+        for sample in samples {
+            var value = Int16((sample * gain * 32767).rounded()).littleEndian
+            withUnsafeBytes(of: &value) { pcm.append(contentsOf: $0) }
+        }
+        return waveData(pcm: pcm, rate: rate)
     }
 
     nonisolated static func wave(notes: [Double], noteLength: Double, volume: Double) -> Data {
@@ -115,6 +156,10 @@ final class InterfaceSounds {
                 withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
             }
         }
+        return waveData(pcm: pcm, rate: rate)
+    }
+
+    nonisolated private static func waveData(pcm: Data, rate: Int) -> Data {
         var data = Data()
         func text(_ value: String) { data.append(contentsOf: value.utf8) }
         func number<T: FixedWidthInteger>(_ value: T) {

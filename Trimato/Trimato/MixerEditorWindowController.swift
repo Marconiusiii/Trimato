@@ -56,7 +56,7 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
         self.session = session
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Mixer — \(session.controller.project.name)"
+        window.title = "Mixer (\(session.controller.project.name))"
         let hostingController = NSHostingController(rootView:
             MixerView(session: session, player: session.player)
                 .editorAppearance()

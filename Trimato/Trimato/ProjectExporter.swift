@@ -57,7 +57,7 @@ enum ProjectExporter {
             project: project,
             mediaURLs: mediaURLs,
             purpose: .finalExport,
-            preserveHDR: preserveHDR,
+            preserveHDR: preserveHDR && format != .compactMP4,
             audioMode: audioMode
         )
         defer {
@@ -248,7 +248,7 @@ nonisolated enum CustomMovieExporter {
     ) async throws {
         var videoCodec: AVVideoCodecType
         switch format {
-        case .h264MP4: videoCodec = .h264
+        case .h264MP4, .compactMP4: videoCodec = .h264
         case .proRes422: videoCodec = .proRes422
         case .hevcMP4, .hevcMovie: videoCodec = .hevc
         case .proRes422LT: videoCodec = .proRes422LT
@@ -304,7 +304,7 @@ nonisolated enum CustomMovieExporter {
         let audioFormat = try await AudioProcessingFormat.inspect(tracks: audioTracks, stereoMix: audioMix != nil)
         let audioSettings: [String: Any] = (videoCodec == .hevc || videoCodec == .h264)
             ? [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: audioFormat.sampleRate,
-               AVNumberOfChannelsKey: audioFormat.channels, AVEncoderBitRateKey: audioFormat.aacBitRate]
+               AVNumberOfChannelsKey: audioFormat.channels, AVEncoderBitRateKey: format == .compactMP4 ? min(audioFormat.aacBitRate, 160_000) : audioFormat.aacBitRate]
             : audioFormat.pcmSettings(bitDepth: 24)
         let audioOutput: AVAssetReaderAudioMixOutput?
         if audioTracks.isEmpty {
@@ -341,7 +341,9 @@ nonisolated enum CustomMovieExporter {
             let frameRate = 1 / effectiveComposition.frameDuration.seconds
             videoSettings[AVVideoCompressionPropertiesKey] = [
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoAverageBitRateKey: max(Int(renderSize.width * renderSize.height * frameRate * 0.2), 1_000_000),
+                AVVideoAverageBitRateKey: format == .compactMP4
+                    ? ExportFormat.compactVideoBitRate(width: renderSize.width, height: renderSize.height, frameRate: frameRate)
+                    : max(Int(renderSize.width * renderSize.height * frameRate * 0.2), 1_000_000),
                 AVVideoExpectedSourceFrameRateKey: frameRate,
             ] as [String: Any]
         }

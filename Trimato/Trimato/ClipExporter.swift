@@ -135,7 +135,11 @@ struct ClipExporter {
             )
             return
         }
-        let colorPolicy = try await VideoColorPolicy.resolve(asset: composition, preserveHDR: AppPreferences.preserveHDR())
+        // Convert to standard video when the chosen format cannot carry HDR.
+        let colorPolicy = try await VideoColorPolicy.resolve(
+            asset: composition,
+            preserveHDR: AppPreferences.preserveHDR() && format.supportsHDR
+        )
         try colorPolicy.validate(format: format)
         let exportRange = CMTimeRange(start: .zero, duration: sourceRanges.reduce(.zero) { $0 + $1.duration })
         let videoComposition = try await VideoColorPolicy.composition(for: composition, policy: colorPolicy)

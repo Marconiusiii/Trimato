@@ -776,10 +776,10 @@ final class ProjectController: ObservableObject {
             }
             let formats = ExportFormat.projectFormats.filter { format in
                 ((format.isAudioOnly && self.project.hasTimelineAudio) ||
-                    (!format.isAudioOnly && self.project.hasTimelineVideo && (policy == .sdr || format.supportsHDR)))
+                    (!format.isAudioOnly && self.project.hasTimelineVideo && (policy == .sdr || format.supportsHDR || format == .compactMP4)))
             }
             let summary = self.project.hasTimelineVideo
-                ? "\(policy == .hlg ? "HDR video" : "SDR video"). Converted exports do not include editable Cinematic focus information."
+                ? "\(policy == .hlg ? "HDR video" : "SDR video")"
                 : nil
             let savePanel = ExportSavePanel(
                 title: "Export Project", baseName: self.project.name, formats: formats,

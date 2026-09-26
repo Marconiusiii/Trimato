@@ -189,7 +189,7 @@ struct StandaloneClipEditorView: View {
         .onExitCommand {
             commandContext.close()
         }
-        .navigationTitle("\((request.displayName as NSString).deletingPathExtension) — \(editorName)")
+        .navigationTitle("\((request.displayName as NSString).deletingPathExtension) (\(editorName))")
         .frame(minWidth: 700, minHeight: 600)
         .onAppear {
             commandContext.configureCloseAction {
