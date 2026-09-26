@@ -6,7 +6,6 @@ import SwiftUI
 struct ContentView: View {
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @ObservedObject private var viewModel: VideoPlayerViewModel
-    private let allowsFileOpening: Bool
     private let editorHeading: String?
     private let compact: Bool
     private let isPreparingSource: Bool
@@ -19,7 +18,6 @@ struct ContentView: View {
 
     init(
         viewModel: VideoPlayerViewModel,
-        allowsFileOpening: Bool = true,
         editorHeading: String? = nil,
         compact: Bool = false,
         isPreparingSource: Bool = false,
@@ -27,7 +25,6 @@ struct ContentView: View {
         entryCompleted: @escaping () -> Void = {}
     ) {
         self.viewModel = viewModel
-        self.allowsFileOpening = allowsFileOpening
         self.editorHeading = editorHeading
         self.compact = compact
         self.isPreparingSource = isPreparingSource
@@ -95,17 +92,6 @@ struct ContentView: View {
                 .disabled(!canNavigateTimeline)
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard allowsFileOpening else { return false }
-            guard let url = urls.first else { return false }
-            viewModel.load(url: url)
-            return true
-        }
-        .onOpenURL { url in
-            guard allowsFileOpening else { return }
-            guard url.isFileURL else { return }
-            viewModel.load(url: url)
-        }
         .sheet(isPresented: $showingSilenceTrim) { TrimSilencesView(viewModel: viewModel) }
         .operationProgress(viewModel.isExporting ? OperationProgress(
             title: "Exporting Clip", progress: viewModel.exportProgress, cancel: viewModel.cancelExport
@@ -148,9 +134,6 @@ struct ContentView: View {
                         .foregroundStyle(EditorTheme.secondaryText)
                     Text(viewModel.mediaStatus ?? "Open an audio or video file to begin")
                         .foregroundStyle(EditorTheme.secondaryText)
-                    if allowsFileOpening {
-                        Button("Open File\u{2026}") { viewModel.openFile() }
-                    }
                 }
             }
         }

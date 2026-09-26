@@ -60,7 +60,6 @@ struct SourceClipEditorView: View {
             } else {
                 ContentView(
                     viewModel: viewModel,
-                    allowsFileOpening: false,
                     editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo),
                     compact: true,
                     isPreparingSource: preparingSource || preparationHandoffPending,

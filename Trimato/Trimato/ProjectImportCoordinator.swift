@@ -3,10 +3,6 @@ import Foundation
 import UniformTypeIdentifiers
 
 enum ProjectImportCoordinator {
-    private static let explicitlySupportedExtensions: Set<String> = [
-        "mkv", "webm", "ts", "mts", "m2ts", "vob", "wmv", "flv",
-    ]
-
     struct PlaybackPreparation: Sendable {
         var mode: ProjectMediaPlaybackMode
         var cacheKey: UUID?
@@ -14,11 +10,12 @@ enum ProjectImportCoordinator {
     }
 
     static func importableMediaURLs(in selectedURL: URL) throws -> [URL] {
-        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey])
+        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
         guard values.isDirectory == true else {
-            return isSupportedMedia(selectedURL) ? [selectedURL] : []
+            return MediaSelection.isSupportedMedia(selectedURL) ? [selectedURL] : []
         }
 
+        guard values.isPackage != true, selectedURL.pathExtension.lowercased() != "trimato" else { return [] }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isHiddenKey, .contentTypeKey]
         guard let enumerator = FileManager.default.enumerator(
             at: selectedURL,
@@ -31,17 +28,18 @@ enum ProjectImportCoordinator {
             let resourceValues = try url.resourceValues(forKeys: Set(keys))
             guard resourceValues.isRegularFile == true,
                   resourceValues.isHidden != true,
-                  isSupportedMedia(url, contentType: resourceValues.contentType) else { continue }
+                  MediaSelection.isSupportedMedia(url, contentType: resourceValues.contentType) else { continue }
             urls.append(url)
         }
         return urls.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
     static func importableCaptionURLs(in selectedURL: URL) throws -> [URL] {
-        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey])
+        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
         guard values.isDirectory == true else {
             return isCaptionFile(selectedURL) ? [selectedURL] : []
         }
+        guard values.isPackage != true, selectedURL.pathExtension.lowercased() != "trimato" else { return [] }
         let keys: [URLResourceKey] = [.isRegularFileKey, .isHiddenKey]
         guard let enumerator = FileManager.default.enumerator(
             at: selectedURL,
@@ -237,12 +235,6 @@ enum ProjectImportCoordinator {
         }
         guard FileManager.default.fileExists(atPath: asset.originalPath) else { return nil }
         return URL(fileURLWithPath: asset.originalPath)
-    }
-
-    private static func isSupportedMedia(_ url: URL, contentType: UTType? = nil) -> Bool {
-        if explicitlySupportedExtensions.contains(url.pathExtension.lowercased()) { return true }
-        let type = contentType ?? UTType(filenameExtension: url.pathExtension)
-        return type?.conforms(to: .movie) == true || type?.conforms(to: .audio) == true
     }
 
     static func isCaptionFile(_ url: URL) -> Bool {

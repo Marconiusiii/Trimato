@@ -377,16 +377,6 @@ final class VideoPlayerViewModel: ObservableObject {
             CMTimeCompare(effectivePlayheadTime, mediaDuration) < 0
     }
 
-    func openFile() {
-        guard NSApp.modalWindow == nil else { return }
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.movie, .audio, .data]
-        panel.title = "Open Media File"
-        if panel.runModal() == .OK, let url = panel.url { load(url: url) }
-    }
-
     func load(
         url: URL,
         sourceSegments: [SourceSegment]? = nil,

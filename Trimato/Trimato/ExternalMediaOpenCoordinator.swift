@@ -61,7 +61,7 @@ final class ExternalMediaOpenCoordinator: ObservableObject {
     nonisolated static func route(for url: URL, hasActiveProject: Bool) -> ExternalMediaOpenRoute {
         guard url.isFileURL,
               url.pathExtension.caseInsensitiveCompare("trimato") != .orderedSame,
-              isSupportedMedia(url) else { return .ignore }
+              MediaSelection.isSupportedMedia(url) else { return .ignore }
         return hasActiveProject ? .activeProject : .standaloneEditor
     }
 
@@ -139,21 +139,6 @@ final class ExternalMediaOpenCoordinator: ObservableObject {
                 current.openClipEditor(.asset(assetID))
             }
         }
-    }
-
-    private nonisolated static func isSupportedMedia(_ url: URL) -> Bool {
-        let explicitlySupported = ["mkv", "webm", "ts", "mts", "m2ts", "vob", "wmv", "flv"]
-        let values = try? url.resourceValues(forKeys: [.contentTypeKey, .nameKey])
-        if let type = values?.contentType,
-           type.conforms(to: .movie) || type.conforms(to: .audio) {
-            return true
-        }
-        let resourceExtension = values?.name.map { ($0 as NSString).pathExtension }
-        let pathExtension = resourceExtension.flatMap { $0.isEmpty ? nil : $0 }
-            ?? url.pathExtension
-        if explicitlySupported.contains(pathExtension.lowercased()) { return true }
-        guard let type = UTType(filenameExtension: pathExtension) else { return false }
-        return type.conforms(to: .movie) || type.conforms(to: .audio)
     }
 
     private func deliverPendingURLs() {

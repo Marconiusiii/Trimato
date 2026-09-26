@@ -74,7 +74,7 @@ struct ProjectLauncherView: View {
         ProjectLauncherNativeActions(
             newProject: beginProjectCreation,
             trimClip: chooseClip,
-            openProject: chooseProject
+            openProject: { _ in projectOpening.chooseProject() }
         )
         .frame(height: 34)
     }
@@ -121,30 +121,17 @@ struct ProjectLauncherView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func chooseProject(from parentWindow: NSWindow) {
-        let panel = NSOpenPanel()
-        panel.title = "Open Trimato Project"
-        panel.prompt = "Open"
-        panel.allowedContentTypes = [.trimatoProject]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.beginSheetModal(for: parentWindow) { response in
-            guard response == .OK, let url = panel.url else { return }
-            openProject(at: url)
-        }
-    }
-
     private func chooseClip(from parentWindow: NSWindow) {
         let panel = NSOpenPanel()
         panel.title = "Trim a Clip"
         panel.prompt = "Open"
-        panel.allowedContentTypes = [.movie, .audio, .data]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
+        MediaSelection.configure(panel)
         panel.beginSheetModal(for: parentWindow) { response in
             guard response == .OK, let url = panel.url else { return }
+            guard MediaSelection.isSupportedMedia(url) else {
+                presentedError = ProjectLauncherError(title: "Clip Could Not Be Opened", message: "Select a supported audio or video file.")
+                return
+            }
             openWindow(value: ExternalMediaOpenRequest(url: url))
         }
     }

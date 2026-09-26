@@ -140,7 +140,6 @@ struct StandaloneClipEditorView: View {
         VStack(spacing: 0) {
             ContentView(
                 viewModel: viewModel,
-                allowsFileOpening: false,
                 editorHeading: editorName,
                 isPreparingSource: loadingPresentation.isPresented,
                 entryCompleted: announceClipReady

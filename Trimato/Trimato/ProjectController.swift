@@ -574,9 +574,7 @@ final class ProjectController: ObservableObject {
               parentWindow.attachedSheet == nil else { return }
         let panel = NSOpenPanel()
         panel.title = "Relink \(asset.name)"
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.movie, .audio, .data]
+        MediaSelection.configure(panel)
         projectFilePanel = panel
         panel.beginSheetModal(for: parentWindow) { [weak self] response in
             guard let self else { return }
@@ -586,6 +584,10 @@ final class ProjectController: ObservableObject {
             guard let url else { return }
             Task { @MainActor [weak self] in
                 await Task.yield()
+                guard MediaSelection.isSupportedMedia(url) else {
+                    self?.presentedError = .init(title: "Media Could Not Be Relinked", message: "Select a supported audio or video file.")
+                    return
+                }
                 self?.relink(asset, to: url)
             }
         }
@@ -2133,10 +2135,7 @@ final class ProjectController: ObservableObject {
               parentWindow.attachedSheet == nil else { return }
         let panel = NSOpenPanel()
         panel.title = "Import Media or Captions"
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.movie, .audio, .subRipCaption, .webVTTCaption, .data]
+        MediaSelection.configure(panel, importing: true)
         projectFilePanel = panel
         Self.afterCurrentViewUpdate { [weak self, weak parentWindow] in
             guard let self, let parentWindow,

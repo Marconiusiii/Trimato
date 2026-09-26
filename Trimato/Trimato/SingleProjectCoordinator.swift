@@ -1,6 +1,54 @@
 import AppKit
 import Combine
 
+/// Shared by native panel filtering and the final project-opening boundary.
+/// Checking the package identity here does not replace document-content validation.
+nonisolated enum ProjectOpenSelection {
+    enum Kind { case project, folder, other }
+
+    static func kind(of url: URL) -> Kind {
+        guard url.isFileURL else { return .other }
+        var target = url.resolvingSymlinksInPath()
+        guard var values = try? target.resourceValues(forKeys: [.isAliasFileKey, .isDirectoryKey, .isPackageKey]) else {
+            return .other
+        }
+        if values.isAliasFile == true {
+            guard let resolved = try? URL(resolvingAliasFileAt: target, options: [.withoutUI, .withoutMounting]),
+                  let resolvedValues = try? resolved.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]) else {
+                return .other
+            }
+            target = resolved
+            values = resolvedValues
+        }
+        guard values.isDirectory == true else { return .other }
+        if target.pathExtension.caseInsensitiveCompare("trimato") == .orderedSame { return .project }
+        return values.isPackage == true ? .other : .folder
+    }
+}
+
+/// Retained independently of the panel's weak delegate.
+@MainActor
+final class ProjectOpenPanel: NSObject, NSOpenSavePanelDelegate {
+    static let shared = ProjectOpenPanel()
+
+    static func make() -> NSOpenPanel {
+        let panel = NSOpenPanel()
+        panel.title = "Open Trimato Project"
+        panel.prompt = "Open"
+        panel.allowedContentTypes = [.trimatoProject]
+        panel.treatsFilePackagesAsDirectories = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.delegate = shared
+        return panel
+    }
+
+    func panel(_ sender: Any, shouldEnable url: URL) -> Bool {
+        ProjectOpenSelection.kind(of: url) != .other
+    }
+}
+
 /// All project entry points finish closing the current project before opening another.
 @MainActor
 final class SingleProjectCoordinator: ObservableObject {
@@ -25,6 +73,14 @@ final class SingleProjectCoordinator: ObservableObject {
     func dismissError() { presentedError = nil }
 
     func openDocument(at url: URL, completion: @escaping () -> Void = {}) {
+        guard ProjectOpenSelection.kind(of: url) == .project else {
+            presentedError = ApplicationMessageDescriptor(
+                title: "Project Could Not Be Opened",
+                message: "Select a Trimato project (.trimato). To open an audio or video file, use Trim a Clip or import it into a project."
+            )
+            completion()
+            return
+        }
         let documents = NSDocumentController.shared
         if let existing = documents.document(for: url) {
             existing.showWindows()
@@ -50,11 +106,7 @@ final class SingleProjectCoordinator: ObservableObject {
     }
 
     func chooseProject() {
-        let panel = NSOpenPanel()
-        panel.title = "Open Trimato Project"
-        panel.allowedContentTypes = [.trimatoProject]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        let panel = ProjectOpenPanel.make()
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
             self?.openDocument(at: url)
