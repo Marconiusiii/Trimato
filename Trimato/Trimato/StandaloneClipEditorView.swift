@@ -6,6 +6,11 @@ import SwiftUI
 nonisolated struct ClipReadyAnnouncementPolicy {
     private var announced = false
 
+    mutating func announcement(ready: Bool, outcome: OperationProgressOutcome) -> AttributedString? {
+        guard let message = message(ready: ready, outcome: outcome) else { return nil }
+        return ClipLoadingSpeech.announcement(message, completed: true)
+    }
+
     mutating func message(ready: Bool, outcome: OperationProgressOutcome) -> String? {
         guard ready, outcome == .completed, !announced else { return nil }
         announced = true
@@ -31,7 +36,7 @@ final class ClipLoadingPresentation: ObservableObject {
     func finish() {
         delayTask?.cancel()
         delayTask = nil
-        // Keep entry blocked until a visible progress window has returned focus.
+        // Keep entry blocked until the preparation sheet has dismissed.
     }
 
     func dismissed() {
@@ -164,7 +169,7 @@ struct StandaloneClipEditorView: View {
             .padding(.vertical, 12)
             .background(EditorTheme.controlSurface)
         }
-        .operationProgress(
+        .clipPreparationSheet(
             mediaPreparationOperation,
             outcome: viewModel.mediaPreparationOutcome,
             completionPending: viewModel.isPreparingMedia,
@@ -247,14 +252,12 @@ struct StandaloneClipEditorView: View {
         guard windowActivity == .key, let application = NSApp, application.isActive,
               let window = application.keyWindow, window.attachedSheet == nil,
               !AudioCaptureSession.suppressesAnnouncements,
-              let message = readyAnnouncement.message(
+              let announcement = readyAnnouncement.announcement(
                 ready: viewModel.hasMedia && viewModel.duration > 0 && !viewModel.isPreparingMedia &&
                     !loadingPresentation.isPresented,
                 outcome: viewModel.mediaPreparationOutcome
               ) else { return }
-        var announcement = AttributedString(message)
-        announcement.accessibilitySpeechAnnouncementPriority = .high
-        AccessibilityNotification.Announcement(announcement).post()
+        ClipLoadingSpeech.post(announcement)
     }
 
     private func finishProjectPresentation() {
@@ -274,13 +277,7 @@ struct StandaloneClipEditorView: View {
 
     private var mediaPreparationOperation: OperationProgress? {
         guard viewModel.isPreparingMedia, loadingPresentation.isPresented else { return nil }
-        return OperationProgress(
-            title: "Preparing Clip",
-            progress: viewModel.mediaProgress,
-            detail: viewModel.mediaStatus,
-            cancel: viewModel.cancelMediaLoad,
-            announceCompletion: false,
-            progressStage: viewModel.mediaStatus
-        )
+        return .clipLoading(progress: viewModel.mediaProgress, stage: viewModel.mediaStatus,
+                            cancel: viewModel.cancelMediaLoad)
     }
 }

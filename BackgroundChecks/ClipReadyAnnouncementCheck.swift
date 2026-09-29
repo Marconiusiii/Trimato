@@ -1,4 +1,5 @@
 import Foundation
+import Accessibility
 import AppKit
 import Darwin
 import AVFoundation
@@ -62,7 +63,46 @@ import Combine
         print("PASS: current preview readiness, effects preparation, cancellation, replaced requests, and stale progress")
     }
 
+    @MainActor static func checkPreparationSheet() {
+            for outcome in [OperationProgressOutcome.completed, .cancelled, .failed] {
+                let sheet = ClipPreparationSheetPresentation(postsAnnouncements: false)
+                var handoffs = 0
+                var cancellations = 0
+                let operation = OperationProgress.clipLoading(progress: 0.2, stage: "Indexing frames", cancel: { cancellations += 1 })
+                sheet.synchronize(operation: operation, outcome: .completed, completionPending: false) { handoffs += 1 }
+                guard let session = sheet.session else { fatalError("Sheet session missing") }
+                verify(sheet.isPresented && handoffs == 0, "Sheet did not block entry")
+                sheet.synchronize(operation: .clipLoading(progress: 0.6, stage: "Indexing frames", cancel: { cancellations += 1 }),
+                    outcome: .completed, completionPending: false) { handoffs += 1 }
+                verify(sheet.session === session && session.progress == 0.6, "Progress replaced the presentation or lost measured value")
+                sheet.synchronize(operation: nil, outcome: .completed, completionPending: true) { handoffs += 1 }
+                verify(sheet.isPresented && !session.isFinished, "Effects readiness gap dismissed preparation")
+                if outcome == .cancelled { session.cancel(); session.cancel() }
+                verify(cancellations == (outcome == .cancelled ? 1 : 0), "Cancellation was not delivered once")
+                sheet.synchronize(operation: nil, outcome: outcome, completionPending: false) { handoffs += 1 }
+                verify(handoffs == 0 && session.isFinished && session.outcome == outcome, "Completion released entry before native dismissal")
+                verify(sheet.isPresented && handoffs == 0, "Model completed native dismissal itself")
+                // Model-only check: SwiftUI's writable binding and onDismiss are
+                // driven by the real framework in the separate hosted check.
+                sheet.isPresented = false
+                session.update(operation)
+                verify(session.progress == 0.6, "Late progress updated the finished sheet")
+                sheet.sheetDismissed(); sheet.sheetDismissed()
+                sheet.synchronize(operation: nil, outcome: outcome, completionPending: false) { handoffs += 1 }
+                verify(handoffs == 1 && sheet.session == nil, "Dismissal handoff repeated or retained a stale session")
+                var ready = ClipReadyAnnouncementPolicy()
+                verify((ready.message(ready: true, outcome: outcome) != nil) == (outcome == .completed), "Unsuccessful sheet announced ready")
+            }
+        let quick = ClipPreparationSheetPresentation(postsAnnouncements: false)
+        var handoffs = 0
+        quick.synchronize(operation: nil, outcome: .completed, completionPending: true) { handoffs += 1 }
+        quick.synchronize(operation: nil, outcome: .completed, completionPending: false) { handoffs += 1 }
+        verify(handoffs == 1 && quick.session == nil && !quick.isPresented, "Quick load without a sheet lost entry")
+        print("PASS: sheet model only: measured progress, effects readiness, cancellation, failure, late progress rejection, writable presentation state, and one handoff")
+    }
+
     @MainActor static func main() async throws {
+        checkPreparationSheet()
         verify(NSApp == nil, "Background check must not create an application")
         for outcome in [OperationProgressOutcome.completed, .cancelled, .failed] {
             var operation = OperationProgress(
@@ -82,30 +122,51 @@ import Combine
             session.completeDismissal()
             verify(dismissed, "Completion lost the existing dismissal handoff")
         }
-        var spoken: [String] = []
-        var loading = OperationProgress(title: "Preparing Clip", detail: "Identifying clip",
-                                        announceCompletion: false, progressStage: "Identifying clip")
+        var spoken: [AttributedString] = []
+        var loading = OperationProgress.clipLoading(progress: nil, stage: "Identifying clip", cancel: {})
         let loadingSession = OperationProgressWindowSession(operation: loading,
             postsAnnouncements: false, announcementHandler: { spoken.append($0) })
         for stage in ["Identifying clip", "Preparing clip for playback", "Preparing playback"] {
-            loading.detail = stage
-            loading.progressStage = stage
+            loading = .clipLoading(progress: nil, stage: stage, cancel: {})
+            verify(loading.detail == nil && loading.title == "Preparing Clip", "Transient stage entered native loading text")
             loadingSession.update(loading)
         }
         verify(spoken.isEmpty, "Brief loading stages queued redundant speech")
         loading.progressStage = "Indexing frames"
         loading.progress = 0.3
         loadingSession.update(loading)
-        loading.detail = "Additional indexing detail"
         loadingSession.update(loading)
-        verify(spoken == ["Indexing frames, 30 percent."], "Measured progress missing or repeated")
+        verify(spoken.map { String($0.characters) } == ["Indexing frames, 30 percent."], "Measured progress missing or repeated")
+        verify(spoken.allSatisfy { $0.accessibilitySpeechAnnouncementPriority == .low }, "Loading priority must be low")
         loading.progress = nil
         loading.progressStage = "Preparing clip for playback"
         loadingSession.update(loading)
-        loadingSession.finish(outcome: .completed) {}
+        var readyPolicy = ClipReadyAnnouncementPolicy()
+        loadingSession.finish(outcome: .completed) {
+            verify(loadingSession.isFinished, "Ready preceded loading lifecycle completion")
+            if let ready = readyPolicy.announcement(ready: true, outcome: .completed) { spoken.append(ready) }
+        }
+        verify(spoken.count == 1, "Ready preceded the loading window handoff")
+        loadingSession.completeDismissal()
+        loadingSession.completeDismissal()
         loading.progress = 0.8
         loadingSession.update(loading)
-        verify(spoken.count == 1, "Late stage or completion queued additional speech")
+        verify(spoken.map { String($0.characters) } == ["Indexing frames, 30 percent.", "Clip Ready"],
+               "Late stage, duplicate ready, or incorrect announcement ordering")
+        verify(spoken.last?.accessibilitySpeechAnnouncementPriority == .high, "Ready priority must be high")
+        verify(readyPolicy.announcement(ready: true, outcome: .completed) == nil, "Ready repeated")
+        for outcome in [OperationProgressOutcome.cancelled, .failed] {
+            var messages: [AttributedString] = []
+            let session = OperationProgressWindowSession(operation: .clipLoading(progress: nil, stage: nil, cancel: {}),
+                postsAnnouncements: false, announcementHandler: { messages.append($0) })
+            session.finish(outcome: outcome) {}
+            session.update(.clipLoading(progress: 0.5, stage: "Preparing playback", cancel: {}))
+            var ready = ClipReadyAnnouncementPolicy()
+            verify(ready.announcement(ready: true, outcome: outcome) == nil, "Unsuccessful load announced ready")
+            verify(messages.count == 1 && messages[0].accessibilitySpeechAnnouncementPriority == .high,
+                   "Cancellation or failure priority/lifecycle was incorrect")
+        }
+        print("PASS: actual attributed announcement priorities, stable loading text, completion handoff, ordering, and late callback rejection")
         try await checkPreviewReadiness()
         var legacy = OperationProgressAnnouncements()
         verify(legacy.update(progress: 0.5) == "50 percent.", "Existing progress speech changed")

@@ -26,7 +26,6 @@ struct SourceClipEditorView: View {
     @State private var preparationTask: Task<Void, Never>?
     @State private var sourcePreparationError: String?
     @State private var sourcePreparationProgress: Double?
-    @State private var sourcePreparationDetail: String?
     @State private var sourcePreparationOutcome = OperationProgressOutcome.completed
     @State private var cacheOwnerID = UUID()
     @StateObject private var preview = ClipPreviewCoordinator()
@@ -151,13 +150,11 @@ struct SourceClipEditorView: View {
             }
         }
         .blocksEditingDuringQuit()
-        .operationProgress(
+        .clipPreparationSheet(
             clipPreparationOperation,
             outcome: clipPreparationOutcome,
             completionPending: preparationHandoffPending && viewModel.hasMedia && !viewModel.isPreparingMedia &&
                 !entryPlaybackReady && !previewNeedsRecovery,
-            returnWindow: commandContext.hostWindow,
-            waitsForReturnWindow: true,
             dismissed: { preparationHandoffPending = false }
         )
         .operationProgress(showsPreviewProgress && preview.state == .preparing ? OperationProgress(
@@ -176,6 +173,12 @@ struct SourceClipEditorView: View {
         }
         .applicationMessage(voiceWork.message) { voiceWork.message = nil }
         .onChange(of: voiceWork.busy) { _, busy in commandContext.voiceWorkBusy = busy }
+        .onChange(of: addingFilter) { _, presented in
+            ClipEntryDiagnostics.record("filter.presented=\(presented) \(ClipEntryDiagnostics.window(commandContext.hostWindow))")
+        }
+        .onChange(of: addFilterKeyboardFocused) { _, focused in
+            ClipEntryDiagnostics.record("filter.focusBinding=\(focused) \(ClipEntryDiagnostics.window(commandContext.hostWindow))")
+        }
         .onChange(of: selectedTab) { voiceWork.cancel() }
         .onChange(of: commandContext.audioSettings) { voiceWork.player.pause() }
         .onDisappear { voiceWork.cancel(); commandContext.voiceWorkBusy = false }
@@ -202,7 +205,6 @@ struct SourceClipEditorView: View {
             showsPreviewProgress = false
             preparationTask?.cancel()
             sourcePreparationProgress = nil
-            sourcePreparationDetail = nil
             sourcePreparationOutcome = .completed
             commandContext.acceptExternalGeneratorUpdate()
             viewModel.closeMedia()
@@ -282,6 +284,7 @@ struct SourceClipEditorView: View {
     }
 
     private func finishAddingFilter() {
+        ClipEntryDiagnostics.record("filter.dismissCallback presented=\(addingFilter) pendingFilter=\(pendingFilter != nil) pendingVoice=\(pendingVoice != nil) \(ClipEntryDiagnostics.window(commandContext.hostWindow))")
         if let pendingVoice {
             var audio = commandContext.audioSettings ?? .neutral
             audio.voice = pendingVoice
@@ -294,6 +297,7 @@ struct SourceClipEditorView: View {
         }
         Task { @MainActor in
             await Task.yield()
+            ClipEntryDiagnostics.record("filter.requestFocus \(ClipEntryDiagnostics.window(commandContext.hostWindow))")
             addFilterKeyboardFocused = true
         }
     }
@@ -378,7 +382,6 @@ struct SourceClipEditorView: View {
         readyAnnouncement = ClipReadyAnnouncementPolicy()
         sourcePreparationError = nil
         sourcePreparationProgress = nil
-        sourcePreparationDetail = "\(currentAsset.name): Preparing media"
         sourcePreparationOutcome = .completed
         preparationTask = Task { @MainActor in
             defer {
@@ -392,7 +395,6 @@ struct SourceClipEditorView: View {
                     for: currentAsset,
                     progress: { progress in
                         guard preparationID == requestID else { return }
-                        sourcePreparationDetail = "\(currentAsset.name): Creating playback proxy"
                         sourcePreparationProgress = progress
                     }
                 )
@@ -443,36 +445,19 @@ struct SourceClipEditorView: View {
 
     private var clipPreparationOperation: OperationProgress? {
         if preparingSource {
-            return OperationProgress(
-                title: "Preparing Clip",
+            return .clipLoading(
                 progress: sourcePreparationProgress,
-                detail: sourcePreparationDetail,
-                cancel: cancelClipPreparation,
-                announceCompletion: false,
-                progressStage: sourcePreparationProgress == nil ? "Preparing media" : "Creating playback proxy"
+                stage: sourcePreparationProgress == nil ? "Preparing media" : "Creating playback proxy",
+                cancel: cancelClipPreparation
             )
         }
         if preparationHandoffPending && !viewModel.isPreparingMedia && preview.state == .preparing {
-            return OperationProgress(
-                title: "Preparing Clip", progress: preview.progress,
-                detail: "Applying clip effects", cancel: cancelClipPreparation,
-                announceCompletion: false, progressStage: "Applying clip effects"
-            )
+            return .clipLoading(progress: preview.progress, stage: "Applying clip effects",
+                                cancel: cancelClipPreparation)
         }
         guard viewModel.isPreparingMedia else { return nil }
-        return OperationProgress(
-            title: "Preparing Clip",
-            progress: viewModel.mediaProgress,
-            detail: clipPreparationDetail,
-            cancel: cancelClipPreparation,
-            announceCompletion: false,
-            progressStage: viewModel.mediaStatus
-        )
-    }
-
-    private var clipPreparationDetail: String? {
-        guard let status = viewModel.mediaStatus else { return currentAsset.name }
-        return "\(currentAsset.name): \(status)"
+        return .clipLoading(progress: viewModel.mediaProgress, stage: viewModel.mediaStatus,
+                            cancel: cancelClipPreparation)
     }
 
     private var clipPreparationOutcome: OperationProgressOutcome {
@@ -497,15 +482,13 @@ struct SourceClipEditorView: View {
         guard commandContext.isKeyWindow, NSApp?.isActive == true,
               commandContext.hostWindow?.attachedSheet == nil,
               !AudioCaptureSession.suppressesAnnouncements,
-              let message = readyAnnouncement.message(
+              let announcement = readyAnnouncement.announcement(
                 ready: !preparingSource && !preparationHandoffPending &&
                     viewModel.hasMedia && viewModel.duration > 0 && !viewModel.isPreparingMedia &&
                     entryPlaybackReady,
                 outcome: clipPreparationOutcome
               ) else { return }
-        var announcement = AttributedString(message)
-        announcement.accessibilitySpeechAnnouncementPriority = .high
-        AccessibilityNotification.Announcement(announcement).post()
+        ClipLoadingSpeech.post(announcement)
     }
 
     private func place(_ placement: PlacementAction) {

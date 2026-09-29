@@ -3,6 +3,21 @@ import Accessibility
 import Combine
 import SwiftUI
 
+// Loading and completion use the same attributed announcement API.
+// Priority supersedes expendable progress; it is not a system queue flush.
+nonisolated enum ClipLoadingSpeech {
+    static func announcement(_ message: String, completed: Bool) -> AttributedString {
+        var announcement = AttributedString(message)
+        announcement.accessibilitySpeechAnnouncementPriority = completed ? .high : .low
+        return announcement
+    }
+
+    @MainActor static func post(_ announcement: AttributedString) {
+        guard NSApp?.isActive == true, !AudioCaptureSession.suppressesAnnouncements else { return }
+        AccessibilityNotification.Announcement(announcement).post()
+    }
+}
+
 nonisolated struct OperationProgressAnnouncements {
     private(set) var milestone = -1
     private(set) var finished = false
@@ -59,8 +74,13 @@ struct OperationProgress {
     var cancel: (() -> Void)? = nil
     var announceCompletion = true
     var announcesUpdates = true
-    // Opt in to stage-scoped percentages and interruptible loading speech.
+    // Clip-loading stages identify measured work without changing native status text.
     var progressStage: String? = nil
+
+    static func clipLoading(progress: Double?, stage: String?, cancel: @escaping () -> Void) -> Self {
+        OperationProgress(title: "Preparing Clip", progress: progress, cancel: cancel,
+                          announceCompletion: false, progressStage: stage ?? "Preparing Clip")
+    }
 }
 
 private struct OperationProgressSnapshot: Equatable {
@@ -176,12 +196,12 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
     private var announcements = OperationProgressAnnouncements()
     private var wasCancelled = false
     private let postsAnnouncements: Bool
-    private let announcementHandler: ((String) -> Void)?
+    private let announcementHandler: ((AttributedString) -> Void)?
     private let announcesUpdates: Bool
     private var progressStage: String?
 
     init(operation: OperationProgress, postsAnnouncements: Bool = true,
-         announcementHandler: ((String) -> Void)? = nil) {
+         announcementHandler: ((AttributedString) -> Void)? = nil) {
         self.announcementHandler = announcementHandler
         title = operation.title
         progress = operation.progress
@@ -213,8 +233,7 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
         if announcesUpdates {
             if let stage = progressStage {
                 if let milestone { speak("\(stage), \(milestone)") }
-                // The native progress window exposes brief stage changes.
-                // Only measured milestones need an additional announcement.
+                // Brief stages are internal state, not additional native status text.
             } else {
                 if detailChanged, let detail = operation.detail { speak(detail) }
                 speak(milestone)
@@ -248,11 +267,17 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
 
     private func speak(_ message: String?) {
         guard let message else { return }
-        if let announcementHandler { announcementHandler(message); return }
+        if progressStage != nil {
+            let announcement = ClipLoadingSpeech.announcement(message, completed: isFinished)
+            if let announcementHandler { announcementHandler(announcement); return }
+            if postsAnnouncements { ClipLoadingSpeech.post(announcement) }
+            return
+        }
+        var announcement = AttributedString(message)
+        announcement.accessibilitySpeechAnnouncementPriority = announcesUpdates ? .low : .default
+        if let announcementHandler { announcementHandler(announcement); return }
         guard postsAnnouncements, let application = NSApp, application.isActive else { return }
-        if !announcesUpdates || progressStage != nil {
-            var announcement = AttributedString(message)
-            announcement.accessibilitySpeechAnnouncementPriority = .default
+        if !announcesUpdates {
             AccessibilityNotification.Announcement(announcement).post()
             return
         }
@@ -377,6 +402,126 @@ private struct OperationProgressContent: View {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(250))
                 OperationProgressWindowCoordinator.shared.close(id: session.id)
+            }
+        }
+    }
+}
+
+// Clip preparation belongs to its editor window. Keep its entry gate closed until
+// SwiftUI confirms dismissal, including when preparation finishes before appearance.
+@MainActor
+final class ClipPreparationSheetPresentation: ObservableObject {
+    @Published private(set) var session: OperationProgressWindowSession?
+    @Published var isPresented = false
+    private var awaitingCompletion = false
+    private let postsAnnouncements: Bool
+
+    init(postsAnnouncements: Bool = true) {
+        self.postsAnnouncements = postsAnnouncements
+    }
+
+    func synchronize(operation: OperationProgress?, outcome: OperationProgressOutcome,
+                     completionPending: Bool, dismissed: @escaping () -> Void) {
+        if operation != nil || completionPending { awaitingCompletion = true }
+        if let operation {
+            if let session {
+                // A new request can be presented after the current sheet dismisses.
+                guard !session.isFinished else { return }
+                session.update(operation)
+            } else {
+                session = OperationProgressWindowSession(operation: operation, postsAnnouncements: postsAnnouncements)
+                isPresented = true
+                ClipEntryDiagnostics.record("preparation.sheetRequested id=\(session!.id)")
+            }
+            return
+        }
+        guard !completionPending, awaitingCompletion else { return }
+        awaitingCompletion = false
+        guard let session else {
+            dismissed()
+            return
+        }
+        session.finish(outcome: outcome, dismissed: dismissed)
+        ClipEntryDiagnostics.record("preparation.finished id=\(session.id) outcome=\(outcome)")
+    }
+
+    func sheetDismissed() {
+        let completed = session
+        session = nil
+        isPresented = false
+        ClipEntryDiagnostics.record("preparation.nativeDismissal id=\(String(describing: completed?.id))")
+        completed?.completeDismissal()
+    }
+}
+
+extension View {
+    func clipPreparationSheet(_ operation: OperationProgress?,
+                              outcome: OperationProgressOutcome,
+                              completionPending: Bool = false,
+                              dismissed: @escaping () -> Void) -> some View {
+        modifier(ClipPreparationSheetPresenter(operation: operation, outcome: outcome,
+            completionPending: completionPending, dismissed: dismissed))
+    }
+}
+
+private struct ClipPreparationSheetPresenter: ViewModifier {
+    let operation: OperationProgress?
+    let outcome: OperationProgressOutcome
+    let completionPending: Bool
+    let dismissed: () -> Void
+    @StateObject private var presentation = ClipPreparationSheetPresentation()
+
+    private var snapshot: OperationProgressSnapshot {
+        OperationProgressSnapshot(title: operation?.title, progress: operation?.progress,
+            detail: operation?.detail, progressStage: operation?.progressStage,
+            canCancel: operation?.cancel != nil, announceCompletion: operation?.announceCompletion ?? false,
+            announcesUpdates: operation?.announcesUpdates ?? true, outcome: outcome,
+            completionPending: completionPending, returnWindowNumber: nil, waitsForReturnWindow: false)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $presentation.isPresented, onDismiss: presentation.sheetDismissed) {
+                if let session = presentation.session {
+                    ClipPreparationSheetContent(session: session)
+                        .interactiveDismissDisabled()
+                }
+            }
+            .onChange(of: snapshot, initial: true) { _, _ in synchronize() }
+            .onChange(of: presentation.session?.id) { _, sessionID in
+                // Re-read current loading state on the next view update. A sheet's
+                // stored onDismiss closure must not replay its old operation.
+                if sessionID == nil { synchronize() }
+            }
+    }
+
+    private func synchronize() {
+        presentation.synchronize(operation: operation, outcome: outcome,
+            completionPending: completionPending, dismissed: dismissed)
+    }
+}
+
+private struct ClipPreparationSheetContent: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var session: OperationProgressWindowSession
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Preparing Clip").font(.headline)
+            ProgressView(value: session.progress.flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }, total: 1)
+                .progressViewStyle(.linear)
+                .accessibilityLabel("Preparing Clip")
+            if session.canCancel {
+                Button("Cancel", action: session.cancel)
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 400)
+        .fixedSize(horizontal: false, vertical: true)
+        .onChange(of: session.isFinished, initial: true) { _, finished in
+            if finished {
+                ClipEntryDiagnostics.record("preparation.requestNativeDismissal id=\(session.id)")
+                dismiss()
             }
         }
     }

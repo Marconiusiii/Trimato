@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import OSLog
 
 /// The native cell owns the accessible value, so quiet feedback has no numeric fallback.
 struct NativePlayheadSlider: NSViewRepresentable {
@@ -10,6 +11,7 @@ struct NativePlayheadSlider: NSViewRepresentable {
     let spokenValue: (Double) -> String
     let feedback: TimecodeFeedback
     var isMoving: () -> Bool = { false }
+    var clipEntry: ClipEditorEntryRequest? = nil
     @Environment(\.isEnabled) private var isEnabled
 
     func makeCoordinator() -> Coordinator { Coordinator(value: $value) }
@@ -36,9 +38,12 @@ struct NativePlayheadSlider: NSViewRepresentable {
         cell.updateSpokenValue(format: spokenValue, feedback: feedback, isMoving: isMoving)
         if cell.accessibilityLabel() != label { cell.setAccessibilityLabel(label) }
         if cell.accessibilityIdentifier() != identifier { cell.setAccessibilityIdentifier(identifier) }
+        slider.entryFocus = clipEntry?.owner
+        if let clipEntry { clipEntry.owner.update(clipEntry, slider: slider) }
     }
 
     static func dismantleNSView(_ slider: PlayheadSlider, coordinator: Coordinator) {
+        slider.entryFocus?.disconnect(slider: slider)
         (slider.cell as? PlayheadCell)?.cancelPendingValue()
     }
 
@@ -50,6 +55,34 @@ struct NativePlayheadSlider: NSViewRepresentable {
 
     final class PlayheadSlider: NSSlider {
         var frameStep = 1.0
+        weak var entryFocus: ClipEditorEntryFocus?
+
+        #if DEBUG
+        override func becomeFirstResponder() -> Bool {
+            ClipEntryDiagnostics.record("slider.become.begin \(ClipEntryDiagnostics.identity(self)) \(ClipEntryDiagnostics.window(window))")
+            let accepted = super.becomeFirstResponder()
+            ClipEntryDiagnostics.record("slider.become.end accepted=\(accepted) \(ClipEntryDiagnostics.window(window))")
+            if entryFocus != nil { ClipEntryDiagnostics.snapshot(self) }
+            return accepted
+        }
+
+        override func resignFirstResponder() -> Bool {
+            let accepted = super.resignFirstResponder()
+            ClipEntryDiagnostics.record("slider.resign accepted=\(accepted) \(ClipEntryDiagnostics.identity(self)) \(ClipEntryDiagnostics.window(window))")
+            return accepted
+        }
+
+        override func setAccessibilityFocused(_ focused: Bool) {
+            ClipEntryDiagnostics.record("slider.axFocus=\(focused) \(ClipEntryDiagnostics.identity(self))")
+            super.setAccessibilityFocused(focused)
+        }
+        #endif
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            entryFocus?.attach(window)
+            ClipEntryDiagnostics.record("slider.windowChanged \(ClipEntryDiagnostics.identity(self)) \(ClipEntryDiagnostics.window(window))")
+        }
 
         func adjustFrame(forward: Bool) -> Bool {
             guard isEnabled else { return false }
@@ -71,6 +104,13 @@ struct NativePlayheadSlider: NSViewRepresentable {
         private var lastFormattedValue: String?
         private var wasMoving = false
         private var pendingValue: Task<Void, Never>?
+
+        #if DEBUG
+        override func setAccessibilityFocused(_ focused: Bool) {
+            ClipEntryDiagnostics.record("cell.axFocus=\(focused) \(ClipEntryDiagnostics.identity(self)) control=\(ClipEntryDiagnostics.identity(controlView))")
+            super.setAccessibilityFocused(focused)
+        }
+        #endif
 
         func cancelPendingValue() {
             pendingValue?.cancel()
@@ -148,5 +188,45 @@ struct NativePlayheadSlider: NSViewRepresentable {
         override func accessibilityPerformDecrement() -> Bool {
             (controlView as? PlayheadSlider)?.adjustFrame(forward: false) ?? false
         }
+    }
+}
+
+/// Temporary entry diagnostics. No focus setters or accessibility notifications are issued here.
+@MainActor enum ClipEntryDiagnostics {
+    private static let logger = Logger(subsystem: "com.marconius.trimato", category: "ClipEntryDiagnostics")
+    static func record(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        let entry = message()
+        logger.notice("\(entry, privacy: .public)")
+        #endif
+    }
+    static func identity(_ object: AnyObject?) -> String {
+        guard let object else { return "nil" }
+        return "\(type(of: object)):\(ObjectIdentifier(object))"
+    }
+    static func window(_ window: NSWindow?) -> String {
+        guard let window else { return "window=nil" }
+        return "window=\(window.windowNumber) key=\(window.isKeyWindow) sheet=\(window.attachedSheet != nil) responder=\(identity(window.firstResponder))"
+    }
+    static func snapshot(_ slider: NSSlider) {
+        #if DEBUG
+        func describe(_ object: NSObject, _ relation: String) {
+            func read(_ key: String) -> Any? {
+                object.responds(to: NSSelectorFromString(key)) ? object.value(forKey: key) : nil
+            }
+            // Log presence rather than media names or time values.
+            let role = read("accessibilityRole") as? String ?? "nil"
+            let hasLabel = !(read("accessibilityLabel") as? String ?? "").isEmpty
+            let hasValue = read("accessibilityValue") != nil
+            record("element \(relation) \(identity(object)) role=\(role) labelPresent=\(hasLabel) valuePresent=\(hasValue)")
+        }
+        func walk(_ view: NSView, _ depth: Int) {
+            guard depth < 5 else { return }
+            describe(view, "view[\(depth)]")
+            view.subviews.forEach { walk($0, depth + 1) }
+        }
+        walk(slider, 0)
+        if let cell = slider.cell { describe(cell, "cell") }
+        #endif
     }
 }

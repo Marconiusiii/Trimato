@@ -13,8 +13,6 @@ struct ContentView: View {
     private let entryCompleted: () -> Void
     @State private var showingSilenceTrim = false
     @StateObject private var entryFocus = ClipEditorEntryFocus()
-    @FocusState private var playheadKeyboardFocused: Bool
-    @State private var entryCompletionPending = false
 
     init(
         viewModel: VideoPlayerViewModel,
@@ -50,21 +48,6 @@ struct ContentView: View {
         .background(EditorTheme.workspace)
         .editorAppearance()
         .focusedObject(viewModel)
-        .background(ClipEditorEntryFocusBridge(owner: entryFocus, ready: entryFocusReady))
-        .onChange(of: entryFocus.request) {
-            viewModel.refreshAccessibilityValueForFocus()
-            entryCompletionPending = true
-            playheadKeyboardFocused = true
-        }
-        // Native keyboard focus completes entry even when the VoiceOver cursor does not change.
-        .task(id: entryCompletionPending && playheadKeyboardFocused && entryFocusReady) {
-            guard entryCompletionPending, playheadKeyboardFocused,
-                  entryFocusReady else { return }
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            entryCompletionPending = false
-            entryCompleted()
-        }
         .toolbar {
             ToolbarItemGroup {
                 Button { viewModel.goToStart() } label: {
@@ -154,10 +137,11 @@ struct ContentView: View {
                 step: viewModel.playbackFractionStep,
                 spokenValue: { fraction in
                     viewModel.spokenTime(CMTime(seconds: fraction * viewModel.duration, preferredTimescale: 600_000))
-                }, isMoving: { viewModel.isPlayheadMoving }, seek: viewModel.seek)
+                }, isMoving: { viewModel.isPlayheadMoving }, seek: viewModel.seek,
+                entry: ClipEditorEntryRequest(owner: entryFocus, ready: entryFocusReady,
+                    willEnter: viewModel.refreshAccessibilityValueForFocus, completed: entryCompleted))
             .disabled(viewModel.duration <= 0)
             .tint(EditorTheme.playhead)
-            .focused($playheadKeyboardFocused)
 
             playbackControls
             Button("Trim Silences…") { showingSilenceTrim = true }
@@ -338,91 +322,110 @@ nonisolated struct ClipEditorEntryFocusPolicy {
 }
 
 @MainActor
+struct ClipEditorEntryRequest {
+    let owner: ClipEditorEntryFocus
+    let ready: Bool
+    let willEnter: () -> Void
+    let completed: () -> Void
+}
+
+@MainActor
 final class ClipEditorEntryFocus: ObservableObject {
-    @Published private(set) var request = 0
     private var policy = ClipEditorEntryFocusPolicy()
     private weak var window: NSWindow?
+    private weak var slider: NativePlayheadSlider.PlayheadSlider?
     private var ready = false
+    private var willEnter: (() -> Void)?
+    private var completed: (() -> Void)?
     private var observers: [NSObjectProtocol] = []
     private var delivery: Task<Void, Never>?
+    private let isWindowAvailable: @MainActor (NSWindow) -> Bool
 
-    func update(ready: Bool, window: NSWindow?) {
-        self.ready = ready
-        attach(window)
+    init(isWindowAvailable: @escaping @MainActor (NSWindow) -> Bool = {
+        $0.isKeyWindow && NSApp?.isActive == true && NSApp?.modalWindow == nil
+    }) {
+        self.isWindowAvailable = isWindowAvailable
+    }
+
+    func update(_ request: ClipEditorEntryRequest, slider: NativePlayheadSlider.PlayheadSlider) {
+        if ready != request.ready {
+            ClipEntryDiagnostics.record("entry.ready=\(request.ready) \(ClipEntryDiagnostics.window(slider.window))")
+        }
+        ready = request.ready
+        self.slider = slider
+        willEnter = request.willEnter
+        completed = request.completed
+        attach(slider.window)
         schedule()
     }
 
     func attach(_ window: NSWindow?) {
         guard self.window !== window else { return }
-        disconnect()
+        cancelDelivery()
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        ClipEntryDiagnostics.record("entry.attach \(ClipEntryDiagnostics.window(window))")
         self.window = window
         policy = ClipEditorEntryFocusPolicy()
         guard let window else { return }
-        observe(NSWindow.didBecomeKeyNotification, window: window) { owner in
-            owner.schedule()
-        }
-        observe(NSWindow.willBeginSheetNotification, window: window) { owner in
-            owner.delivery?.cancel()
-            owner.delivery = nil
-        }
-        observe(NSWindow.didEndSheetNotification, window: window) { $0.schedule() }
+        observe(NSWindow.didBecomeKeyNotification, object: window) { $0.schedule() }
+        observe(NSWindow.willBeginSheetNotification, object: window) { $0.cancelDelivery() }
+        observe(NSWindow.didEndSheetNotification, object: window) { $0.schedule() }
+        observe(NSApplication.didBecomeActiveNotification, object: nil) { $0.schedule() }
         schedule()
     }
 
-    private func observe(_ name: Notification.Name, window: NSWindow,
+    private func observe(_ name: Notification.Name, object: AnyObject?,
                          action: @escaping @MainActor (ClipEditorEntryFocus) -> Void) {
-        observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) {
+        observers.append(NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) {
             [weak self] _ in
-            // These AppKit window notifications are delivered on the main thread.
             MainActor.assumeIsolated { if let self { action(self) } }
         })
     }
 
     private func schedule() {
-        guard delivery == nil else { return }
+        guard policy.pending, delivery == nil else { return }
         delivery = Task { @MainActor [weak self] in
-            // Let the native window event and SwiftUI's readiness updates finish.
-            // There are no timed retries or requests after this entry is consumed.
+            // Run outside the representable update and native window callbacks.
             await Task.yield()
             guard !Task.isCancelled, let self else { return }
             self.delivery = nil
-            guard let window = self.window,
-                  self.policy.consume(ready: self.ready, isKeyWindow: window.isKeyWindow,
-                                      hasSheet: window.attachedSheet != nil) else { return }
-            self.request += 1
+            guard self.policy.pending, self.ready,
+                  let slider = self.slider, let window = self.window,
+                  slider.window === window, self.isWindowAvailable(window),
+                  window.attachedSheet == nil, slider.isEnabled, slider.acceptsFirstResponder else { return }
+            ClipEntryDiagnostics.record("entry.willEnter \(ClipEntryDiagnostics.window(window))")
+            self.willEnter?()
+            if window.firstResponder !== slider {
+                ClipEntryDiagnostics.record("entry.requestFocus target=\(ClipEntryDiagnostics.identity(slider)) \(ClipEntryDiagnostics.window(window))")
+                guard window.makeFirstResponder(slider) else {
+                    ClipEntryDiagnostics.record("entry.requestRejected")
+                    return
+                }
+            }
+            // AppKit can report success while choosing the window instead of the requested view.
+            guard window.firstResponder === slider,
+                  self.policy.consume(ready: self.ready, isKeyWindow: true, hasSheet: false) else { return }
+            ClipEntryDiagnostics.record("entry.completed \(ClipEntryDiagnostics.window(window))")
+            ClipEntryDiagnostics.snapshot(slider)
+            self.completed?()
         }
     }
 
-    func disconnect() {
+    private func cancelDelivery() {
         delivery?.cancel()
         delivery = nil
+    }
+
+    func disconnect(slider: NativePlayheadSlider.PlayheadSlider) {
+        guard self.slider === slider else { return }
+        cancelDelivery()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         window = nil
-    }
-}
-
-private struct ClipEditorEntryFocusBridge: NSViewRepresentable {
-    let owner: ClipEditorEntryFocus
-    let ready: Bool
-
-    func makeNSView(context: Context) -> Anchor {
-        let view = Anchor()
-        view.owner = owner
-        view.setAccessibilityElement(false)
-        return view
-    }
-
-    func updateNSView(_ view: Anchor, context: Context) { owner.update(ready: ready, window: view.window) }
-
-    static func dismantleNSView(_ view: Anchor, coordinator: ()) { view.owner?.disconnect() }
-
-    final class Anchor: NSView {
-        weak var owner: ClipEditorEntryFocus?
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            owner?.attach(window)
-        }
+        self.slider = nil
+        willEnter = nil
+        completed = nil
     }
 }
 
@@ -445,9 +448,10 @@ private struct ClipLivePlayhead: View {
     let spokenValue: (Double) -> String
     let isMoving: () -> Bool
     let seek: (Double) -> Void
+    let entry: ClipEditorEntryRequest
     var body: some View {
         NativePlayheadSlider(value: Binding(get: { duration > 0 ? clock.time / duration : 0 }, set: seek),
             step: step, label: "Clip playhead", identifier: ClipEditorAccessibilityIdentifier.playhead,
-            spokenValue: spokenValue, feedback: feedback, isMoving: isMoving)
+            spokenValue: spokenValue, feedback: feedback, isMoving: isMoving, clipEntry: entry)
     }
 }
