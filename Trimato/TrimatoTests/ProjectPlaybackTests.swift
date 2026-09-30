@@ -559,11 +559,11 @@ struct ProjectPlaybackTests {
         let audioPoints = ProjectPlayerViewModel.editPoints(in: project, trackID: musicTrackID)
 
         let videoStart = try #require(videoPoints.first { $0.time == .zero })
-        #expect(videoStart.spokenName == "Video edit point")
+        #expect(videoStart.spokenName == "Video edit point: Picture")
         let audioEnd = try #require(audioPoints.first { $0.time == ProjectTime(seconds: 3) })
-        #expect(audioEnd.spokenName == "Audio edit point")
+        #expect(audioEnd.spokenName == "Audio edit point: Music")
         let videoEnd = try #require(videoPoints.first { $0.time == ProjectTime(seconds: 5) })
-        #expect(videoEnd.spokenName == "Video edit point")
+        #expect(videoEnd.spokenName == "Video edit point: Picture")
     }
 
     @Test func editNavigationOmitsAnAdditionalClipsHiddenNegativeBoundary() throws {

@@ -11,6 +11,7 @@ struct NativePlayheadSlider: NSViewRepresentable {
     let spokenValue: (Double) -> String
     let feedback: TimecodeFeedback
     var isMoving: () -> Bool = { false }
+    var announcesValueChanges: () -> Bool = { true }
     var clipEntry: ClipEditorEntryRequest? = nil
     @Environment(\.isEnabled) private var isEnabled
 
@@ -35,7 +36,8 @@ struct NativePlayheadSlider: NSViewRepresentable {
         let fraction = value.isFinite ? min(max(value, 0), 1) : 0
         if slider.doubleValue != fraction { slider.doubleValue = fraction }
         guard let cell = slider.cell as? PlayheadCell else { return }
-        cell.updateSpokenValue(format: spokenValue, feedback: feedback, isMoving: isMoving)
+        cell.updateSpokenValue(format: spokenValue, feedback: feedback, isMoving: isMoving,
+                              announcesValueChanges: announcesValueChanges)
         if cell.accessibilityLabel() != label { cell.setAccessibilityLabel(label) }
         if cell.accessibilityIdentifier() != identifier { cell.setAccessibilityIdentifier(identifier) }
         slider.entryFocus = clipEntry?.owner
@@ -104,6 +106,7 @@ struct NativePlayheadSlider: NSViewRepresentable {
         private var lastFormattedValue: String?
         private var wasMoving = false
         private var pendingValue: Task<Void, Never>?
+        private var announcesValueChanges: () -> Bool = { true }
 
         #if DEBUG
         override func setAccessibilityFocused(_ focused: Bool) {
@@ -125,7 +128,9 @@ struct NativePlayheadSlider: NSViewRepresentable {
         }
 
         func updateSpokenValue(format: @escaping (Double) -> String,
-                               feedback: TimecodeFeedback, isMoving: @escaping () -> Bool) {
+                               feedback: TimecodeFeedback, isMoving: @escaping () -> Bool,
+                               announcesValueChanges: @escaping () -> Bool = { true }) {
+            self.announcesValueChanges = announcesValueChanges
             let initial = lastFraction == nil && lastFormattedValue == nil
             let preferenceChanged = self.feedback != feedback
             self.format = format
@@ -160,7 +165,7 @@ struct NativePlayheadSlider: NSViewRepresentable {
                     let value = self.format(self.doubleValue)
                     self.settledValue = value.isEmpty ? nil : value
                     self.pendingValue = nil
-                    if self.isAccessibilityFocused(), self.controlView?.window?.isKeyWindow == true {
+                    if self.announcesValueChanges(), self.isAccessibilityFocused(), self.controlView?.window?.isKeyWindow == true {
                         NSAccessibility.post(element: self, notification: .valueChanged)
                     }
                 } catch { }

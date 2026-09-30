@@ -16,10 +16,19 @@ nonisolated struct ProjectEditPoint: Equatable, Sendable {
     var hasAudio: Bool
     var captionText: String? = nil
     var markerTitle: String? = nil
+    var clipName: String? = nil
+    var recordingPurpose: RecordingPurpose? = nil
 
     var spokenName: String {
         if let markerTitle { return markerTitle }
         if let captionText { return "Caption: \(captionText)" }
+        if let clipName {
+            if recordingPurpose == .audioDescription { return "Audio description: \(clipName)" }
+            if recordingPurpose == .voiceOver { return "Voice over: \(clipName)" }
+            if hasVideo { return "Video edit point: \(clipName)" }
+            if hasAudio { return "Audio edit point: \(clipName)" }
+            return clipName
+        }
         if hasVideo, hasAudio { return "Video and audio edit point" }
         if hasVideo { return "Video edit point" }
         if hasAudio { return "Audio edit point" }
@@ -302,6 +311,9 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var timecodePreferenceObservation: AnyCancellable?
     private var timecodePreference = TimecodePresentationPreference()
     private var navigationPoint: (time: ProjectTime, title: String)?
+    private var seekRequest: UUID?
+    private let announcementHandler: ((String) -> Void)?
+    var announcesPlayheadValueChanges: Bool { navigationPoint == nil }
     private var jklIndex = 0
     private let jklSpeeds: [Float] = [1, 2, 4, 8]
     private var arrowHolding = false
@@ -334,7 +346,8 @@ final class ProjectPlayerViewModel: ObservableObject {
     private var playheadChanged: ((ProjectTime) -> Void)?
     private var currentPreviewFailure: ProjectPreviewFailure?
 
-    init(awaitingInitialPreparation: Bool = false) {
+    init(awaitingInitialPreparation: Bool = false, announcementHandler: ((String) -> Void)? = nil) {
+        self.announcementHandler = announcementHandler
         isInitialPreparationPending = awaitingInitialPreparation
         preparationProgress = awaitingInitialPreparation ? 0 : nil
         timecodePreferenceObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
@@ -1269,6 +1282,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     private func stepFrame(forward: Bool) {
         guard canControlPlayback, !arrowHolding else { return }
+        seekRequest = nil
         navigationPoint = nil
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
@@ -1287,16 +1301,26 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
-    private func seekPrecisely(to time: ProjectTime, navigationValue: String? = nil) {
+    private func seekPrecisely(to time: ProjectTime, navigationValue: String? = nil, announcement: String? = nil) {
         cancelMixerRestart()
         let bounded = min(max(time, .zero), projectDuration)
+        let request = UUID()
+        seekRequest = request
+        let item = player.currentItem
         navigationPoint = navigationValue.map { (bounded, $0) }
         player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-            guard finished else { return }
             Task { @MainActor [weak self] in
-                guard let self, self.player.rate == 0, !self.isScrubbing, !self.isSteppingFrames else { return }
+                guard let self, self.seekRequest == request, self.player.currentItem === item else { return }
+                self.seekRequest = nil
+                guard finished else {
+                    self.navigationPoint = nil
+                    self.refreshAccessibilityTimecode()
+                    return
+                }
+                guard !self.isScrubbing, !self.isSteppingFrames else { return }
                 self.updateDisplayedTime(ProjectTime(self.player.currentTime()))
                 self.refreshAccessibilityTimecode()
+                if let announcement { self.announce(announcement) }
             }
         }
         updateDisplayedTime(bounded)
@@ -1314,8 +1338,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             editPoint: editPoint,
             includeTimecode: AppPreferences.timecodeFeedback == .whenStopped
         )
-        seekPrecisely(to: destination, navigationValue: editPoint?.markerTitle ?? announcement)
-        announce(announcement)
+        seekPrecisely(to: destination, navigationValue: editPoint?.markerTitle ?? announcement,
+                      announcement: announcement)
     }
 
     private func updateDisplayedTime(_ time: ProjectTime) {
@@ -1414,6 +1438,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func cancelFrameStepping() {
+        seekRequest = nil
         isSteppingFrames = false
         cancelScrub()
     }
@@ -1453,7 +1478,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     private func updateAccessibilityValues(timecode: String) {
         // A navigation description belongs to the playhead's value only.
         // Timecode controls and video-frame descriptions continue to expose time.
-        if let point = navigationPoint,
+        if seekRequest == nil, let point = navigationPoint,
            abs(currentTime.seconds - point.time.seconds) >= 0.5 / max(projectFrameRate, 1) {
             navigationPoint = nil
         }
@@ -1483,7 +1508,9 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     private func announce(_ message: String) {
-        guard !AudioCaptureSession.suppressesAnnouncements, let app = NSApp else { return }
+        guard !AudioCaptureSession.suppressesAnnouncements else { return }
+        if let announcementHandler { announcementHandler(message); return }
+        guard let app = NSApp else { return }
         let element: Any = app.keyWindow?.contentView ?? app
         NSAccessibility.post(
             element: element,
@@ -1610,7 +1637,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             hasAudio: false
         )
 
-        func add(_ time: ProjectTime, kind: TimelineTrackKind, captionText: String? = nil) {
+        func add(_ time: ProjectTime, kind: TimelineTrackKind, captionText: String? = nil,
+                 clipName: String? = nil, recordingPurpose: RecordingPurpose? = nil) {
             var point = points[time] ?? ProjectEditPoint(
                 time: time,
                 hasVideo: false,
@@ -1623,6 +1651,8 @@ final class ProjectPlayerViewModel: ObservableObject {
             } else if let captionText {
                 point.captionText = captionText
             }
+            point.clipName = clipName
+            point.recordingPurpose = recordingPurpose
             points[time] = point
         }
 
@@ -1632,9 +1662,17 @@ final class ProjectPlayerViewModel: ObservableObject {
             ?? project.orderedTimelineTracks.first
 
         if let track = selectedTrack {
+            func purpose(for clip: TimelineClip) -> RecordingPurpose? {
+                guard track.kind == .audio else { return nil }
+                return track.recordingPurpose ?? project.asset(id: clip.assetID)?.recordingPurpose
+            }
+            // Add ends first so the clip beginning at a shared cut supplies its name,
+            // regardless of the order in which the clips are stored.
             for clip in track.clips {
-                add(clip.visibleTimelineStart, kind: track.kind)
-                add(clip.visibleTimelineEnd, kind: track.kind)
+                add(clip.visibleTimelineEnd, kind: track.kind, clipName: clip.displayName, recordingPurpose: purpose(for: clip))
+            }
+            for clip in track.clips {
+                add(clip.visibleTimelineStart, kind: track.kind, clipName: clip.displayName, recordingPurpose: purpose(for: clip))
             }
             for marker in track.markers {
                 points[marker.time] = ProjectEditPoint(time: marker.time, hasVideo: false, hasAudio: false, markerTitle: marker.title)
@@ -1645,9 +1683,9 @@ final class ProjectPlayerViewModel: ObservableObject {
         } else {
             var cursor = ProjectTime.zero
             for clip in project.primaryTimeline {
-                add(cursor, kind: .video)
+                add(cursor, kind: .video, clipName: clip.displayName)
                 cursor = cursor + clip.duration
-                add(cursor, kind: .video)
+                add(cursor, kind: .video, clipName: clip.displayName)
             }
         }
         return points.values

@@ -1122,7 +1122,8 @@ private struct ProjectPlayheadSlider: View {
                 player.isPlaying
                     ? player.spokenTimecode(at: ProjectTime(seconds: fraction * player.duration.seconds))
                     : player.playheadAccessibilityValue
-            }, feedback: feedback, isMoving: { player.isPlayheadMoving })
+            }, feedback: feedback, isMoving: { player.isPlayheadMoving },
+            announcesValueChanges: { player.announcesPlayheadValueChanges })
             .accessibilityFocused(focusedAccessibilityTarget, equals: .playhead)
             .focused(paneCommandKeyboardTarget, equals: .playhead)
     }
