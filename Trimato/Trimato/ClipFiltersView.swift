@@ -443,6 +443,7 @@ struct ClipFilterParameters: View {
 
     private func unit(_ parameter: FilterParameter) -> String {
         if parameter.id == "delay" { return "milliseconds" }
+        if filter.kind == .plateReverb { return parameter.id == "length" ? "seconds" : "percent" }
         if ["highpass", "lowpass"].contains(parameter.id) { return "Hz" }
         if parameter.id == "target" { return "LUFS" }
         if parameter.id == "ratio" { return "" }

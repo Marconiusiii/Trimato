@@ -13,7 +13,7 @@ Created by Marco Salsiccia.
 - Record audio description with Describer and narration with Voicer. Adjust voice levels, match loudness, and reduce other audio during descriptions.
 - Use Captioner, Describer, and Voicer beside the main video preview. Mix audio live and loop an In–Out range in a separate Mixer window.
 - Mix audio tracks with volume, mute, solo, pan, stereo balance, stereo width, and channel routing controls.
-- Add transitions, video and audio filters, titles, lower thirds, backgrounds, and other generated clips.
+- Add transitions, Bleach Bypass and Technicolor video filters, room and Plate Reverb audio effects, titles, lower thirds, and other generated clips.
 - Tap out absolute markers during playback, edit their titles, and mark chapter boundaries.
 - Export a full-resolution PNG from the playhead, or export web video with a poster, optional captions, and an HTML embed fragment.
 - Export video in H.264, HEVC, or ProRes, and audio in AAC, Apple Lossless, FLAC, or WAV. Preserve HDR and compatible iPhone Spatial Audio in supported exports. Trim a Clip converts HDR video automatically when you choose H.264. A smaller-file MP4 preset is available for clips and projects.
@@ -28,7 +28,7 @@ Created by Marco Salsiccia.
 
 Choose Trim a Clip on the welcome screen to edit a single file, New Project to arrange media, or Open Project to continue saved work.
 
-In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open Captioner, Describer, Voicer, or Mixer as needed. Choose Settings to configure recording devices, playback, timecode, and storage preferences. Apply Bleach Bypass or Technicolor video filters and adjust their strength. Choose Numeric, Time units, or Frames for timeline timecodes. Show milliseconds controls fractional seconds in displayed and spoken times. When stopped speaks playhead time while paused and after adjustments settle. On Demand keeps timeline playhead time silent until you press T. Numeric timecodes include minutes and seconds, adding hours when needed.
+In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open Captioner, Describer, Voicer, or Mixer as needed. Choose Settings to configure recording devices, playback, timecode feedback and style, optional waveforms, and storage preferences.
 
 For editing instructions and keyboard shortcuts, open the Trimato Manual from the app's Help menu. Help buttons open the topic for the current tool or Settings page.
 

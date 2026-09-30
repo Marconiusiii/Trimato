@@ -61,6 +61,13 @@ nonisolated enum ClipFilterRenderer {
             frameRate: report.frameRate ?? 30, hasAlpha: report.hasAlpha)
         let output = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
         let sampleRate = Int(report.audioStream?.sampleRate ?? "") ?? 48_000
+        var plateResponse: URL?
+        defer { if let plateResponse { try? FileManager.default.removeItem(at: plateResponse) } }
+        if let plate = active.first(where: { $0.kind == .plateReverb && $0.value("amount") > 0 }) {
+            let response = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
+            plateResponse = response
+            try PlateReverb.writeResponse(filter: plate, sampleRate: sampleRate, to: response)
+        }
         var effects: [String] = []
         for filter in active {
             if filter.kind == .matchLoudness {
@@ -73,14 +80,15 @@ nonisolated enum ClipFilterRenderer {
         if audio, let settings = audioSettings, let gain = FFmpegTimelineEffectRenderer.audioFilter(for: settings) {
             graphText = [graphText, gain].filter { !$0.isEmpty }.joined(separator: ",")
         }
-        // Echo and room decay stay inside the existing clip duration in both
+        // Echo and reverb decay stay inside the existing clip duration in both
         // preview and project rendering; they never shift later clips.
-        if audio, active.contains(where: { $0.kind == .reverb || $0.kind == .echo }) {
+        if audio, active.contains(where: { $0.kind == .reverb || $0.kind == .plateReverb || $0.kind == .echo }) {
             graphText += ",atrim=duration=\(report.duration)"
         }
         var arguments = ["-hide_banner", "-nostdin", "-y"]
         if report.hasAlpha, report.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
         arguments += ["-i", source.path]
+        if let plateResponse { arguments += ["-i", plateResponse.path] }
         if let segments {
             let prefix = audio ? "a" : "v"
             let trim = audio ? "atrim" : "trim"
@@ -92,6 +100,8 @@ nonisolated enum ClipFilterRenderer {
             let effects = graphText.isEmpty ? (audio ? "anull" : "null") : graphText
             chains.append("\(inputs)concat=n=\(segments.count):v=\(audio ? 0 : 1):a=\(audio ? 1 : 0),\(effects)[out]")
             arguments += ["-filter_complex", chains.joined(separator: ";"), "-map", "[out]"]
+        } else if audio, plateResponse != nil {
+            arguments += ["-filter_complex", "[0:a:0]\(graphText)[out]", "-map", "[out]"]
         } else if !audio, report.hasAlpha, !active.isEmpty {
             // Color filters may negotiate a format without alpha. Keep the original mask
             // on a separate branch, applying the same geometry before joining it again.

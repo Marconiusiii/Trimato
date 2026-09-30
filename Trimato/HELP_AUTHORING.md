@@ -19,6 +19,9 @@ Each Help topic is a separate HTML file. Open the file whose name matches the to
 - `saving-and-exporting.html`: Saving, project export, clip export, and progress.
 - `keyboard-shortcuts.html`: Shortcut tables.
 - `voiceover.html`: VoiceOver workflow.
+- `filters.html`: Video and audio effects, including Plate Reverb controls.
+- `mixer.html`: The separate Mixer window, live adjustments, and looping.
+- `settings-accessibility.html`: Timecode feedback, style, and milliseconds.
 - `troubleshooting.html`: Recovery steps and problem reports.
 - `trimato-help.css`: Shared appearance.
 
@@ -42,9 +45,11 @@ Each Help topic is a separate HTML file. Open the file whose name matches the to
 4. Add related-topic links where useful.
 5. Rebuild the Help index.
 
-## Rebuild the Help index
+## Build and validate Help
 
-From the repository root, run:
+The Xcode build runs `build-help.py` to validate local links and contextual destinations, generate a versioned Help bundle, and validate its search index. The bundled pages must match the current source.
+
+To refresh the source Help index as well, run from the repository root:
 
 ```sh
 ./Trimato/build-help-index.sh

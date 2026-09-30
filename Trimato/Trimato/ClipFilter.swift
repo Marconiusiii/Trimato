@@ -10,9 +10,9 @@ nonisolated struct FilterParameter: Identifiable, Sendable {
 
 nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case brightnessContrast, colorAdjustment, blackAndWhite, bleachBypass, technicolor, sharpen, videoNoise, cropOrientation
-    case tone, backgroundNoise, evenVolume, matchLoudness, reverb, echo, softenS, limitPeaks
+    case tone, backgroundNoise, evenVolume, matchLoudness, reverb, plateReverb, echo, softenS, limitPeaks
     var id: Self { self }
-    var isAudio: Bool { [.tone, .backgroundNoise, .evenVolume, .matchLoudness, .reverb, .echo, .softenS, .limitPeaks].contains(self) }
+    var isAudio: Bool { [.tone, .backgroundNoise, .evenVolume, .matchLoudness, .reverb, .plateReverb, .echo, .softenS, .limitPeaks].contains(self) }
     var title: String {
         switch self {
         case .brightnessContrast: "Brightness and Contrast"
@@ -28,6 +28,7 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .evenVolume: "Even Out Volume"
         case .matchLoudness: "Match Loudness"
         case .reverb: "Reverb"
+        case .plateReverb: "Plate Reverb"
         case .echo: "Echo"
         case .softenS: "Soften harsh S sounds"
         case .limitPeaks: "Limit loud peaks"
@@ -47,6 +48,7 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .backgroundNoise: "Reduce steady background noise. Strong reduction can affect speech."
         case .evenVolume: "Compress louder passages and limit peaks to reduce changes in volume."
         case .matchLoudness: "Adjust the retained edit toward a target perceived loudness, measured in LUFS."
+        case .plateReverb: "Add a smooth, bright reverberation. The effect ends at the clip’s Out point."
         case .reverb: "Add the sound of a room. The effect ends at the clip’s Out point."
         case .echo: "Add a delayed repeat. The effect ends at the clip’s Out point."
         case .softenS: "Reduce sharp S and sh sounds in speech."
@@ -67,6 +69,7 @@ nonisolated enum ClipFilterKind: String, Codable, CaseIterable, Identifiable, Se
         case .videoNoise: [p("amount", "Noise Reduction", 1...10, 2)]
         case .cropOrientation: [p("left", "Crop Left in Pixels", 0...8190, 0, 1), p("right", "Crop Right in Pixels", 0...8190, 0, 1), p("top", "Crop Top in Pixels", 0...8190, 0, 1), p("bottom", "Crop Bottom in Pixels", 0...8190, 0, 1)]
         case .tone: [p("low", "Bass", -12...12, 0, 1), p("mid", "Midrange", -12...12, 0, 1), p("high", "Treble", -12...12, 0, 1), p("highpass", "Rumble cutoff", 20...2000, 80, 1), p("lowpass", "Hiss cutoff", 1000...20000, 16000, 1)]
+        case .plateReverb: [p("amount", "Amount", 0...100, 25, 1), p("length", "Reverb length in seconds", 0.2...6, 1.8, 0.1), p("brightness", "Brightness", 0...100, 50, 1)]
         case .reverb: [p("amount", "Amount", 0...100, 25, 1), p("room", "Room", 0...2, 1, 1)]
         case .echo: [p("delay", "Delay", 50...1000, 250, 10), p("amount", "Strength", 0...80, 30, 1)]
         case .softenS: [p("amount", "Amount", 0...100, 50, 1)]
@@ -118,6 +121,7 @@ nonisolated struct ClipFilter: Codable, Hashable, Identifiable, Sendable {
         case .evenVolume: "acompressor=threshold=\(pow(10, value("threshold") / 20)):ratio=\(value("ratio")):attack=20:release=250,alimiter=limit=0.891251:level=false"
         case .matchLoudness: "loudnorm=I=\(value("target")):TP=\(value("peak")):LRA=11"
         case .reverb: reverbGraph(sampleRate: sampleRate)
+        case .plateReverb: PlateReverb.graph(filter: self)
         case .echo: value("amount") == 0 ? "anull" : "aecho=1:1:\(value("delay")):\(value("amount") / 100)"
         case .softenS: "deesser=i=\(value("amount") / 100):m=0.8:f=0.5"
         case .limitPeaks: "aresample=\(max(sampleRate, 192_000)),alimiter=limit=\(pow(10, value("ceiling") / 20)):level=false:latency=true,aresample=\(sampleRate)"
