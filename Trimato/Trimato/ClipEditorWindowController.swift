@@ -75,7 +75,7 @@ final class ClipEditorCommandRouter: ObservableObject {
         if command == .update { return context.canUpdate }
         guard context.canPlace else { return false }
         if command == .insertOnTopWithAudio || command == .insertOnTopOverAudio {
-            return context.controller.asset(for: context.editSelection)?.hasVideo == true
+            return context.editsVideo
         }
         return true
     }
@@ -112,6 +112,14 @@ final class ClipEditorCommandRouter: ObservableObject {
 final class ClipPlacementCommandContext: ObservableObject {
     let controller: ProjectController
     let editSelection: EditorSelection
+    var editsVideo: Bool {
+        if case .timelineClip(let id) = editSelection,
+           let track = controller.project.tracks.first(where: { $0.clips.contains { $0.id == id } }) {
+            return track.kind == .video
+        }
+        return controller.asset(for: editSelection)?.hasVideo == true
+    }
+
     @Published private(set) var segments: [SourceSegment]
     @Published private(set) var isKeyWindow = false
     weak var hostWindow: NSWindow?
@@ -286,7 +294,11 @@ final class ClipPlacementCommandContext: ObservableObject {
         }
         do {
             let placedID: UUID
-            if let trackID {
+            let destination = trackID ?? (!editsVideo ? controller.project.tracks.first(where: { track in
+                guard case .timelineClip(let id) = editSelection else { return false }
+                return track.kind == .audio && track.clips.contains { $0.id == id }
+            })?.id : nil)
+            if let trackID = destination {
                 placedID = try controller.placeThrowing(
                     placement,
                     editing: editSelection,
@@ -311,7 +323,7 @@ final class ClipPlacementCommandContext: ObservableObject {
 
     func requestTrackPlacement(_ placement: PlacementAction) {
         guard canPlace else { return }
-        trackPlacementIsAudioOnly = false
+        trackPlacementIsAudioOnly = !editsVideo
         trackPlacementAction = placement
     }
 
@@ -531,7 +543,7 @@ final class ClipEditorWindowCoordinator: ObservableObject {
             initialSegments: segments,
             commandContext: commandContext
         )
-        let editorName = ClipEditorMediaKind.name(hasVideo: asset.hasVideo)
+        let editorName = ClipEditorMediaKind.name(hasVideo: commandContext.editsVideo)
         let windowController = ClipEditorWindowController(
             title: "\(asset.name) (\(editorName))",
             rootView: rootView,

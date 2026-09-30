@@ -59,7 +59,7 @@ struct SourceClipEditorView: View {
             } else {
                 ContentView(
                     viewModel: viewModel,
-                    editorHeading: ClipEditorMediaKind.name(hasVideo: currentAsset.hasVideo),
+                    editorHeading: ClipEditorMediaKind.name(hasVideo: commandContext.editsVideo),
                     compact: true,
                     isPreparingSource: preparingSource || preparationHandoffPending,
                     isPreparingClipPreview: !entryPlaybackReady && !previewNeedsRecovery,
@@ -214,14 +214,6 @@ struct SourceClipEditorView: View {
             guard loadedAssetID == currentAsset.id, !preparingSource else { return }
             commandContext.setSegments(segments)
         }
-        .onChange(of: viewModel.isLoadingMedia) { _, loading in
-            if !loading { scheduleAudioPreview(for: commandContext.audioSettings, debounce: false) }
-        }
-        .onChange(of: viewModel.hasMedia) {
-            guard viewModel.hasMedia else { return }
-            viewModel.preparePlayback = { ensureLatestPlayback() }
-            scheduleAudioPreview(for: commandContext.audioSettings, debounce: false)
-        }
         .onChange(of: commandContext.filters) {
             scheduleAudioPreview(for: commandContext.audioSettings,
                                  userInitiated: commandContext.hasUncommittedChanges)
@@ -243,7 +235,7 @@ struct SourceClipEditorView: View {
                     audioOnly: audioOnly,
                     tracks: compatibleTracks(audioOnly: audioOnly),
                     canCreateAudioTrack: currentAsset.hasAudio,
-                    canCreateVideoTrack: currentAsset.hasVideo && !audioOnly,
+                    canCreateVideoTrack: commandContext.editsVideo && !audioOnly,
                     addToTrack: { trackID in
                         guard commandContext.place(action, onTrack: trackID) != nil else { return }
                         commandContext.dismissTrackPlacement()
@@ -260,7 +252,7 @@ struct SourceClipEditorView: View {
                 kind: kind,
                 suggestedTrackName: kind.suggestedTrackName(
                     sourceName: currentAsset.name,
-                    sourceHasVideo: currentAsset.hasVideo
+                    sourceHasVideo: commandContext.editsVideo
                 ),
                 presentedError: $commandContext.presentedError,
                 create: { name in
@@ -327,14 +319,14 @@ struct SourceClipEditorView: View {
                     .disabled(!commandContext.canPlace)
                 Button(PlacementAction.replaceRemainder.title) { place(.replaceRemainder) }
                     .disabled(!commandContext.canPlace)
-                if currentAsset.hasVideo {
+                if commandContext.editsVideo {
                     Menu("Insert on Top") {
                         Button("With Source Audio") { place(.cutawaySourceAudio) }
                         Button("Over Primary Audio") { place(.cutawayPrimaryAudio) }
                     }
                     .disabled(!commandContext.canPlace)
                 }
-                if currentAsset.hasVideo && currentAsset.hasAudio {
+                if commandContext.editsVideo && currentAsset.hasAudio {
                     Menu("Audio Only") {
                         Button("Append Audio to Track…") {
                             commandContext.requestAudioOnlyTrackPlacement(.append)
@@ -350,7 +342,7 @@ struct SourceClipEditorView: View {
                 }
                 Menu("New Track") {
                     ForEach(NewTrackSourceKind.availableKinds(
-                        hasVideo: currentAsset.hasVideo,
+                        hasVideo: commandContext.editsVideo,
                         hasAudio: currentAsset.hasAudio
                     )) { kind in
                         Button(kind.commandTitle) { newTrackKind = kind }
@@ -427,7 +419,13 @@ struct SourceClipEditorView: View {
                     sourceSegments: opening.playbackSegments,
                     preparedSource: source,
                     initialInMarker: opening.inMarker,
-                    initialOutMarker: opening.outMarker
+                    initialOutMarker: opening.outMarker,
+                    audioOnly: !commandContext.editsVideo,
+                    loaded: {
+                        guard preparationID == requestID else { return }
+                        viewModel.preparePlayback = { ensureLatestPlayback() }
+                        scheduleAudioPreview(for: commandContext.audioSettings, debounce: false)
+                    }
                 )
             } catch is CancellationError {
                 guard preparationID == requestID else { return }
@@ -498,7 +496,7 @@ struct SourceClipEditorView: View {
     private func compatibleTracks(audioOnly: Bool) -> [TimelineTrack] {
         controller.project.orderedTimelineTracks.filter { track in
             if audioOnly { return track.kind == .audio && currentAsset.hasAudio }
-            return (track.kind == .video && currentAsset.hasVideo) || (track.kind == .audio && currentAsset.hasAudio)
+            return (track.kind == .video && commandContext.editsVideo) || (track.kind == .audio && currentAsset.hasAudio)
         }
     }
 

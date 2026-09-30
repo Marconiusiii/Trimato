@@ -19,8 +19,8 @@ struct MediaSource {
 
     let originalURL: URL
     let playbackURL: URL
-    let originalAsset: AVURLAsset
-    let playbackAsset: AVURLAsset
+    let originalAsset: AVAsset
+    let playbackAsset: AVAsset
     let contentType: UTType?
     let mode: Mode
     let frameTimestamps: [CMTime]
@@ -28,6 +28,17 @@ struct MediaSource {
     let hasAudio: Bool
 
     var usesProxy: Bool { mode == .proxyPlaybackMP4Export }
+
+    /// Select the audio media without changing the source URL or source-time ranges.
+    func audioEditingSource() async throws -> MediaSource {
+        guard hasVideo else { return self }
+        let duration = try await originalAsset.load(.duration)
+        let ranges = [CMTimeRange(start: .zero, duration: duration)]
+        let audio = try await EditedCompositionBuilder.audioAsset(asset: originalAsset, sourceRanges: ranges)
+        return MediaSource(originalURL: originalURL, playbackURL: originalURL,
+            originalAsset: originalAsset, playbackAsset: audio, contentType: contentType,
+            mode: .nativePlaybackMP4Export, frameTimestamps: [], hasVideo: false, hasAudio: hasAudio)
+    }
 
     static func native(
         url: URL,

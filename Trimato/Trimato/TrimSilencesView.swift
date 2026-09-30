@@ -122,7 +122,7 @@ struct TrimSilencesView: View {
                     selection: selection, settings: settings,
                     frameRate: viewModel.silenceTrimFrameRate)
                 try Task.checkCancellation()
-                let preview = try await EditedCompositionBuilder.playbackAsset(asset: asset, sourceRanges: result.sourceRanges)
+                let preview = try await EditedCompositionBuilder.playbackAsset(asset: asset, sourceRanges: result.sourceRanges, includeVideo: viewModel.hasVideo)
                 try Task.checkCancellation()
                 baseline = timeline; plan = result; previewAsset = preview
                 let item = AVPlayerItem(asset: preview)

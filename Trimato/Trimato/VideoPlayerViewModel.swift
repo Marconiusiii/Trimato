@@ -386,7 +386,9 @@ final class VideoPlayerViewModel: ObservableObject {
         sourceSegments: [SourceSegment]? = nil,
         preparedSource: MediaSource? = nil,
         initialInMarker: ProjectTime? = nil,
-        initialOutMarker: ProjectTime? = nil
+        initialOutMarker: ProjectTime? = nil,
+        audioOnly: Bool = false,
+        loaded: (@MainActor () -> Void)? = nil
     ) {
         sourceFilename = url.lastPathComponent
         loadID = nil
@@ -439,13 +441,14 @@ final class VideoPlayerViewModel: ObservableObject {
         loadTask = Task { @MainActor in
             var preparedProxyURL: URL?
             do {
-                let source: MediaSource
+                var source: MediaSource
                 if let preparedSource {
                     source = preparedSource
                 } else {
                     source = try await self.prepareMediaSource(url: url)
                 }
                 preparedProxyURL = preparedSource == nil && source.usesProxy ? source.playbackURL : nil
+                if audioOnly { source = try await source.audioEditingSource() }
                 try Task.checkCancellation()
                 guard self.loadID == operationID else {
                     throw CancellationError()
@@ -492,14 +495,16 @@ final class VideoPlayerViewModel: ObservableObject {
                     ? ClipEditTimeline(sourceDuration: loadedDuration)
                     : ClipEditTimeline(sourceRanges: requestedRanges)
                 let playbackAsset: AVAsset
-                if requestedRanges.isEmpty {
+                if requestedRanges.isEmpty && source.hasVideo {
                     playbackAsset = editingAsset
                 } else {
                     playbackAsset = try await EditedCompositionBuilder.playbackAsset(
                         asset: editingAsset,
-                        sourceRanges: timeline.sourceRanges
+                        sourceRanges: timeline.sourceRanges, includeVideo: source.hasVideo
                     )
                 }
+                try Task.checkCancellation()
+                guard self.loadID == operationID else { throw CancellationError() }
                 self.basePlaybackAsset = playbackAsset
                 self.player.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
                 self.mediaDuration = timeline.duration
@@ -524,6 +529,9 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.isLoadingMedia = false
                 self.loadID = nil
                 self.loadTask = nil
+                // Complete preparation from the load operation itself, even when
+                // SwiftUI coalesces its intermediate loading-state updates.
+                loaded?()
             } catch is CancellationError {
                 ProxyMediaManager.removeProxy(at: preparedProxyURL)
                 guard self.loadID == operationID else { return }
@@ -1334,7 +1342,7 @@ final class VideoPlayerViewModel: ObservableObject {
             do {
                 let composition = try await EditedCompositionBuilder.playbackAsset(
                     asset: self.hasSpatialAudio ? mediaSource.originalAsset : mediaSource.playbackAsset,
-                    sourceRanges: updatedTimeline.sourceRanges
+                    sourceRanges: updatedTimeline.sourceRanges, includeVideo: mediaSource.hasVideo
                 )
                 try Task.checkCancellation()
                 guard self.editID == operationID else { return }
