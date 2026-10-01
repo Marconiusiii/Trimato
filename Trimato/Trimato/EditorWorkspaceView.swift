@@ -11,11 +11,6 @@ struct EditorWorkspaceView: View {
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var captionEditorWindows: CaptionEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
-    @State private var restoresEditorFocusAfterTransitionSheet = false
-    @State private var timelineFocusAfterTransitionSheet: TimelineElementSelection?
-    @State private var pendingTransitions: [TimelineTransition]?
-    @State private var transitionTask: Task<Void, Never>?
-    @State private var transitionOutcome = OperationProgressOutcome.completed
     @State private var hasHandledInitialPreparation = false
     @State private var initialImportFocusRequest = 0
     @State private var pendingPreviewRecovery: PreviewRecovery?
@@ -153,15 +148,6 @@ struct EditorWorkspaceView: View {
             }) {
                 ProjectCloseConfirmation(coordinator: projectWindowSaveCoordinator)
             }
-            .onChange(of: controller.generatorRequestID) { _, id in
-                if let id {
-                    GeneratorWindowRegistry.shared.present(
-                        id: id,
-                        parentWindow: projectWindowSaveCoordinator.attachedWindow
-                    )
-                    controller.generatorRequestID = nil
-                }
-            }
             .onChange(of: controller.isShowingProjectSettings) { _, isShowing in
                 if !isShowing { controller.requestEditorFocusRestore() }
             }
@@ -192,14 +178,6 @@ struct EditorWorkspaceView: View {
                     primaryTitle: "Save Project Settings",
                     cancel: controller.dismissProjectSettings
                 )
-            }
-            .sheet(isPresented: Binding(
-                get: { controller.transitionRequest != nil },
-                set: { if !$0 { dismissTransitionSheet() } }
-            ), onDismiss: transitionSheetDismissed) {
-                if let request = controller.transitionRequest {
-                    transitionSheet(for: request)
-                }
             }
             .sheet(item: Binding(get: { controller.mediaFiles.prompt }, set: { _ in controller.mediaFiles.dismissPrompt() }), onDismiss: controller.mediaFiles.promptDismissed) { kind in
                 ProjectMediaFilesPrompt(model: controller.mediaFiles, kind: kind)
@@ -276,11 +254,7 @@ struct EditorWorkspaceView: View {
                 waitsForReturnWindow: true,
                 dismissed: restoreImportFocus
             )
-            .operationProgress(transitionOperation, outcome: transitionOutcome,
-                               completionPending: transitionTask != nil,
-                               returnWindow: projectWindowSaveCoordinator.attachedWindow,
-                               waitsForReturnWindow: true,
-                               dismissed: restoreTransitionFocus)
+
     }
 
     private func requestProjectPreparation() {
@@ -339,12 +313,6 @@ struct EditorWorkspaceView: View {
         initialImportFocusRequest += 1
     }
 
-    private var transitionOperation: OperationProgress? {
-        guard let name = controller.applyingTransitionName else { return nil }
-        return OperationProgress(title: "Applying \(name)", progress: controller.applyingTransitionProgress,
-                                 cancel: { transitionTask?.cancel() })
-    }
-
     private var editor: some View {
         HSplitView {
             MacEditorPane("Project") {
@@ -396,6 +364,19 @@ struct EditorWorkspaceView: View {
     @ViewBuilder
     private func toolContent(_ tool: WorkspaceTool) -> some View {
         switch tool {
+        case .transitions, .quickFade, .quickCrossDissolve, .quickCrossFade, .transitionEditor:
+            if let session = controller.transitionToolSession {
+                TransitionToolView(controller: controller, session: session,
+                    focusRevision: controller.toolFocusRevision,
+                    returnWindow: projectWindowSaveCoordinator.attachedWindow)
+                    .id(session.id)
+            }
+        case .generator:
+            if let session = controller.generatorSession {
+                GeneratorView(session: session, focusRevision: controller.toolFocusRevision,
+                    close: controller.requestCloseToolPane, finished: controller.dismissGenerator)
+                    .id(session.id)
+            }
         case .caption:
             if let session = captionEditorWindows.activeSession {
                 CaptionEditorView(session: session, focusRevision: controller.toolFocusRevision,
@@ -410,108 +391,7 @@ struct EditorWorkspaceView: View {
         }
     }
 
-    @ViewBuilder
-    private func transitionSheet(for request: TransitionRequest) -> some View {
-        if request.mode == .standard {
-            AddTransitionView(
-                project: controller.project,
-                request: request,
-                add: addTransitions,
-                cancel: dismissStandardTransition
-            )
-        } else {
-            QuickTransitionView(
-                project: controller.project,
-                request: request,
-                add: addTransitions,
-                finished: dismissQuickTransition
-            )
-        }
-    }
 
-    private var transitionPanelTitle: String {
-        guard let request = controller.transitionRequest else { return "Transition" }
-        if request.mode == .standard { return "Add Transition" }
-        if request.mode == .quickFade { return "Quick Fade" }
-        let track = controller.project.track(id: request.trackID)
-        return track?.kind == .audio ? "Quick Cross Fade" : "Quick Cross Dissolve"
-    }
-
-    private var transitionPrimaryTitle: String {
-        guard let request = controller.transitionRequest else { return "Apply" }
-        if request.mode == .standard { return "Add" }
-        if request.mode == .quickFade { return "Apply Fade" }
-        let track = controller.project.track(id: request.trackID)
-        return track?.kind == .audio ? "Apply Cross Fade" : "Apply Cross Dissolve"
-    }
-
-    private func addTransitions(_ transitions: [TimelineTransition]) {
-        pendingTransitions = transitions
-        dismissTransitionSheet()
-    }
-
-    private func dismissStandardTransition() {
-        dismissTransitionSheet()
-    }
-
-    private func dismissQuickTransition() {
-        dismissTransitionSheet()
-    }
-
-    private func dismissTransitionSheet() {
-        restoresEditorFocusAfterTransitionSheet = controller.transitionRequestReturnsToEditor
-        if !controller.transitionRequestReturnsToEditor {
-            switch controller.selection {
-            case .transition(let id):
-                timelineFocusAfterTransitionSheet = .transition(id)
-            case .timelineClip(let id):
-                timelineFocusAfterTransitionSheet = .clip(id)
-            default:
-                if let clipID = controller.transitionRequest?.clipID {
-                    timelineFocusAfterTransitionSheet = .clip(clipID)
-                }
-            }
-        }
-        controller.transitionRequest = nil
-    }
-
-    private func transitionSheetDismissed() {
-        guard let transitions = pendingTransitions else { restoreTransitionFocus(); return }
-        pendingTransitions = nil
-        let returnsToEditor = restoresEditorFocusAfterTransitionSheet
-        transitionOutcome = .completed
-        transitionTask = Task { @MainActor in
-            do {
-                try await controller.applyTransitions(transitions, selectAddedTransition: !returnsToEditor)
-                if !returnsToEditor, case .transition(let id) = controller.selection {
-                    timelineFocusAfterTransitionSheet = .transition(id)
-                }
-            } catch is CancellationError {
-                transitionOutcome = .cancelled
-            } catch {
-                transitionOutcome = .failed
-                controller.presentedError = ProjectPresentedError(title: "Transition Could Not Be Applied",
-                                                                 message: error.localizedDescription)
-            }
-            transitionTask = nil
-        }
-    }
-
-    private func restoreTransitionFocus() {
-        guard transitionTask == nil else { return }
-        if controller.presentedError != nil {
-            restoresEditorFocusAfterTransitionSheet = false
-            timelineFocusAfterTransitionSheet = nil
-            return
-        }
-        if restoresEditorFocusAfterTransitionSheet {
-            restoresEditorFocusAfterTransitionSheet = false
-            controller.requestEditorFocusRestoreIfNeeded()
-        } else if let target = timelineFocusAfterTransitionSheet {
-            timelineFocusAfterTransitionSheet = nil
-            controller.requestTimelineFocusRestore(to: target)
-        }
-    }
 }
 
 struct ProjectViewerView: View {

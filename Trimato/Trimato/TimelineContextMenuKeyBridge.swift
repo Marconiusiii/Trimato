@@ -329,6 +329,15 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
             let row = TimelineRowAnchorView.row(at: event.locationInWindow, in: content)
             switch event.type {
             case .leftMouseDown:
+                let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+                if (modifiers == .command || modifiers == .shift || modifiers == [.command, .shift]),
+                   row?.element != nil,
+                   let collection = row?.enclosingScrollView?.documentView as? NSCollectionView {
+                    // Let AppKit perform its normal extended-selection gesture.
+                    clearMousePress()
+                    collection.mouseDown(with: event)
+                    return nil
+                }
                 // Preserve control-click and the native context menu.
                 guard event.modifierFlags.intersection([.command, .option, .control, .shift]) != .control,
                       let target = row?.element, case .clip = target else { return event }
@@ -415,6 +424,8 @@ struct TimelineCollectionActions {
     let movePlayheadToCaption: (UUID) -> Void
     let delete: (TimelineElementSelection) -> Void
     let deleteMedia: (UUID) -> Void
+    var selectionChanged: (Set<UUID>) -> Void = { _ in }
+    var deleteClips: (Set<UUID>) -> Void = { _ in }
 }
 
 struct TimelineClipsCollection: NSViewRepresentable {
@@ -427,6 +438,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
     let movingClipID: UUID?
     let actions: TimelineCollectionActions
     let nativeFocus: TimelineNativeFocus
+    var selectedClipIDs: Set<UUID> = []
+    var selectionScopeID: UUID? = nil
     var keyboardFocusArrived: (TimelineElementSelection?, Int, Int) -> Void = { _, _, _ in }
     var isFocusRequestCurrent: () -> Bool = { true }
 
@@ -443,7 +456,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
         let collection = TimelineCollectionView()
         collection.collectionViewLayout = layout
         collection.isSelectable = true
-        collection.allowsMultipleSelection = false
+        collection.allowsMultipleSelection = true
+        collection.allowsEmptySelection = true
         collection.backgroundColors = [.clear]
         collection.register(TimelineCollectionItem.self,
                             forItemWithIdentifier: TimelineCollectionItem.identifier)
@@ -475,6 +489,10 @@ struct TimelineClipsCollection: NSViewRepresentable {
         weak var scrollView: NSScrollView?
         var models: [TimelineCollectionItemModel] = []
         var actions: TimelineCollectionActions?
+        private var applyingModelSelection = false
+        private var previousSelectedClipIDs: Set<UUID> = []
+        private var selectionScopeID: UUID?
+        private var selectionRevision = 0
         var previousFocusRequest = -1
         var previousListFocusRequest = -1
         var pendingFocusTarget: TimelineElementSelection?
@@ -505,6 +523,9 @@ struct TimelineClipsCollection: NSViewRepresentable {
 
         func update(from source: TimelineClipsCollection) {
             actions = source.actions
+            let scopeChanged = selectionScopeID != source.selectionScopeID
+            if scopeChanged { selectionRevision += 1 }
+            selectionScopeID = source.selectionScopeID
             nativeFocus = source.nativeFocus
             keyboardFocusArrived = source.keyboardFocusArrived
             isFocusRequestCurrent = source.isFocusRequestCurrent
@@ -516,7 +537,9 @@ struct TimelineClipsCollection: NSViewRepresentable {
             emptyTitle = source.emptyTitle
             collectionView?.setAccessibilityLabel(source.accessibilityLabel)
             let structureChanged = models.map(\.selection) != source.items.map(\.selection)
+            if structureChanged { selectionRevision += 1 }
             models = source.items
+            applyingModelSelection = true
             if structureChanged {
                 TimelineFocusDiagnostics.record("collection-reload items=\(models.map(\.selection)) \(TimelineFocusDiagnostics.windowState(collectionView?.window))")
                 collectionView?.reloadData()
@@ -528,6 +551,15 @@ struct TimelineClipsCollection: NSViewRepresentable {
                     configure(timelineItem, with: models[indexPath.item])
                 }
             }
+            if structureChanged || scopeChanged || previousSelectedClipIDs != source.selectedClipIDs {
+                let paths = Set(models.enumerated().compactMap { index, model -> IndexPath? in
+                    guard case .clip(let id) = model.selection, source.selectedClipIDs.contains(id) else { return nil }
+                    return IndexPath(item: index, section: 0)
+                })
+                collectionView?.selectionIndexPaths = paths
+                previousSelectedClipIDs = source.selectedClipIDs
+            }
+            applyingModelSelection = false
             if previousFocusRequest != source.focusRequest, source.focusRequest > 0 {
                 previousFocusRequest = source.focusRequest
                 TimelineFocusDiagnostics.record("item-request revision=\(source.focusRequest) target=\(String(describing: source.focusTarget)) listRevision=\(source.listFocusRequest)")
@@ -585,10 +617,36 @@ struct TimelineClipsCollection: NSViewRepresentable {
             return item
         }
 
-        func collectionView(_ collectionView: NSCollectionView,
-                            didSelectItemsAt indexPaths: Set<IndexPath>) {
-            guard let index = indexPaths.first?.item, models.indices.contains(index) else { return }
-            actions?.focus(models[index].selection)
+        func collectionView(_ collectionView: NSCollectionView, shouldSelectItemsAt indexPaths: Set<IndexPath>) -> Set<IndexPath> {
+            indexPaths.filter { models.indices.contains($0.item) }
+        }
+
+        func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
+            publishSelection(focused: indexPaths.sorted().last)
+        }
+
+        func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
+            publishSelection(focused: nil)
+        }
+
+        private func publishSelection(focused: IndexPath?) {
+            guard !applyingModelSelection else { return }
+            selectionRevision += 1
+            let revision = selectionRevision
+            let scope = selectionScopeID
+            let focusedSelection = focused.flatMap { models.indices.contains($0.item) ? models[$0.item].selection : nil }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.selectionRevision == revision, self.selectionScopeID == scope,
+                      let collection = self.collectionView else { return }
+                let selected = Set(collection.selectionIndexPaths.compactMap { path -> UUID? in
+                    guard self.models.indices.contains(path.item), case .clip(let id) = self.models[path.item].selection else { return nil }
+                    return id
+                })
+                self.actions?.selectionChanged(selected)
+                if let focusedSelection, self.models.contains(where: { $0.selection == focusedSelection }) {
+                    self.actions?.focus(focusedSelection)
+                }
+            }
         }
 
         func collectionView(
@@ -624,9 +682,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
                   window.attachedSheet == nil, NSApp.modalWindow == nil,
                   let index = models.firstIndex(where: { $0.selection == target }) else { return }
             let path = IndexPath(item: index, section: 0)
-            // Explicit restoration replaces the old selection; selectItems adds
-            // to it even though the collection allows only single user selection.
-            collectionView.selectionIndexPaths = [path]
+            // Selection is reconciled from stable clip IDs in update. Returning
+            // focus to a row must not replace a group or select an excluded clip.
             collectionView.scrollToItems(at: [path], scrollPosition: .centeredHorizontally)
             // A missing offscreen item receives focus in willDisplay. Never force
             // nested layout from selection while SwiftUI may be rendering the host.
@@ -638,8 +695,44 @@ struct TimelineClipsCollection: NSViewRepresentable {
             }
         }
 
+        private func setSelectedClips(_ ids: Set<UUID>) {
+            guard let collectionView else { return }
+            collectionView.selectionIndexPaths = Set(models.enumerated().compactMap { index, model in
+                guard case .clip(let id) = model.selection, ids.contains(id) else { return nil }
+                return IndexPath(item: index, section: 0)
+            })
+            publishSelection(focused: nil)
+        }
+
         private func makeMenu(for selection: TimelineElementSelection) -> NSMenu {
             let menu = NSMenu()
+            let selected = Set((collectionView?.selectionIndexPaths ?? []).compactMap { path -> UUID? in
+                guard models.indices.contains(path.item), case .clip(let id) = models[path.item].selection else { return nil }
+                return id
+            })
+            if case .clip(let id) = selection {
+                add(selected.contains(id) ? "Remove Clip from Selection" : "Add Clip to Selection", to: menu) { [weak self] in
+                    var updated = selected
+                    if !updated.insert(id).inserted { updated.remove(id) }
+                    self?.setSelectedClips(updated)
+                }
+                add("Select All Clips on Track", to: menu) { [weak self] in
+                    guard let self else { return }
+                    self.setSelectedClips(Set(self.models.compactMap {
+                        if case .clip(let id) = $0.selection { return id }; return nil
+                    }))
+                }
+                if !selected.isEmpty {
+                    add("Clear Clip Selection", to: menu) { [weak self] in self?.setSelectedClips([]) }
+                }
+                menu.addItem(.separator())
+            }
+            if case .clip(let id) = selection, selected.contains(id), selected.count > 1 {
+                add("Remove \(selected.count) Clips from Timeline…", to: menu) { [weak self] in
+                    self?.actions?.deleteClips(selected)
+                }
+                return menu
+            }
             switch selection {
             case .clip(let id):
                 add("Open Cutting Board", to: menu) { [weak self] in self?.actions?.activate(selection) }
@@ -816,10 +909,10 @@ struct TimelineNativeButton: View {
             .accessibilityFocused($voiceOverFocused)
             .focused($keyboardFocused)
             .contextMenu { TimelineNativeMenu(items: menu(model.selection).items) }
-            .onChange(of: voiceOverFocused) { _, focused in
+            .onChange(of: voiceOverFocused, initial: true) { _, focused in
                 nativeFocus?.record(model.selection, owner: owner, focused: focused, voiceOver: true)
             }
-            .onChange(of: keyboardFocused) { _, focused in
+            .onChange(of: keyboardFocused, initial: true) { _, focused in
                 nativeFocus?.record(model.selection, owner: owner, focused: focused, voiceOver: false)
                 if focused, !NSWorkspace.shared.isVoiceOverEnabled { keyboardFocus(model.selection) }
             }
@@ -922,6 +1015,11 @@ final class TimelineCollectionButton: NSHostingView<AnyView> {
             keyboardFocus: { _ in }, menu: { _ in NSMenu() }).id(owner))
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let selection else { return nil }
+        return menuProvider?(selection)
+    }
+
     func restoreFocus(isCurrent: @escaping () -> Bool = { true }) {
         TimelineFocusDiagnostics.record("host-restore target=\(String(describing: selection)) owner=\(owner) attached=\(superview != nil) \(TimelineFocusDiagnostics.windowState(window))")
         focusRequest.request(isCurrent: isCurrent)
@@ -951,6 +1049,13 @@ private final class TimelineCollectionView: NSCollectionView {
 
     var contextMenuProvider: ((TimelineElementSelection?) -> NSMenu?)?
     var nativeFocus: TimelineNativeFocus?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let path = indexPathForItem(at: point), let item = item(at: path) as? TimelineCollectionItem,
+              let target = item.button.selection else { return nil }
+        return contextMenuProvider?(target)
+    }
 
     override func keyDown(with event: NSEvent) {
         guard NativeContextMenuShortcut.matches(

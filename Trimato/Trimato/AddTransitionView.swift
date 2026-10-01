@@ -1,4 +1,137 @@
 import SwiftUI
+import AppKit
+import Combine
+
+@MainActor
+final class TransitionToolSession: ObservableObject, Identifiable {
+    let id = UUID()
+    weak var controller: ProjectController?
+    let project: TrimatoProject
+    let request: TransitionRequest
+    let returnsToEditor: Bool
+    let editing: TimelineTransition?
+    var returnTarget: TimelineElementSelection
+    private let deleteAction: (() -> Void)?
+    @Published var hasPendingEdits = false
+    @Published private(set) var isApplying = false
+    @Published private(set) var completionRequested = false
+    @Published private(set) var errorMessage: String?
+    @Published private(set) var outcome = OperationProgressOutcome.completed
+    private var succeeded = false
+    private var operation: Task<Void, Never>?
+
+    init(controller: ProjectController, request: TransitionRequest, returnsToEditor: Bool,
+         editing: TimelineTransition? = nil, delete: (() -> Void)? = nil) {
+        self.controller = controller
+        project = controller.project
+        self.request = request
+        self.returnsToEditor = returnsToEditor
+        self.editing = editing
+        deleteAction = delete
+        returnTarget = editing.map { .transition($0.id) } ?? .clip(request.clipID)
+    }
+
+    func validateProject() throws -> ProjectController {
+        guard let controller else { throw QuitDraftError(message: "The transition project is no longer open.") }
+        guard controller.project == project else {
+            throw QuitDraftError(message: "The project changed. Close this tool and reopen it for the intended clip or transition.")
+        }
+        return controller
+    }
+
+    func apply(_ transitions: [TimelineTransition]) {
+        guard !isApplying, !completionRequested else { return }
+        errorMessage = nil
+        outcome = .completed
+        succeeded = false
+        isApplying = true
+        operation = Task { @MainActor in
+            do {
+                try Task.checkCancellation()
+                let controller = try validateProject()
+                guard !transitions.isEmpty else { throw QuitDraftError(message: "Choose at least one transition to apply.") }
+                try await controller.applyTransitions(transitions, selectAddedTransition: !returnsToEditor)
+                if !returnsToEditor, case .transition(let id) = controller.selection { returnTarget = .transition(id) }
+                succeeded = true
+            } catch is CancellationError {
+                outcome = .cancelled
+            } catch {
+                outcome = .failed
+                errorMessage = error.localizedDescription
+            }
+            operation = nil
+            completionRequested = true
+            isApplying = false
+        }
+    }
+
+    func cancelApplication() { operation?.cancel() }
+
+    func preparationDismissed() {
+        guard !isApplying, completionRequested else { return }
+        completionRequested = false
+        guard controller?.transitionToolSession === self else { return }
+        if succeeded { controller?.dismissTransitionTool() }
+        else { controller?.requestToolFocus() }
+    }
+
+    func saveForQuit(_ transitions: [TimelineTransition]) throws {
+        cancelApplication()
+        let controller = try validateProject()
+        try controller.addTransitions(transitions, selectAddedTransition: !returnsToEditor)
+        controller.dismissTransitionTool(restoreFocus: false)
+    }
+
+    func update(_ transition: TimelineTransition) {
+        do {
+            let controller = try validateProject()
+            try controller.updateTransition(transition)
+            controller.dismissTransitionTool()
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func updateForQuit(_ transition: TimelineTransition) throws {
+        let controller = try validateProject()
+        try controller.updateTransition(transition)
+        controller.dismissTransitionTool(restoreFocus: false)
+    }
+
+    func delete() {
+        do {
+            _ = try validateProject()
+            controller?.dismissTransitionTool(restoreFocus: false)
+            deleteAction?()
+        } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+struct TransitionToolView: View {
+    @ObservedObject var controller: ProjectController
+    @ObservedObject var session: TransitionToolSession
+    let focusRevision: Int
+    let returnWindow: NSWindow?
+
+    var body: some View {
+        Group {
+            if let transition = session.editing {
+                TransitionEditorView(transition: transition,
+                    contextDescription: TimelineElementSequence.contextDescription(for: transition, in: session.project),
+                    session: session, focusRevision: focusRevision, cancel: controller.requestCloseToolPane)
+            } else if session.request.mode == .standard {
+                AddTransitionView(session: session, focusRevision: focusRevision, cancel: controller.requestCloseToolPane)
+            } else {
+                QuickTransitionView(session: session, focusRevision: focusRevision, finished: controller.requestCloseToolPane)
+            }
+        }
+        .disabled(session.isApplying || session.completionRequested)
+        .operationProgress(controller.applyingTransitionName.map {
+            OperationProgress(title: "Applying \($0)", progress: controller.applyingTransitionProgress,
+                              cancel: session.cancelApplication)
+        }, outcome: session.outcome, completionPending: session.isApplying,
+           completionRequested: session.completionRequested, returnWindow: returnWindow,
+           waitsForReturnWindow: true, dismissed: session.preparationDismissed)
+    }
+}
 
 struct AddTransitionView: View {
     private struct QuitDraft: Equatable {
@@ -13,10 +146,14 @@ struct AddTransitionView: View {
         let includeIntroAudio: Bool
         let includeOutroAudio: Bool
     }
-    let project: TrimatoProject
-    let request: TransitionRequest
-    let add: ([TimelineTransition]) -> Void
+    @ObservedObject var session: TransitionToolSession
+    let focusRevision: Int
     let cancel: () -> Void
+    private var project: TrimatoProject { session.project }
+    private var request: TransitionRequest { session.request }
+    @Environment(\.controlActiveState) private var windowActivity
+    @State private var appliedFocusRevision: Int?
+    @FocusState private var introFocused: Bool
 
     @State private var addIntro = false
     @State private var addOutro = false
@@ -40,16 +177,19 @@ struct AddTransitionView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(edgeLabel(.intro), isOn: $addIntro)
+                    .focused($introFocused)
                 if addIntro { transitionControls(edge: .intro) }
 
                 Toggle(edgeLabel(.outro), isOn: $addOutro)
                 if addOutro { transitionControls(edge: .outro) }
             }
 
-            if let presentedError {
-                Text(presentedError.message)
+            if let message = presentedError?.message ?? session.errorMessage {
+                Text(message)
                     .foregroundStyle(.red)
             }
+
+            Spacer(minLength: 0)
 
             NativeModalActions(helpTopic: .transitions,
                 primaryTitle: "Add",
@@ -60,17 +200,29 @@ struct AddTransitionView: View {
 
         }
         .padding(EditorTheme.dialogPadding)
-        .frame(width: 440)
-        .pendingQuitDraft(QuitDraft(intro: addIntro, outro: addOutro, introVideo: introVideoType, outroVideo: outroVideoType,
-                                    introAudio: introAudioType, outroAudio: outroAudioType, introDuration: introDuration,
-                                    outroDuration: outroDuration, includeIntroAudio: includeIntroAudio, includeOutroAudio: includeOutroAudio), pending: addIntro || addOutro,
-            validate: { _ = try quitTransitions() }, apply: {
-                guard let controller = ExternalMediaOpenCoordinator.shared.activeProjectController else {
-                    throw QuitDraftError(message: "The transition project is no longer open.")
-                }
-                try controller.addTransitions(quitTransitions())
-                cancel()
-            })
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: quitDraft, initial: true) { _, draft in session.hasPendingEdits = draft != initialDraft }
+        .task(id: windowActivity == .key ? focusRevision : nil) {
+            guard windowActivity == .key, appliedFocusRevision != focusRevision else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            appliedFocusRevision = focusRevision
+            introFocused = true
+        }
+        .pendingQuitDraft(quitDraft, pending: quitDraft != initialDraft,
+            validate: { _ = try quitTransitions(); _ = try session.validateProject() },
+            apply: { try session.saveForQuit(quitTransitions()) })
+    }
+
+    private var quitDraft: QuitDraft {
+        QuitDraft(intro: addIntro, outro: addOutro, introVideo: introVideoType, outroVideo: outroVideoType,
+            introAudio: introAudioType, outroAudio: outroAudioType, introDuration: introDuration,
+            outroDuration: outroDuration, includeIntroAudio: includeIntroAudio, includeOutroAudio: includeOutroAudio)
+    }
+    private var initialDraft: QuitDraft {
+        QuitDraft(intro: false, outro: false, introVideo: .fade, outroVideo: .fade,
+            introAudio: .fade, outroAudio: .fade, introDuration: TransitionDurationInput.defaultText,
+            outroDuration: TransitionDurationInput.defaultText, includeIntroAudio: false, includeOutroAudio: false)
     }
 
     private var applicationName: String {
@@ -198,16 +350,8 @@ struct AddTransitionView: View {
     }
 
     private func apply() {
-        let intro = addIntro ? TransitionDurationInput.parse(introDuration) : nil
-        let outro = addOutro ? TransitionDurationInput.parse(outroDuration) : nil
-        if (addIntro && intro == nil) || (addOutro && outro == nil) {
-            showValidation("Enter a duration greater than zero, such as 1.0 or 1.25 seconds.")
-            return
-        }
-        var result: [TimelineTransition] = []
-        if let intro { result.append(contentsOf: makeTransitions(edge: .intro, duration: intro)) }
-        if let outro { result.append(contentsOf: makeTransitions(edge: .outro, duration: outro)) }
-        add(result)
+        do { presentedError = nil; session.apply(try quitTransitions()) }
+        catch { showValidation(error.localizedDescription) }
     }
 
     private func showValidation(_ message: String) {

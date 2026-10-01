@@ -11,47 +11,6 @@ nonisolated enum GeneratorDurationUnit: String, CaseIterable, Identifiable {
 }
 
 @MainActor
-final class GeneratorWindowRegistry {
-    static let shared = GeneratorWindowRegistry()
-    var sessions: [UUID: GeneratorSession] = [:]
-    private var windows: [UUID: NativeModalWindowController] = [:]
-
-    func present(id: UUID, parentWindow: NSWindow? = nil) {
-        guard windows[id] == nil, let session = sessions[id] else { return }
-        let returnWindow = parentWindow ?? NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
-        let focusRequest = NativeModalFocusRequest()
-        let returnsToEditor = session.editing == nil
-        let controller = NativeModalWindowController(
-            title: "Generator",
-            contentSize: NSSize(width: 560, height: 650),
-            resizable: true,
-            rootView: GeneratorView(
-                session: session,
-                focusRequest: focusRequest,
-                close: { GeneratorWindowRegistry.shared.dismiss(id: id) }
-            ),
-            focusRequest: focusRequest,
-            returnWindow: returnWindow,
-            returned: { [weak projectController = session.controller] in
-                if returnsToEditor { projectController?.requestEditorFocusRestore() }
-            },
-            closed: { [weak self, weak session] in
-                session?.cancelPreparation()
-                self?.sessions[id] = nil
-                self?.windows[id] = nil
-            }
-        )
-        windows[id] = controller
-        session.hostWindow = controller.window
-        controller.showModal()
-    }
-
-    func dismiss(id: UUID) {
-        windows[id]?.closeModal()
-    }
-}
-
-@MainActor
 final class GeneratorSession: ObservableObject, Identifiable {
     let id = UUID()
     weak var controller: ProjectController?
@@ -231,69 +190,75 @@ final class GeneratorSession: ObservableObject, Identifiable {
 
 struct GeneratorView: View {
     @ObservedObject var session: GeneratorSession
-    @ObservedObject var focusRequest: NativeModalFocusRequest
+    let focusRevision: Int
     let close: () -> Void
+    let finished: () -> Void
+    @Environment(\.controlActiveState) private var windowActivity
+    @State private var appliedFocusRevision: Int?
     @FocusState private var typePickerKeyboardFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Generator")
-                .font(EditorTheme.dialogTitle)
-                .accessibilityAddTraits(.isHeader)
-            Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Generator")
+                    .font(EditorTheme.dialogTitle)
+                    .accessibilityAddTraits(.isHeader)
+                Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
 
-            Form {
-                Picker("Generator", selection: $session.definition.kind) {
-                    ForEach(GeneratorKind.allCases) { kind in
-                        Text(kind.title).tag(kind)
-                    }
-                }
-                .pickerStyle(.menu)
-                .focused($typePickerKeyboardFocused)
-                .help(session.definition.kind.description)
-                .disabled(session.editing != nil)
-
-                generatorParameters
-
-                Picker("Duration Units", selection: Binding(
-                    get: { session.durationUnit },
-                    set: { session.setDurationUnit($0) }
-                )) {
-                    ForEach(GeneratorDurationUnit.allCases) { unit in
-                        Text(unit.title).tag(unit)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                TextField(session.durationUnit.fieldLabel, value: $session.durationValue, format: .number, prompt: Text(""))
-
-                if session.editing == nil {
-                    Picker("Destination Track", selection: $session.trackID) {
-                        ForEach(session.compatibleTracks) { track in
-                            Text(track.name).tag(Optional(track.id))
+                Form {
+                    Picker("Generator", selection: $session.definition.kind) {
+                        ForEach(GeneratorKind.allCases) { kind in
+                            Text(kind.title).tag(kind)
                         }
-                        Text("New Track").tag(UUID?.none)
                     }
                     .pickerStyle(.menu)
+                    .focused($typePickerKeyboardFocused)
+                    .help(session.definition.kind.description)
+                    .disabled(session.editing != nil)
 
-                    if session.trackID == nil {
-                        TextField("New Track Name", text: $session.newTrackName, prompt: Text(""))
+                    generatorParameters
+
+                    Picker("Duration Units", selection: Binding(
+                        get: { session.durationUnit },
+                        set: { session.setDurationUnit($0) }
+                    )) {
+                        ForEach(GeneratorDurationUnit.allCases) { unit in
+                            Text(unit.title).tag(unit)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    TextField(session.durationUnit.fieldLabel, value: $session.durationValue, format: .number, prompt: Text(""))
+
+                    if session.editing == nil {
+                        Picker("Destination Track", selection: $session.trackID) {
+                            ForEach(session.compatibleTracks) { track in
+                                Text(track.name).tag(Optional(track.id))
+                            }
+                            Text("New Track").tag(UUID?.none)
+                        }
+                        .pickerStyle(.menu)
+
+                        if session.trackID == nil {
+                            TextField("New Track Name", text: $session.newTrackName, prompt: Text(""))
+                        }
                     }
                 }
-            }
-            .disabled(session.progress != nil)
-
-            placementControls
                 .disabled(session.progress != nil)
-            HStack {
-                Spacer()
-                Button(session.progress == nil ? "Cancel" : "Cancel Preparation", role: .cancel) {
-                    session.cancelPreparation()
-                    close()
+
+                placementControls
+                    .disabled(session.progress != nil)
+                HStack {
+                    Spacer()
+                    Button(session.progress == nil ? "Cancel" : "Cancel Preparation", role: .cancel) {
+                        session.cancelPreparation()
+                        close()
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    ContextualHelpButton(topic: .generator)
                 }
-                .keyboardShortcut(.cancelAction)
-                ContextualHelpButton(topic: .generator)
             }
+            .padding(EditorTheme.dialogPadding)
         }
         .operationProgress(session.progress.map { OperationProgress(
             title: "Preparing Generator", progress: $0, cancel: session.cancelPreparation
@@ -302,17 +267,15 @@ struct GeneratorView: View {
                            returnWindow: session.hostWindow,
                            waitsForReturnWindow: true,
                            dismissed: session.progressWindowDismissed)
-        .padding(EditorTheme.dialogPadding)
-        .frame(minWidth: 560, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
-        .pendingQuitDraft(session.quitDraft, pending: session.editing == nil || session.hasPendingQuitEdits, validate: { _ = try session.validatedQuitDefinition() },
-            apply: { try await session.saveForQuit(); close() })
-        .onChange(of: focusRequest.revision, initial: true) { _, revision in
-            guard revision > 0 else { return }
-            Task { @MainActor in
-                await Task.yield()
-                typePickerKeyboardFocused = true
-            }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .pendingQuitDraft(session.quitDraft, pending: session.hasPendingQuitEdits, validate: { _ = try session.validatedQuitDefinition() },
+            apply: { try await session.saveForQuit(); finished() })
+        .task(id: windowActivity == .key ? focusRevision : nil) {
+            guard windowActivity == .key, appliedFocusRevision != focusRevision else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            appliedFocusRevision = focusRevision
+            typePickerKeyboardFocused = true
         }
         .onChange(of: session.definition) { previous, _ in
             session.definitionChanged(from: previous)
@@ -360,16 +323,16 @@ struct GeneratorView: View {
     @ViewBuilder
     private var placementControls: some View {
         if session.editing != nil {
-            Button("Update Generator") { session.prepare(placement: .insert, finished: close) }
+            Button("Update Generator") { session.prepare(placement: .insert, finished: finished) }
         } else {
             GroupBox("Add to Timeline") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Button("Append") { session.prepare(placement: .append, finished: close) }
-                    Button("Insert and Split") { session.prepare(placement: .insert, finished: close) }
-                    Button("Insert and Replace") { session.prepare(placement: .replaceRemainder, finished: close) }
+                    Button("Append") { session.prepare(placement: .append, finished: finished) }
+                    Button("Insert and Split") { session.prepare(placement: .insert, finished: finished) }
+                    Button("Insert and Replace") { session.prepare(placement: .replaceRemainder, finished: finished) }
                     if session.definition.kind != .silence {
                         Button("Insert on Top in New Video Track") {
-                            session.prepare(placement: .insert, onTop: true, finished: close)
+                            session.prepare(placement: .insert, onTop: true, finished: finished)
                         }
                     }
                 }

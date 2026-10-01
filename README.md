@@ -7,11 +7,11 @@ Created by Marco Salsiccia.
 ## Features
 
 - Edit standalone audio and video clips or arrange multiple tracks in a saved `.trimato` project.
-- Mark ranges, split and trim clips, and make non-destructive edits that preserve the original media.
+- Mark ranges, split and trim clips, and make non-destructive edits that preserve the original media. Select clips through their context menus and remove a group with one confirmation and one undo. Confirm deletion of populated tracks and continue through Timeline Clips after removing content.
 - Work with portrait or landscape video, step through individual frames or jump ten frames with Shift-Arrow, and edit audio with optional static waveforms.
 - Write and time captions with Captioner, import SRT and WebVTT files, and export captions as separate files or include them in the video.
 - Record audio description with Describer and narration with Voicer. Adjust voice levels, match loudness, and reduce other audio during descriptions.
-- Use Captioner, Describer, and Voicer beside the main video preview. Mix audio live and loop an In–Out range in a separate Mixer window.
+- Use Generator, transition tools, Captioner, Describer, and Voicer beside the main video preview. Mix audio live and loop an In–Out range in a separate Mixer window.
 - Mix audio tracks with volume, mute, solo, pan, stereo balance, stereo width, and channel routing controls.
 - Add transitions, Bleach Bypass and Technicolor video filters, room and Plate Reverb audio effects, titles, lower thirds, and other generated clips.
 - Tap out absolute markers with M or chapter boundaries with Option-M. Export a chapter text file for your YouTube video description.
@@ -28,7 +28,7 @@ Created by Marco Salsiccia.
 
 Choose Trim a Clip on the welcome screen to edit a single file, New Project to arrange media, or Open Project to continue saved work.
 
-In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open audio or video on its Cutting Board to trim it. Home and End jump to the timeline start and end; Fn-Left Arrow and Fn-Right Arrow provide the same commands. Open Captioner, Describer, Voicer, or Mixer as needed. Choose Settings to configure recording devices, playback, timecode feedback and style, optional waveforms, and storage preferences.
+In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open audio or video on its Cutting Board to trim it. Home and End jump to the timeline start and end; Fn-Left Arrow and Fn-Right Arrow provide the same commands. Open Generator, Transitions, Quick Fade, Quick Cross Dissolve or Cross Fade, Captioner, Describer, or Voicer in the Tool pane, or open Mixer in its separate window. Choose Settings to configure recording devices, playback, timecode feedback and style, optional waveforms, and storage preferences.
 
 For editing instructions and keyboard shortcuts, open the Trimato Manual from the app's Help menu. Help buttons open the topic for the current tool or Settings page.
 

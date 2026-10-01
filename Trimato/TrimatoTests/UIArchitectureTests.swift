@@ -104,7 +104,6 @@ struct UIArchitectureTests {
             "ApplicationMessageView.swift",
             "CaptionEditorWindowController.swift",
             "CaptionFinalizationResultsView.swift",
-            "GeneratorView.swift",
             "OperationProgressWindow.swift",
         ] {
             let source = try String(

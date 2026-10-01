@@ -33,7 +33,15 @@ final class ProjectController: ObservableObject {
     let mediaFiles = ProjectMediaFiles()
     private var mediaLocationOverrides: [UUID: MediaAssetRecord] = [:]
 
-    @Published var selection: EditorSelection = .project
+    private var observingTimelineFocus = false
+    @Published var selectedTimelineClipIDs: Set<UUID> = []
+    @Published var selection: EditorSelection = .project {
+        didSet {
+            guard !observingTimelineFocus else { return }
+            if case .timelineClip(let id) = selection { selectedTimelineClipIDs = [id] }
+            else { selectedTimelineClipIDs = [] }
+        }
+    }
     private var playbackPosition = ProjectTime.zero
     var timelinePlayhead: ProjectTime {
         get { playbackPosition }
@@ -52,7 +60,11 @@ final class ProjectController: ObservableObject {
         }
         playbackPosition = time
     }
-    @Published var activeTimelineTrackID: UUID?
+    @Published var activeTimelineTrackID: UUID? {
+        didSet {
+            if oldValue != activeTimelineTrackID { selectedTimelineClipIDs = [] }
+        }
+    }
     @Published var selectedCaptionCueID: UUID?
     @Published var editingMarker: TimelineMarker?
     @Published var pictureExportRequest: PictureExportRequest?
@@ -67,9 +79,10 @@ final class ProjectController: ObservableObject {
     var pendingToolAction: (() -> Void)?
     var captionHasPendingEdits: (() -> Bool)?
     private var recordingOriginCueID: UUID?
-    @Published var generatorRequestID: UUID?
-    @Published var transitionRequest: TransitionRequest?
-    @Published private(set) var transitionRequestReturnsToEditor = false
+    @Published var generatorSession: GeneratorSession?
+    @Published var transitionToolSession: TransitionToolSession?
+    var transitionRequest: TransitionRequest? { transitionToolSession?.request }
+    var transitionRequestReturnsToEditor: Bool { transitionToolSession?.returnsToEditor == true }
     @Published private(set) var editorFocusRestoreRequest = 0
     @Published private(set) var workspaceFocusRequest = WorkspaceFocusRequest()
     @Published private(set) var workspaceNavigation = WorkspaceFocusRequest()
@@ -165,10 +178,26 @@ final class ProjectController: ObservableObject {
     }
 
     func requestGenerator(editing: EditorSelection? = nil) {
-        projectPlayer?.player.pause()
-        let session = GeneratorSession(controller: self, editing: editing)
-        GeneratorWindowRegistry.shared.sessions[session.id] = session
-        generatorRequestID = session.id
+        projectSaveCoordinator?.attachedWindow?.makeKeyAndOrderFront(nil)
+        let replacingCurrent = generatorSession?.editing != editing
+        openToolPane(.generator, replacingCurrent: replacingCurrent) { [weak self] in
+            guard let self else { return }
+            projectPlayer?.player.pause()
+            let session = GeneratorSession(controller: self, editing: editing)
+            session.hostWindow = projectSaveCoordinator?.attachedWindow
+            generatorSession = session
+        }
+    }
+
+    func dismissGenerator() {
+        generatorSession?.cancelPreparation()
+        generatorSession = nil
+        if toolPane == .generator { toolPane = nil }
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard self?.toolPane == nil else { return }
+            self?.requestEditorFocusRestore()
+        }
     }
 
     func requestRecording(_ purpose: RecordingPurpose, cue: CaptionCue? = nil) {
@@ -1006,6 +1035,8 @@ final class ProjectController: ObservableObject {
     }
 
     func focusTimelineElement(_ element: TimelineElementSelection) {
+        observingTimelineFocus = true
+        defer { observingTimelineFocus = false }
         switch element {
         case .clip(let id):
             selectedCaptionCueID = nil
@@ -1387,13 +1418,13 @@ final class ProjectController: ObservableObject {
         } catch { announce(error.localizedDescription) }
     }
 
-    func deleteActiveTrack() {
-        guard let activeTimelineTrackID else { return }
-        do {
-            try mutateProjectThrowing(actionName: "Delete Track") { try $0.removeTrack(id: activeTimelineTrackID) }
-            self.activeTimelineTrackID = Self.preferredTimelineTrackID(in: project)
-            selection = .project
-        } catch { announce(error.localizedDescription) }
+    func deleteTrack(id: UUID) throws {
+        try mutateProjectThrowing(actionName: "Delete Track") { try $0.removeTrack(id: id) }
+        if activeTimelineTrackID == id || activeTimelineTrackID.flatMap({ project.track(id: $0) }) == nil {
+            activeTimelineTrackID = Self.preferredTimelineTrackID(in: project)
+        }
+        selection = .project
+        projectInfoTarget = .selection(selection)
     }
 
     func addTransition(_ transition: TimelineTransition) throws {
@@ -1419,8 +1450,7 @@ final class ProjectController: ObservableObject {
             return
         }
         activeTimelineTrackID = track.id
-        transitionRequestReturnsToEditor = false
-        transitionRequest = TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode)
+        openTransitionTool(TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode), returnsToEditor: false)
     }
 
     func requestTransition(at time: ProjectTime, mode: TransitionRequest.Mode = .standard) {
@@ -1430,11 +1460,40 @@ final class ProjectController: ObservableObject {
             announce("Move the playhead to a clip first")
             return
         }
-        transitionRequestReturnsToEditor = true
         let outgoing = mode == .quickFade && clip.timelineStart == time
             ? track.sortedClips.last(where: { $0.id != clip.id && $0.timelineEnd == time }) : nil
-        transitionRequest = TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode,
-                                               fadeOutClipID: outgoing?.id)
+        openTransitionTool(TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode,
+                                               fadeOutClipID: outgoing?.id), returnsToEditor: true)
+    }
+
+    func openTransitionTool(_ request: TransitionRequest, returnsToEditor: Bool,
+                            editing: TimelineTransition? = nil, delete: (() -> Void)? = nil) {
+        let tool: WorkspaceTool = editing != nil ? .transitionEditor : request.mode == .standard ? .transitions
+            : request.mode == .quickFade ? .quickFade
+            : project.track(id: request.trackID)?.kind == .audio ? .quickCrossFade : .quickCrossDissolve
+        let current = transitionToolSession
+        let sameTarget = current?.request.trackID == request.trackID && current?.request.clipID == request.clipID
+            && current?.request.fadeOutClipID == request.fadeOutClipID && current?.editing?.id == editing?.id
+        openToolPane(tool, replacingCurrent: !sameTarget) { [weak self] in
+            guard let self else { return }
+            projectPlayer?.player.pause()
+            transitionToolSession = TransitionToolSession(controller: self, request: request,
+                returnsToEditor: returnsToEditor, editing: editing, delete: delete)
+        }
+    }
+
+    func dismissTransitionTool(restoreFocus: Bool = true) {
+        guard let session = transitionToolSession else { return }
+        session.cancelApplication()
+        transitionToolSession = nil
+        if toolPane?.isTransition == true { toolPane = nil }
+        guard restoreFocus else { return }
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, toolPane == nil else { return }
+            if session.returnsToEditor { requestEditorFocusRestoreIfNeeded() }
+            else { requestTimelineFocusRestore(to: session.returnTarget) }
+        }
     }
 
     func requestQuickTransition(at time: ProjectTime, mode: TransitionRequest.Mode) {
@@ -1614,6 +1673,10 @@ final class ProjectController: ObservableObject {
                     )
                 }
             )
+            try Task.checkCancellation()
+            guard project == previous else {
+                throw ProjectTimelineError.transitionNotAvailable("The project changed while preparing the transition. Open the transition tool again.")
+            }
             projectWithPreparedTransitionPreview = candidate
             apply(
                 candidate,
@@ -1665,6 +1728,20 @@ final class ProjectController: ObservableObject {
         mutateProject(actionName: "Delete Transition") { $0.removeTransition(id: id) }
         if selection != selectionAfterDeletion { selection = selectionAfterDeletion }
         projectInfoTarget = .selection(selectionAfterDeletion)
+    }
+
+    func removeTimelineClips(_ ids: Set<UUID>, from trackID: UUID, selecting target: EditorSelection) throws {
+        guard let track = project.track(id: trackID), !ids.isEmpty,
+              ids.isSubset(of: Set(track.clips.map(\.id))) else { throw ProjectTimelineError.clipNotFound }
+        let ordered = track.sortedClips.filter { ids.contains($0.id) }.reversed()
+        try mutateProjectThrowing(actionName: ids.count == 1 ? "Remove from Timeline" : "Remove Clips from Timeline") { project in
+            for clip in ordered where project.timelineClip(id: clip.id) != nil {
+                try project.removeTrackClip(id: clip.id)
+            }
+        }
+        selectedTimelineClipIDs = []
+        selection = target
+        projectInfoTarget = .selection(target)
     }
 
     func deleteTimelineClip(id: UUID, selecting selectionAfterDeletion: EditorSelection) {
@@ -2894,6 +2971,8 @@ final class ProjectController: ObservableObject {
             located.media[index].recordingRelativePath = location.recordingRelativePath
         }
         document.project = located
+        let survivingSelection = selectedTimelineClipIDs.intersection(Set(activeTimelineTrack?.clips.map(\.id) ?? []))
+        if survivingSelection != selectedTimelineClipIDs { selectedTimelineClipIDs = survivingSelection }
         if project.withoutMarkers != previous.withoutMarkers {
             projectPlayer?.updateMix(project: located)
         }

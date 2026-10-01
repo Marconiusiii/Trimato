@@ -12,15 +12,18 @@ struct TransitionEditorView: View {
     }
     private let original: TimelineTransition
     let contextDescription: String?
-    let update: (TimelineTransition) -> Void
-    let delete: () -> Void
+    @ObservedObject var session: TransitionToolSession
+    let focusRevision: Int
+    @Environment(\.controlActiveState) private var windowActivity
+    @State private var appliedFocusRevision: Int?
+    @FocusState private var nameFocused: Bool
     let cancel: () -> Void
 
     init(
         transition: TimelineTransition,
         contextDescription: String? = nil,
-        update: @escaping (TimelineTransition) -> Void,
-        delete: @escaping () -> Void,
+        session: TransitionToolSession,
+        focusRevision: Int,
         cancel: @escaping () -> Void
     ) {
         original = transition
@@ -28,8 +31,8 @@ struct TransitionEditorView: View {
         _transitionName = State(initialValue: transition.displayName)
         _durationText = State(initialValue: TransitionDurationInput.string(for: transition.duration))
         self.contextDescription = contextDescription
-        self.update = update
-        self.delete = delete
+        self.session = session
+        self.focusRevision = focusRevision
         self.cancel = cancel
     }
 
@@ -47,17 +50,20 @@ struct TransitionEditorView: View {
                 LabeledContent("Transition Name") {
                     TextField("Transition name", text: $transitionName, prompt: Text(""))
                         .labelsHidden()
+                        .focused($nameFocused)
                 }
                 transitionPicker
                 TransitionDurationField(text: $durationText, label: durationLabel)
             }
 
-            Button("Delete Transition", role: .destructive, action: delete)
+            Button("Delete Transition", role: .destructive, action: session.delete)
 
-            if let validationMessage {
-                Text(validationMessage)
+            if let message = validationMessage ?? session.errorMessage {
+                Text(message)
                     .foregroundStyle(.red)
             }
+
+            Spacer(minLength: 0)
 
             NativeModalActions(helpTopic: .transitions,
                 primaryTitle: "Update Transition",
@@ -66,16 +72,24 @@ struct TransitionEditorView: View {
             )
         }
         .padding(EditorTheme.dialogPadding)
-        .frame(width: 430)
-        .pendingQuitDraft(QuitDraft(transition: draft, name: transitionName, duration: durationText),
-            pending: draft != original || transitionName != original.displayName || durationText != TransitionDurationInput.string(for: original.duration),
-            validate: { _ = try quitTransition() }, apply: {
-                guard let controller = ExternalMediaOpenCoordinator.shared.activeProjectController else {
-                    throw QuitDraftError(message: "The transition project is no longer open.")
-                }
-                try controller.updateTransition(quitTransition())
-                cancel()
-            })
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: quitDraft, initial: true) { _, _ in session.hasPendingEdits = hasPendingEdits }
+        .task(id: windowActivity == .key ? focusRevision : nil) {
+            guard windowActivity == .key, appliedFocusRevision != focusRevision else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            appliedFocusRevision = focusRevision
+            nameFocused = true
+        }
+        .pendingQuitDraft(quitDraft, pending: hasPendingEdits,
+            validate: { _ = try quitTransition(); _ = try session.validateProject() },
+            apply: { try session.updateForQuit(quitTransition()) })
+    }
+
+    private var quitDraft: QuitDraft { QuitDraft(transition: draft, name: transitionName, duration: durationText) }
+    private var hasPendingEdits: Bool {
+        draft != original || transitionName != original.displayName
+            || durationText != TransitionDurationInput.string(for: original.duration)
     }
 
     @ViewBuilder
@@ -147,6 +161,7 @@ struct TransitionEditorView: View {
             return
         }
         draft.customName = trimmedName == draft.defaultDisplayName ? nil : trimmedName
-        update(draft)
+        validationMessage = nil
+        session.update(draft)
     }
 }

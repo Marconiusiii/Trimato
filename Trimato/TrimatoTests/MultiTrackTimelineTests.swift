@@ -9,6 +9,77 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MultiTrackTimelineTests {
+    @Test func batchRemovalIsOneUndoAndPreservesSourceMedia() throws {
+        let asset = fixtureAsset(name: "Generator", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .video)
+        let first = try project.append(asset: asset, segments: [segment(0, 2)], toTrack: track)
+        let second = try project.append(asset: asset, segments: [segment(2, 2)], toTrack: track)
+        let third = try project.append(asset: asset, segments: [segment(4, 2)], toTrack: track)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        controller.installUndoManager(undo)
+        undo.beginUndoGrouping()
+        try controller.removeTimelineClips([first, second], from: track, selecting: .timelineClip(third))
+        undo.endUndoGrouping()
+        #expect(controller.project.track(id: track)?.clips.map(\.id) == [third])
+        #expect(controller.project.media == project.media)
+        #expect(controller.selectedTimelineClipIDs == [third])
+        undo.undo()
+        #expect(controller.project == project)
+        #expect(!undo.canUndo)
+    }
+
+    @Test func batchRemovalRejectsAStaleOrCrossTrackSelectionAtomically() throws {
+        let asset = fixtureAsset(name: "Clip", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .video)
+        let other = project.createTrack(kind: .video)
+        let first = try project.append(asset: asset, toTrack: track)
+        let second = try project.append(asset: asset, toTrack: other)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        #expect(throws: ProjectTimelineError.clipNotFound) {
+            try controller.removeTimelineClips([first, second], from: track, selecting: .project)
+        }
+        #expect(controller.project == project)
+    }
+
+    @Test func focusNavigationPreservesBatchSelectionAndTrackChangesClearIt() throws {
+        let asset = fixtureAsset(name: "Clip", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let track = project.createTrack(kind: .video)
+        let first = try project.append(asset: asset, toTrack: track)
+        let second = try project.append(asset: asset, toTrack: track)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.activeTimelineTrackID = track
+        controller.selectedTimelineClipIDs = [first, second]
+        controller.focusTimelineElement(.clip(first))
+        #expect(controller.selectedTimelineClipIDs == [first, second])
+        controller.selection = .timelineClip(second)
+        #expect(controller.selectedTimelineClipIDs == [second])
+        controller.activeTimelineTrackID = UUID()
+        #expect(controller.selectedTimelineClipIDs.isEmpty)
+    }
+
+    @Test func batchRemovalFocusSkipsEveryRemovedClip() throws {
+        let asset = fixtureAsset(name: "Clip", duration: 10)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let trackID = project.createTrack(kind: .video)
+        let first = try project.append(asset: asset, toTrack: trackID)
+        let second = try project.append(asset: asset, toTrack: trackID)
+        let third = try project.append(asset: asset, toTrack: trackID)
+        let track = try #require(project.track(id: trackID))
+        let elements = TimelineElementSequence.elements(track: track, transitions: [])
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClips([first, second], from: elements) == .clip(third))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClips([second, third], from: elements) == .clip(first))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClips([first, second, third], from: elements) == nil)
+    }
+
     @Test func movePlayheadToCaptionUsesTheCueStart() throws {
         let asset = fixtureAsset(name: "Interview", duration: 10)
         let cue = CaptionCue(
@@ -1030,7 +1101,7 @@ struct MultiTrackTimelineTests {
         let deletedIndex = scenario == "last" ? 2 : (scenario == "middle" || scenario == "cancel" ? 1 : 0)
         let originalID = ids[deletedIndex]
         let expectedID: UUID? = scenario == "only" ? nil
-            : (scenario == "cancel" ? originalID : ids[deletedIndex == 0 ? 1 : deletedIndex - 1])
+            : (scenario == "cancel" ? originalID : ids[deletedIndex + 1 < ids.count ? deletedIndex + 1 : deletedIndex - 1])
         func focusedIdentifier() -> String? {
             guard let element = NSApp.accessibilityFocusedUIElement as? NSObject,
                   element.responds(to: NSSelectorFromString("accessibilityIdentifier")) else { return nil }
@@ -1063,9 +1134,9 @@ struct MultiTrackTimelineTests {
             return nil
         }
         let content = try #require(sheet.contentView)
-        let action = try #require(button(in: content, title: scenario == "cancel" ? "Cancel" : "Delete Clip"))
+        let action = try #require(button(in: content, title: scenario == "cancel" ? "Cancel" : "Remove from Timeline"))
         action.performClick(nil)
-        let expectedIdentifier = expectedID.map(TimelineElementAccessibilityIdentifier.clip) ?? "trimato.timeline.empty"
+        let expectedIdentifier = expectedID.map(TimelineElementAccessibilityIdentifier.clip) ?? "trimato.timeline.clips"
         for _ in 0..<200 {
             if window.attachedSheet == nil && focusedIdentifier() == expectedIdentifier { break }
             try await Task.sleep(for: .milliseconds(10))
@@ -1080,7 +1151,57 @@ struct MultiTrackTimelineTests {
         }
     }
 
-    @Test func clipDeletionFocusChoosesThePreviousThenNextClip() throws {
+    @Test func mediaDeletionFocusSkipsEveryRemovedInstanceAndPrefersFollowingClips() throws {
+        let removed = fixtureAsset(name: "Repeated source", duration: 3)
+        let kept = fixtureAsset(name: "Other source", duration: 3)
+        var project = TrimatoProject()
+        project.media = [removed, kept]
+        let first = try project.append(asset: removed)
+        let previous = try project.append(asset: kept)
+        let origin = try project.append(asset: removed)
+        _ = try project.append(asset: removed)
+        let next = try project.append(asset: kept)
+        let last = try project.append(asset: removed)
+        let track = try #require(project.tracks.first(where: { $0.clips.contains { $0.id == origin } }))
+        let elements = TimelineElementSequence.elements(track: track, transitions: [])
+        #expect(TimelineElementSequence.focusTargetAfterDeletingMedia(removed.id, clipID: origin, from: elements) == .clip(next))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingMedia(removed.id, clipID: first, from: elements) == .clip(previous))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingMedia(removed.id, clipID: last, from: elements) == .clip(next))
+        let onlyRemoved = elements.filter { element in
+            if case .clip(let clip) = element.content { return clip.assetID == removed.id }
+            return false
+        }
+        #expect(TimelineElementSequence.focusTargetAfterDeletingMedia(removed.id, clipID: origin, from: onlyRemoved) == nil)
+        #expect(TimelineElementSequence.focusTargetAfterDeletingMedia(removed.id, clipID: UUID(), from: elements) == nil)
+    }
+
+    @Test @MainActor func trackDeletionUsesTheConfirmedIdentityAndPreservesSourceMedia() throws {
+        let asset = fixtureAsset(name: "Track source", duration: 6)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let confirmedID = project.createTrack(kind: .video, name: "Delete this track")
+        let otherID = project.createTrack(kind: .video, name: "Keep this track")
+        let clipID = try project.append(asset: asset, toTrack: confirmedID)
+        let transition = TimelineTransition(trackID: confirmedID, edge: .intro, kind: .video(.fade),
+            duration: ProjectTime(seconds: 1), leadingClipID: nil, trailingClipID: clipID)
+        try project.addTransition(transition)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let populated = try #require(project.track(id: confirmedID))
+        let empty = try #require(project.track(id: otherID))
+        #expect(TimelineTrackDeletionConfirmation.isRequired(for: populated))
+        #expect(!TimelineTrackDeletionConfirmation.isRequired(for: empty))
+        #expect(TimelineTrackDeletionConfirmation.message(trackName: populated.name).contains(populated.name))
+        controller.activeTimelineTrackID = otherID
+        try controller.deleteTrack(id: confirmedID)
+        #expect(controller.project.track(id: confirmedID) == nil)
+        #expect(controller.project.timelineClip(id: clipID) == nil)
+        #expect(controller.project.transition(id: transition.id) == nil)
+        #expect(controller.project.track(id: otherID) != nil)
+        #expect(controller.project.asset(id: asset.id) != nil)
+        #expect(controller.activeTimelineTrackID == otherID)
+    }
+
+    @Test func clipDeletionFocusChoosesTheNextThenPreviousClip() throws {
         var audio = fixtureAsset(name: "Music", duration: 12)
         audio.naturalWidth = nil
         audio.naturalHeight = nil
@@ -1094,7 +1215,7 @@ struct MultiTrackTimelineTests {
         let elements = TimelineElementSequence.elements(track: track, transitions: [])
 
         #expect(TimelineElementSequence.focusTargetAfterDeletingClip(firstID, from: elements) == .clip(middleID))
-        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(middleID, from: elements) == .clip(firstID))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(middleID, from: elements) == .clip(lastID))
         #expect(TimelineElementSequence.focusTargetAfterDeletingClip(lastID, from: elements) == .clip(middleID))
         #expect(TimelineElementSequence.focusTargetAfterDeletingClip(
             firstID,
@@ -1148,7 +1269,7 @@ struct MultiTrackTimelineTests {
             TimelineListElement(content: .transition(intro)),
             TimelineListElement(content: .clip(try #require(project.timelineClip(id: lastID)))),
         ]
-        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(middleID, from: elements) == .clip(firstID))
+        #expect(TimelineElementSequence.focusTargetAfterDeletingClip(middleID, from: elements) == .clip(lastID))
         #expect(TimelineElementSequence.focusTargetAfterDeletingClip(firstID, from: elements) == .clip(middleID))
         #expect(TimelineElementSequence.focusTargetAfterDeletingClip(UUID(), from: elements) == nil)
     }

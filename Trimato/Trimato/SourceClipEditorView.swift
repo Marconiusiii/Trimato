@@ -111,14 +111,9 @@ struct SourceClipEditorView: View {
                             .frame(height: 130)
                         if currentAsset.generator != nil {
                             Button("Edit Generator…") {
+                                viewModel.player.pause()
+                                voiceWork.cancel()
                                 controller.requestGenerator(editing: editSelection)
-                                if let id = controller.generatorRequestID {
-                                    GeneratorWindowRegistry.shared.present(
-                                        id: id,
-                                        parentWindow: commandContext.hostWindow
-                                    )
-                                    controller.generatorRequestID = nil
-                                }
                             }.disabled(commandContext.hasUncommittedChanges)
                         }
                     }.padding(.horizontal, 20)

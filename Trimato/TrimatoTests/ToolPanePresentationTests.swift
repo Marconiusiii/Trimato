@@ -120,3 +120,80 @@ struct ToolPanePresentationTests {
         }
     }
 }
+
+
+@MainActor
+@Suite(.serialized)
+struct TransitionToolLifecycleTests {
+    private func controller(audio: Bool = false) throws -> ProjectController {
+        var definition = GeneratorDefinition()
+        if audio { definition.kind = .silence }
+        let asset = definition.assetRecord()
+        var project = TrimatoProject()
+        project.media = [asset]
+        _ = try project.append(asset: asset)
+        _ = try project.append(asset: asset)
+        return ProjectController(document: ProjectDocument(project: project))
+    }
+
+    @Test(arguments: [TransitionRequest.Mode.standard, .quickFade, .quickCross], [false, true])
+    func transitionToolsKeepTheirTargetAndReuseTheOpenDraft(mode: TransitionRequest.Mode, audio: Bool) throws {
+        let controller = try controller(audio: audio)
+        controller.requestTransition(at: .zero, mode: mode)
+        let session = try #require(controller.transitionToolSession)
+        let expectedTool: WorkspaceTool = mode == .standard ? .transitions : mode == .quickFade ? .quickFade
+            : audio ? .quickCrossFade : .quickCrossDissolve
+        #expect(controller.toolPane == expectedTool)
+        controller.timelinePlayhead = ProjectTime(seconds: 3)
+        controller.selection = .project
+        #expect(session.request.clipID == controller.project.tracks.first?.sortedClips.first?.id)
+        session.hasPendingEdits = true
+        controller.requestTransition(at: .zero, mode: mode)
+        #expect(controller.transitionToolSession === session)
+        #expect(!controller.isConfirmingToolClose)
+        controller.closeToolPaneImmediately()
+    }
+
+    @Test func switchingFromTransitionDraftRequiresDiscardAndCancellationPreservesIt() throws {
+        let controller = try controller()
+        controller.requestTransition(at: .zero, mode: .quickFade)
+        let session = try #require(controller.transitionToolSession)
+        session.hasPendingEdits = true
+        controller.requestGenerator()
+        #expect(controller.isConfirmingToolClose && controller.generatorSession == nil)
+        controller.cancelToolCloseReview()
+        controller.finishToolCloseReview()
+        #expect(controller.transitionToolSession === session)
+        controller.requestGenerator()
+        controller.discardToolChanges()
+        #expect(controller.transitionToolSession === session)
+        controller.finishToolCloseReview()
+        #expect(controller.toolPane == .generator && controller.transitionToolSession == nil)
+        controller.closeToolPaneImmediately()
+    }
+
+    @Test func failedApplicationRetainsTheToolAndProject() async throws {
+        let controller = try controller()
+        controller.requestTransition(at: .zero)
+        let session = try #require(controller.transitionToolSession)
+        let original = controller.project
+        session.apply([])
+        for _ in 0..<100 where session.isApplying { await Task.yield() }
+        #expect(session.completionRequested && session.errorMessage != nil)
+        session.preparationDismissed()
+        #expect(controller.transitionToolSession === session)
+        #expect(controller.project == original)
+        #expect(!session.completionRequested)
+        controller.closeToolPaneImmediately()
+    }
+
+    @Test func projectChangesInvalidateTheCapturedTransitionContext() throws {
+        let controller = try controller()
+        controller.requestTransition(at: .zero)
+        let session = try #require(controller.transitionToolSession)
+        controller.addTrack(kind: .video, name: "Another track")
+        #expect(throws: QuitDraftError.self) { _ = try session.validateProject() }
+        #expect(controller.transitionToolSession === session)
+        controller.closeToolPaneImmediately()
+    }
+}

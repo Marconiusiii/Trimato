@@ -90,6 +90,17 @@
         <li>Choose Remove from Timeline or press Delete.</li>
     </ol>
 
+    <h2>Select and remove several clips</h2>
+    <ol>
+        <li>In Timeline Clips, focus a clip and open its context menu with Control-Enter, VO-Shift-M, or a secondary click.</li>
+        <li>Choose Add Clip to Selection. Repeat on other clips in the same track, or choose Select All Clips on Track.</li>
+        <li>Open the context menu on a selected clip and choose Remove Clips from Timeline, or press Delete while focused on a selected clip.</li>
+        <li>Confirm the removal. One Undo restores the group.</li>
+    </ol>
+    <p>With a mouse, Command-click toggles a clip in the selection and Shift-click extends the selection.</p>
+    <p>Remove Clip from Selection excludes one clip. Clear Clip Selection clears the group. Navigating between clips preserves the selection; switching tracks clears it. Space continues to select a clip for moving independently of the group selection.</p>
+    <p>After removal, focus returns to the next surviving clip after the last removed clip, or the preceding surviving clip when there is nothing after it. If no clips remain, focus returns to Timeline Clips. The source media stays in Project Source.</p>
+
     <h2>Create and edit captions</h2>
     <p>Trimato keeps caption cues on one track named Captions. Each item is named Caption followed by the first line of its text.</p>
     <p>If In and Out points are missing or Out is not after In, New Caption explains how to mark the passage. In the Editor, press I at the caption’s start and O at its end, then press Shift-Command-C again.</p>
@@ -114,9 +125,11 @@
     <p>Choose Import Files and select an SRT or WebVTT file. Imported cues join any captions already on the Captions track. Their supplied times are measured from the beginning of the project, and they do not need to be finalized.</p>
 
     <h2>Add and edit transitions</h2>
+    <p>Transition tools open beside the Editor in the Tool pane. Press Command-4 to return to the open tool. The target clip or edit stays the same while you adjust its settings. Cancel, Escape, or Command-W closes the pane; unfinished changes require a discard decision when closing or switching tools.</p>
+    <p>Successful application closes the pane and returns focus to the Editor or Timeline. If application fails or is cancelled, the settings remain available in the pane.</p>
     <ol>
         <li>Move the Editor playhead onto a clip, or focus the clip in Timeline clips.</li>
-        <li>Press Command-T.</li>
+        <li>Press Command-T to open Transitions in the Tool pane.</li>
         <li>For Fade, choose Fade In {clip name}, Fade Out {clip name}, or both. Both controls name the selected clip. Other transition types retain the Intro and Outro side controls.</li>
         <li>If the video clip has audio, choose Fade Audio or Crossfade Audio to apply the matching audio transition.</li>
         <li>Enter the duration in seconds, then activate Add.</li>
@@ -126,7 +139,7 @@
     <h3>Use Quick Fade</h3>
     <ol>
         <li>Move the Editor playhead onto a clip or to a shared cut between clips.</li>
-        <li>Press F to open Quick Fade.</li>
+        <li>Press F to open Quick Fade in the Tool pane.</li>
         <li>Choose Fade In {clip name}, Fade Out {clip name}, or both. Fade Audio includes the matching linked audio for each selected fade.</li>
         <li>Enter the duration in seconds, then apply the fade.</li>
     </ol>
@@ -136,7 +149,7 @@
     <h3>Use Quick Cross Dissolve or Quick Cross Fade</h3>
     <ol>
         <li>Move the Editor playhead to an edit with an outgoing and incoming clip.</li>
-        <li>Press X. A video track opens Quick Cross Dissolve. An audio track opens Quick Cross Fade.</li>
+        <li>Press X to open the Tool pane. A video track opens Quick Cross Dissolve. An audio track opens Quick Cross Fade.</li>
         <li>Confirm the displayed outgoing and incoming clip names.</li>
         <li>In a video context, choose Crossfade Audio when the clips’ audio should cross fade too.</li>
         <li>Enter the duration in seconds, then apply the transition.</li>
@@ -183,6 +196,8 @@
     <p>Select Fade In {clip name} to show Fade In Duration, or Fade Out {clip name} to show Fade Out Duration. Selecting both exposes both fields. Values are in seconds and apply to the named clip and its corresponding linked audio fade. Clearing a checkbox hides its field without discarding the entered value. With neither fade selected, Apply Fade is unavailable. The same duration labels are used when editing an existing fade.</p>
     <p>Additional video track fades change the clip's opacity, revealing the video underneath. Primary video fades reveal the black background when no picture is underneath.</p>
 <h2>Remove clips and delete media</h2>
+    <p>After removing a clip or deleting its media, focus moves to the next surviving clip in Timeline Clips, or to the previous clip when none follows. When no clips remain, focus moves to the collection itself.</p>
+    <p>Choose Delete Track from Track Actions to remove an additional track. If it contains content, confirm Delete Track or choose Cancel. Deleting a track returns focus to the Timeline Clips collection for the remaining active track.</p>
     <p>Choose Remove from Timeline in a clip’s context menu to remove that timeline clip and keep its source in Project Source. Choose Delete Media in Timeline Clips or Project Source to remove the source from the project, including all timeline clips and transitions that use it. The confirmation shows how many timeline clips use the source. Files remain in Finder. Use Undo to restore a removal or deletion. Save the project to keep your changes.</p>
         <h2>Show or hide captions</h2>
     <p>Select the Captions track in Timeline Clips, then turn Show captions on or off. This changes the caption overlay during playback. The caption cues remain available for editing. Choose Include captions separately when exporting.</p>

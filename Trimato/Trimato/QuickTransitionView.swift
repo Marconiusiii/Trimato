@@ -10,9 +10,14 @@ struct QuickTransitionView: View {
         let fadeIn: String
         let fadeOut: String
     }
-    let project: TrimatoProject
-    let request: TransitionRequest
-    let add: ([TimelineTransition]) -> Void
+    @ObservedObject var session: TransitionToolSession
+    let focusRevision: Int
+    private var project: TrimatoProject { session.project }
+    private var request: TransitionRequest { session.request }
+    @Environment(\.controlActiveState) private var windowActivity
+    @State private var appliedFocusRevision: Int?
+    private enum Field: Hashable { case intro, audio, duration }
+    @FocusState private var focusedField: Field?
     let finished: () -> Void
 
     @State private var addIntro = true
@@ -34,6 +39,7 @@ struct QuickTransitionView: View {
                     Text(crossDescription)
                 } else {
                     Toggle(fadeLabel(.intro), isOn: $addIntro)
+                        .focused($focusedField, equals: .intro)
                     if addIntro { TransitionDurationField(text: $fadeInDurationText, label: FadeTransitionLabels.duration(edge: .intro)) }
                     Toggle(fadeLabel(.outro), isOn: $addOutro)
                     if addOutro { TransitionDurationField(text: $fadeOutDurationText, label: FadeTransitionLabels.duration(edge: .outro)) }
@@ -41,15 +47,21 @@ struct QuickTransitionView: View {
 
                 if showsAudioToggle {
                     Toggle(request.mode == .quickFade ? "Fade Audio" : "Crossfade Audio", isOn: $includeAudio)
+                        .focused($focusedField, equals: .audio)
                 }
 
-                if request.mode == .quickCross { TransitionDurationField(text: $durationText) }
+                if request.mode == .quickCross {
+                    TransitionDurationField(text: $durationText)
+                        .focused($focusedField, equals: .duration)
+                }
             }
 
-            if let presentedError {
-                Text(presentedError.message)
+            if let message = presentedError?.message ?? session.errorMessage {
+                Text(message)
                     .foregroundStyle(.red)
             }
+
+            Spacer(minLength: 0)
 
             NativeModalActions(helpTopic: .transitions,
                 primaryTitle: request.mode == .quickFade ? "Apply Fade" : applyButtonTitle,
@@ -60,16 +72,27 @@ struct QuickTransitionView: View {
 
         }
         .padding(EditorTheme.dialogPadding)
-        .frame(width: 430)
-        .pendingQuitDraft(QuitDraft(intro: addIntro, outro: addOutro, audio: includeAudio, duration: durationText, fadeIn: fadeInDurationText, fadeOut: fadeOutDurationText),
-            pending: request.mode != .quickFade || addIntro || addOutro,
-            validate: { _ = try quitTransitions() }, apply: {
-                guard let controller = ExternalMediaOpenCoordinator.shared.activeProjectController else {
-                    throw QuitDraftError(message: "The transition project is no longer open.")
-                }
-                try controller.addTransitions(quitTransitions())
-                finished()
-            })
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: quitDraft, initial: true) { _, draft in session.hasPendingEdits = draft != initialDraft }
+        .task(id: windowActivity == .key ? focusRevision : nil) {
+            guard windowActivity == .key, appliedFocusRevision != focusRevision else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            appliedFocusRevision = focusRevision
+            focusedField = request.mode == .quickFade ? .intro : showsAudioToggle ? .audio : .duration
+        }
+        .pendingQuitDraft(quitDraft, pending: quitDraft != initialDraft,
+            validate: { _ = try quitTransitions(); _ = try session.validateProject() },
+            apply: { try session.saveForQuit(quitTransitions()) })
+    }
+
+    private var quitDraft: QuitDraft {
+        QuitDraft(intro: addIntro, outro: addOutro, audio: includeAudio, duration: durationText,
+                  fadeIn: fadeInDurationText, fadeOut: fadeOutDurationText)
+    }
+    private var initialDraft: QuitDraft {
+        QuitDraft(intro: true, outro: true, audio: true, duration: TransitionDurationInput.defaultText,
+                  fadeIn: TransitionDurationInput.defaultText, fadeOut: TransitionDurationInput.defaultText)
     }
 
     private var transitionName: String {
@@ -135,7 +158,7 @@ struct QuickTransitionView: View {
     }
 
     private func apply() {
-        do { submit(try quitTransitions()) }
+        do { presentedError = nil; session.apply(try quitTransitions()) }
         catch { showValidation(error.localizedDescription) }
     }
 
@@ -180,10 +203,6 @@ struct QuickTransitionView: View {
             ))
         }
         return transitions
-    }
-
-    private func submit(_ transitions: [TimelineTransition]) {
-        add(transitions)
     }
 
     private func showValidation(_ message: String) {

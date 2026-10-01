@@ -10,6 +10,51 @@ struct GeneratorHandoffTests {
         NSApp.windows.filter { $0.isVisible && $0.identifier?.rawValue == "Trimato.OperationProgress" }
     }
 
+    @Test func generatorUsesToolPaneAndReopeningPreservesDraft() throws {
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        controller.requestGenerator()
+        let session = try #require(controller.generatorSession)
+        #expect(controller.toolPane == .generator)
+        #expect(!controller.toolHasPendingEdits)
+        session.definition.kind = .gradient
+        controller.requestGenerator()
+        #expect(controller.generatorSession === session)
+        #expect(session.definition.kind == .gradient)
+        #expect(controller.toolHasPendingEdits)
+        controller.closeToolPaneImmediately()
+        #expect(controller.generatorSession == nil && controller.toolPane == nil)
+    }
+
+    @Test func switchingToolsProtectsGeneratorDraftUntilDiscardCompletes() throws {
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        controller.requestGenerator()
+        let session = try #require(controller.generatorSession)
+        session.definition.kind = .text
+        session.definition.textSettings.text = "Unfinished title"
+        var openedReplacement = false
+        controller.openToolPane(.caption) { openedReplacement = true }
+        #expect(controller.isConfirmingToolClose && !openedReplacement)
+        #expect(controller.generatorSession === session)
+        controller.cancelToolCloseReview()
+        controller.finishToolCloseReview()
+        #expect(controller.generatorSession === session && !openedReplacement)
+        controller.openToolPane(.caption) { openedReplacement = true }
+        controller.discardToolChanges()
+        #expect(controller.generatorSession === session && !openedReplacement)
+        controller.finishToolCloseReview()
+        #expect(openedReplacement && controller.toolPane == .caption)
+        #expect(controller.generatorSession == nil)
+        controller.closeToolPaneImmediately()
+    }
+
+    @Test func closingAnUnchangedGeneratorDoesNotRequireDiscard() {
+        let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
+        controller.requestGenerator()
+        controller.requestCloseToolPane()
+        #expect(!controller.isConfirmingToolClose)
+        #expect(controller.generatorSession == nil && controller.toolPane == nil)
+    }
+
     @Test(arguments: [GeneratorKind.black, .text], [false, true])
     func nativePreparationWindowClosesBeforeCompletion(kind: GeneratorKind, cached: Bool) async throws {
         let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
@@ -26,8 +71,8 @@ struct GeneratorHandoffTests {
         window.isReleasedWhenClosed = false
         session.hostWindow = window
         var completionCount = 0
-        let host = NSHostingView(rootView: GeneratorView(session: session, focusRequest: NativeModalFocusRequest(),
-            close: {
+        let host = NSHostingView(rootView: GeneratorView(session: session, focusRevision: 0, close: {},
+            finished: {
                 #expect(preparationWindows.isEmpty, "Generator completion must wait for its progress window to close")
                 completionCount += 1
             }))

@@ -1,15 +1,28 @@
 import SwiftUI
 
 nonisolated enum WorkspaceTool: Equatable {
-    case caption, describer, voicer
+    case caption, describer, voicer, generator, transitions, quickFade, quickCrossDissolve, quickCrossFade, transitionEditor
 
     var title: String {
         switch self {
         case .caption: "Captioner"
         case .describer: "Describer"
         case .voicer: "Voicer"
+        case .generator: "Generator"
+        case .transitions: "Transitions"
+        case .quickFade: "Quick Fade"
+        case .quickCrossDissolve: "Quick Cross Dissolve"
+        case .quickCrossFade: "Quick Cross Fade"
+        case .transitionEditor: "Transition Editor"
         }
     }
+    var isTransition: Bool {
+        switch self {
+        case .transitions, .quickFade, .quickCrossDissolve, .quickCrossFade, .transitionEditor: true
+        default: false
+        }
+    }
+
 }
 
 struct ToolPaneCloseAction {
@@ -31,6 +44,9 @@ extension ProjectController {
     var toolHasPendingEdits: Bool {
         switch toolPane {
         case .caption: captionHasPendingEdits?() == true
+        case .generator: generatorSession?.hasPendingQuitEdits == true
+        case .transitions, .quickFade, .quickCrossDissolve, .quickCrossFade, .transitionEditor:
+            transitionToolSession?.hasPendingEdits == true
         case .describer, .voicer:
             recordingSession?.hasPendingQuitEdits == true || recordingSession?.capture.isRecordingRequested == true
                 || recordingSession?.preparingRecording == true
@@ -38,8 +54,8 @@ extension ProjectController {
         }
     }
 
-    func openToolPane(_ tool: WorkspaceTool, open: @escaping () -> Void) {
-        if toolPane == tool {
+    func openToolPane(_ tool: WorkspaceTool, replacingCurrent: Bool = false, open: @escaping () -> Void) {
+        if toolPane == tool && !replacingCurrent {
             requestToolFocus()
             return
         }
@@ -58,7 +74,9 @@ extension ProjectController {
     }
 
     private func requestToolChange(_ action: @escaping () -> Void) {
-        guard !isConfirmingToolClose, recordingSession?.saving != true else { return }
+        guard !isConfirmingToolClose, recordingSession?.saving != true,
+              transitionToolSession?.isApplying != true, transitionToolSession?.completionRequested != true,
+              generatorSession?.progress == nil, generatorSession?.hasPendingCompletion != true else { return }
         if toolHasPendingEdits {
             pendingToolAction = action
             isConfirmingToolClose = true
@@ -85,10 +103,14 @@ extension ProjectController {
     func closeToolPaneImmediately() {
         switch toolPane {
         case .caption: closeCaptionEditor()
+        case .generator: dismissGenerator()
+        case .transitions, .quickFade, .quickCrossDissolve, .quickCrossFade, .transitionEditor: dismissTransitionTool()
         case .describer, .voicer: dismissRecording()
         case nil:
             // Also release sessions created by project-close and test workflows.
             if recordingSession != nil { dismissRecording() }
+            if generatorSession != nil { dismissGenerator() }
+            if transitionToolSession != nil { dismissTransitionTool() }
         }
         toolPane = nil
     }
@@ -102,7 +124,7 @@ struct ToolPaneCloseConfirmation: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Discard changes in \(controller.toolPane?.title ?? "this tool")?")
                 .font(.headline).accessibilityAddTraits(.isHeader)
-            Text("The unfinished text or recording has not been added to the project.")
+            Text("The unfinished changes have not been applied to the project.")
             HStack {
                 Button("Discard Changes", role: .destructive, action: controller.discardToolChanges)
                 Spacer()
