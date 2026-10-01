@@ -377,9 +377,11 @@ struct ProjectPlaybackTests {
 
     @Test func nativeMouseHoldArrowAndReleaseUseTheSameMovementSession() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: .borderless, backing: .buffered, defer: false)
-        let anchor = TimelineRowAnchorView(frame: NSRect(x: 0, y: 0, width: 300, height: 60))
+        let anchor = TimelineCollectionButton(frame: NSRect(x: 0, y: 0, width: 300, height: 60))
         let clip = TimelineElementSelection.clip(UUID())
-        anchor.element = clip
+        anchor.configure(model: TimelineCollectionItemModel(selection: clip, title: "Clip",
+            subtitle: nil, accessibilityValue: "", accessibilityHint: "", isSelected: false, isTransition: false),
+            nativeFocus: nil, activate: { _ in }, focus: { _ in }, menu: { _ in NSMenu() })
         try #require(window.contentView).addSubview(anchor)
         let coordinator = TimelineKeyboardBridge.Coordinator()
         var actions: [TimelineKeyAction] = []

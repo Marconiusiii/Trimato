@@ -186,22 +186,6 @@ enum TimelineKeyboardFocus {
     }
 }
 
-final class TimelineRowAnchorView: NSView {
-    var element: TimelineElementSelection?
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    static func row(at point: NSPoint, in view: NSView) -> TimelineRowAnchorView? {
-        for child in view.subviews {
-            if let row = child as? TimelineRowAnchorView,
-               row.convert(row.visibleRect, to: nil).contains(point), !row.isHiddenOrHasHiddenAncestor {
-                return row
-            }
-            if let row = row(at: point, in: child) { return row }
-        }
-        return nil
-    }
-}
-
 struct TimelineKeyboardBridge: NSViewRepresentable {
     let accessibilitySelection: TimelineElementSelection?
     let keyboardSelection: TimelineElementSelection?
@@ -267,6 +251,7 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
             }
             if event.type == .keyDown,
                NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags) {
+                TimelineFocusDiagnostics.record("control-enter \(TimelineFocusDiagnostics.windowState(NSApp.keyWindow))")
                 let accessibilityFocus = bridge?.nativeFocus?.voiceOverSelection
                 let keyboardFocus = bridge?.nativeFocus?.keyboardSelection
                 let handled = TimelineContextMenuRouting.present(voiceOver: NSWorkspace.shared.isVoiceOverEnabled,
@@ -332,12 +317,12 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
 
         func handleMouse(_ event: NSEvent, in window: NSWindow) -> NSEvent? {
             guard let bridge, let content = window.contentView else { return event }
-            let row = TimelineRowAnchorView.row(at: event.locationInWindow, in: content)
+            let row = TimelineCollectionButton.item(at: event.locationInWindow, in: content)
             switch event.type {
             case .leftMouseDown:
                 // Preserve control-click and the native context menu.
                 guard event.modifierFlags.intersection([.command, .option, .control, .shift]) != .control,
-                      let target = row?.element, case .clip = target else { return event }
+                      let target = row?.selection, case .clip = target else { return event }
                 mouseSource = target
                 mouseMovementStarted = false
                 let request = UUID()
@@ -352,7 +337,7 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
             case .leftMouseDragged:
                 guard mouseSource != nil else { return event }
                 beginMouseMovement()
-                if let row, let target = row.element {
+                if let row, let target = row.selection {
                     let rect = row.convert(row.bounds, to: nil)
                     bridge.perform(event.locationInWindow.x <= rect.midX ? .previewBefore : .previewAfter, target)
                 }
@@ -362,7 +347,7 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
                 let wasMoving = mouseMovementStarted
                 clearMousePress()
                 if wasMoving { bridge.perform(.finishMovement, source) }
-                else if row?.element == source { bridge.perform(.openEditor, source) }
+                else if row?.selection == source { bridge.perform(.openEditor, source) }
                 return nil
             default: return event
             }
@@ -723,25 +708,8 @@ private final class TimelineMenuAction: NSObject {
 private final class TimelineCollectionItem: NSCollectionViewItem {
     static let identifier = NSUserInterfaceItemIdentifier("TimelineCollectionItem")
     let button = TimelineCollectionButton(frame: .zero)
-    let eventAnchor = TimelineRowAnchorView()
-
     override func loadView() {
-        view = NSView()
-        eventAnchor.translatesAutoresizingMaskIntoConstraints = false
-        eventAnchor.setAccessibilityElement(false)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(eventAnchor)
-        view.addSubview(button)
-        NSLayoutConstraint.activate([
-            eventAnchor.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            eventAnchor.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            eventAnchor.topAnchor.constraint(equalTo: view.topAnchor),
-            eventAnchor.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            button.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            button.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            button.topAnchor.constraint(equalTo: view.topAnchor),
-            button.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        view = button
     }
 
     func configure(model: TimelineCollectionItemModel,
@@ -749,13 +717,11 @@ private final class TimelineCollectionItem: NSCollectionViewItem {
                    activate: @escaping (TimelineElementSelection) -> Void,
                    focus: @escaping (TimelineElementSelection) -> Void,
                    menu: @escaping (TimelineElementSelection) -> NSMenu) {
-        eventAnchor.element = model.selection
         button.configure(model: model, nativeFocus: nativeFocus,
                          activate: activate, focus: focus, menu: menu)
     }
 
     func configureEmpty(title: String) {
-        eventAnchor.element = nil
         button.configureEmpty(title: title)
     }
 }
@@ -828,7 +794,11 @@ struct TimelineNativeButton: View {
             .accessibilityFocused($voiceOverFocused)
             .focused($keyboardFocused)
             .contextMenu { TimelineNativeMenu(items: menu(model.selection).items) }
-            .accessibilityAction(.showMenu) { _ = showMenu(model.selection) }
+            .accessibilityAction(.showMenu) {
+                TimelineFocusDiagnostics.record("ax-show-menu-enter target=\(model.selection) \(TimelineFocusDiagnostics.windowState(NSApp.keyWindow))")
+                let handled = showMenu(model.selection)
+                TimelineFocusDiagnostics.record("ax-show-menu-return target=\(model.selection) handled=\(handled)")
+            }
             .onKeyPress(keys: [.return, KeyEquivalent("\u{3}")], phases: .down) { press in
                 guard press.modifiers.intersection([.command, .control, .option, .shift]) == .control else { return .ignored }
                 return showMenu(model.selection) ? .handled : .ignored
@@ -901,6 +871,18 @@ private struct TimelineNativeMenu: View {
 }
 
 final class TimelineCollectionButton: NSHostingView<AnyView> {
+    static func item(at point: NSPoint, in view: NSView) -> TimelineCollectionButton? {
+        guard !view.isHiddenOrHasHiddenAncestor else { return nil }
+        if let item = view as? TimelineCollectionButton,
+           item.selection != nil, item.convert(item.visibleRect, to: nil).contains(point) {
+            return item
+        }
+        for child in view.subviews {
+            if let item = item(at: point, in: child) { return item }
+        }
+        return nil
+    }
+
     private let focusRequest = TimelineItemFocusRequest()
     private let owner = UUID()
     private var nativeFocus: TimelineNativeFocus?
@@ -961,6 +943,7 @@ final class TimelineCollectionButton: NSHostingView<AnyView> {
     }) -> Bool {
         guard let selection, expectedSelection == nil || expectedSelection == selection,
               window != nil, let menu = menuProvider?(selection), !menu.items.isEmpty else { return false }
+        TimelineFocusDiagnostics.record("menu-present target=\(selection) itemCount=\(menu.items.count)")
         present(menu, self)
         return true
     }
