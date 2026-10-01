@@ -95,7 +95,7 @@ private struct OperationProgressSnapshot: Equatable {
     let completionPending: Bool
     let returnWindowNumber: Int?
     let waitsForReturnWindow: Bool
-    var completionRequested = false
+    let completionRequested: Bool
 }
 
 extension View {
@@ -103,6 +103,7 @@ extension View {
         _ operation: OperationProgress?,
         outcome: OperationProgressOutcome = .completed,
         completionPending: Bool = false,
+        completionRequested: Bool = false,
         returnWindow: NSWindow? = nil,
         waitsForReturnWindow: Bool = false,
         dismissed: @escaping () -> Void = {}
@@ -111,6 +112,7 @@ extension View {
             operation: operation,
             outcome: outcome,
             completionPending: completionPending,
+            completionRequested: completionRequested,
             returnWindow: returnWindow,
             waitsForReturnWindow: waitsForReturnWindow,
             dismissed: dismissed
@@ -122,6 +124,7 @@ private struct OperationProgressPresenter: ViewModifier {
     let operation: OperationProgress?
     let outcome: OperationProgressOutcome
     let completionPending: Bool
+    let completionRequested: Bool
     let returnWindow: NSWindow?
     let waitsForReturnWindow: Bool
     let dismissed: () -> Void
@@ -141,7 +144,8 @@ private struct OperationProgressPresenter: ViewModifier {
             outcome: outcome,
             completionPending: completionPending,
             returnWindowNumber: returnWindow?.windowNumber,
-            waitsForReturnWindow: waitsForReturnWindow
+            waitsForReturnWindow: waitsForReturnWindow,
+            completionRequested: completionRequested
         )
     }
 
@@ -152,7 +156,8 @@ private struct OperationProgressPresenter: ViewModifier {
     }
 
     private func synchronize() {
-        if operation != nil || completionPending { awaitingCompletion = true }
+        // Cached work may finish before SwiftUI observes an in-progress value.
+        if operation != nil || completionPending || completionRequested { awaitingCompletion = true }
         if let operation {
             guard !waitsForReturnWindow || returnWindow != nil else { return }
             if let sessionID,
@@ -409,13 +414,12 @@ private struct OperationProgressContent: View {
 }
 
 // Clip preparation belongs to its editor window. Keep its entry gate closed until
-// the native sheet detaches, including when preparation finishes before appearance.
+// SwiftUI confirms dismissal, including when preparation finishes before appearance.
 @MainActor
 final class ClipPreparationSheetPresentation: ObservableObject {
     @Published private(set) var session: OperationProgressWindowSession?
     @Published var isPresented = false
     private var awaitingCompletion = false
-    private var dismissalTask: Task<Void, Never>?
     private let postsAnnouncements: Bool
 
     init(postsAnnouncements: Bool = true) {
@@ -423,9 +427,8 @@ final class ClipPreparationSheetPresentation: ObservableObject {
     }
 
     func synchronize(operation: OperationProgress?, outcome: OperationProgressOutcome,
-                     completionPending: Bool, completionRequested: Bool = false,
-                     dismissed: @escaping () -> Void) {
-        if operation != nil || completionPending || completionRequested { awaitingCompletion = true }
+                     completionPending: Bool, dismissed: @escaping () -> Void) {
+        if operation != nil || completionPending { awaitingCompletion = true }
         if let operation {
             if let session {
                 // A new request can be presented after the current sheet dismisses.
@@ -448,22 +451,12 @@ final class ClipPreparationSheetPresentation: ObservableObject {
         ClipEntryDiagnostics.record("preparation.finished id=\(session.id) outcome=\(outcome)")
     }
 
-    func sheetDismissed(ownerWindow: NSWindow? = nil) {
-        guard dismissalTask == nil else { return }
-        // SwiftUI's onDismiss can precede AppKit's sheet detachment. Keep the
-        // completion gate closed until the owning window releases this sheet.
-        let sheet = ownerWindow?.attachedSheet
-        dismissalTask = Task { @MainActor in
-            while let sheet, ownerWindow?.attachedSheet === sheet {
-                try? await Task.sleep(for: .milliseconds(20))
-            }
-            let completed = session
-            session = nil
-            isPresented = false
-            dismissalTask = nil
-            ClipEntryDiagnostics.record("preparation.nativeDismissal id=\(String(describing: completed?.id))")
-            completed?.completeDismissal()
-        }
+    func sheetDismissed() {
+        let completed = session
+        session = nil
+        isPresented = false
+        ClipEntryDiagnostics.record("preparation.nativeDismissal id=\(String(describing: completed?.id))")
+        completed?.completeDismissal()
     }
 }
 
@@ -475,16 +468,6 @@ extension View {
         modifier(ClipPreparationSheetPresenter(operation: operation, outcome: outcome,
             completionPending: completionPending, dismissed: dismissed))
     }
-
-    func operationPreparationSheet(_ operation: OperationProgress?,
-                                   outcome: OperationProgressOutcome = .completed,
-                                   completionRequested: Bool = false,
-                                   ownerWindow: NSWindow? = nil,
-                                   dismissed: @escaping () -> Void) -> some View {
-        modifier(ClipPreparationSheetPresenter(operation: operation, outcome: outcome,
-            completionPending: false, dismissed: dismissed, completionRequested: completionRequested,
-            ownerWindow: ownerWindow))
-    }
 }
 
 private struct ClipPreparationSheetPresenter: ViewModifier {
@@ -492,8 +475,6 @@ private struct ClipPreparationSheetPresenter: ViewModifier {
     let outcome: OperationProgressOutcome
     let completionPending: Bool
     let dismissed: () -> Void
-    var completionRequested = false
-    var ownerWindow: NSWindow?
     @StateObject private var presentation = ClipPreparationSheetPresentation()
 
     private var snapshot: OperationProgressSnapshot {
@@ -501,17 +482,15 @@ private struct ClipPreparationSheetPresenter: ViewModifier {
             detail: operation?.detail, progressStage: operation?.progressStage,
             canCancel: operation?.cancel != nil, announceCompletion: operation?.announceCompletion ?? false,
             announcesUpdates: operation?.announcesUpdates ?? true, outcome: outcome,
-            completionPending: completionPending, returnWindowNumber: ownerWindow?.windowNumber, waitsForReturnWindow: false,
-            completionRequested: completionRequested)
+            completionPending: completionPending, returnWindowNumber: nil, waitsForReturnWindow: false,
+            completionRequested: false)
     }
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $presentation.isPresented, onDismiss: {
-                presentation.sheetDismissed(ownerWindow: ownerWindow)
-            }) {
+            .sheet(isPresented: $presentation.isPresented, onDismiss: presentation.sheetDismissed) {
                 if let session = presentation.session {
-                    ClipPreparationSheetContent(session: session, ownerWindow: ownerWindow)
+                    ClipPreparationSheetContent(session: session)
                         .interactiveDismissDisabled()
                 }
             }
@@ -525,20 +504,19 @@ private struct ClipPreparationSheetPresenter: ViewModifier {
 
     private func synchronize() {
         presentation.synchronize(operation: operation, outcome: outcome,
-            completionPending: completionPending, completionRequested: completionRequested, dismissed: dismissed)
+            completionPending: completionPending, dismissed: dismissed)
     }
 }
 
 private struct ClipPreparationSheetContent: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var session: OperationProgressWindowSession
-    var ownerWindow: NSWindow?
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(session.title).font(.headline)
+            Text("Preparing Clip").font(.headline)
             ProgressView(value: session.progress.flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }, total: 1)
                 .progressViewStyle(.linear)
-                .accessibilityLabel(session.title)
+                .accessibilityLabel("Preparing Clip")
             if session.canCancel {
                 Button("Cancel", action: session.cancel)
                     .keyboardShortcut(.cancelAction)
@@ -547,17 +525,11 @@ private struct ClipPreparationSheetContent: View {
         .padding(24)
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
-        .task(id: session.isFinished) {
-            guard session.isFinished else { return }
-            // Cached generators can finish before the native sheet attaches.
-            // Dismissing during that interval loses the completion callback.
-            while let ownerWindow, ownerWindow.isVisible, ownerWindow.attachedSheet == nil {
-                try? await Task.sleep(for: .milliseconds(20))
-                guard !Task.isCancelled else { return }
+        .onChange(of: session.isFinished, initial: true) { _, finished in
+            if finished {
+                ClipEntryDiagnostics.record("preparation.requestNativeDismissal id=\(session.id)")
+                dismiss()
             }
-            guard !Task.isCancelled else { return }
-            ClipEntryDiagnostics.record("preparation.requestNativeDismissal id=\(session.id)")
-            dismiss()
         }
     }
 }

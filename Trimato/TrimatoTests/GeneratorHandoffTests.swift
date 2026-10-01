@@ -6,8 +6,12 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct GeneratorHandoffTests {
+    private var preparationWindows: [NSWindow] {
+        NSApp.windows.filter { $0.isVisible && $0.identifier?.rawValue == "Trimato.OperationProgress" }
+    }
+
     @Test(arguments: [GeneratorKind.black, .text], [false, true])
-    func nativePreparationDismissesBeforeCompletion(kind: GeneratorKind, cached: Bool) async throws {
+    func nativePreparationWindowClosesBeforeCompletion(kind: GeneratorKind, cached: Bool) async throws {
         let controller = ProjectController(document: ProjectDocument(project: TrimatoProject()))
         let session = GeneratorSession(controller: controller)
         session.definition.kind = kind
@@ -24,7 +28,7 @@ struct GeneratorHandoffTests {
         var completionCount = 0
         let host = NSHostingView(rootView: GeneratorView(session: session, focusRequest: NativeModalFocusRequest(),
             close: {
-                #expect(window.attachedSheet == nil, "Generator completion must wait for native sheet detachment")
+                #expect(preparationWindows.isEmpty, "Generator completion must wait for its progress window to close")
                 completionCount += 1
             }))
         window.contentView = host
@@ -32,17 +36,15 @@ struct GeneratorHandoffTests {
         defer { session.cancelPreparation(); window.close() }
         try await Task.sleep(for: .milliseconds(100))
         session.prepare(placement: .insert) {
-            #expect(window.attachedSheet == nil)
+            #expect(preparationWindows.isEmpty)
             completionCount += 1
         }
         for _ in 0..<500 where completionCount == 0 {
-            if let sheet = window.attachedSheet {
-                #expect(sheet.contentView != nil)
-                sheet.contentView?.layoutSubtreeIfNeeded()
-            }
+            #expect(window.attachedSheet == nil, "Generator must retain its established progress-window presentation")
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(completionCount == 1)
+        #expect(preparationWindows.isEmpty)
         #expect(window.attachedSheet == nil)
         #expect(session.progress == nil && !session.hasPendingCompletion)
         #expect(session.errorMessage == nil)
@@ -51,14 +53,19 @@ struct GeneratorHandoffTests {
         #expect(completionCount == 1)
     }
 
-    @Test func immediateCompletionWithoutAnObservedProgressStateRunsOnce() {
-        let presentation = ClipPreparationSheetPresentation(postsAnnouncements: false)
+    @Test func immediateCompletionWithoutAnObservedProgressStateRunsOnce() async throws {
         var completions = 0
-        presentation.synchronize(operation: nil, outcome: .completed, completionPending: false,
-            completionRequested: true, dismissed: { completions += 1 })
-        #expect(completions == 1 && presentation.session == nil && !presentation.isPresented)
-        presentation.synchronize(operation: nil, outcome: .completed, completionPending: false,
-            dismissed: { completions += 1 })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: Text("Generator")
+            .operationProgress(nil, completionRequested: true, dismissed: { completions += 1 }))
+        window.orderBack(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(completions == 1 && preparationWindows.isEmpty)
+        window.contentView?.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
         #expect(completions == 1)
     }
 

@@ -68,7 +68,9 @@ final class GeneratorSession: ObservableObject, Identifiable {
     @Published var errorMessage: String?
     private var operation: Task<Void, Never>?
     private var operationID = UUID()
-    @Published private var completionAction: (() -> Void)?
+    // Record completion before publishing the final progress value. The callback
+    // itself must not invalidate the form when an idle setting changes.
+    private var completionAction: (() -> Void)?
     var hasPendingCompletion: Bool { completionAction != nil }
     private var originalQuitDraft: QuitDraft?
 
@@ -293,11 +295,12 @@ struct GeneratorView: View {
                 ContextualHelpButton(topic: .generator)
             }
         }
-        .operationPreparationSheet(session.progress.map { OperationProgress(
+        .operationProgress(session.progress.map { OperationProgress(
             title: "Preparing Generator", progress: $0, cancel: session.cancelPreparation
         ) }, outcome: session.errorMessage == nil ? .completed : .failed,
                            completionRequested: session.hasPendingCompletion,
-                           ownerWindow: session.hostWindow,
+                           returnWindow: session.hostWindow,
+                           waitsForReturnWindow: true,
                            dismissed: session.progressWindowDismissed)
         .padding(EditorTheme.dialogPadding)
         .frame(minWidth: 560, alignment: .leading)

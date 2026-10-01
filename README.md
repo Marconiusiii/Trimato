@@ -8,7 +8,7 @@ Created by Marco Salsiccia.
 
 - Edit standalone audio and video clips or arrange multiple tracks in a saved `.trimato` project.
 - Mark ranges, split and trim clips, and make non-destructive edits that preserve the original media.
-- Work with portrait or landscape video, step through individual frames, and edit audio with optional static waveforms.
+- Work with portrait or landscape video, step through individual frames or jump ten frames with Shift-Arrow, and edit audio with optional static waveforms.
 - Write and time captions with Captioner, import SRT and WebVTT files, and export captions as separate files or include them in the video.
 - Record audio description with Describer and narration with Voicer. Adjust voice levels, match loudness, and reduce other audio during descriptions.
 - Use Captioner, Describer, and Voicer beside the main video preview. Mix audio live and loop an In–Out range in a separate Mixer window.
@@ -28,7 +28,7 @@ Created by Marco Salsiccia.
 
 Choose Trim a Clip on the welcome screen to edit a single file, New Project to arrange media, or Open Project to continue saved work.
 
-In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open audio or video on its Cutting Board to trim it. Open Captioner, Describer, Voicer, or Mixer as needed. Choose Settings to configure recording devices, playback, timecode feedback and style, optional waveforms, and storage preferences.
+In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open audio or video on its Cutting Board to trim it. Home and End jump to the timeline start and end; Fn-Left Arrow and Fn-Right Arrow provide the same commands. Open Captioner, Describer, Voicer, or Mixer as needed. Choose Settings to configure recording devices, playback, timecode feedback and style, optional waveforms, and storage preferences.
 
 For editing instructions and keyboard shortcuts, open the Trimato Manual from the app's Help menu. Help buttons open the topic for the current tool or Settings page.
 

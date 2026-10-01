@@ -1204,12 +1204,16 @@ final class ProjectPlayerViewModel: ObservableObject {
         applyJKLRate()
     }
 
-    func stepBackward() {
-        stepFrame(forward: false)
+    func stepBackward() { stepBackward(frames: 1) }
+
+    func stepBackward(frames: Int) {
+        stepFrame(forward: false, frames: frames)
     }
 
-    func stepForward() {
-        stepFrame(forward: true)
+    func stepForward() { stepForward(frames: 1) }
+
+    func stepForward(frames: Int) {
+        stepFrame(forward: true, frames: frames)
     }
 
     func arrowHeld(forward: Bool) {
@@ -1284,7 +1288,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         return points.sorted()
     }
 
-    private func stepFrame(forward: Bool) {
+    private func stepFrame(forward: Bool, frames: Int = 1) {
         guard canControlPlayback, !arrowHolding else { return }
         seekRequest = nil
         navigationPoint = nil
@@ -1296,7 +1300,7 @@ final class ProjectPlayerViewModel: ObservableObject {
             current: frameStepPosition ?? currentTime,
             duration: projectDuration,
             frameRate: projectFrameRate,
-            forward: forward
+            forward: forward, frames: frames
         )
         frameStepPosition = destination
         updateDisplayedTime(destination)
@@ -1569,9 +1573,10 @@ final class ProjectPlayerViewModel: ObservableObject {
         current: ProjectTime,
         duration: ProjectTime,
         frameRate: Double,
-        forward: Bool
+        forward: Bool,
+        frames: Int = 1
     ) -> ProjectTime {
-        let frameDuration = ProjectTime(seconds: 1 / max(frameRate, 1))
+        let frameDuration = ProjectTime(seconds: Double(max(frames, 1)) / max(frameRate, 1))
         return forward
             ? min(current + frameDuration, duration)
             : max(current - frameDuration, .zero)
@@ -1817,6 +1822,18 @@ final class ProjectPlayerViewModel: ObservableObject {
                     return nil
                 }
             }
+            if modifiers == .shift, event.keyCode == 123 || event.keyCode == 124 {
+                if event.keyCode == 123 { self.stepBackward(frames: 10) }
+                else { self.stepForward(frames: 10) }
+                return nil
+            }
+            if modifiers.isEmpty, event.keyCode == 115 || event.keyCode == 119 {
+                if !event.isARepeat {
+                    if event.keyCode == 115 { self.goToStart() }
+                    else { self.goToEnd() }
+                }
+                return nil
+            }
             switch event.keyCode {
             case 49:
                 guard unmodified else { return event }
@@ -1898,6 +1915,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 || key == "[" || key == "]" || key == "b" || key == "t"
         }
         guard unmodified else { return false }
+        if [115, 119].contains(keyCode) { return relevantModifiers.isEmpty }
         if keyCode == 49 || keyCode == 123 || keyCode == 124 { return true }
         if ["g", "m", ";", "'"].contains(key ?? "") { return relevantModifiers.isEmpty }
         return ["[", "]", "c", "x", "f", "t", "i", "o", "j", "k", "l"].contains(key)

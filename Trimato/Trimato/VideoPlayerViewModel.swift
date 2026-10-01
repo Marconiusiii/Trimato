@@ -669,24 +669,28 @@ final class VideoPlayerViewModel: ObservableObject {
         position.isFinite && end.isFinite && end > 0 && position >= end - 0.002
     }
 
-    func stepForward() {
+    func stepForward() { stepForward(frames: 1) }
+
+    func stepForward(frames: Int) {
         guard hasMedia, !arrowHolding else { return }
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         jklIndex = 0
         player.pause()
-        seekOneFrame(forward: true) { [weak self] target in
+        seekFrames(forward: true, count: frames) { [weak self] target in
             self?.scheduleScrubAudio(returningTo: target)
         }
     }
 
-    func stepBackward() {
+    func stepBackward() { stepBackward(frames: 1) }
+
+    func stepBackward(frames: Int) {
         guard hasMedia, !arrowHolding else { return }
         cancelScrub(preservingFrameStepPosition: true)
         isSteppingFrames = true
         jklIndex = 0
         player.pause()
-        seekOneFrame(forward: false) { [weak self] target in
+        seekFrames(forward: false, count: frames) { [weak self] target in
             self?.scheduleScrubAudio(returningTo: target)
         }
     }
@@ -1171,18 +1175,25 @@ final class VideoPlayerViewModel: ObservableObject {
 
     // MARK: - Private: frame seeking
 
-    // Seeks forward or backward by exactly one frame using the track's minFrameDuration
+    // Seeks forward or backward by the requested number of frames using the track's minFrameDuration
     // (or a computed fallback) and calls the completion handler once the seek has landed.
     // Audio preview starts only after the selected video frame is ready.
-    private func seekOneFrame(forward: Bool, completion: @escaping (CMTime) -> Void) {
+    private func seekFrames(forward: Bool, count: Int, completion: @escaping (CMTime) -> Void) {
+        let count = max(count, 1)
         if !editedFrameTimestamps.isEmpty {
             let timestamps = editedFrameTimestamps
             let current = frameStepPosition ?? player.currentTime()
             let target: CMTime
             if forward {
-                target = timestamps.first { CMTimeCompare($0, current) > 0 } ?? mediaDuration
+                if let first = timestamps.firstIndex(where: { CMTimeCompare($0, current) > 0 }),
+                   first + count - 1 < timestamps.count {
+                    target = timestamps[first + count - 1]
+                } else { target = mediaDuration }
             } else {
-                target = timestamps.last { CMTimeCompare($0, current) < 0 } ?? .zero
+                if let last = timestamps.lastIndex(where: { CMTimeCompare($0, current) < 0 }),
+                   last - count + 1 >= 0 {
+                    target = timestamps[last - count + 1]
+                } else { target = .zero }
             }
             frameStepPosition = target
             frameSeeker.seek(player, to: target) { completion(target) }
@@ -1199,9 +1210,10 @@ final class VideoPlayerViewModel: ObservableObject {
         }
 
         let current = frameStepPosition ?? player.currentTime()
+        let jumpDuration = CMTimeMultiply(frameDur, multiplier: Int32(count))
         let unclampedTarget: CMTime = forward
-            ? CMTimeAdd(current, frameDur)
-            : CMTimeSubtract(current, frameDur)
+            ? CMTimeAdd(current, jumpDuration)
+            : CMTimeSubtract(current, jumpDuration)
         let nonnegativeTarget = CMTimeMaximum(unclampedTarget, .zero)
         let target = mediaDuration.isValid && mediaDuration > .zero
             ? CMTimeMinimum(nonnegativeTarget, mediaDuration)
@@ -1538,6 +1550,19 @@ final class VideoPlayerViewModel: ObservableObject {
                 }
             }
 
+            if commandModifiers == .shift, event.keyCode == 123 || event.keyCode == 124 {
+                guard !ClipEditorKeyboardRouting.focusedControlReservesArrowKeys() else { return event }
+                if event.keyCode == 123 { self.stepBackward(frames: 10) }
+                else { self.stepForward(frames: 10) }
+                return nil
+            }
+            if commandModifiers.isEmpty, event.keyCode == 115 || event.keyCode == 119 {
+                if !event.isARepeat {
+                    if event.keyCode == 115 { self.goToStart() }
+                    else { self.goToEnd() }
+                }
+                return nil
+            }
             switch event.keyCode {
             case 51, 117: // Delete and Forward Delete
                 guard unmodified else { return event }
