@@ -469,6 +469,50 @@ struct TimelineClipsCollection: NSViewRepresentable {
         var previousFocusRequest = -1
         var previousListFocusRequest = -1
         var pendingFocusTarget: TimelineElementSelection?
+        private var pendingListFocus: (item: Int, list: Int)?
+
+        override init() {
+            super.init()
+            NotificationCenter.default.addObserver(self, selector: #selector(windowReady(_:)),
+                name: NSWindow.didBecomeKeyNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(windowReady(_:)),
+                name: NSWindow.didEndSheetNotification, object: nil)
+        }
+
+        @objc private func windowReady(_ notification: Notification) {
+            guard let window = notification.object as? NSWindow, window === collectionView?.window else { return }
+            schedulePendingFocus()
+        }
+
+        private func schedulePendingFocus() {
+            DispatchQueue.main.async { [weak self] in self?.applyPendingFocus() }
+        }
+
+        private func applyPendingFocus() {
+            guard isFocusRequestCurrent() else {
+                pendingListFocus = nil
+                pendingFocusTarget = nil
+                return
+            }
+            guard let collection = collectionView, let window = collection.window,
+                  window.isKeyWindow, window.attachedSheet == nil, NSApp.modalWindow == nil else { return }
+            if let request = pendingListFocus {
+                guard request.item == previousFocusRequest, request.list == previousListFocusRequest else {
+                    pendingListFocus = nil
+                    return
+                }
+                guard window.makeFirstResponder(collection), window.firstResponder === collection else { return }
+                pendingListFocus = nil
+                if NSWorkspace.shared.isVoiceOverEnabled {
+                    collection.setAccessibilityFocused(true)
+                    NSAccessibility.post(element: collection, notification: .focusedUIElementChanged)
+                }
+                reportKeyboardFocus(nil)
+            } else if let target = pendingFocusTarget {
+                select(target)
+            }
+        }
+
         var movingClipID: UUID?
         var emptyTitle = "No clips on this track"
         var nativeFocus: TimelineNativeFocus?
@@ -499,7 +543,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             nativeFocus = source.nativeFocus
             keyboardFocusArrived = source.keyboardFocusArrived
             isFocusRequestCurrent = source.isFocusRequestCurrent
-            if !isFocusRequestCurrent() { pendingFocusTarget = nil }
+            if !isFocusRequestCurrent() { pendingFocusTarget = nil; pendingListFocus = nil }
             nativeFocus?.didObserveKeyboardFocus = { [weak self] target in
                 self?.reportKeyboardFocus(target)
             }
@@ -521,6 +565,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             }
             if previousFocusRequest != source.focusRequest, source.focusRequest > 0 {
                 previousFocusRequest = source.focusRequest
+                pendingListFocus = nil
                 TimelineFocusDiagnostics.record("item-request revision=\(source.focusRequest) target=\(String(describing: source.focusTarget)) listRevision=\(source.listFocusRequest)")
                 if let target = source.focusTarget {
                     let request = source.focusRequest
@@ -539,29 +584,16 @@ struct TimelineClipsCollection: NSViewRepresentable {
                 previousListFocusRequest = source.listFocusRequest
                 TimelineFocusDiagnostics.record("list-request revision=\(source.listFocusRequest)")
                 pendingFocusTarget = nil
-                let request = source.listFocusRequest
-                let itemRequest = source.focusRequest
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, self.isFocusRequestCurrent(), self.previousListFocusRequest == request,
-                          self.previousFocusRequest == itemRequest,
-                          let collection = self.collectionView,
-                          let window = collection.window, window.isKeyWindow,
-                          window.attachedSheet == nil, NSApp.modalWindow == nil else { return }
-                    self.pendingFocusTarget = nil
-                    guard window.makeFirstResponder(collection) else { return }
-                    if NSWorkspace.shared.isVoiceOverEnabled {
-                        NSAccessibility.post(element: collection, notification: .focusedUIElementChanged)
-                    }
-                    self.reportKeyboardFocus(nil)
-                }
+                pendingListFocus = (source.focusRequest, source.listFocusRequest)
             } else {
                 previousListFocusRequest = source.listFocusRequest
             }
+            schedulePendingFocus()
         }
 
         func numberOfSections(in collectionView: NSCollectionView) -> Int { 1 }
         func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
-            max(models.count, 1)
+            models.count
         }
 
         func collectionView(_ collectionView: NSCollectionView,

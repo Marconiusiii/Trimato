@@ -247,8 +247,16 @@ struct ProjectTimelineView: View {
 
     @ViewBuilder
     private var timelineContent: some View {
-        timelineScrollView
-            .onDeleteCommand(perform: deleteFocusedTimelineElement)
+        VStack(spacing: 0) {
+            timelineScrollView
+            if timelineCollectionItems.isEmpty {
+                emptyMessage(controller.activeTimelineTrack?.kind == .captions ? "No captions on this track"
+                    : controller.activeTimelineTrack?.kind == .markers ? "No markers on this track"
+                    : controller.activeTimelineTrack?.recordingPurpose == .descriptionTranscript
+                    ? "No descriptions on this track" : "No clips on this track")
+            }
+        }
+        .onDeleteCommand(perform: deleteFocusedTimelineElement)
     }
 
     private func deleteFocusedTimelineElement() {
@@ -529,14 +537,10 @@ struct ProjectTimelineView: View {
         let fallback = assetID.flatMap { TimelineElementSequence.focusTargetAfterDeletingMedia($0, clipID: origin, from: timelineElements) }
         mediaDeletionOrigin = nil; confirmedMediaDeletion = nil
         guard let assetID else { restoreTimelineElementFocus(to: .clip(origin)); return }
-        let window = NSApp.keyWindow
-        DispatchQueue.main.async {
+        commitDeletionAndRestoreFocus(fallback) {
             controller.deleteSourceAsset(assetID)
             controller.selection = editorSelection(for: fallback) ?? .project
             controller.setProjectInfoTarget(.selection(controller.selection))
-            guard window?.isKeyWindow == true, window?.attachedSheet == nil else { return }
-            if let fallback { controller.requestTimelineFocusRestore(to: fallback) }
-            else { controller.requestTimelineListFocusRestore() }
         }
     }
 
@@ -555,7 +559,7 @@ struct ProjectTimelineView: View {
     private func deleteTimelineTransition(_ id: UUID) {
         guard let transition = controller.project.transition(id: id) else { return }
         let target = fallbackFocusAfterDeleting(transition)
-        commitDeletionAndRestoreFocus(target, in: NSApp.keyWindow) {
+        commitDeletionAndRestoreFocus(target) {
             controller.deleteTransition(id: id, selecting: editorSelection(for: target) ?? .project)
         }
     }
@@ -673,7 +677,7 @@ struct ProjectTimelineView: View {
         clipDeletionFocusID = nil
         clipDeletionWasConfirmed = false
         if confirmed {
-            commitDeletionAndRestoreFocus(fallback, in: NSApp.keyWindow) {
+            commitDeletionAndRestoreFocus(fallback) {
                 controller.deleteTimelineClip(
                     id: clipID,
                     selecting: editorSelection(for: fallback) ?? .project
@@ -686,12 +690,12 @@ struct ProjectTimelineView: View {
 
     private func commitDeletionAndRestoreFocus(
         _ target: TimelineElementSelection?,
-        in window: NSWindow?,
         commit: @escaping () -> Void
     ) {
         DispatchQueue.main.async {
             commit()
-            guard window?.isKeyWindow == true, window?.attachedSheet == nil else { return }
+            // The collection belongs to the project window and retains this request
+            // until its sheet has finished dismissing and its contents are ready.
             if let target { controller.requestTimelineFocusRestore(to: target) }
             else { controller.requestTimelineListFocusRestore() }
         }
