@@ -38,6 +38,21 @@ struct OperationProgressTests {
         #expect(dismissalCount == 1)
     }
 
+    @Test @MainActor func completionReachesOneHundredAndRejectsLateCancel() {
+        var cancellationCount = 0
+        let session = OperationProgressWindowSession(operation: OperationProgress(
+            title: "Applying Clip Effects", progress: 0.95,
+            cancel: { cancellationCount += 1 }
+        ), postsAnnouncements: false)
+        session.finish(outcome: .completed, dismissed: {})
+        session.cancel()
+        session.update(OperationProgress(title: "Applying Clip Effects", progress: 0.2))
+        #expect(session.progress == 1)
+        #expect(session.outcome == .completed)
+        #expect(!session.canCancel)
+        #expect(cancellationCount == 0)
+    }
+
     @Test @MainActor func cancellingDisablesCancelAndPreservesCancelledOutcome() {
         var cancellationCount = 0
         let session = OperationProgressWindowSession(operation: OperationProgress(

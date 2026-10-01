@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import Testing
 @testable import Trimato
 
@@ -6,6 +7,28 @@ import Testing
 @MainActor
 struct ClipPreviewCoordinatorTests {
     private enum Failure: Error { case render }
+
+    private final class ProgressPresenter: ClipPreviewProgressPresenting {
+        var sessions: [UUID: OperationProgressWindowSession] = [:]
+        var outcomes: [OperationProgressOutcome] = []
+
+        func present(_ operation: OperationProgress, returnWindow: NSWindow?) -> UUID {
+            let session = OperationProgressWindowSession(operation: operation, postsAnnouncements: false)
+            sessions[session.id] = session
+            return session.id
+        }
+
+        func update(_ operation: OperationProgress, id: UUID) -> Bool {
+            guard let session = sessions[id] else { return false }
+            session.update(operation)
+            return true
+        }
+
+        func finish(id: UUID, outcome: OperationProgressOutcome, dismissed: @escaping () -> Void) {
+            sessions[id]?.finish(outcome: outcome, dismissed: dismissed)
+            outcomes.append(outcome)
+        }
+    }
 
     @MainActor
     private final class Harness {
@@ -18,6 +41,7 @@ struct ClipPreviewCoordinatorTests {
         var restored = 0
         var renderCount = 0
         var holdPreparation = false
+        let presentation = ProgressPresenter()
 
         lazy var coordinator = ClipPreviewCoordinator(render: { request, progress in
             self.renderCount += 1
@@ -28,10 +52,11 @@ struct ClipPreviewCoordinatorTests {
                 return try await withCheckedThrowingContinuation { self.preparations[url] = $0 }
             }
             return AVMutableComposition()
-        }, remove: { self.removed.append($0) })
+        }, remove: { self.removed.append($0) }, progressPresenter: presentation)
 
         func update(_ request: ClipPreviewCoordinator.Request, force: Bool = false) {
-            coordinator.update(request, debounce: false, force: force, readiness: { self.ready = $0 },
+            coordinator.update(request, debounce: false, force: force, showsProgress: true,
+                               readiness: { self.ready = $0 },
                                restoreOriginal: { self.restored += 1 },
                                commit: { _, url, _ in self.committed.append(url) })
         }
@@ -69,6 +94,7 @@ struct ClipPreviewCoordinatorTests {
         #expect(!h.ready)
         #expect(h.committed.isEmpty)
         #expect(h.coordinator.lastSuccessfulRequest == original)
+        #expect(h.presentation.outcomes == [.failed])
 
         h.update(changed, force: true)
         try await waitFor { h.renders[changed.source] != nil }
@@ -105,7 +131,7 @@ struct ClipPreviewCoordinatorTests {
         try await waitFor { h.renders[second.source] != nil }
         h.progress[second.source]?(0.4)
         h.progress[first.source]?(0.9)
-        #expect(h.coordinator.progress == 0.4)
+        #expect(abs(h.coordinator.progress - 0.4 * 0.95) < 0.000_001)
         h.finish(first, result: .failure(Failure.render))
         h.finish(second, result: .success(second.source))
         try await waitFor { h.ready }
@@ -149,6 +175,7 @@ struct ClipPreviewCoordinatorTests {
         try await waitFor { h.removed == [changed.source] }
         #expect(h.committed.isEmpty)
         #expect(h.coordinator.lastSuccessfulRequest == nil)
+        #expect(h.presentation.outcomes == [.cancelled])
     }
 
     @Test func removingFiltersRecoversImmediatelyAndRejectsOutstandingWork() async throws {
@@ -165,6 +192,7 @@ struct ClipPreviewCoordinatorTests {
         #expect(h.committed.isEmpty)
         #expect(h.coordinator.lastSuccessfulRequest == original)
         #expect(h.ready)
+        #expect(h.presentation.outcomes == [.completed])
     }
 
     @Test func repeatedObservedChangesDoNotRestartTheSameRequest() async throws {
@@ -206,13 +234,105 @@ struct ClipPreviewCoordinatorTests {
         h.progress[changed.source]?(.nan)
         h.progress[changed.source]?(.infinity)
         h.progress[changed.source]?(0.2)
-        #expect(h.coordinator.progress == 0.6)
+        #expect(abs(h.coordinator.progress - 0.6 * 0.95) < 0.000_001)
         h.coordinator.cancel()
         h.progress[changed.source]?(1)
-        #expect(h.coordinator.progress == 0.6)
+        #expect(abs(h.coordinator.progress - 0.6 * 0.95) < 0.000_001)
         h.finish(changed, result: .success(changed.source))
         try await waitFor { h.removed == [changed.source] }
         #expect(h.committed.isEmpty)
     }
 
+    @Test(arguments: [false, true])
+    func progressFinishesAfterInstallationWithoutAnEditorViewUpdate(audio: Bool) async throws {
+        let h = Harness()
+        h.holdPreparation = true
+        let changed = request(audio: audio)
+        h.update(changed)
+        let session = try #require(h.presentation.sessions.values.first)
+        try await waitFor { h.renders[changed.source] != nil }
+        h.progress[changed.source]?(1)
+        #expect(session.progress == 0.95)
+        #expect(!session.isFinished)
+        h.finish(changed, result: .success(changed.source))
+        try await waitFor { h.preparations[changed.source] != nil }
+        #expect(!session.isFinished)
+        #expect(h.committed.isEmpty)
+        h.preparations.removeValue(forKey: changed.source)?.resume(returning: AVMutableComposition())
+        try await waitFor { session.isFinished }
+        #expect(h.committed == [changed.source])
+        #expect(h.ready)
+        #expect(session.progress == 1)
+        #expect(!session.canCancel)
+        #expect(h.presentation.outcomes == [.completed])
+        h.progress[changed.source]?(0.2)
+        h.coordinator.cancel()
+        #expect(session.progress == 1)
+        #expect(h.presentation.outcomes == [.completed])
+    }
+
+    @Test func automaticPreviewPreparationDoesNotPresentAnEffectsWindow() async throws {
+        let h = Harness()
+        let changed = request()
+        h.coordinator.update(changed, debounce: false, readiness: { h.ready = $0 },
+                             restoreOriginal: {}, commit: { _, _, _ in })
+        try await waitFor { h.renders[changed.source] != nil }
+        h.finish(changed, result: .success(changed.source))
+        try await waitFor { h.ready }
+        #expect(h.presentation.sessions.isEmpty)
+        #expect(h.presentation.outcomes.isEmpty)
+    }
+
+    @Test func cancellationClosesProgressAndRejectsLateCompletion() async throws {
+        let h = Harness()
+        let changed = request()
+        h.update(changed)
+        let session = try #require(h.presentation.sessions.values.first)
+        try await waitFor { h.renders[changed.source] != nil }
+        session.cancel()
+        #expect(session.isFinished)
+        #expect(session.outcome == .cancelled)
+        h.finish(changed, result: .success(changed.source))
+        try await waitFor { h.removed == [changed.source] }
+        #expect(h.committed.isEmpty)
+        #expect(h.presentation.outcomes == [.cancelled])
+    }
+
+    @Test func failedPreparationFinishesProgressAndRetryGetsANewSession() async throws {
+        let h = Harness()
+        h.holdPreparation = true
+        let changed = request()
+        h.update(changed)
+        let firstSession = try #require(h.presentation.sessions.values.first)
+        try await waitFor { h.renders[changed.source] != nil }
+        h.finish(changed, result: .success(changed.source))
+        try await waitFor { h.preparations[changed.source] != nil }
+        h.preparations.removeValue(forKey: changed.source)?.resume(throwing: Failure.render)
+        try await waitFor { firstSession.isFinished }
+        #expect(firstSession.outcome == .failed)
+        h.holdPreparation = false
+        h.update(changed, force: true)
+        #expect(h.presentation.sessions.count == 2)
+        try await waitFor { h.renders[changed.source] != nil }
+        h.finish(changed, result: .success(changed.source))
+        try await waitFor { h.ready }
+        #expect(h.presentation.outcomes == [.failed, .completed])
+    }
+
+    @Test func supersededWorkCannotDismissTheCurrentProgressSession() async throws {
+        let h = Harness()
+        let first = request("first")
+        let second = request("second")
+        h.update(first)
+        try await waitFor { h.renders[first.source] != nil }
+        h.update(second)
+        try await waitFor { h.renders[second.source] != nil }
+        h.finish(first, result: .success(first.source))
+        try await waitFor { h.removed == [first.source] }
+        #expect(h.presentation.outcomes.isEmpty)
+        #expect(h.presentation.sessions.count == 1)
+        h.finish(second, result: .success(second.source))
+        try await waitFor { h.ready }
+        #expect(h.presentation.outcomes == [.completed])
+    }
 }

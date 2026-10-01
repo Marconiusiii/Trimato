@@ -14,6 +14,7 @@ Created by Marco Salsiccia.
 - Use Generator, transition tools, Captioner, Describer, and Voicer beside the main video preview. Mix audio live and loop an In–Out range in a separate Mixer window.
 - Mix audio tracks with volume, mute, solo, pan, stereo balance, stereo width, and channel routing controls.
 - Add transitions, Bleach Bypass and Technicolor video filters, room and Plate Reverb audio effects, titles, lower thirds, and other generated clips.
+- Preview filter changes in the Cutting Board, then choose Update Clip to save them to the timeline clip.
 - Tap out absolute markers with M or chapter boundaries with Option-M. Export a chapter text file for your YouTube video description.
 - Export a full-resolution PNG from the playhead, or export web video with a poster, optional captions, and an HTML embed fragment.
 - Export video in H.264, HEVC, or ProRes, and audio in AAC, Apple Lossless, FLAC, or WAV. Preserve HDR and compatible iPhone Spatial Audio in supported exports. Trim a Clip converts HDR video automatically when you choose H.264. A smaller-file MP4 preset is available for clips and projects.

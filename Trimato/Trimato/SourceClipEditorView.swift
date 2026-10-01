@@ -30,7 +30,6 @@ struct SourceClipEditorView: View {
     @State private var cacheOwnerID = UUID()
     @StateObject private var preview = ClipPreviewCoordinator()
     @State private var previewRequest: ClipPreviewCoordinator.Request?
-    @State private var showsPreviewProgress = false
     @State private var showsPreviewError = false
     @State private var addingFilter = false
     @State private var pendingVoice: VoiceAdjustment?
@@ -152,10 +151,6 @@ struct SourceClipEditorView: View {
                 !entryPlaybackReady && !previewNeedsRecovery,
             dismissed: { preparationHandoffPending = false }
         )
-        .operationProgress(showsPreviewProgress && preview.state == .preparing ? OperationProgress(
-            title: "Applying Clip Effects", progress: preview.progress,
-            cancel: preview.cancel
-        ) : nil, outcome: previewOutcome)
         .sheet(isPresented: $addingFilter, onDismiss: finishAddingFilter) {
             AddClipFilterView(audio: commandContext.audioSettings != nil,
                               existing: commandContext.filters.map(\.kind),
@@ -197,7 +192,6 @@ struct SourceClipEditorView: View {
         .onChange(of: currentAsset.id) {
             preview.reset()
             previewRequest = nil
-            showsPreviewProgress = false
             preparationTask?.cancel()
             sourcePreparationProgress = nil
             sourcePreparationOutcome = .completed
@@ -564,14 +558,6 @@ struct SourceClipEditorView: View {
         }
     }
 
-    private var previewOutcome: OperationProgressOutcome {
-        switch preview.state {
-        case .cancelled: .cancelled
-        case .failed: .failed
-        default: .completed
-        }
-    }
-
     private func revertPreviewChanges() {
         let previous = preview.lastSuccessfulRequest
         commandContext.filters = previous?.filters ?? []
@@ -615,7 +601,6 @@ struct SourceClipEditorView: View {
               !viewModel.audioPreviewSegments.isEmpty else {
             preview.reset()
             previewRequest = nil
-            showsPreviewProgress = false
             commandContext.effectsReady = false
             viewModel.clipEffectsReady = false
             return
@@ -632,8 +617,8 @@ struct SourceClipEditorView: View {
         viewModel.player.pause()
         viewModel.waitingForClipPreview = resume
         previewRequest = request
-        showsPreviewProgress = userInitiated
-        preview.update(request, debounce: debounce, force: force, soundFeedback: false, readiness: { ready in
+        preview.update(request, debounce: debounce, force: force, soundFeedback: false,
+                       showsProgress: userInitiated, returnWindow: commandContext.hostWindow, readiness: { ready in
             commandContext.effectsReady = ready
             viewModel.completePreviewPreparation(ready: ready)
         }, restoreOriginal: {

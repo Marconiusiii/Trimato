@@ -6,6 +6,19 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct GeneratorFilterTests {
+    @Test func successiveFilterPassesReportSeparatePartsOfOverallProgress() {
+        var values: [Double] = []
+        let first = ClipFilterRenderer.progress(in: 0...0.8) { values.append($0) }
+        let second = ClipFilterRenderer.progress(in: 0.8...1) { values.append($0) }
+        first?(0)
+        first?(0.5)
+        first?(1)
+        second?(0)
+        second?(0.5)
+        second?(1)
+        #expect(values == [0, 0.4, 0.8, 0.8, 0.9, 1])
+    }
+
     private func definition(_ kind: GeneratorKind = .black) -> GeneratorDefinition {
         var value = GeneratorDefinition()
         value.kind = kind

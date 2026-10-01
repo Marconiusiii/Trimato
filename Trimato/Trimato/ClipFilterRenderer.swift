@@ -3,6 +3,16 @@ import Foundation
 
 // Outputs belong to the caller and are removed with the composed preview or export.
 nonisolated enum ClipFilterRenderer {
+    typealias Progress = @MainActor @Sendable (Double) -> Void
+
+    static func progress(in range: ClosedRange<Double>, report: Progress?) -> Progress? {
+        guard let report else { return nil }
+        return { value in
+            guard value.isFinite else { return }
+            report(range.lowerBound + min(max(value, 0), 1) * (range.upperBound - range.lowerBound))
+        }
+    }
+
     @concurrent
     static func render(source: URL, filters: [ClipFilter], audio: Bool, duration: Double,
                        segments: [SourceSegment]? = nil, audioSettings: AudioClipSettings? = nil,
@@ -13,14 +23,16 @@ nonisolated enum ClipFilterRenderer {
         let spatial = try await SpatialAudioPlan.detect(in: asset)
         if audio, spatial { throw SpatialAudioError.unsupported("Audio filter processing for Spatial Audio is not supported yet.") }
         let rendered = try await renderProcessed(source: source, filters: filters, audio: audio, duration: duration,
-            segments: segments, audioSettings: audioSettings, voiceSegments: voiceSegments, progress: progress)
+            segments: segments, audioSettings: audioSettings, voiceSegments: voiceSegments,
+            progress: spatial ? Self.progress(in: 0...0.9, report: progress) : progress)
         guard spatial, !audio else { return rendered }
         defer { try? FileManager.default.removeItem(at: rendered) }
         let sourceDuration = try await asset.load(.duration)
         let ranges = segments?.map { $0.sourceRange.cmTimeRange } ?? [CMTimeRange(start: .zero, duration: sourceDuration)]
         guard let plan = try await SpatialAudioPlan.clip(asset: asset, ranges: ranges) else { throw SpatialAudioError.invalidMovie }
         let output = rendered.deletingLastPathComponent().appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
-        try await plan.export(video: AVURLAsset(url: rendered), to: output, progress: { _ in })
+        try await plan.export(video: AVURLAsset(url: rendered), to: output,
+                              progress: Self.progress(in: 0.9...1, report: progress) ?? { _ in })
         return output
     }
 
@@ -33,19 +45,24 @@ nonisolated enum ClipFilterRenderer {
             var originalSettings = audioSettings
             originalSettings?.voice = nil
             let processed = try await renderProcessed(source: source, filters: filters, audio: true, duration: duration,
-                                             audioSettings: originalSettings, voiceSegments: segments ?? voiceSegments, progress: progress)
+                                             audioSettings: originalSettings, voiceSegments: segments ?? voiceSegments,
+                                             progress: Self.progress(in: 0...0.8, report: progress))
             defer { try? FileManager.default.removeItem(at: processed) }
-            return try await VoiceAudioProcessor.render(source: processed, settings: voice,
+            let output = try await VoiceAudioProcessor.render(source: processed, settings: voice,
                 segments: segments ?? voiceSegments, trimOutput: segments != nil)
+            await progress?(1)
+            return output
         }
         for filter in filters { try filter.validate() }
         let active = ClipFilterKind.allCases.compactMap { kind in filters.first { $0.kind == kind && $0.enabled && $0.kind.isAudio == audio } }
         if let segments, !active.isEmpty {
             // Process the same source and history as the project renderer, then select the edited ranges.
-            let processed = try await renderProcessed(source: source, filters: filters, audio: audio, duration: duration, voiceSegments: segments, progress: progress)
+            let processed = try await renderProcessed(source: source, filters: filters, audio: audio, duration: duration,
+                voiceSegments: segments, progress: Self.progress(in: 0...0.8, report: progress))
             defer { try? FileManager.default.removeItem(at: processed) }
             return try await renderProcessed(source: processed, filters: [], audio: audio, duration: duration,
-                                    segments: segments, audioSettings: audioSettings, progress: progress)
+                                    segments: segments, audioSettings: audioSettings,
+                                    progress: Self.progress(in: 0.8...1, report: progress))
         }
         let directory = try TemporaryMediaSession.directory(named: "TrimatoClipFilters")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -121,7 +138,9 @@ nonisolated enum ClipFilterRenderer {
         if !audio, report.hasAlpha { arguments += ["-alpha_mode", "premultiplied"] }
         arguments += ["-sn", "-dn", "-progress", "pipe:1", "-nostats", output.path]
         do {
-            _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: arguments, progress: progress, expectedDuration: duration)
+            let outputDuration = segments?.reduce(0) { $0 + $1.duration.seconds } ?? report.duration
+            _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: arguments, progress: progress,
+                                          expectedDuration: outputDuration)
             try Task.checkCancellation()
             return output
         } catch {

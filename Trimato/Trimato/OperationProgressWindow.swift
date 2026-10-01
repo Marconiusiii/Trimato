@@ -258,6 +258,7 @@ final class OperationProgressWindowSession: ObservableObject, Identifiable {
         guard !isFinished else { return }
         self.outcome = wasCancelled ? .cancelled : outcome
         dismissedAction = dismissed
+        if self.outcome == .completed, progress != nil { progress = 1 }
         isFinished = true
         speak(announcements.finish(
             outcome: self.outcome,
@@ -343,7 +344,14 @@ final class OperationProgressWindowCoordinator {
         outcome: OperationProgressOutcome,
         dismissed: @escaping () -> Void
     ) {
-        sessions[id]?.finish(outcome: outcome, dismissed: dismissed)
+        guard let session = sessions[id], !session.isFinished else { return }
+        session.finish(outcome: outcome, dismissed: dismissed)
+        // Completion owns dismissal; it must not wait for the modal content's
+        // SwiftUI onChange to run before allowing the editor to become active.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            self?.close(id: id)
+        }
     }
 
     func close(id: UUID) {
@@ -356,7 +364,6 @@ private struct OperationProgressContent: View {
     @ObservedObject var focusRequest: NativeModalFocusRequest
     @FocusState private var cancelKeyboardFocused: Bool
     @AccessibilityFocusState private var progressVoiceOverFocused: Bool
-    @State private var dismissalScheduled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -400,14 +407,6 @@ private struct OperationProgressContent: View {
                 } else {
                     progressVoiceOverFocused = true
                 }
-            }
-        }
-        .onChange(of: session.isFinished, initial: true) { _, finished in
-            guard finished, !dismissalScheduled else { return }
-            dismissalScheduled = true
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(250))
-                OperationProgressWindowCoordinator.shared.close(id: session.id)
             }
         }
     }
