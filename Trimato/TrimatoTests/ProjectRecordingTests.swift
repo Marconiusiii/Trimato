@@ -74,7 +74,7 @@ struct ProjectRecordingTests {
             outputUID: "test", channel: 0, bitDepth: 24)
         let session = ProjectRecordingSession(controller: controller, purpose: purpose, capture: capture,
             startCapture: { capture.record(request: request) },
-            prepareCapture: { capture.prepareInput { request } })
+            prepareCapture: { capture.prepareInput { request } }, requestMicrophonePermission: {})
         let host = NSHostingView(rootView: ProjectRecordingView(session: session))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 600),
             styleMask: [.titled], backing: .buffered, defer: false)
@@ -344,7 +344,7 @@ struct ProjectRecordingTests {
             outputUID: "test", channel: 0, bitDepth: 24)
         controller.recordingSession = ProjectRecordingSession(controller: controller, purpose: .audioDescription,
             capture: capture, startCapture: { capture.record(request: request) },
-            prepareCapture: { capture.prepareInput { request } })
+            prepareCapture: { capture.prepareInput { request } }, requestMicrophonePermission: {})
         controller.toolPane = .describer
         try await Task.sleep(for: .milliseconds(250))
         #expect(!NSApp.windows.contains { $0.title == "Describer" && $0.isVisible })
@@ -538,11 +538,36 @@ struct ProjectRecordingTests {
         }
     }
 
+    @Test(arguments: [false, true])
+    func microphonePermissionCompletesBeforePreparation(closeWhileWaiting: Bool) async {
+        let controller = ProjectController(document: ProjectDocument())
+        var permissionReply: CheckedContinuation<Void, Never>?
+        var requests = 0
+        var preparations = 0
+        let session = ProjectRecordingSession(controller: controller, purpose: .voiceOver,
+            prepareCapture: { preparations += 1 }, requestMicrophonePermission: {
+                requests += 1
+                await withCheckedContinuation { permissionReply = $0 }
+            })
+        defer { session.close() }
+        session.prepareRecordingInput()
+        session.prepareRecordingInput()
+        while permissionReply == nil { await Task.yield() }
+        #expect(requests == 1)
+        #expect(preparations == 0)
+        #expect(!session.canStartRecording)
+        if closeWhileWaiting { session.close() }
+        permissionReply?.resume()
+        for _ in 0..<20 { await Task.yield() }
+        #expect(preparations == (closeWhileWaiting ? 0 : 1))
+        #expect(session.inputPreparationStarted == !closeWhileWaiting)
+    }
+
     @Test(arguments: [RecordingPurpose.audioDescription, .voiceOver])
     func recordingFieldsHaveNativeLabelsAndNoPlaceholders(purpose: RecordingPurpose) async throws {
         let controller = ProjectController(document: ProjectDocument())
         var preparations = 0
-        let session = ProjectRecordingSession(controller: controller, purpose: purpose, prepareCapture: { preparations += 1 })
+        let session = ProjectRecordingSession(controller: controller, purpose: purpose, prepareCapture: { preparations += 1 }, requestMicrophonePermission: {})
         let host = NSHostingView(rootView: ProjectRecordingView(session: session))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 800),
                               styleMask: [.titled], backing: .buffered, defer: false)

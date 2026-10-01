@@ -24,6 +24,8 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     private let recordingDirectory: () async throws -> URL
     private let startCapture: () -> Void
     private let prepareCapture: () -> Void
+    private let requestMicrophonePermission: () async -> Void
+    private var inputPreparationTask: Task<Void, Never>?
     @Published private(set) var inputPreparationStarted = false
     var canStartRecording: Bool { inputPreparationStarted && capture.canStartRecording }
     @Published var busy = false {
@@ -56,8 +58,12 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     init(controller: ProjectController, purpose: RecordingPurpose, cue: CaptionCue? = nil,
          capture: AudioCaptureSession? = nil, processingSound: ProcessingSound? = nil,
          recordingDirectory: (() async throws -> URL)? = nil,
-         startCapture: (() -> Void)? = nil, prepareCapture: (() -> Void)? = nil) {
+         startCapture: (() -> Void)? = nil, prepareCapture: (() -> Void)? = nil,
+         requestMicrophonePermission: (() async -> Void)? = nil) {
         let recordingCapture = capture ?? AudioCaptureSession()
+        self.requestMicrophonePermission = requestMicrophonePermission ?? {
+            await AudioInputManager.shared.requestPermission()
+        }
         self.capture = recordingCapture
         self.startCapture = startCapture ?? { recordingCapture.setRecording(true, input: AudioInputManager.shared) }
         self.prepareCapture = prepareCapture ?? { recordingCapture.prepareInput(input: AudioInputManager.shared) }
@@ -96,9 +102,16 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
     }
 
     func prepareRecordingInput() {
-        guard !closed, !inputPreparationStarted else { return }
-        inputPreparationStarted = true
-        prepareCapture()
+        guard !closed, !inputPreparationStarted, inputPreparationTask == nil else { return }
+        let requestPermission = requestMicrophonePermission
+        inputPreparationTask = Task { [weak self] in
+            await requestPermission()
+            guard let self, !self.closed, !Task.isCancelled else { return }
+            self.inputPreparationTask = nil
+            self.inputPreparationStarted = true
+            // Capture preparation handles denied access and observes later Settings changes.
+            self.prepareCapture()
+        }
     }
 
     func toggleRecording(_ enabled: Bool) {
@@ -384,6 +397,8 @@ final class ProjectRecordingSession: ObservableObject, Identifiable {
         guard !closed else { return }
         processingSound.stop()
         closed = true
+        inputPreparationTask?.cancel()
+        inputPreparationTask = nil
         AudioCaptureSession.endQuietPreparation(id)
         operation?.cancel()
         player.pause()

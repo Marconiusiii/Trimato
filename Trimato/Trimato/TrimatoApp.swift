@@ -394,17 +394,8 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
             }
             return handled ? nil : event
         }
-        guard !Self.isRunningTests else { return }
-        Task { @MainActor in
-            await AudioInputManager.requestPermissionIfNeeded()
-            await ExportNotificationCenter.requestAuthorizationIfNeeded()
-        }
     }
 
-    private static var isRunningTests: Bool {
-        NSClassFromString("XCTestCase") != nil ||
-            ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-    }
 }
 
 private struct ProjectFileCommands: Commands {

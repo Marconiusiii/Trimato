@@ -29,7 +29,7 @@ Created by Marco Salsiccia.
 
 Choose Trim a Clip on the welcome screen to edit a single file, New Project to arrange media, or Open Project to continue saved work.
 
-In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open audio or video on its Cutting Board to trim it. Home and End jump to the timeline start and end; Fn-Left Arrow and Fn-Right Arrow provide the same commands. Open Generator, Transitions, Quick Fade, Quick Cross Dissolve or Cross Fade, Captioner, Describer, or Voicer in the Tool pane, or open Mixer in its separate window. Choose Settings to configure recording devices, playback, timecode feedback and style, optional waveforms, and storage preferences.
+In a project, use Project Source to organize media, Editor to preview it, and Timeline to arrange clips. Open audio or video on its Cutting Board to trim it. Home and End jump to the timeline start and end; Fn-Left Arrow and Fn-Right Arrow provide the same commands. Open Generator, Transitions, Quick Fade, Quick Cross Dissolve or Cross Fade, Captioner, Describer, or Voicer in the Tool pane, or open Mixer in its separate window. Trimato requests microphone access when you first open Describer or Voicer. Enable export notifications in Settings > General. Choose Settings to configure recording devices, playback, timecode feedback and style, optional waveforms, and storage preferences.
 
 For editing instructions and keyboard shortcuts, open the Trimato Manual from the app's Help menu. Help buttons open the topic for the current tool or Settings page.
 
