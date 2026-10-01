@@ -30,6 +30,34 @@ struct GeneratorFilterTests {
         return value
     }
 
+    @Test(arguments: [false, true])
+    func filteredClipExportKeepsOriginalFilename(audio: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("Original clip.mov")
+        let generated = try await GeneratorRenderer.ensure(definition(audio ? .silence : .gradient))
+        try FileManager.default.copyItem(at: generated, to: source)
+        let model = VideoPlayerViewModel()
+        defer { model.closeMedia() }
+        model.load(url: source, audioOnly: audio)
+        let deadline = ContinuousClock.now + .seconds(10)
+        while model.isLoadingMedia, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(model.hasMedia && !model.isLoadingMedia)
+        #expect(model.clipExportBaseName == "Original clip-trimmed")
+        let filtered = try await ClipFilterRenderer.render(source: source,
+            filters: [ClipFilter(kind: audio ? .tone : .blackAndWhite)], audio: audio, duration: 0.5)
+        defer { try? FileManager.default.removeItem(at: filtered) }
+        try await model.applyFilteredPreview(at: filtered, audio: audio)
+        #expect(model.clipExportBaseName == "Original clip-trimmed")
+        model.restoreUnprocessedAudioPreview()
+        #expect(model.clipExportBaseName == "Original clip-trimmed")
+        model.closeMedia()
+        #expect(model.clipExportBaseName == nil)
+    }
+
     @Test(arguments: [24.0, 30.0, 30_000.0 / 1_001.0, 60_000.0 / 1_001.0])
     func durationUnitsConvertToUsableWholeFramesAndBack(frameRate: Double) {
         var project = TrimatoProject()

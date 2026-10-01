@@ -918,12 +918,14 @@ final class VideoPlayerViewModel: ObservableObject {
             togglePlayPause()
         }
     }
-
+    var clipExportBaseName: String? {
+        mediaSource.map { $0.originalURL.deletingPathExtension().lastPathComponent + "-trimmed" }
+    }
 
     func exportTrimmedClip() {
         guard clipEffectsReady else { announce("Wait for a valid clip preview before exporting"); return }
         guard NSApp.modalWindow == nil, !isExporting, !isPresentingExportPanel, !isApplyingEdit else { return }
-        guard var mediaSource, let editTimeline else {
+        guard var mediaSource, let editTimeline, let baseName = clipExportBaseName else {
             announce("Open a media file before exporting")
             return
         }
@@ -956,7 +958,6 @@ final class VideoPlayerViewModel: ObservableObject {
            ClipExporter.canPassthrough(asset: mediaSource.originalAsset, sourceContentType: sourceContentType) {
             formats.insert(.original, at: 0)
         }
-        let baseName = mediaSource.originalURL.deletingPathExtension().lastPathComponent + "-trimmed"
         guard let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         let savePanel = ExportSavePanel(
             title: "Export Clip",
