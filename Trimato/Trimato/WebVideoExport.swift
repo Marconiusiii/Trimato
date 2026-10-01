@@ -16,14 +16,16 @@ struct PictureExportSheet: View {
     @AppStorage(AppPreferenceKey.showMilliseconds) private var showMilliseconds = true
     let request: PictureExportRequest
     let cancel: () -> Void
-    let export: (Bool, String) -> Void
+    let export: (Bool, String, Bool) -> Void
     @State private var includeCaptions: Bool
     @State private var language = "en"
-    init(request: PictureExportRequest, cancel: @escaping () -> Void, export: @escaping (Bool, String) -> Void) {
+    @State private var includeChapters: Bool
+    init(request: PictureExportRequest, cancel: @escaping () -> Void, export: @escaping (Bool, String, Bool) -> Void) {
         self.request = request
         self.cancel = cancel
         self.export = export
         _includeCaptions = State(initialValue: request.web && request.project.captionTrack?.captionCues.isEmpty == false)
+        _includeChapters = State(initialValue: request.web && request.project.markerTrack?.markers.contains(where: { $0.type == .chapter }) == true)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -39,10 +41,13 @@ struct PictureExportSheet: View {
                     }
                 }
             }
+            if request.web, request.project.markerTrack?.markers.contains(where: { $0.type == .chapter }) == true {
+                Toggle("Export YouTube Chapters", isOn: $includeChapters)
+            }
             HStack {
                 Spacer()
                 Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
-                Button("Continue…") { export(includeCaptions, language) }.keyboardShortcut(.defaultAction)
+                Button("Continue…") { export(includeCaptions, language, includeChapters) }.keyboardShortcut(.defaultAction)
             }
         }.padding(20).frame(width: 420)
     }

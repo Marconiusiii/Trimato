@@ -1,4 +1,17 @@
 import SwiftUI
+import AppKit
+
+enum EditorButtonSizing {
+    static func fontSize(labels: [String], availableWidth: CGFloat, columns: Int = 4) -> CGFloat {
+        let base: CGFloat = 13
+        let longest = labels.map {
+            ($0 as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: base)]).width
+        }.max() ?? 1
+        let widthPerControl = (availableWidth - CGFloat(max(columns - 1, 0)) * 12) / CGFloat(max(columns, 1))
+        let scale = min((widthPerControl - 24) / max(longest, 1), availableWidth / 460)
+        return min(17, max(base, base * scale))
+    }
+}
 
 nonisolated enum EditorAccent: String, CaseIterable, Identifiable {
     case teal, blue, indigo, purple, rose, amber

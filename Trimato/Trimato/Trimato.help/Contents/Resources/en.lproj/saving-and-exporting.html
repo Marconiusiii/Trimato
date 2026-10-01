@@ -109,7 +109,7 @@
 
     <h2>Export a standalone clip</h2>
     <ol>
-        <li>Open the clip in a standalone Clip Editor.</li>
+        <li>Open the clip in a standalone Cutting Board.</li>
         <li>Set both In and Out points to export a range, or clear both to export the complete edit.</li>
         <li>Activate Export Clip or press Command-E.</li>
         <li>In the Export Clip dialog, enter a filename, choose a location and format, then activate Export.</li>
@@ -136,6 +136,15 @@
     <p>The new Web Video folder contains video.mp4, poster.png, embed.txt, and captions.vtt when captions are included. Existing export folders are kept; a numbered folder is created when needed.</p>
     <p>Upload the files to your website and copy the HTML fragment from embed.txt into your page or blog's HTML editor. Adjust its file paths to match the uploaded locations. The fragment supplies native video controls, a poster, a download link, and a default caption track when included. It does not autoplay. Web video uses H.264 MP4 with SDR color.</p>
     <p>Caption files need to be served from the same website as the player or with appropriate cross-origin access. Test the published player with the browsers and assistive technologies your audience uses. Include accurate captions and any needed audio description in the content; player markup does not create them.</p>
+    <h2>YouTube chapters</h2>
+    <ol>
+        <li>Press Option-M in Editor to add a Chapter at the playhead. Edit its title in the Markers track.</li>
+        <li>Start with a Chapter at 00:00, add at least three Chapters, and leave at least 10 seconds between Chapters and after the last one.</li>
+        <li>Choose Export Project and keep Export YouTube Chapters checked. The chapter list is saved beside the movie as a chapters.txt companion file.</li>
+        <li>Open the chapter file and paste its timestamps and titles into the video's description in YouTube Studio.</li>
+    </ol>
+    <p>For a selected In–Out range, chapter timestamps start from the beginning of the exported movie. If the range begins inside a Chapter, that Chapter's title starts the list at 00:00. Only Chapters within the exported range appear after it. Ordinary Markers are editing cues and are not exported as chapters.</p>
+    <p>If a chapter list does not meet YouTube's timing requirements, correct the Chapters or turn off Export YouTube Chapters to export the movie without a chapter file. Export Web Video also offers Export YouTube Chapters and saves chapters.txt in its Web Video folder. Audio-only exports do not include this file. Chapters are delivered as description text; they are not embedded in the movie.</p>
 </main>
 <footer><p><a href="troubleshooting.html">Related topic: Resolve common problems</a></p></footer>
 </body>

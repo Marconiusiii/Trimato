@@ -430,7 +430,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                 add("Remove Folder", to: menu) { source.controller.removeFolder(folderID) }
             case .asset(let assetID):
                 guard let asset = source.controller.project.asset(id: assetID) else { return nil }
-                add("Open Clip Editor", to: menu) { source.openClipEditor(.asset(assetID)) }
+                add("Open Cutting Board", to: menu) { source.openClipEditor(.asset(assetID)) }
                 menu.addItem(.separator())
                 for placement in PlacementAction.allCases {
                     add(placement.title, to: menu) {

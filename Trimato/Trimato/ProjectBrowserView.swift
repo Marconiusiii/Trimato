@@ -242,7 +242,7 @@ struct ProjectBrowserView: View {
                     Button("Remove Folder") { controller.removeFolder(id) }
                 }
             case .asset(let id):
-                Button("Open Clip Editor") { openClipEditor(.asset(id)) }
+                Button("Open Cutting Board") { openClipEditor(.asset(id)) }
                 Divider()
                 ForEach(PlacementAction.allCases) { placement in
                     Button(placement.title) {

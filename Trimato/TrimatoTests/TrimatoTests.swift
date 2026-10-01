@@ -62,7 +62,7 @@ struct TrimatoTests {
         #expect(PlacementAction.allCases.map(\.title) == [
             "Append to Timeline",
             "Insert and Split",
-            "Insert and Overwrite",
+            "Insert and Replace",
             "Insert on Top with Source Audio",
             "Insert on Top over Primary Audio",
         ])

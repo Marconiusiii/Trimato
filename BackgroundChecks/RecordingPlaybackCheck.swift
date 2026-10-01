@@ -111,7 +111,7 @@ import AudioToolbox
         let eqAsset = AVURLAsset(url: eqURL)
         let eqDuration = try await eqAsset.load(.duration).seconds
         precondition(abs(eqDuration - 1) < 0.001)
-        print("Mixed-rate transitions and low-rate Clip Editor EQ retained their full durations")
+        print("Mixed-rate transitions and low-rate Cutting Board EQ retained their full durations")
         let controller = ProjectController(document: ProjectDocument(project: project))
         let session = ProjectRecordingSession(controller: controller, purpose: .audioDescription)
         defer { session.close() }

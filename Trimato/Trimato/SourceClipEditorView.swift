@@ -334,7 +334,7 @@ struct SourceClipEditorView: View {
                         Button("Insert Audio at Playhead on Track…") {
                             commandContext.requestAudioOnlyTrackPlacement(.insert)
                         }
-                        Button("Insert and Overwrite Audio on Track…") {
+                        Button("Insert and Replace Audio on Track…") {
                             commandContext.requestAudioOnlyTrackPlacement(.replaceRemainder)
                         }
                     }
@@ -724,14 +724,14 @@ private extension PlacementAction {
             switch self {
             case .append: return "Append Audio to Selected Track"
             case .insert: return "Insert Audio on Selected Track"
-            case .replaceRemainder: return "Insert and Overwrite Audio on Selected Track"
+            case .replaceRemainder: return "Insert and Replace Audio on Selected Track"
             case .cutawaySourceAudio, .cutawayPrimaryAudio: return "Add Audio to Selected Track"
             }
         }
         switch self {
         case .append: return "Append to Selected Track"
         case .insert: return "Insert on Selected Track"
-        case .replaceRemainder: return "Insert and Overwrite on Selected Track"
+        case .replaceRemainder: return "Insert and Replace on Selected Track"
         case .cutawaySourceAudio, .cutawayPrimaryAudio: return "Add to Selected Track"
         }
     }
@@ -741,14 +741,14 @@ private extension PlacementAction {
             switch self {
             case .append: return "Append Audio"
             case .insert: return "Insert Audio"
-            case .replaceRemainder: return "Insert and Overwrite Audio"
+            case .replaceRemainder: return "Insert and Replace Audio"
             case .cutawaySourceAudio, .cutawayPrimaryAudio: return "Add Audio"
             }
         }
         switch self {
         case .append: return "Append"
         case .insert: return "Insert"
-        case .replaceRemainder: return "Insert and Overwrite"
+        case .replaceRemainder: return "Insert and Replace"
         case .cutawaySourceAudio, .cutawayPrimaryAudio: return "Add"
         }
     }

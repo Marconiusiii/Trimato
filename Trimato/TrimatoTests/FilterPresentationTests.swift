@@ -67,7 +67,9 @@ struct FilterPresentationTests {
         try await Task.sleep(for: .milliseconds(100))
         let content = try #require(presented.contentView)
         let controls = elements(content)
-        let visibleParameters = kind.parameters.filter { !["room", "highpass", "lowpass"].contains($0.id) }
+        let visibleParameters = kind.parameters.filter {
+            !["room", "highpass", "lowpass"].contains($0.id) && (kind != .technicolor || $0.id == "amount")
+        }
         #expect(controls.filter { attribute($0, "accessibilityRole") as? String == "AXSlider" }.count == visibleParameters.count)
         #expect(!controls.contains { attribute($0, "accessibilityRole") as? String == "AXTextField" })
         try press(namedButton("Cancel", in: content))
@@ -214,12 +216,14 @@ struct FilterPresentationTests {
         #expect(!controller.document.hasUnsavedChanges)
     }
 
-    @Test func actualAudioClipEditorOpensAddFilter() async throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("filter-editor-\(UUID()).wav")
+    @Test(arguments: [false, true])
+    func actualAudioAndVideoCuttingBoardOpensAddFilter(video: Bool) async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("filter-editor-\(UUID()).mov")
         defer { try? FileManager.default.removeItem(at: url) }
-        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: ["-hide_banner", "-nostdin", "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1", url.path])
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: ["-hide_banner", "-nostdin", "-y", "-f", "lavfi", "-i", "color=c=red:s=160x120:r=30", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1", "-c:v", "prores_ks", "-c:a", "pcm_s16le", url.path])
         var project = TrimatoProject()
-        let record = MediaAssetRecord(name: "Filter test", originalPath: url.path, duration: ProjectTime(seconds: 1), hasAudio: true,
+        let record = MediaAssetRecord(name: "Filter test", originalPath: url.path, duration: ProjectTime(seconds: 1),
+            naturalWidth: video ? 160 : nil, naturalHeight: video ? 120 : nil, frameRate: video ? 30 : nil, hasAudio: true,
             sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 1)))])
         project.media = [record]
         let id = try project.append(asset: record)
@@ -231,6 +235,9 @@ struct FilterPresentationTests {
         context.audioSettings?.gainDecibels = 3
         defer { window.close() }
         try await Task.sleep(for: .seconds(2))
+        if video {
+            context.setSegments([SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 0.8)))])
+        }
         let started = Date()
         try press(namedButton("Add Filter…", in: try #require(window.contentView)))
         let presented = try await sheet(window)

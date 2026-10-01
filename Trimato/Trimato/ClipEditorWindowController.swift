@@ -5,7 +5,7 @@ import SwiftUI
 
 nonisolated enum ClipEditorMediaKind {
     static func name(hasVideo: Bool) -> String {
-        hasVideo ? "Video Clip Editor" : "Audio Clip Editor"
+        hasVideo ? "Video Cutting Board" : "Audio Cutting Board"
     }
 }
 
@@ -32,7 +32,7 @@ enum ClipEditorPlacementCommand: CaseIterable, Identifiable {
         case .insert: PlacementAction.insert.title
         case .insertToTrack: "Insert on Track…"
         case .overwrite: PlacementAction.replaceRemainder.title
-        case .overwriteOnTrack: "Insert and Overwrite on Track…"
+        case .overwriteOnTrack: "Insert and Replace on Track…"
         case .insertOnTopWithAudio: PlacementAction.cutawaySourceAudio.title
         case .insertOnTopOverAudio: PlacementAction.cutawayPrimaryAudio.title
         }
@@ -61,7 +61,7 @@ enum ClipEditorCloseDecision {
     case cancel
 }
 
-/// AppKit Clip Editor windows live outside a SwiftUI document scene. Publish their
+/// AppKit Cutting Board windows live outside a SwiftUI document scene. Publish their
 /// native key-window owner explicitly so the app menu does not depend on a child
 /// popup or a SwiftUI focused value crossing that scene boundary.
 @MainActor
@@ -629,6 +629,7 @@ final class ClipEditorWindowController: NSWindowController, NSWindowDelegate {
         window.title = title
         window.contentViewController = hostingController
         window.collectionBehavior.insert(.participatesInCycle)
+        window.collectionBehavior.insert(.fullScreenAuxiliary)
         window.isExcludedFromWindowsMenu = false
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 760, height: 620)
@@ -643,7 +644,7 @@ final class ClipEditorWindowController: NSWindowController, NSWindowDelegate {
             hasChanges: { [weak commandContext] in commandContext?.hasPendingQuitChanges == true },
             validate: { [weak commandContext] in
                 guard let commandContext, !commandContext.segments.isEmpty else {
-                    throw QuitDraftError(message: "Set a valid In and Out range in the clip editor before saving.")
+                    throw QuitDraftError(message: "Set a valid In and Out range in the cutting board before saving.")
                 }
                 guard commandContext.isTimelineEntry else {
                     throw QuitDraftError(message: "Add the source clip to a track before saving its audio settings.")

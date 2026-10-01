@@ -380,8 +380,8 @@ struct ClipEditorSessionTests {
     }
 
     @Test func editorNamesDistinguishAudioFromVideo() {
-        #expect(ClipEditorMediaKind.name(hasVideo: false) == "Audio Clip Editor")
-        #expect(ClipEditorMediaKind.name(hasVideo: true) == "Video Clip Editor")
+        #expect(ClipEditorMediaKind.name(hasVideo: false) == "Audio Cutting Board")
+        #expect(ClipEditorMediaKind.name(hasVideo: true) == "Video Cutting Board")
     }
 
     @Test func neutralAudioSettingsRestoreTheOriginalPreview() {

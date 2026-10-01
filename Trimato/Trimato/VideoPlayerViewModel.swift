@@ -1567,6 +1567,8 @@ final class VideoPlayerViewModel: ObservableObject {
             // Letter shortcuts ignore key repeat.
             if !event.isARepeat, unmodified {
                 switch event.charactersIgnoringModifiers?.lowercased() {
+                case ";" where commandModifiers.isEmpty: self.goToPreviousTimelinePoint(); return nil
+                case "'" where commandModifiers.isEmpty: self.goToNextTimelinePoint(); return nil
                 case "t":
                     self.announceCurrentTimecodeOnDemand()
                     return nil

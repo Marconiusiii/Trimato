@@ -23,21 +23,21 @@ struct MarkerAccessibilityTests {
         return project
     }
 
-    private func silentProject() throws -> (project: TrimatoProject, url: URL) {
+    private func silentProject(seconds: Double = 1) throws -> (project: TrimatoProject, url: URL) {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
         let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
-        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48_000))
-        buffer.frameLength = 48_000
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(48_000 * seconds)))
+        buffer.frameLength = buffer.frameCapacity
         for channel in 0..<2 {
-            buffer.floatChannelData![channel].initialize(repeating: 0, count: 48_000)
+            buffer.floatChannelData![channel].initialize(repeating: 0, count: Int(buffer.frameLength))
         }
         do {
             let file = try AVAudioFile(forWriting: url, settings: format.settings)
             try file.write(from: buffer)
         }
         let asset = MediaAssetRecord(name: "Silent marker fixture", originalPath: url.path,
-            duration: ProjectTime(seconds: 1), hasAudio: true,
-            sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 1)))],
+            duration: ProjectTime(seconds: seconds), hasAudio: true,
+            sourceEdit: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: seconds)))],
             playbackMode: .nativePassthrough)
         var project = TrimatoProject(name: "Marker key sequence")
         project.media = [asset]
@@ -49,7 +49,7 @@ struct MarkerAccessibilityTests {
         for _ in 0..<300 where !player.canControlPlayback {
             try await Task.sleep(for: .milliseconds(50))
         }
-        try #require(player.canControlPlayback)
+        try #require(player.canControlPlayback, Comment(rawValue: player.errorMessage ?? "Playback did not become ready"))
     }
 
     private func attribute(_ item: NSObject, _ key: String) -> Any? {
@@ -84,8 +84,8 @@ struct MarkerAccessibilityTests {
         try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers,
                                      timestamp: ProcessInfo.processInfo.systemUptime,
                                      windowNumber: window?.windowNumber ?? 0, context: nil,
-                                     characters: ";", charactersIgnoringModifiers: ";",
-                                     isARepeat: repeating, keyCode: 41))
+                                     characters: "m", charactersIgnoringModifiers: "m",
+                                     isARepeat: repeating, keyCode: 46))
     }
 
     @Test(arguments: [true, false])
@@ -142,7 +142,7 @@ struct MarkerAccessibilityTests {
         try await Task.sleep(for: .milliseconds(250))
         #expect(player.accessibilityTimecodeLabel == player.currentTimecodeForAnnouncement)
         #expect(!player.accessibilityTimecodeLabel.contains("Music begins"))
-        #expect(player.playheadAccessibilityValue == player.currentTimecodeForAnnouncement)
+        #expect(player.playheadAccessibilityValue == AppPreferences.playheadValue(player.currentTimecodeForAnnouncement))
     }
 
     @Test(arguments: ["Primary video", "Primary audio", "Voicer", "Audio description", "Captions"],
@@ -196,7 +196,7 @@ struct MarkerAccessibilityTests {
             player.refreshAccessibilityValueForFocus()
             let time = AppPreferences.spokenTimecode(seconds: seconds, frameRate: 30, verbosity: .default)
                 .replacingOccurrences(of: ", 0 milliseconds", with: "")
-            let expected = "\(name), \(time)"
+            let expected = feedback == .whenStopped ? "\(name), \(time)" : name
             #expect(abs(player.currentTime.seconds - seconds) < 0.02)
             #expect(player.playheadAccessibilityValue == expected)
             #expect(player.accessibilityTimecodeLabel == player.currentTimecodeForAnnouncement)
@@ -204,9 +204,15 @@ struct MarkerAccessibilityTests {
             #expect(values.allSatisfy { $0 == expected }, "Seek completion must retain both cut type and position")
         }
 
-        let cutName = kind == .video ? "Video edit point" : "Audio edit point"
-        let firstName = trackName == "Captions" ? "Caption: First caption" : cutName
-        let secondName = trackName == "Captions" ? "Caption: Second caption" : cutName
+        let cutName: String
+        switch trackName {
+        case "Primary video": cutName = "Video edit point"
+        case "Voicer": cutName = "Voice over"
+        case "Audio description": cutName = "Audio description"
+        default: cutName = "Audio edit point"
+        }
+        let firstName = trackName == "Captions" ? "Caption: First caption" : "\(cutName): Silent marker fixture B"
+        let secondName = trackName == "Captions" ? "Caption: Second caption" : "\(cutName): Silent marker fixture C"
         try await check(forward: true, name: firstName, seconds: 0.25)
         let firstCutValue = player.playheadAccessibilityValue
         try await check(forward: true, name: secondName, seconds: 0.75)
@@ -222,20 +228,27 @@ struct MarkerAccessibilityTests {
         player.seek(to: ProjectTime(seconds: 0.5))
         try await Task.sleep(for: .milliseconds(250))
         player.refreshAccessibilityValueForFocus()
-        #expect(player.playheadAccessibilityValue == player.currentTimecodeForAnnouncement)
+        #expect(player.playheadAccessibilityValue == AppPreferences.playheadValue(player.currentTimecodeForAnnouncement))
     }
 
     @Test(arguments: [true, false])
     func repeatedMarkerCreationPreservesNativePlayheadAndPlayback(playing: Bool) async throws {
         let restore = preservePreference(AppPreferenceKey.markerAudio)
-        defer { restore() }
+        let restoreFeedback = preservePreference(AppPreferenceKey.timecodeFeedback)
+        defer { restore(); restoreFeedback() }
         UserDefaults.standard.set(false, forKey: AppPreferenceKey.markerAudio)
-        let controller = ProjectController(document: ProjectDocument(project: try project()))
+        UserDefaults.standard.set(TimecodeFeedback.whenStopped.rawValue, forKey: AppPreferenceKey.timecodeFeedback)
+        let fixture = try silentProject(seconds: 8)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let controller = ProjectController(document: ProjectDocument(project: fixture.project))
         let player = ProjectPlayerViewModel()
         let (host, window) = host(MarkerViewerFixture(controller: controller, player: player))
         defer { player.player.pause(); window.close() }
+        // Initial playback belongs to EditorWorkspaceView; this smaller fixture
+        // deliberately hosts ProjectViewerView without that workspace loader.
+        player.prepare(project: controller.project, mediaURLs: controller.resolvedMediaURLs())
         try await ready(player)
-        try await Task.sleep(for: .milliseconds(150))
+        try await Task.sleep(for: .milliseconds(300))
         func playhead() throws -> NSObject {
             try #require(descendants(host).first {
                 attribute($0, "accessibilityRole") as? String == "AXSlider" &&
@@ -251,6 +264,14 @@ struct MarkerAccessibilityTests {
         player.scopeKeyboardCommands { true }
         if playing { player.player.play() }
         try await Task.sleep(for: .milliseconds(200))
+        if playing {
+            // A nonzero rate can precede the first rendered audio sample.
+            // Wait for playback to advance before testing distinct cue times.
+            for _ in 0..<100 where player.precisePlayhead == .zero {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            try #require(player.precisePlayhead > .zero)
+        }
         let beginning = player.precisePlayhead
         let controlNames = ["Go to beginning", "Next edit point", "Mark In"]
         let originalControls = try controlNames.map { name in
@@ -271,7 +292,8 @@ struct MarkerAccessibilityTests {
             try await Task.sleep(for: .milliseconds(150))
             let current = try playhead()
             #expect(current === original, "Creating markers must preserve the native slider element")
-            #expect(attribute(current, "accessibilityValueDescription") as? String == originalValue)
+            let nativeValue = attribute(current, "accessibilityValueDescription") as? String
+            #expect(playing ? nativeValue == nil : nativeValue == originalValue)
             let markerTime = try #require(controller.project.markerTrack?.markers.last?.time)
             #expect(abs(markerTime.seconds - tapped.seconds) < 0.1)
             for (name, originalControl) in zip(controlNames, originalControls) {
@@ -297,7 +319,10 @@ struct MarkerAccessibilityTests {
         player.seek(to: .zero)
         try await Task.sleep(for: .milliseconds(150))
         if playing { player.goToNextEdit() } else { player.goToStart() }
-        try await Task.sleep(for: .milliseconds(250))
+        for _ in 0..<50 {
+            if attribute(try playhead(), "accessibilityValueDescription") as? String == player.playheadAccessibilityValue { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
         let navigatedValue = try #require(attribute(try playhead(), "accessibilityValueDescription") as? String)
         #expect(navigatedValue == player.playheadAccessibilityValue)
         if playing { #expect(navigatedValue == "First cue") }
@@ -361,6 +386,10 @@ struct MarkerAccessibilityTests {
         #expect(player.handleEditorKeyEvent(try markerEvent(.keyDown)) == nil)
         #expect(player.handleEditorKeyEvent(try markerEvent(.keyUp)) == nil)
         #expect(controller.project.markerTrack?.markers.count == 2)
+        #expect(player.handleEditorKeyEvent(try markerEvent(.keyDown, modifiers: .option)) == nil)
+        #expect(player.handleEditorKeyEvent(try markerEvent(.keyUp, modifiers: .option)) == nil)
+        #expect(controller.project.markerTrack?.markers.last?.type == .chapter)
+        #expect(controller.project.markerTrack?.markers.count == 3)
         #expect(controller.project.markerTrack?.markers.allSatisfy { $0.time == .zero } == true)
         #expect(controller.editorFocusRestoreRequest == focusRevision)
         #expect(player.player.currentItem === item && player.player.rate == 0)
@@ -369,7 +398,49 @@ struct MarkerAccessibilityTests {
         player.refreshAccessibilityValueForFocus()
         #expect(player.accessibilityTimecodeLabel == player.currentTimecodeForAnnouncement)
         #expect(!player.accessibilityTimecodeLabel.contains("Marker"))
-        #expect(player.playheadAccessibilityValue == "Marker 2")
+        #expect(player.playheadAccessibilityValue == "Chapter 3")
+    }
+
+    @Test func punctuationUsesTheSameEditPointsAsCommandArrowsAndPreservesTextEditing() async throws {
+        let fixture = try silentProject()
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        var project = fixture.project
+        let clip = try #require(project.primaryTimeline.first)
+        let second = try project.splitClip(id: clip.id, atTimelineTime: ProjectTime(seconds: 0.25))
+        _ = try project.splitClip(id: second, atTimelineTime: ProjectTime(seconds: 0.75))
+        let player = ProjectPlayerViewModel()
+        player.prepare(project: project, mediaURLs: [project.media[0].id: fixture.url])
+        try await ready(player)
+        player.selectEditPointTrack(project.tracks.first { $0.kind == .audio }?.id, in: project)
+        player.scopeKeyboardCommands { true }
+        func event(_ character: String, code: UInt16, modifiers: NSEvent.ModifierFlags = [],
+                   repeatKey: Bool = false, window: NSWindow? = nil) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                timestamp: 0, windowNumber: window?.windowNumber ?? 0, context: nil,
+                characters: character, charactersIgnoringModifiers: character, isARepeat: repeatKey, keyCode: code))
+        }
+        #expect(player.handleEditorKeyEvent(try event("'", code: 39)) == nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(abs(player.currentTime.seconds - 0.25) < 0.01)
+        #expect(player.handleEditorKeyEvent(try event("'", code: 39, repeatKey: true)) == nil)
+        #expect(player.handleEditorKeyEvent(try event(";", code: 41)) == nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(player.currentTime == .zero)
+        #expect(player.handleEditorKeyEvent(try event("", code: 124, modifiers: .command)) == nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(abs(player.currentTime.seconds - 0.25) < 0.01)
+        let voEvent = try event(";", code: 41, modifiers: [.control, .option])
+        #expect(player.handleEditorKeyEvent(voEvent) === voEvent)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        window.contentView = text
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(text)
+        defer { window.close() }
+        let typed = try event(";", code: 41, window: window)
+        #expect(player.handleEditorKeyEvent(typed) === typed)
     }
 
     @Test func creatingMarkerDuringPlaybackDoesNotPublishNavigationName() async throws {
@@ -399,7 +470,7 @@ struct MarkerAccessibilityTests {
         player.player.pause()
         try await Task.sleep(for: .milliseconds(100))
         player.refreshAccessibilityValueForFocus()
-        #expect(player.playheadAccessibilityValue == player.currentTimecodeForAnnouncement)
+        #expect(player.playheadAccessibilityValue == AppPreferences.playheadValue(player.currentTimecodeForAnnouncement))
     }
 
     @Test func markerDialogLabelsPositionAndRespondsToPrecisionSetting() async throws {

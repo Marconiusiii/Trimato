@@ -132,6 +132,7 @@ struct ExportSaveSelection {
     let url: URL
     let captionDelivery: CaptionDelivery
     var exportDescriptions = false
+    var exportChapters = false
     var audioMode: ExportAudioMode = .preserveSpatial
 }
 
@@ -213,16 +214,20 @@ final class ExportFormatSelectionModel: ObservableObject {
     let hasDescriptions: Bool
     let outputSummary: String?
     @Published var exportDescriptions = true
+    let hasChapters: Bool
+    @Published var exportChapters = true
 
     fileprivate var formatChanged: ((ExportFormat) -> Void)?
 
-    init(selectedFormat: ExportFormat, hasCaptions: Bool, hasDescriptions: Bool = false, outputSummary: String? = nil) {
+    init(selectedFormat: ExportFormat, hasCaptions: Bool, hasDescriptions: Bool = false, outputSummary: String? = nil,
+         hasChapters: Bool = false) {
         self.selectedFormat = selectedFormat
         self.audioOnly = selectedFormat.isAudioOnly
         self.captionDelivery = selectedFormat.isAudioOnly ? .webVTT : .burnedIn
         self.hasCaptions = hasCaptions
         self.outputSummary = outputSummary
         self.hasDescriptions = hasDescriptions
+        self.hasChapters = hasChapters
     }
 }
 
@@ -244,6 +249,9 @@ private struct ExportFormatAccessoryView: View {
                 }
             }
             .frame(width: 330)
+            if model.hasChapters, !model.audioOnly {
+                Toggle("Export YouTube Chapters", isOn: $model.exportChapters)
+            }
             if model.offersAudioChoice && !model.audioOnly {
                 Picker("Audio", selection: $model.audioMode) {
                     ForEach(ExportAudioMode.allCases) { mode in
@@ -293,6 +301,7 @@ final class ExportSavePanel {
         formats: [ExportFormat],
         hasCaptions: Bool = false,
         hasDescriptions: Bool = false,
+        hasChapters: Bool = false,
         outputSummary: String? = nil,
         offersAudioChoice: Bool = false,
         spatialUnavailableReason: String? = nil,
@@ -303,7 +312,7 @@ final class ExportSavePanel {
         self.formats = formats
         self.originalExtension = originalExtension
         self.originalContentType = originalContentType
-        self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0], hasCaptions: hasCaptions, hasDescriptions: hasDescriptions, outputSummary: outputSummary)
+        self.formatModel = ExportFormatSelectionModel(selectedFormat: formats[0], hasCaptions: hasCaptions, hasDescriptions: hasDescriptions, outputSummary: outputSummary, hasChapters: hasChapters)
 
         formatModel.allFormats = formats
         formatModel.offersAudioChoice = offersAudioChoice
@@ -325,6 +334,7 @@ final class ExportSavePanel {
         ).editorAppearance())
         accessory.frame = NSRect(x: 0, y: 0, width: 330, height: (hasCaptions ? 144 : 76) + (hasDescriptions ? 32 : 0) + (outputSummary == nil ? 0 : 26) + (offersAudioChoice ? 160 : 0) + (spatialUnavailableReason == nil ? 0 : 100))
         panel.accessoryView = accessory
+        if hasChapters { accessory.frame.size.height += 32 }
 
         panel.nameFieldStringValue = formatModel.selectedFormat.filename(
             for: baseName,
@@ -345,6 +355,7 @@ final class ExportSavePanel {
             url: url,
             captionDelivery: formatModel.hasCaptions && formatModel.includeCaptions ? formatModel.captionDelivery : .none,
             exportDescriptions: formatModel.hasDescriptions && formatModel.exportDescriptions,
+            exportChapters: formatModel.hasChapters && !formatModel.audioOnly && formatModel.exportChapters,
             audioMode: formatModel.audioMode
         )
     }

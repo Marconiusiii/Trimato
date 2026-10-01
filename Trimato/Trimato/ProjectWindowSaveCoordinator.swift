@@ -132,6 +132,11 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
         }
         self.window = window
         window.isRestorable = false
+        // The document workspace starts at the screen's usable size. Native
+        // resizing and full-screen transitions own its geometry after attachment.
+        if !window.styleMask.contains(.fullScreen), let screen = window.screen ?? NSScreen.main {
+            window.setFrame(screen.visibleFrame, display: true)
+        }
         nativeDocument = NSDocumentController.shared.document(for: window)
         let delegate = ProjectWindowCloseDelegate(original: window.delegate) { [weak self] in
             self?.windowCloseRequested?()

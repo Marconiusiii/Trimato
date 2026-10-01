@@ -133,8 +133,8 @@ struct EditorWorkspaceView: View {
                 }
             }
             .sheet(item: $controller.pictureExportRequest, onDismiss: controller.pictureExportSheetDismissed) { request in
-                PictureExportSheet(request: request, cancel: { controller.pictureExportRequest = nil }) { captions, language in
-                    controller.confirmPictureExport(request, captions: captions, language: language)
+                PictureExportSheet(request: request, cancel: { controller.pictureExportRequest = nil }) { captions, language, chapters in
+                    controller.confirmPictureExport(request, captions: captions, language: language, chapters: chapters)
                 }
             }
             .sheet(item: $controller.editingMarker) { marker in
@@ -368,6 +368,7 @@ struct EditorWorkspaceView: View {
                     )
                 }
                 .frame(minHeight: 360)
+                .layoutPriority(1)
 
                 MacEditorPane("Timeline") {
                     ProjectTimelineView(
@@ -378,7 +379,7 @@ struct EditorWorkspaceView: View {
                     )
                 }
                 .frame(minWidth: 460)
-                .frame(minHeight: 240)
+                .frame(minHeight: 240, idealHeight: 260)
                 .disabled(controller.recordingSession != nil)
             }
             if let tool = controller.toolPane {
@@ -702,7 +703,7 @@ struct ProjectViewerView: View {
         }
         .onDisappear { focusScope.recordVoiceOverFocus(false) }
         // Timeline edits rebuild playback in the background. They must never
-        // present a sheet or announce preparation over the active Clip Editor.
+        // present a sheet or announce preparation over the active Cutting Board.
         .onChange(of: viewModel.isPreparing) { _, preparing in
             preparationChanged(preparing)
         }
@@ -824,6 +825,7 @@ private struct ProjectPlaybackControlsPresentation: View {
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     let controller: ProjectController
     @ObservedObject var viewModel: ProjectPlayerViewModel
+    @State private var controlsWidth: CGFloat = 460
     var focusedAccessibilityTarget: AccessibilityFocusState<ProjectViewerView.AccessibilityTarget?>.Binding
     var paneCommandKeyboardTarget: FocusState<ProjectViewerView.AccessibilityTarget?>.Binding
 
@@ -847,6 +849,9 @@ private struct ProjectPlaybackControlsPresentation: View {
         .padding(.horizontal, 8)
         .padding(.top, 6)
         .padding(.bottom, 8)
+        .font(.system(size: EditorButtonSizing.fontSize(
+            labels: ["Mark In", "Clear In", "Mark Out", "Clear Out"], availableWidth: controlsWidth)))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { controlsWidth = $0 }
         .background(EditorTheme.controlSurface)
     }
 
@@ -903,20 +908,24 @@ private struct ProjectPlaybackControlsPresentation: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Button("Mark In") { viewModel.markIn() }
+                        .fixedSize()
                         .accessibilityIdentifier("trimato.editor.mark-in")
                         .accessibilityFocused(focusedAccessibilityTarget, equals: .markIn)
                     Text("In: \(viewModel.inMarkerDisplay)").monospacedDigit()
                     Button("Clear In") { viewModel.clearIn() }
+                        .fixedSize()
                         .disabled(viewModel.inMarker == nil)
                         .accessibilityIdentifier("trimato.editor.clear-in")
                         .accessibilityFocused(focusedAccessibilityTarget, equals: .clearIn)
                 }
                 HStack {
                     Button("Mark Out") { viewModel.markOut() }
+                        .fixedSize()
                         .accessibilityIdentifier("trimato.editor.mark-out")
                         .accessibilityFocused(focusedAccessibilityTarget, equals: .markOut)
                     Text("Out: \(viewModel.outMarkerDisplay)").monospacedDigit()
                     Button("Clear Out") { viewModel.clearOut() }
+                        .fixedSize()
                         .disabled(viewModel.outMarker == nil)
                         .accessibilityIdentifier("trimato.editor.clear-out")
                         .accessibilityFocused(focusedAccessibilityTarget, equals: .clearOut)

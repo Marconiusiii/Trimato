@@ -169,6 +169,7 @@ final class NativeModalWindowController: NSWindowController, NSWindowDelegate {
         window.isRestorable = false
         window.isExcludedFromWindowsMenu = true
         window.collectionBehavior.insert(.transient)
+        window.collectionBehavior.insert(.fullScreenAuxiliary)
         window.center()
         super.init(window: window)
         window.delegate = self

@@ -41,7 +41,7 @@ final class MixerWindowRegistry: ObservableObject {
     }
 }
 
-/// Uses the Clip Editor's native window lifecycle and screen-fitting behavior.
+/// Uses the Cutting Board's native window lifecycle and screen-fitting behavior.
 @MainActor
 final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
     let session: MixerSession
@@ -70,6 +70,7 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
         hostingController.sizingOptions = []
         window.contentViewController = hostingController
         window.collectionBehavior.insert(.participatesInCycle)
+        window.collectionBehavior.insert(.fullScreenAuxiliary)
         window.isExcludedFromWindowsMenu = false
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 440, height: 540)

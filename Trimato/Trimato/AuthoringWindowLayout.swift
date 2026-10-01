@@ -38,6 +38,7 @@ final class AuthoringWindowArrangement {
 
     func place(_ tool: NSWindow, beside project: NSWindow?) {
         guard let project, let screen = project.screen ?? NSScreen.main else { return }
+        guard !project.styleMask.contains(.fullScreen) else { return }
         tools = tools.filter { $0.value.window != nil }
         if projectWindow !== project {
             restore()
@@ -76,7 +77,7 @@ final class AuthoringWindowArrangement {
 
     private func restore() {
         if let projectWindow, let originalFrame, projectWindow.frame == arrangedFrame,
-           projectWindow.isVisible {
+           projectWindow.isVisible, !projectWindow.styleMask.contains(.fullScreen) {
             projectWindow.setFrame(originalFrame, display: true)
         }
         projectWindow = nil

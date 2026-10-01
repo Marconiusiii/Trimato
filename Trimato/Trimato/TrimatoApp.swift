@@ -141,9 +141,14 @@ struct TrimatoApp: App {
                 .disabled(projectPlayer?.canControlPlayback != true)
             }
             CommandMenu("Markers") {
-                Button("Add Marker (;)") {
+                Button("Add Marker (M)") {
                     guard let projectPlayer else { return }
                     projectPlayer.createMarker?(projectPlayer.precisePlayhead)
+                }
+                .disabled(projectPlayer?.canControlPlayback != true)
+                Button("Add Chapter (Option-M)") {
+                    guard let projectPlayer else { return }
+                    projectPlayer.createChapter?(projectPlayer.precisePlayhead)
                 }
                 .disabled(projectPlayer?.canControlPlayback != true)
                 Divider()
@@ -245,7 +250,7 @@ struct TrimatoApp: App {
             }
         }
 
-        WindowGroup("Clip Editor", for: ExternalMediaOpenRequest.self) { $request in
+        WindowGroup("Cutting Board", for: ExternalMediaOpenRequest.self) { $request in
             if let request {
                 StandaloneClipEditorView(request: request).editorAppearance()
             }
@@ -440,7 +445,7 @@ private struct ProjectFileCommands: Commands {
         }
         CommandGroup(replacing: .saveItem) {
             Button(quitReview.coordinator != nil ? "Cancel Quit" : closeSettings != nil ? "Close Settings" :
-                (mixer.activeSession != nil ? "Close Mixer" : nil) ?? closeToolPane?.title ?? (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Clip Editor" : "Close Project")) {
+                (mixer.activeSession != nil ? "Close Mixer" : nil) ?? closeToolPane?.title ?? (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Cutting Board" : "Close Project")) {
                 if let coordinator = quitReview.coordinator { coordinator.cancelQuitReview() }
                 else if let closeSettings { closeSettings() }
                 else if let window = mixer.activeWindow { window.performClose(nil) }

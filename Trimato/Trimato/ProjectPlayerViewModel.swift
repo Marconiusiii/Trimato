@@ -721,6 +721,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         let previouslyHadPreparedPlayerItem = hasPreparedPlayerItem
         let previousMixProcessors = mixProcessors
         let previousMixBindings = mixBindings
+        let previousMixProject = latestMixProject
         let previousSpatialProject = spatialPlaybackProject
         let previousSpatialURLs = spatialMediaURLs
         let previousSpatialAudio = hasSpatialAudio
@@ -779,7 +780,9 @@ final class ProjectPlayerViewModel: ObservableObject {
             spatialMixBlocked = false
             mixProcessors = result.mixProcessors
             mixBindings = result.mixBindings
-            updateMix(project: latestMixProject ?? project, refreshEnvelopes: true)
+            // This item was built from the candidate containing the new fades.
+            // Reapplying the previous project's envelopes here removes those fades.
+            updateMix(project: project, refreshEnvelopes: true)
             replacedPlayerItem = true
             try await waitUntilReadyToPlay(committedItem)
             progress(0.95)
@@ -809,6 +812,7 @@ final class ProjectPlayerViewModel: ObservableObject {
                 player.replaceCurrentItem(with: previousPlayerItem)
                 mixProcessors = previousMixProcessors
                 mixBindings = previousMixBindings
+                latestMixProject = previousMixProject
                 spatialPlaybackProject = previousSpatialProject
                 spatialMediaURLs = previousSpatialURLs
                 hasSpatialAudio = previousSpatialAudio
@@ -1701,6 +1705,7 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     var createMarker: ((ProjectTime) -> Void)?
+    var createChapter: ((ProjectTime) -> Void)?
     var editMarkerAtPlayhead: (() -> Bool)?
     var deleteMarkerAtPlayhead: (() -> Bool)?
 
@@ -1746,10 +1751,22 @@ final class ProjectPlayerViewModel: ObservableObject {
 
         switch event.type {
         case .keyDown:
-            if unmodified, !event.isARepeat, event.characters == ";" {
+            if modifiers.isEmpty || modifiers == .option,
+               !event.isARepeat, event.charactersIgnoringModifiers?.lowercased() == "m" {
                 markerKeyDown = event.keyCode
-                self.createMarker?(self.precisePlayhead)
+                if modifiers == .option { self.createChapter?(self.precisePlayhead) }
+                else { self.createMarker?(self.precisePlayhead) }
                 return nil
+            }
+            if modifiers.isEmpty {
+                if event.charactersIgnoringModifiers == ";" {
+                    if !event.isARepeat { self.goToPreviousEdit() }
+                    return nil
+                }
+                if event.charactersIgnoringModifiers == "'" {
+                    if !event.isARepeat { self.goToNextEdit() }
+                    return nil
+                }
             }
             if modifiers.isEmpty, !event.isARepeat {
                 if event.keyCode == 36, self.editMarkerAtPlayhead?() == true { return nil }
@@ -1875,13 +1892,14 @@ final class ProjectPlayerViewModel: ObservableObject {
             return keyCode == 125 || keyCode == 126
         }
         let key = character?.lowercased()
+        if relevantModifiers == .option { return key == "m" }
         if relevantModifiers == .command {
             return [123, 124, 125, 126].contains(keyCode)
                 || key == "[" || key == "]" || key == "b" || key == "t"
         }
         guard unmodified else { return false }
         if keyCode == 49 || keyCode == 123 || keyCode == 124 { return true }
-        if key == "g" || key == ";" { return relevantModifiers.isEmpty }
+        if ["g", "m", ";", "'"].contains(key ?? "") { return relevantModifiers.isEmpty }
         return ["[", "]", "c", "x", "f", "t", "i", "o", "j", "k", "l"].contains(key)
     }
 

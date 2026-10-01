@@ -10,7 +10,7 @@ struct EntryHost: View {
     @ObservedObject var state: EntryState
     let player: VideoPlayerViewModel
     var body: some View {
-        ContentView(viewModel: player, editorHeading: "Video Clip Editor", compact: true,
+        ContentView(viewModel: player, editorHeading: "Video Cutting Board", compact: true,
                     isPreparingSource: state.handoffPending)
     }
 }

@@ -274,25 +274,31 @@ struct ClipExportControlsView: View {
 
 struct ClipMarkerControlsView: View {
     @ObservedObject var viewModel: VideoPlayerViewModel
+    @State private var availableWidth: CGFloat = 460
     var body: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Button("Mark In") { viewModel.markIn() }
+                        .fixedSize()
                     Text("In: \(viewModel.inMarkerDisplay)")
                         .monospacedDigit()
                     Button("Clear In") { viewModel.clearIn() }
+                        .fixedSize()
                         .disabled(viewModel.inMarker == nil)
                 }
                 HStack {
                     Button("Mark Out") { viewModel.markOut() }
+                        .fixedSize()
                     Text("Out: \(viewModel.outMarkerDisplay)")
                         .monospacedDigit()
                     Button("Clear Out") { viewModel.clearOut() }
+                        .fixedSize()
                         .disabled(viewModel.outMarker == nil)
                 }
 
                 Button("Delete Selection") { viewModel.deleteSelection() }
+                    .fixedSize()
                     .disabled(!viewModel.canDeleteSelection)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -301,6 +307,10 @@ struct ClipMarkerControlsView: View {
             Text("Markers").accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .font(.system(size: EditorButtonSizing.fontSize(
+            labels: ["Mark In", "Clear In", "Mark Out", "Clear Out", "Delete Selection"],
+            availableWidth: availableWidth)))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Markers")

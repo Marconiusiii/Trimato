@@ -42,6 +42,7 @@ final class GeneratorWindowRegistry {
             }
         )
         windows[id] = controller
+        session.hostWindow = controller.window
         controller.showModal()
     }
 
@@ -54,6 +55,7 @@ final class GeneratorWindowRegistry {
 final class GeneratorSession: ObservableObject, Identifiable {
     let id = UUID()
     weak var controller: ProjectController?
+    weak var hostWindow: NSWindow?
     let playhead: ProjectTime
     let editing: EditorSelection?
     @Published var definition = GeneratorDefinition()
@@ -66,7 +68,8 @@ final class GeneratorSession: ObservableObject, Identifiable {
     @Published var errorMessage: String?
     private var operation: Task<Void, Never>?
     private var operationID = UUID()
-    private var completionAction: (() -> Void)?
+    @Published private var completionAction: (() -> Void)?
+    var hasPendingCompletion: Bool { completionAction != nil }
     private var originalQuitDraft: QuitDraft?
 
     func progressWindowDismissed() {
@@ -290,9 +293,11 @@ struct GeneratorView: View {
                 ContextualHelpButton(topic: .generator)
             }
         }
-        .operationProgress(session.progress.map { OperationProgress(
+        .operationPreparationSheet(session.progress.map { OperationProgress(
             title: "Preparing Generator", progress: $0, cancel: session.cancelPreparation
         ) }, outcome: session.errorMessage == nil ? .completed : .failed,
+                           completionRequested: session.hasPendingCompletion,
+                           ownerWindow: session.hostWindow,
                            dismissed: session.progressWindowDismissed)
         .padding(EditorTheme.dialogPadding)
         .frame(minWidth: 560, alignment: .leading)
@@ -358,7 +363,7 @@ struct GeneratorView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Button("Append") { session.prepare(placement: .append, finished: close) }
                     Button("Insert and Split") { session.prepare(placement: .insert, finished: close) }
-                    Button("Insert and Overwrite") { session.prepare(placement: .replaceRemainder, finished: close) }
+                    Button("Insert and Replace") { session.prepare(placement: .replaceRemainder, finished: close) }
                     if session.definition.kind != .silence {
                         Button("Insert on Top in New Video Track") {
                             session.prepare(placement: .insert, onTop: true, finished: close)

@@ -1,10 +1,10 @@
 # Spatial Audio integration and validation
 
-Spatial preservation is integrated into Trimato's normal Clip Editor and project preview/export paths through `SpatialAudioPlan`. Ordered cuts with unchanged audio preserve the original encoding and metadata. A separate processing path now supports volume, mute, fades, crossfades, reordered/repeated sections, and gaps across compatible source recordings and audio tracks. Video rendering remains independent. Export offers Preserve Spatial Audio and High-quality Stereo. Edits that cannot preserve spatial channels use a labeled stereo preview and an explicit stereo export choice.
+Spatial preservation is integrated into Trimato's normal Cutting Board and project preview/export paths through `SpatialAudioPlan`. Ordered cuts with unchanged audio preserve the original encoding and metadata. A separate processing path now supports volume, mute, fades, crossfades, reordered/repeated sections, and gaps across compatible source recordings and audio tracks. Video rendering remains independent. Export offers Preserve Spatial Audio and High-quality Stereo. Edits that cannot preserve spatial channels use a labeled stereo preview and an explicit stereo export choice.
 
 ## App integration checks
 
-`SpatialAudioIntegrationTests` exercises normal app entry points using the three supplied iPhone 16 Pro recordings. It checks full and trimmed Clip Editor exports, full and marked-range HDR project exports, ordered cuts, video-filter output, native player readiness, live mixer safeguards, preserved channel layouts and alternate groups, spatial metadata, and decoded samples. Unsupported exports must leave an existing destination untouched.
+`SpatialAudioIntegrationTests` exercises normal app entry points using the three supplied iPhone 16 Pro recordings. It checks full and trimmed Cutting Board exports, full and marked-range HDR project exports, ordered cuts, video-filter output, native player readiness, live mixer safeguards, preserved channel layouts and alternate groups, spatial metadata, and decoded samples. Unsupported exports must leave an existing destination untouched.
 
 Run the app tests with:
 

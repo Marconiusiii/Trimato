@@ -120,11 +120,11 @@ nonisolated struct TimelineMarker: Codable, Equatable, Hashable, Identifiable, S
 extension TrimatoProject {
     var markerTrack: TimelineTrack? { tracks.first { $0.kind == .markers } }
     var visibleCaptionCues: [CaptionCue] { captionTrack?.isMuted == true ? [] : captionTrack?.captionCues ?? [] }
-    mutating func insertMarker(at time: ProjectTime) -> TimelineMarker {
+    mutating func insertMarker(at time: ProjectTime, type: TimelineMarkerType = .marker) -> TimelineMarker {
         if markerTrack == nil { tracks.append(TimelineTrack(name: "Markers", kind: .markers)) }
         let track = tracks.firstIndex { $0.kind == .markers }!
         let index = tracks[track].nextMarkerIndex
-        let marker = TimelineMarker(index: index, time: time, title: "Marker \(index)")
+        let marker = TimelineMarker(index: index, time: time, title: "\(type.rawValue) \(index)", type: type)
         tracks[track].nextMarkerIndex += 1
         tracks[track].markers.append(marker)
         return marker

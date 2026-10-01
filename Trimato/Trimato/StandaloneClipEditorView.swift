@@ -271,7 +271,7 @@ struct StandaloneClipEditorView: View {
     }
 
     private var editorName: String {
-        guard viewModel.hasMedia else { return "Clip Editor" }
+        guard viewModel.hasMedia else { return "Cutting Board" }
         return ClipEditorMediaKind.name(hasVideo: viewModel.hasVideo)
     }
 

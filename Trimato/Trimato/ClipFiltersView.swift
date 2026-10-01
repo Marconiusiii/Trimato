@@ -1,5 +1,5 @@
 import SwiftUI
-import AVKit
+import AVFoundation
 
 nonisolated enum AppliedFilterSelection: Hashable, Identifiable {
     case filter(UUID)
@@ -476,7 +476,7 @@ struct FilterAuditionView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Preview").font(.headline).accessibilityAddTraits(.isHeader)
             if context.audioSettings == nil {
-                VideoPlayer(player: work.player).frame(height: 160)
+                VideoPlayerView(player: work.player).frame(height: 160)
             }
             Toggle("Bypass filter", isOn: $bypass).toggleStyle(.switch)
             if context.audioSettings != nil {

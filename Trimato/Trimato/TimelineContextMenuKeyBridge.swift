@@ -336,7 +336,7 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
                 mouseMovementStarted = false
                 let request = UUID()
                 mousePressID = request
-                // A short ordinary click still opens Clip Editor. A held mouse
+                // A short ordinary click still opens Cutting Board. A held mouse
                 // press (including VoiceOver's sticky mouse command) picks up.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                     guard let self, self.mousePressID == request, self.mouseSource != nil else { return }
@@ -642,7 +642,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
             let menu = NSMenu()
             switch selection {
             case .clip(let id):
-                add("Open Clip Editor", to: menu) { [weak self] in self?.actions?.activate(selection) }
+                add("Open Cutting Board", to: menu) { [weak self] in self?.actions?.activate(selection) }
                 add("Rename Clip…", to: menu) { [weak self] in self?.actions?.renameClip(id) }
                 menu.addItem(.separator())
                 add("Copy Clip", to: menu) { [weak self] in self?.actions?.copyClip(id) }

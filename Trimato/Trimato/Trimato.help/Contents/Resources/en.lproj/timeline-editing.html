@@ -27,7 +27,7 @@
         <dd>Adds the clip after the last timeline clip.</dd>
         <dt>Insert and Split</dt>
         <dd>On a magnetic track, splits the clip beneath the project playhead, inserts the new clip between the two parts, and moves later clips forward. With Magnetic off, places the new clip at the playhead only if it fits without overlapping another clip. After insertion, the project playhead moves to the incoming clip’s end so consecutive inserts remain in the order you make them.</dd>
-        <dt>Insert and Overwrite</dt>
+        <dt>Insert and Replace</dt>
         <dd>Keeps the portion before the project playhead and replaces the remainder of that clip. Magnetic tracks shift later clips by the change in duration. With Magnetic off, later clips keep their exact times and an overlapping replacement is rejected.</dd>
         <dt>Insert on Top with Source Audio</dt>
         <dd>Shows and plays the inserted clip over the project for its duration.</dd>
@@ -59,7 +59,7 @@
         <li>Press Space again, or Escape, to drop the clip. The list is reordered only when you drop it. Command-Z undoes the complete move.</li>
     </ol>
     <p>For a specific destination, keep the source selected for moving and focus the destination clip. Open its context menu with Control-Enter or VoiceOver’s VO-Shift-M command. Choose Move To…, then Start, Before, After, End, or Playhead. Playhead places the source clip’s start at the current project playhead on an additional track with Magnetic off, without moving its neighbors. Before and After use the focused destination; Start, End, and Playhead use the active track. Without a picked-up clip, Start, End, and Playhead move the focused clip directly. Focusing another clip does not change the clip selected for moving.</p>
-    <p>Press Enter or Return on a clip to open Clip Editor, matching a click or normal button activation. Space selects for moving only in Timeline Clips; Space still plays or pauses in Editor and Clip Editor. If VoiceOver Quick Nav is using the arrow keys, turn Quick Nav off for plain-arrow movement, or use the menu commands.</p>
+    <p>Press Enter or Return on a clip to open Cutting Board, matching a click or normal button activation. Space selects for moving only in Timeline Clips; Space still plays or pauses in Editor and Cutting Board. If VoiceOver Quick Nav is using the arrow keys, turn Quick Nav off for plain-arrow movement, or use the menu commands.</p>
     <p>On additional video and audio tracks with Magnetic off, Left Arrow or Up Arrow moves the focused clip one project frame earlier. Right Arrow or Down Arrow moves it one frame later. You do not need to pick it up first. Trimato announces the new start frame. A clip cannot overlap or move through another clip on the same track. Linked audio moves with its video. Remove attached transitions before moving the clip.</p>
     <p>The Timeline menu also provides Move Clip Earlier and Move Clip Later. These commands move by one clip on a magnetic track and one frame on an additional track with Magnetic off.</p>
     <p>Current identifies the clip under the project playhead. Selected identifies a clip you picked up with Space. Moving VoiceOver focus does not select a clip or move the playhead.</p>
@@ -74,7 +74,7 @@
     <p>The clip keeps its material before the shared project playhead. Later clips on that audio track move earlier by the removed duration. The operation can be undone. You can instead focus the clip in Timeline clips and choose Trim End to Project Playhead from its context menu.</p>
 
     <h2>Open a clip from Editor</h2>
-    <p>Press C while focus is in Editor to open Clip Editor for the active-track clip at the playhead. At an edit point, Trimato opens the incoming clip. In a gap, it opens the next clip, but no clip is marked Current until the playhead is inside a clip. In Timeline Clips, Enter or Return opens the focused clip regardless of the playhead position.</p>
+    <p>Press C while focus is in Editor to open Cutting Board for the active-track clip at the playhead. At an edit point, Trimato opens the incoming clip. In a gap, it opens the next clip, but no clip is marked Current until the playhead is inside a clip. In Timeline Clips, Enter or Return opens the focused clip regardless of the playhead position.</p>
 
     <h2>Rename a timeline item</h2>
     <ol>
@@ -175,7 +175,7 @@
     <p>Choose the audio track in the Track picker, then turn on Mute Track. Muting affects the whole track in preview and export, including audio transitions. It does not delete clips, change timing, or hide picture. The setting is saved with the project and can be undone. Turn it off to restore the track’s sound.</p>
 
     <h2>Adjust an audio clip</h2>
-    <p>Activate a clip on an audio track to open Clip Editor. The Audio section provides gain, low, mid, and high equalization, high-pass and low-pass filters, and Reset Audio. Activate Update Clip to apply the settings.</p>
+    <p>Activate a clip on an audio track to open Cutting Board. The Audio section provides gain, low, mid, and high equalization, high-pass and low-pass filters, and Reset Audio. Activate Update Clip to apply the settings.</p>
 
     <h2>Get information about a timeline item</h2>
     <p>Focus a clip or transition and press Command-I to open its Get Info window.</p>
@@ -187,7 +187,7 @@
         <h2>Show or hide captions</h2>
     <p>Select the Captions track in Timeline Clips, then turn Show captions on or off. This changes the caption overlay during playback. The caption cues remain available for editing. Choose Include captions separately when exporting.</p>
     <h2>Markers</h2>
-    <p>Press semicolon (;) in Editor to add an absolute marker. Select the Markers track to navigate and edit its items in Timeline Clips. Enter edits the title and Marker or Chapter type; Delete removes the item.</p>
+    <p>Press M in Editor to add an absolute Marker, or Option-M to add a Chapter. Select the Markers track to navigate and edit its items in Timeline Clips. Enter edits the title and Marker or Chapter type; Delete removes the item.</p>
 </main>
 <footer><p><a href="saving-and-exporting.html">Next topic: Save and export</a></p></footer>
 </body>

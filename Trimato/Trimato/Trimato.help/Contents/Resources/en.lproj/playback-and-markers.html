@@ -10,7 +10,7 @@
 <header><p><a href="index.html">Trimato Help</a></p></header>
 <main>
     <h1>Control playback and use In and Out points</h1>
-    <p>The playback commands on this page apply while focus is in Editor or Clip Editor. In Timeline Clips, Space picks up or drops a clip, and plain arrows reorder a picked-up clip on a magnetic track or nudge an additional-track clip with Magnetic off. <a href="timeline-editing.html">Read about Timeline clip movement.</a></p>
+    <p>The playback commands on this page apply while focus is in Editor or Cutting Board. In Timeline Clips, Space picks up or drops a clip, and plain arrows reorder a picked-up clip on a magnetic track or nudge an additional-track clip with Magnetic off. <a href="timeline-editing.html">Read about Timeline clip movement.</a></p>
 
     <h2>Play and pause</h2>
     <ul>
@@ -35,8 +35,8 @@
         <li>Choose Trimato &gt; Settings &gt; Accessibility to set Timecode Feedback to When stopped or On Demand. On Demand speaks the timeline playhead time only when you press T.</li>
         <li>Use Show milliseconds to include or hide fractional seconds in displayed and spoken timecodes.</li>
         <li>Choose Numeric, Time units, or Frames from Timecode style.</li>
-        <li>Press T in Editor or Mixer to hear the current timecode with any feedback setting. T also works in Clip Editor with either feedback setting.</li>
-        <li>In a project Editor, press C to open Clip Editor for the active-track clip at or immediately after the playhead.</li>
+        <li>Press T in Editor or Mixer to hear the current timecode with any feedback setting. T also works in Cutting Board with either feedback setting.</li>
+        <li>In a project Editor, press C to open Cutting Board for the active-track clip at or immediately after the playhead.</li>
     </ul>
 
     <p>The playhead’s VoiceOver timecode stays stable during continuous playback. Pausing or completing a seek or frame jog updates it to the stopped position without requiring a focus change. The visible timecode continues to advance during playback.</p>
@@ -56,10 +56,11 @@
         <li>Place In earlier than Out.</li>
     </ul>
     <h2>Create markers during playback</h2>
-    <p>In the project Editor, press semicolon (;) to create a marker at the current playhead position. Playback continues. The first marker creates the Markers track and displays it in Timeline Clips. New markers are named Marker 1, Marker 2, and so on.</p>
+    <p>In the project Editor, press M to create a marker at the current playhead position. Playback continues. The first marker creates the Markers track and displays it in Timeline Clips. New markers are named Marker 1, Marker 2, and so on.</p>
     <p>Markers keep their absolute project times when clips are moved, trimmed, or deleted. The Markers track is never magnetic. Diamond indicators identify markers above the playhead slider; bookmark indicators identify chapters.</p>
     <p>Select the Markers track and use Command-Left Arrow and Command-Right Arrow in Editor to navigate its marker times. With a marker at the playhead, press Enter to edit its Title and Type, or Delete to remove it. Enter on a marker in Timeline Clips also opens the editor. Choose Marker for an editing cue or Chapter for a chapter boundary. Marker changes support Undo and Redo.</p>
     <p>Marker audio in General settings plays a short note when a marker is created. Turn it off to create markers silently. The note is not included in exports and is suppressed during recording.</p>
+    <p>Press M in Editor to add a Marker, or Option-M to add a Chapter, without stopping playback. Chapters keep absolute project times. Edit each Chapter title in the Markers track. Use semicolon (;) and apostrophe (') as alternatives to Command-Left Arrow and Command-Right Arrow for edit-point navigation.</p>
 </main>
 <footer><p><a href="keyboard-shortcuts.html">Related topic: Keyboard shortcuts</a></p></footer>
 </body>

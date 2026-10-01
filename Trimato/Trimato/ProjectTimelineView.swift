@@ -350,7 +350,7 @@ struct ProjectTimelineView: View {
                     title: clip.displayName,
                     subtitle: nil,
                     accessibilityValue: clipAccessibilityValue(clip),
-                    accessibilityHint: "Enter opens Clip Editor. Space toggles selection for moving.",
+                    accessibilityHint: "Enter opens Cutting Board. Space toggles selection for moving.",
                     isSelected: controller.movingTimelineClipID.map { $0 == clip.id }
                         ?? (controller.selection == .timelineClip(clip.id)),
                     isTransition: false,
@@ -593,7 +593,7 @@ struct ProjectTimelineView: View {
 
     @ViewBuilder
     private func clipActions(_ clip: TimelineClip) -> some View {
-        Button("Open Clip Editor") { openClipEditor(.timelineClip(clip.id)) }
+        Button("Open Cutting Board") { openClipEditor(.timelineClip(clip.id)) }
         Button("Rename Clip…") {
             controller.selection = .timelineClip(clip.id)
             renamedClipName = clip.displayName

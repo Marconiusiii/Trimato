@@ -56,7 +56,7 @@ final class ProjectController: ObservableObject {
     @Published var selectedCaptionCueID: UUID?
     @Published var editingMarker: TimelineMarker?
     @Published var pictureExportRequest: PictureExportRequest?
-    private var pendingPictureExport: (PictureExportRequest, Bool, String)?
+    private var pendingPictureExport: (PictureExportRequest, Bool, String, Bool)?
     @Published var selectedMarkerID: UUID?
     @Published private(set) var isCaptionEditorOpen = false
     @Published var timelineHasKeyboardFocus = false
@@ -503,6 +503,7 @@ final class ProjectController: ObservableObject {
     func installProjectPlayer(_ player: ProjectPlayerViewModel) {
         projectPlayer = player
         player.createMarker = { [weak self] in self?.createMarker(at: $0) }
+        player.createChapter = { [weak self] in self?.createMarker(at: $0, type: .chapter) }
         player.editMarkerAtPlayhead = { [weak self] in self?.editMarkerAtPlayhead() ?? false }
         player.deleteMarkerAtPlayhead = { [weak self] in self?.deleteMarkerAtPlayhead() ?? false }
         player.updateMix(project: project)
@@ -641,13 +642,13 @@ final class ProjectController: ObservableObject {
         pictureExportRequest = PictureExportRequest(time: time, range: range, web: web, project: project)
     }
 
-    func confirmPictureExport(_ request: PictureExportRequest, captions: Bool, language: String) {
-        pendingPictureExport = (request, captions, language)
+    func confirmPictureExport(_ request: PictureExportRequest, captions: Bool, language: String, chapters: Bool = false) {
+        pendingPictureExport = (request, captions, language, chapters)
         pictureExportRequest = nil
     }
 
     func pictureExportSheetDismissed() {
-        guard let (request, captions, language) = pendingPictureExport else { return }
+        guard let (request, captions, language, chapters) = pendingPictureExport else { return }
         pendingPictureExport = nil
         guard let window = NSApp.keyWindow else { return }
         if captions && request.project.captionTrack?.captionCues.contains(where: \.isDraft) == true {
@@ -677,12 +678,21 @@ final class ProjectController: ObservableObject {
                 guard await panel.beginSheetModal(for: window) == .OK, let url = panel.url else { return }
                 destination = url
             }
-            startPictureExport(request, destination: destination, captions: captions, language: language)
+            startPictureExport(request, destination: destination, captions: captions, language: language, chapters: chapters)
         }
     }
 
-    private func startPictureExport(_ request: PictureExportRequest, destination: URL, captions: Bool, language: String) {
+    private func startPictureExport(_ request: PictureExportRequest, destination: URL, captions: Bool, language: String, chapters: Bool) {
         let urls = resolvedMediaURLs()
+        let chapterData: Data?
+        do {
+            chapterData = request.web && chapters
+                ? try ChapterFileCodec.encode(markers: request.project.markerTrack?.markers ?? [],
+                                              duration: request.project.duration, within: request.range) : nil
+        } catch {
+            presentedError = ProjectPresentedError(title: "Chapters Could Not Be Exported", message: error.localizedDescription)
+            return
+        }
         isExporting = true
         exportProgress = nil
         exportTask = Task { @MainActor in
@@ -702,6 +712,7 @@ final class ProjectController: ObservableObject {
                     let package = temporary.appendingPathComponent("Web Video")
                     try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
                     try png.write(to: package.appendingPathComponent("poster.png"))
+                    if let chapterData { try chapterData.write(to: package.appendingPathComponent("chapters.txt")) }
                     var movie = request.project
                     for index in movie.tracks.indices where movie.tracks[index].kind == .captions { movie.tracks[index].captionCues = [] }
                     try await ProjectExporter.export(project: movie, mediaURLs: urls, timeRange: request.range,
@@ -785,6 +796,7 @@ final class ProjectController: ObservableObject {
                 title: "Export Project", baseName: self.project.name, formats: formats,
                 hasCaptions: self.project.captionTrack?.captionCues.isEmpty == false,
                 hasDescriptions: self.project.descriptionTranscriptTrack?.captionCues.isEmpty == false,
+                hasChapters: self.project.markerTrack?.markers.contains(where: { $0.type == .chapter }) == true,
                 outputSummary: summary, offersAudioChoice: hasSpatial, spatialUnavailableReason: spatialReason)
             let selection = await savePanel.selection(parentWindow: parentWindow)
             guard let selection else { return }
@@ -794,7 +806,8 @@ final class ProjectController: ObservableObject {
                 exportRange: exportRange,
                 mediaURLs: urls,
                 captionDelivery: selection.captionDelivery,
-                exportDescriptions: selection.exportDescriptions, audioMode: selection.audioMode
+                exportDescriptions: selection.exportDescriptions, audioMode: selection.audioMode,
+                exportChapters: selection.exportChapters
             )
         }
     }
@@ -806,7 +819,8 @@ final class ProjectController: ObservableObject {
         mediaURLs: [UUID: URL],
         captionDelivery: CaptionDelivery,
         exportDescriptions: Bool,
-        audioMode: ExportAudioMode
+        audioMode: ExportAudioMode,
+        exportChapters: Bool = false
     ) {
         if captionDelivery != .none,
            project.captionTrack?.captionCues.contains(where: \.isDraft) == true {
@@ -817,9 +831,6 @@ final class ProjectController: ObservableObject {
             )
             return
         }
-        isExporting = true
-        exportProgress = 0
-        announce("Export started")
         var projectSnapshot = project
         if captionDelivery != .burnedIn {
             for index in projectSnapshot.tracks.indices where projectSnapshot.tracks[index].kind == .captions && projectSnapshot.tracks[index].recordingPurpose != .descriptionTranscript {
@@ -830,11 +841,27 @@ final class ProjectController: ObservableObject {
             project.captionTrack?.captionCues ?? [],
             within: exportRange
         )
+        let chapterData: Data?
+        do {
+            chapterData = exportChapters && !format.isAudioOnly
+                ? try ChapterFileCodec.encode(markers: project.markerTrack?.markers ?? [],
+                                              duration: project.duration, within: exportRange) : nil
+        } catch {
+            outputURL.stopAccessingSecurityScopedResource()
+            presentedError = ProjectPresentedError(title: "Chapters Could Not Be Exported", message: error.localizedDescription)
+            return
+        }
+        isExporting = true
+        exportProgress = 0
+        announce("Export started")
         exportTask = Task { @MainActor in
             defer { outputURL.stopAccessingSecurityScopedResource() }
             var mediaWasSaved = false
             do {
                 var companionFiles: [(URL, Data)] = []
+                if let chapterData {
+                    companionFiles.append((outputURL.deletingPathExtension().appendingPathExtension("chapters.txt"), chapterData))
+                }
                 if let sidecarFormat = captionDelivery.sidecarFormat {
                     let data = try CaptionFileCodec.encode(sidecarCues, format: sidecarFormat)
                     companionFiles.append((outputURL.deletingPathExtension().appendingPathExtension(sidecarFormat.fileExtension), data))
@@ -869,7 +896,7 @@ final class ProjectController: ObservableObject {
                 exportProgress = nil
                 if mediaWasSaved {
                     presentedError = ProjectPresentedError(title: "Export Partly Completed",
-                        message: "The media file \(outputURL.lastPathComponent) was saved. Export was cancelled before all caption or description files were saved.")
+                        message: "The media file \(outputURL.lastPathComponent) was saved. Export was cancelled before all companion files were saved. Export again to save the remaining files.")
                     announce("Export partly completed")
                 } else { announce("Export canceled") }
             } catch {
@@ -878,7 +905,7 @@ final class ProjectController: ObservableObject {
                 presentedError = ProjectPresentedError(
                     title: mediaWasSaved ? "Export Partly Completed" : "Export Failed",
                     message: mediaWasSaved
-                        ? "The media file \(outputURL.lastPathComponent) was saved, but a caption or description file could not be saved. \(error.localizedDescription)"
+                        ? "The media file \(outputURL.lastPathComponent) was saved, but a companion file could not be saved. \(error.localizedDescription)"
                         : error.localizedDescription
                 )
                 announce(mediaWasSaved ? "Export partly completed" : "Export failed")
@@ -2779,10 +2806,10 @@ final class ProjectController: ObservableObject {
         moveTimelineClip(id: clip.id, to: .end, targetID: clip.id)
     }
 
-    func createMarker(at time: ProjectTime) {
+    func createMarker(at time: ProjectTime, type: TimelineMarkerType = .marker) {
         guard time >= .zero, time <= project.duration else { return }
         var created: TimelineMarker?
-        mutateProject(actionName: "Add Marker") { created = $0.insertMarker(at: time) }
+        mutateProject(actionName: "Add \(type.rawValue)") { created = $0.insertMarker(at: time, type: type) }
         activeTimelineTrackID = project.markerTrack?.id
         selectedMarkerID = created?.id
         projectPlayer?.selectEditPointTrack(activeTimelineTrackID, in: project)
@@ -2922,7 +2949,7 @@ enum PlacementAction: CaseIterable, Identifiable {
         switch self {
         case .append: "Append to Timeline"
         case .insert: "Insert and Split"
-        case .replaceRemainder: "Insert and Overwrite"
+        case .replaceRemainder: "Insert and Replace"
         case .cutawaySourceAudio: "Insert on Top with Source Audio"
         case .cutawayPrimaryAudio: "Insert on Top over Primary Audio"
         }
@@ -2932,7 +2959,7 @@ enum PlacementAction: CaseIterable, Identifiable {
         switch self {
         case .append: "Append Clip"
         case .insert: "Insert and Split"
-        case .replaceRemainder: "Insert and Overwrite"
+        case .replaceRemainder: "Insert and Replace"
         case .cutawaySourceAudio: "Insert on Top with Source Audio"
         case .cutawayPrimaryAudio: "Insert on Top over Primary Audio"
         }
