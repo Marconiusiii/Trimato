@@ -8,6 +8,36 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
+    @Test func reusedItemIgnoresOldContentFocusDeparture() {
+        let focus = TimelineNativeFocus()
+        let owner = UUID()
+        let oldContent = TimelineElementSelection.transition(UUID())
+        let titleClip = TimelineElementSelection.clip(UUID())
+        for voiceOver in [false, true] {
+            focus.record(oldContent, owner: owner, focused: true, voiceOver: voiceOver)
+            focus.record(titleClip, owner: owner, focused: true, voiceOver: voiceOver)
+            focus.record(oldContent, owner: owner, focused: false, voiceOver: voiceOver)
+        }
+        focus.remove(owner: owner, selection: oldContent)
+        #expect(focus.keyboardSelection == titleClip)
+        #expect(focus.voiceOverSelection == titleClip)
+        focus.remove(owner: owner, selection: titleClip)
+        #expect(focus.keyboardSelection == nil)
+        #expect(focus.voiceOverSelection == nil)
+    }
+
+    @Test func reusedItemCancelsFocusRequestedForPreviousContent() {
+        let request = TimelineItemFocusRequest()
+        var evaluatedOldRequest = false
+        request.request { evaluatedOldRequest = true; return true }
+        request.cancel()
+        #expect(!request.consume())
+        #expect(!evaluatedOldRequest)
+        request.request()
+        #expect(request.consume())
+        #expect(!request.consume())
+    }
+
     @Test func collectionShortcutCancelsAnOlderQueuedClipRestoration() async {
         let coordinator = TimelineClipsCollection.Coordinator()
         let selection = TimelineElementSelection.clip(UUID())

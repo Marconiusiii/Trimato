@@ -133,25 +133,28 @@ final class TimelineNativeFocus {
                 voiceOverOwner = owner
                 observedVoiceOverSelection = selection
                 commandFocusProvider()?.claim(.timeline(owner))
-            } else if voiceOverOwner == owner {
+            } else if voiceOverOwner == owner, observedVoiceOverSelection == selection {
                 voiceOverOwner = nil
                 observedVoiceOverSelection = nil
                 commandFocusProvider()?.release(.timeline(owner))
             }
         } else {
             if focused { keyboardOwner = owner; keyboardSelection = selection }
-            else if keyboardOwner == owner { keyboardOwner = nil; keyboardSelection = nil }
+            else if keyboardOwner == owner, keyboardSelection == selection { keyboardOwner = nil; keyboardSelection = nil }
         }
         if focused && !voiceOver { didObserveKeyboardFocus?(selection) }
     }
 
-    func remove(owner: UUID) {
-        if voiceOverOwner == owner {
+    func remove(owner: UUID, selection: TimelineElementSelection? = nil) {
+        if voiceOverOwner == owner, selection == nil || observedVoiceOverSelection == selection {
             voiceOverOwner = nil
             observedVoiceOverSelection = nil
             commandFocusProvider()?.release(.timeline(owner))
         }
-        if keyboardOwner == owner { keyboardOwner = nil; keyboardSelection = nil }
+        if keyboardOwner == owner, selection == nil || keyboardSelection == selection {
+            keyboardOwner = nil
+            keyboardSelection = nil
+        }
     }
 }
 
@@ -602,7 +605,8 @@ struct TimelineClipsCollection: NSViewRepresentable {
                   models[indexPath.item].selection == target,
                   let timelineItem = item as? TimelineCollectionItem else { return }
             DispatchQueue.main.async { [weak self, weak timelineItem] in
-                guard let self, self.isFocusRequestCurrent(), self.pendingFocusTarget == target, let timelineItem else { return }
+                guard let self, self.isFocusRequestCurrent(), self.pendingFocusTarget == target, let timelineItem,
+                      timelineItem.button.selection == target else { return }
                 self.pendingFocusTarget = nil
                 timelineItem.button.restoreFocus(isCurrent: self.isFocusRequestCurrent)
                 self.reportKeyboardFocus(target)
@@ -763,6 +767,10 @@ final class TimelineItemFocusRequest: ObservableObject {
         pending = true
         revision += 1
     }
+    func cancel() {
+        pending = false
+        isCurrent = { false }
+    }
     func consume() -> Bool {
         guard pending else { return false }
         pending = false
@@ -771,7 +779,7 @@ final class TimelineItemFocusRequest: ObservableObject {
 }
 
 /// One native button owns both native focus bindings. Observation only records
-/// identity; focus is written solely for an explicit editor/drop focus return.
+/// identity; focus is written solely for an explicit navigation or focus-return request.
 struct TimelineNativeButton: View {
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     let model: TimelineCollectionItemModel?
@@ -823,6 +831,12 @@ struct TimelineNativeButton: View {
                 nativeFocus?.record(model.selection, owner: owner, focused: focused, voiceOver: false)
                 if focused, !NSWorkspace.shared.isVoiceOverEnabled { keyboardFocus(model.selection) }
             }
+            .onChange(of: model.selection) { _, selection in
+                // Reuse changes content, not the native button's identity or focus.
+                nativeFocus?.record(selection, owner: owner, focused: voiceOverFocused, voiceOver: true)
+                nativeFocus?.record(selection, owner: owner, focused: keyboardFocused, voiceOver: false)
+                if keyboardFocused, !NSWorkspace.shared.isVoiceOverEnabled { keyboardFocus(selection) }
+            }
             .onChange(of: focusRequest.revision) { _, _ in
                 if focusRequest.consume() {
                     TimelineFocusDiagnostics.record("consume-change target=\(model.selection) owner=\(owner) keyboardBefore=\(keyboardFocused) voiceOverBefore=\(voiceOverFocused)")
@@ -838,7 +852,7 @@ struct TimelineNativeButton: View {
             }
             .onDisappear {
                 TimelineFocusDiagnostics.record("button-disappear target=\(model.selection) owner=\(owner)")
-                nativeFocus?.remove(owner: owner)
+                nativeFocus?.remove(owner: owner, selection: model.selection)
             }
         } else {
             Button(emptyTitle) {}.disabled(true)
@@ -878,8 +892,8 @@ private struct TimelineNativeMenu: View {
 }
 
 final class TimelineCollectionButton: NSHostingView<AnyView> {
-    private var focusRequest = TimelineItemFocusRequest()
-    private var owner = UUID()
+    private let focusRequest = TimelineItemFocusRequest()
+    private let owner = UUID()
     private var nativeFocus: TimelineNativeFocus?
     private(set) var selection: TimelineElementSelection?
     private var menuProvider: ((TimelineElementSelection) -> NSMenu)?
@@ -900,26 +914,24 @@ final class TimelineCollectionButton: NSHostingView<AnyView> {
         if selection != model.selection {
             TimelineFocusDiagnostics.record("host-reuse previous=\(String(describing: selection)) next=\(model.selection) owner=\(owner)")
             self.nativeFocus?.remove(owner: owner)
-            owner = UUID()
-            focusRequest = TimelineItemFocusRequest()
+            focusRequest.cancel()
         }
         selection = model.selection
         self.nativeFocus = nativeFocus
         menuProvider = menu
         rootView = AnyView(TimelineNativeButton(model: model, emptyTitle: "", owner: owner,
             nativeFocus: nativeFocus, focusRequest: focusRequest,
-            activate: activate, keyboardFocus: focus, menu: menu).id(owner))
+            activate: activate, keyboardFocus: focus, menu: menu))
     }
 
     func configureEmpty(title: String) {
         nativeFocus?.remove(owner: owner)
-        owner = UUID()
-        focusRequest = TimelineItemFocusRequest()
+        focusRequest.cancel()
         selection = nil
         menuProvider = nil
         rootView = AnyView(TimelineNativeButton(model: nil, emptyTitle: title, owner: owner,
             nativeFocus: nativeFocus, focusRequest: focusRequest, activate: { _ in },
-            keyboardFocus: { _ in }, menu: { _ in NSMenu() }).id(owner))
+            keyboardFocus: { _ in }, menu: { _ in NSMenu() }))
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
