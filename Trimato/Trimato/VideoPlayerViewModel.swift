@@ -940,7 +940,7 @@ final class VideoPlayerViewModel: ObservableObject {
         var sourceRanges = editTimeline.sourceRanges(in: editedExportRange)
         if let previewURL = activeAudioPreviewURL {
             let filteredAsset = AVURLAsset(url: previewURL)
-            mediaSource = .native(url: previewURL, asset: filteredAsset, contentType: .quickTimeMovie, mode: .nativePlaybackMP4Export, hasVideo: filteredPreviewIsAudio == false, hasAudio: filteredPreviewIsAudio == true || hasSpatialAudio)
+            mediaSource = .native(url: previewURL, asset: filteredAsset, contentType: .quickTimeMovie, mode: .nativePlaybackMP4Export, hasVideo: filteredPreviewIsAudio == false, hasAudio: filteredPreviewIsAudio == true || mediaSource.hasAudio)
             sourceRanges = [editedExportRange ?? CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 60000))]
         }
         guard !sourceRanges.isEmpty else {

@@ -258,6 +258,57 @@ struct GeneratorFilterTests {
         }
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func videoFiltersPreserveAudioSamplesAndEditedTiming(hdr: Bool, edited: Bool) async throws {
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent("filter-audio-\(UUID()).mov")
+        defer { try? FileManager.default.removeItem(at: source) }
+        var arguments = ["-hide_banner", "-nostdin", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x48:r=24",
+                         "-f", "lavfi", "-i", "aevalsrc=0.2*sin(2*PI*(200+400*t)*t)|0.3*sin(2*PI*700*t):s=48000",
+                         "-t", "1", "-c:v", "prores_ks", "-pix_fmt", "yuv422p10le", "-c:a", "pcm_s16le"]
+        if hdr { arguments += ["-color_primaries", "bt2020", "-colorspace", "bt2020nc", "-color_trc", "arib-std-b67"] }
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: arguments + [source.path])
+        // Noncontiguous ranges, deliberately reordered, expose audio that was
+        // merely copied from the start of the source instead of following edits.
+        let segments: [SourceSegment]? = edited ? [
+            SourceSegment(sourceRange: ProjectTimeRange(start: ProjectTime(seconds: 0.5), duration: ProjectTime(seconds: 0.25))),
+            SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 0.25)))
+        ] : nil
+        let output = try await ClipFilterRenderer.render(source: source, filters: [ClipFilter(kind: .blackAndWhite)],
+            audio: false, duration: edited ? 0.5 : 1, segments: segments)
+        defer { try? FileManager.default.removeItem(at: output) }
+        let asset = AVURLAsset(url: output)
+        #expect(try await asset.loadTracks(withMediaType: .audio).count == 1)
+        #expect(try await asset.loadTracks(withMediaType: .video).count == 1)
+        #expect(abs(try await asset.load(.duration).seconds - (edited ? 0.5 : 1)) < 0.01)
+        let actual = try await FFmpegRunner.run(tool: .ffmpeg, arguments: ["-v", "error", "-i", output.path,
+            "-map", "0:a:0", "-c:a", "pcm_s16le", "-f", "s16le", "pipe:1"]).standardOutput
+        var expectedArguments = ["-v", "error", "-i", source.path]
+        if edited {
+            expectedArguments += ["-filter_complex", "[0:a:0]atrim=start=0.5:end=0.75,asetpts=PTS-STARTPTS[a];[0:a:0]atrim=start=0:end=0.25,asetpts=PTS-STARTPTS[b];[a][b]concat=n=2:v=0:a=1[out]", "-map", "[out]"]
+        } else { expectedArguments += ["-map", "0:a:0"] }
+        let expected = try await FFmpegRunner.run(tool: .ffmpeg,
+            arguments: expectedArguments + ["-c:a", "pcm_s16le", "-f", "s16le", "pipe:1"]).standardOutput
+        #expect(!actual.isEmpty)
+        #expect(actual == expected)
+        let model = VideoPlayerViewModel()
+        try await model.applyFilteredPreview(at: output, audio: false)
+        let installed = try #require(model.player.currentItem?.asset)
+        #expect(try await installed.loadTracks(withMediaType: .audio).count == 1)
+        model.closeMedia()
+    }
+
+    @Test func filteringSilentVideoKeepsItPlayableWithoutInventingAudio() async throws {
+        let source = try await GeneratorRenderer.ensure(definition(.gradient))
+        let output = try await ClipFilterRenderer.render(source: source, filters: [ClipFilter(kind: .blackAndWhite)],
+            audio: false, duration: 0.5,
+            segments: [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: ProjectTime(seconds: 0.25)))])
+        defer { try? FileManager.default.removeItem(at: output) }
+        let asset = AVURLAsset(url: output)
+        #expect(try await asset.load(.isPlayable))
+        #expect(try await asset.loadTracks(withMediaType: .audio).isEmpty)
+        #expect(abs(try await asset.load(.duration).seconds - 0.25) < 0.01)
+    }
+
     @Test func editingGeneratorPreservesOtherInstancesAndUndoRestoresItsSource() throws {
         let source = definition().assetRecord()
         var project = TrimatoProject()

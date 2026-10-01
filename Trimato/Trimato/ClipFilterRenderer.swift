@@ -22,18 +22,75 @@ nonisolated enum ClipFilterRenderer {
         let asset = AVURLAsset(url: source)
         let spatial = try await SpatialAudioPlan.detect(in: asset)
         if audio, spatial { throw SpatialAudioError.unsupported("Audio filter processing for Spatial Audio is not supported yet.") }
+        let audioTracks = audio ? [] : try await asset.loadTracks(withMediaType: .audio)
+        let preservesAudio = !audio && (spatial || !audioTracks.isEmpty)
         let rendered = try await renderProcessed(source: source, filters: filters, audio: audio, duration: duration,
             segments: segments, audioSettings: audioSettings, voiceSegments: voiceSegments,
-            progress: spatial ? Self.progress(in: 0...0.9, report: progress) : progress)
-        guard spatial, !audio else { return rendered }
+            progress: preservesAudio ? Self.progress(in: 0...0.9, report: progress) : progress)
+        guard preservesAudio else { return rendered }
         defer { try? FileManager.default.removeItem(at: rendered) }
         let sourceDuration = try await asset.load(.duration)
         let ranges = segments?.map { $0.sourceRange.cmTimeRange } ?? [CMTimeRange(start: .zero, duration: sourceDuration)]
-        guard let plan = try await SpatialAudioPlan.clip(asset: asset, ranges: ranges) else { throw SpatialAudioError.invalidMovie }
         let output = rendered.deletingLastPathComponent().appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
-        try await plan.export(video: AVURLAsset(url: rendered), to: output,
-                              progress: Self.progress(in: 0.9...1, report: progress) ?? { _ in })
-        return output
+        do {
+            if spatial {
+                guard let plan = try await SpatialAudioPlan.clip(asset: asset, ranges: ranges) else { throw SpatialAudioError.invalidMovie }
+                try await plan.export(video: AVURLAsset(url: rendered), to: output,
+                                      progress: Self.progress(in: 0.9...1, report: progress) ?? { _ in })
+            } else {
+                try await preserveAudio(audioTracks, ranges: ranges, video: AVURLAsset(url: rendered),
+                                        to: output, progress: Self.progress(in: 0.9...1, report: progress))
+            }
+            try Task.checkCancellation()
+            return output
+        } catch {
+            try? FileManager.default.removeItem(at: output)
+            throw error
+        }
+    }
+
+    // Both SDR and HDR processing produce picture-only intermediates. Restore
+    // the original audio once, after all picture processing and range selection.
+    @concurrent
+    private static func preserveAudio(_ audioTracks: [AVAssetTrack], ranges: [CMTimeRange],
+                                      video: AVAsset, to output: URL, progress: Progress?) async throws {
+        let composition = AVMutableComposition()
+        let videoDuration = try await video.load(.duration)
+        try await composition.insertTimeRange(CMTimeRange(start: .zero, duration: videoDuration), of: video, at: .zero)
+        for sourceTrack in audioTracks {
+            guard let track = composition.addMutableTrack(withMediaType: .audio,
+                                                          preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                throw ClipExportError.unavailable
+            }
+            let available = try await sourceTrack.load(.timeRange)
+            var position = CMTime.zero
+            for range in ranges {
+                try Task.checkCancellation()
+                let retained = CMTimeRangeGetIntersection(range, otherRange: available)
+                if retained.isValid, retained.duration > .zero {
+                    let destination = position + (retained.start - range.start)
+                    try track.insertTimeRange(retained, of: sourceTrack, at: destination)
+                }
+                position = position + range.duration
+            }
+            track.preferredVolume = try await sourceTrack.load(.preferredVolume)
+        }
+        guard let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+            throw ClipExportError.unavailable
+        }
+        session.timeRange = CMTimeRange(start: .zero, duration: videoDuration)
+        let reporter = Task { @MainActor in
+            while !Task.isCancelled {
+                progress?(min(Double(session.progress), 0.99))
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+        defer { reporter.cancel() }
+        try await session.export(to: output, as: .mov)
+        try Task.checkCancellation()
+        try await ExportOutputValidator.validate(output, duration: videoDuration.seconds, video: true, audio: true)
+        reporter.cancel()
+        await progress?(1)
     }
 
     @concurrent
