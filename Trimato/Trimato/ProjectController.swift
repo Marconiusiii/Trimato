@@ -33,15 +33,7 @@ final class ProjectController: ObservableObject {
     let mediaFiles = ProjectMediaFiles()
     private var mediaLocationOverrides: [UUID: MediaAssetRecord] = [:]
 
-    private var observingTimelineFocus = false
-    @Published var selectedTimelineClipIDs: Set<UUID> = []
-    @Published var selection: EditorSelection = .project {
-        didSet {
-            guard !observingTimelineFocus else { return }
-            if case .timelineClip(let id) = selection { selectedTimelineClipIDs = [id] }
-            else { selectedTimelineClipIDs = [] }
-        }
-    }
+    @Published var selection: EditorSelection = .project
     private var playbackPosition = ProjectTime.zero
     var timelinePlayhead: ProjectTime {
         get { playbackPosition }
@@ -60,11 +52,7 @@ final class ProjectController: ObservableObject {
         }
         playbackPosition = time
     }
-    @Published var activeTimelineTrackID: UUID? {
-        didSet {
-            if oldValue != activeTimelineTrackID { selectedTimelineClipIDs = [] }
-        }
-    }
+    @Published var activeTimelineTrackID: UUID?
     @Published var selectedCaptionCueID: UUID?
     @Published var editingMarker: TimelineMarker?
     @Published var pictureExportRequest: PictureExportRequest?
@@ -1035,8 +1023,6 @@ final class ProjectController: ObservableObject {
     }
 
     func focusTimelineElement(_ element: TimelineElementSelection) {
-        observingTimelineFocus = true
-        defer { observingTimelineFocus = false }
         switch element {
         case .clip(let id):
             selectedCaptionCueID = nil
@@ -1728,20 +1714,6 @@ final class ProjectController: ObservableObject {
         mutateProject(actionName: "Delete Transition") { $0.removeTransition(id: id) }
         if selection != selectionAfterDeletion { selection = selectionAfterDeletion }
         projectInfoTarget = .selection(selectionAfterDeletion)
-    }
-
-    func removeTimelineClips(_ ids: Set<UUID>, from trackID: UUID, selecting target: EditorSelection) throws {
-        guard let track = project.track(id: trackID), !ids.isEmpty,
-              ids.isSubset(of: Set(track.clips.map(\.id))) else { throw ProjectTimelineError.clipNotFound }
-        let ordered = track.sortedClips.filter { ids.contains($0.id) }.reversed()
-        try mutateProjectThrowing(actionName: ids.count == 1 ? "Remove from Timeline" : "Remove Clips from Timeline") { project in
-            for clip in ordered where project.timelineClip(id: clip.id) != nil {
-                try project.removeTrackClip(id: clip.id)
-            }
-        }
-        selectedTimelineClipIDs = []
-        selection = target
-        projectInfoTarget = .selection(target)
     }
 
     func deleteTimelineClip(id: UUID, selecting selectionAfterDeletion: EditorSelection) {
@@ -2971,8 +2943,6 @@ final class ProjectController: ObservableObject {
             located.media[index].recordingRelativePath = location.recordingRelativePath
         }
         document.project = located
-        let survivingSelection = selectedTimelineClipIDs.intersection(Set(activeTimelineTrack?.clips.map(\.id) ?? []))
-        if survivingSelection != selectedTimelineClipIDs { selectedTimelineClipIDs = survivingSelection }
         if project.withoutMarkers != previous.withoutMarkers {
             projectPlayer?.updateMix(project: located)
         }

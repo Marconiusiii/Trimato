@@ -7,7 +7,7 @@ Created by Marco Salsiccia.
 ## Features
 
 - Edit standalone audio and video clips or arrange multiple tracks in a saved `.trimato` project.
-- Mark ranges, split and trim clips, and make non-destructive edits that preserve the original media. Select clips through their context menus and remove a group with one confirmation and one undo. Confirm deletion of populated tracks and continue through Timeline Clips after removing content.
+- Mark ranges, split and trim clips, and make non-destructive edits that preserve the original media. Confirm deletion of populated tracks and continue through Timeline Clips after removing content.
 - Work with portrait or landscape video, step through individual frames or jump ten frames with Shift-Arrow, and edit audio with optional static waveforms.
 - Write and time captions with Captioner, import SRT and WebVTT files, and export captions as separate files or include them in the video.
 - Record audio description with Describer and narration with Voicer. Adjust voice levels, match loudness, and reduce other audio during descriptions.
