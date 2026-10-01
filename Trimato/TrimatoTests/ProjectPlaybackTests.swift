@@ -8,6 +8,62 @@ import Testing
 @Suite("Project playback", .serialized)
 @MainActor
 struct ProjectPlaybackTests {
+    @Test func missingVoiceOverMenuTargetIsNotReportedAsHandled() {
+        var called = false
+        let keyboardClip = TimelineElementSelection.clip(UUID())
+        let handled = TimelineContextMenuRouting.present(voiceOver: true,
+            accessibilityFocus: nil, keyboardFocus: keyboardClip) { _ in
+                called = true
+                return true
+            }
+        #expect(!handled)
+        #expect(!called)
+    }
+
+    @Test func menuRoutingReportsPresentationFailureAndUsesTheVoiceOverTarget() {
+        let target = TimelineElementSelection.clip(UUID())
+        for opened in [false, true] {
+            var presented: TimelineElementSelection?
+            let handled = TimelineContextMenuRouting.present(voiceOver: true,
+                accessibilityFocus: target, keyboardFocus: .clip(UUID())) { selection in
+                    presented = selection
+                    return opened
+                }
+            #expect(presented == target)
+            #expect(handled == opened)
+        }
+    }
+
+    @Test func singleClipMenuUsesCurrentIdentityAndRejectsRecycledContent() {
+        let host = TimelineCollectionButton(frame: NSRect(x: 0, y: 0, width: 200, height: 72))
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = host
+        let first = TimelineElementSelection.clip(UUID())
+        let replacement = TimelineElementSelection.clip(UUID())
+        var menuTarget: TimelineElementSelection?
+        func configure(_ selection: TimelineElementSelection) {
+            host.configure(model: TimelineCollectionItemModel(selection: selection, title: "Black",
+                subtitle: nil, accessibilityValue: "", accessibilityHint: "", isSelected: false, isTransition: false),
+                nativeFocus: nil, activate: { _ in }, focus: { _ in }, menu: { target in
+                    menuTarget = target
+                    let menu = NSMenu()
+                    menu.addItem(withTitle: "Remove from Timeline", action: nil, keyEquivalent: "")
+                    return menu
+                })
+        }
+        var presentations = 0
+        configure(first)
+        #expect(host.showClipMenu(for: first) { _, _ in presentations += 1 })
+        #expect(menuTarget == first)
+        configure(replacement)
+        #expect(!host.showClipMenu(for: first) { _, _ in presentations += 1 })
+        #expect(host.showClipMenu(for: replacement) { _, _ in presentations += 1 })
+        #expect(menuTarget == replacement)
+        host.configureEmpty(title: "No clips on this track")
+        #expect(!host.showClipMenu(for: replacement) { _, _ in presentations += 1 })
+        #expect(presentations == 2)
+    }
+
     @Test func reusedItemIgnoresOldContentFocusDeparture() {
         let focus = TimelineNativeFocus()
         let owner = UUID()

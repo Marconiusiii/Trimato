@@ -63,16 +63,16 @@ nonisolated enum NativeContextMenuShortcut {
     }
 }
 
-/// A VoiceOver shortcut is consumed even if its target disappears. It must
-/// never fall through to a different clip's keyboard responder.
+/// Report whether a menu opened. An unavailable VoiceOver target must not
+/// be replaced with a cached keyboard selection.
 @MainActor
 enum TimelineContextMenuRouting {
     static func present(voiceOver: Bool, accessibilityFocus: TimelineElementSelection?,
                         keyboardFocus: TimelineElementSelection?,
                         show: (TimelineElementSelection?) -> Bool) -> Bool {
         if voiceOver {
-            if let accessibilityFocus { _ = show(accessibilityFocus) }
-            return true
+            guard let accessibilityFocus else { return false }
+            return show(accessibilityFocus)
         }
         return show(keyboardFocus)
     }
@@ -269,15 +269,18 @@ struct TimelineKeyboardBridge: NSViewRepresentable {
                NativeContextMenuShortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags) {
                 let accessibilityFocus = bridge?.nativeFocus?.voiceOverSelection
                 let keyboardFocus = bridge?.nativeFocus?.keyboardSelection
-                if accessibilityFocus != nil || keyboardFocus != nil {
-                    _ = TimelineContextMenuRouting.present(voiceOver: NSWorkspace.shared.isVoiceOverEnabled,
-                        accessibilityFocus: accessibilityFocus, keyboardFocus: keyboardFocus) { target in
-                        guard let target, let content = window.contentView else { return false }
-                        return TimelineCollectionView.showContextMenu(for: target, in: content)
-                    }
+                let handled = TimelineContextMenuRouting.present(voiceOver: NSWorkspace.shared.isVoiceOverEnabled,
+                    accessibilityFocus: accessibilityFocus, keyboardFocus: keyboardFocus) { target in
+                    guard let target, let content = window.contentView else { return false }
+                    return TimelineCollectionView.showContextMenu(for: target, in: content)
+                }
+                if handled {
                     consumedKeys.insert(event.keyCode)
                     return nil
                 }
+                // The native focused button can handle its own Control-Enter
+                // when the VoiceOver observation has not supplied a target.
+                return event
             }
             let voiceOver = NSWorkspace.shared.isVoiceOverEnabled
             if !voiceOver, mouseSource == nil, bridge?.nativeFocus?.keyboardSelection == nil {
@@ -790,6 +793,7 @@ struct TimelineNativeButton: View {
     let activate: (TimelineElementSelection) -> Void
     let keyboardFocus: (TimelineElementSelection) -> Void
     let menu: (TimelineElementSelection) -> NSMenu
+    let showMenu: (TimelineElementSelection) -> Bool
     @AccessibilityFocusState(for: .voiceOver) private var voiceOverFocused: Bool
     @FocusState private var keyboardFocused: Bool
 
@@ -824,6 +828,11 @@ struct TimelineNativeButton: View {
             .accessibilityFocused($voiceOverFocused)
             .focused($keyboardFocused)
             .contextMenu { TimelineNativeMenu(items: menu(model.selection).items) }
+            .accessibilityAction(.showMenu) { _ = showMenu(model.selection) }
+            .onKeyPress(keys: [.return, KeyEquivalent("\u{3}")], phases: .down) { press in
+                guard press.modifiers.intersection([.command, .control, .option, .shift]) == .control else { return .ignored }
+                return showMenu(model.selection) ? .handled : .ignored
+            }
             .onChange(of: voiceOverFocused, initial: true) { _, focused in
                 nativeFocus?.record(model.selection, owner: owner, focused: focused, voiceOver: true)
             }
@@ -921,7 +930,8 @@ final class TimelineCollectionButton: NSHostingView<AnyView> {
         menuProvider = menu
         rootView = AnyView(TimelineNativeButton(model: model, emptyTitle: "", owner: owner,
             nativeFocus: nativeFocus, focusRequest: focusRequest,
-            activate: activate, keyboardFocus: focus, menu: menu))
+            activate: activate, keyboardFocus: focus, menu: menu,
+            showMenu: { [weak self] target in self?.showClipMenu(for: target) ?? false }))
     }
 
     func configureEmpty(title: String) {
@@ -931,7 +941,7 @@ final class TimelineCollectionButton: NSHostingView<AnyView> {
         menuProvider = nil
         rootView = AnyView(TimelineNativeButton(model: nil, emptyTitle: title, owner: owner,
             nativeFocus: nativeFocus, focusRequest: focusRequest, activate: { _ in },
-            keyboardFocus: { _ in }, menu: { _ in NSMenu() }))
+            keyboardFocus: { _ in }, menu: { _ in NSMenu() }, showMenu: { _ in false }))
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -945,11 +955,12 @@ final class TimelineCollectionButton: NSHostingView<AnyView> {
     }
 
     @discardableResult
-    func showClipMenu(present: (NSMenu, NSView) -> Void = { menu, view in
+    func showClipMenu(for expectedSelection: TimelineElementSelection? = nil,
+                      present: (NSMenu, NSView) -> Void = { menu, view in
         _ = menu.popUp(positioning: nil, at: NSPoint(x: view.bounds.minX, y: view.bounds.maxY), in: view)
     }) -> Bool {
-        guard let selection, let menu = menuProvider?(selection), window != nil,
-              !menu.items.isEmpty else { return false }
+        guard let selection, expectedSelection == nil || expectedSelection == selection,
+              window != nil, let menu = menuProvider?(selection), !menu.items.isEmpty else { return false }
         present(menu, self)
         return true
     }
