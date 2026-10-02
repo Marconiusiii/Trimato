@@ -504,7 +504,6 @@ struct TimelineClipsCollection: NSViewRepresentable {
                 guard window.makeFirstResponder(collection), window.firstResponder === collection else { return }
                 pendingListFocus = nil
                 if NSWorkspace.shared.isVoiceOverEnabled {
-                    collection.setAccessibilityFocused(true)
                     NSAccessibility.post(element: collection, notification: .focusedUIElementChanged)
                 }
                 reportKeyboardFocus(nil)
