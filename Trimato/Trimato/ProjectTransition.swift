@@ -97,6 +97,7 @@ nonisolated struct TransitionRequest: Identifiable, Equatable, Sendable {
     var trackID: UUID
     var clipID: UUID
     var mode: Mode
+    var initialEdge: TimelineTransitionEdge? = nil
     // Quick Fade at a shared edit has two targets. Requests made for a
     // selected clip keep both fades on that clip by leaving this unset.
     var fadeOutClipID: UUID? = nil

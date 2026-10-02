@@ -167,6 +167,14 @@ struct AddTransitionView: View {
     @State private var includeOutroAudio = false
     @State private var presentedError: TransitionPresentedError?
 
+    init(session: TransitionToolSession, focusRevision: Int, cancel: @escaping () -> Void) {
+        self.session = session
+        self.focusRevision = focusRevision
+        self.cancel = cancel
+        _addIntro = State(initialValue: session.request.initialEdge == .intro)
+        _addOutro = State(initialValue: session.request.initialEdge == .outro)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Transition")
@@ -220,7 +228,8 @@ struct AddTransitionView: View {
             outroDuration: outroDuration, includeIntroAudio: includeIntroAudio, includeOutroAudio: includeOutroAudio)
     }
     private var initialDraft: QuitDraft {
-        QuitDraft(intro: false, outro: false, introVideo: .fade, outroVideo: .fade,
+        QuitDraft(intro: request.initialEdge == .intro, outro: request.initialEdge == .outro,
+            introVideo: .fade, outroVideo: .fade,
             introAudio: .fade, outroAudio: .fade, introDuration: TransitionDurationInput.defaultText,
             outroDuration: TransitionDurationInput.defaultText, includeIntroAudio: false, includeOutroAudio: false)
     }
@@ -246,8 +255,7 @@ struct AddTransitionView: View {
     }
 
     private func edgeLabel(_ edge: TimelineTransitionEdge) -> String {
-        isFade(edge) ? FadeTransitionLabels.control(edge: edge, clipName: clip?.displayName ?? "Timeline clip")
-            : (edge == .intro ? "Intro" : "Outro")
+        edge == .intro ? "Intro Transition" : "Outro Transition"
     }
 
     @ViewBuilder

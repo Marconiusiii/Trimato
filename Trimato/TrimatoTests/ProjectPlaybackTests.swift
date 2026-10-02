@@ -1026,22 +1026,41 @@ struct ProjectPlaybackTests {
         #expect(controller.transitionRequest?.clipID == controller.project.tracks.first?.sortedClips.first?.id)
     }
 
-    @Test @MainActor func standardTransitionRequestUsesTheEditorPlayheadAtAnEditPoint() throws {
+    @Test(arguments: [TimelineTrackKind.video, .audio])
+    @MainActor func standardTransitionRequestUsesTheEditorPlayheadAtAnEditPoint(kind: TimelineTrackKind) throws {
         let first = fixtureAsset(name: "Interview", duration: 5)
         let second = fixtureAsset(name: "Closing", duration: 5)
         var project = TrimatoProject(name: "Editor transition")
         project.media = [first, second]
-        let firstID = try project.append(asset: first)
+        _ = try project.append(asset: first)
         _ = try project.append(asset: second)
         let controller = ProjectController(document: ProjectDocument(project: project))
+        let track = try #require(project.tracks.first { $0.kind == kind })
+        controller.activeTimelineTrackID = track.id
         controller.selection = .project
 
         controller.requestTransition(at: ProjectTime(seconds: 5))
 
         #expect(controller.selection == .project)
         #expect(controller.transitionRequest?.mode == .standard)
-        #expect(controller.transitionRequest?.clipID == firstID)
+        #expect(controller.transitionRequest?.trackID == track.id)
+        #expect(controller.transitionRequest?.clipID == track.sortedClips.last?.id)
+        #expect(controller.transitionRequest?.initialEdge == .intro)
         #expect(controller.transitionRequestReturnsToEditor)
+    }
+
+    @Test(arguments: [0.0, 2.0, 5.0])
+    @MainActor func standardTransitionAwayFromSharedEditLeavesSidesUnselected(seconds: Double) throws {
+        let asset = fixtureAsset(name: "Single clip", duration: 5)
+        var project = TrimatoProject(name: "Single clip transition")
+        project.media = [asset]
+        let clipID = try project.append(asset: asset)
+        let controller = ProjectController(document: ProjectDocument(project: project))
+
+        controller.requestTransition(at: ProjectTime(seconds: seconds))
+
+        #expect(controller.transitionRequest?.clipID == clipID)
+        #expect(controller.transitionRequest?.initialEdge == nil)
     }
 
     @Test(arguments: [true, false], ["in", "out", "both"])

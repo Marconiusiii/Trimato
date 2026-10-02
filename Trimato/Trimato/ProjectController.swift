@@ -1440,15 +1440,28 @@ final class ProjectController: ObservableObject {
     }
 
     func requestTransition(at time: ProjectTime, mode: TransitionRequest.Mode = .standard) {
-        guard let track = activeTimelineTrack,
-              let clip = mode == .quickFade ? editorClip(at: time)
-                : track.sortedClips.first(where: { time >= $0.timelineStart && time <= $0.timelineEnd }) else {
+        guard let track = activeTimelineTrack else {
+            announce("Move the playhead to a clip first")
+            return
+        }
+        let clips = track.sortedClips
+        let incomingAtCut = clips.first { incoming in
+            incoming.timelineStart == time && clips.contains {
+                $0.id != incoming.id && $0.timelineEnd == time
+            }
+        }
+        let standardTarget = incomingAtCut
+            ?? clips.first(where: { time >= $0.timelineStart && time <= $0.timelineEnd })
+        guard let clip = mode == .quickFade ? editorClip(at: time)
+            : mode == .standard ? standardTarget
+            : clips.first(where: { time >= $0.timelineStart && time <= $0.timelineEnd }) else {
             announce("Move the playhead to a clip first")
             return
         }
         let outgoing = mode == .quickFade && clip.timelineStart == time
             ? track.sortedClips.last(where: { $0.id != clip.id && $0.timelineEnd == time }) : nil
         openTransitionTool(TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode,
+                                               initialEdge: mode == .standard && incomingAtCut != nil ? .intro : nil,
                                                fadeOutClipID: outgoing?.id), returnsToEditor: true)
     }
 
@@ -1459,6 +1472,7 @@ final class ProjectController: ObservableObject {
             : project.track(id: request.trackID)?.kind == .audio ? .quickCrossFade : .quickCrossDissolve
         let current = transitionToolSession
         let sameTarget = current?.request.trackID == request.trackID && current?.request.clipID == request.clipID
+            && current?.request.initialEdge == request.initialEdge
             && current?.request.fadeOutClipID == request.fadeOutClipID && current?.editing?.id == editing?.id
         openToolPane(tool, replacingCurrent: !sameTarget) { [weak self] in
             guard let self else { return }
