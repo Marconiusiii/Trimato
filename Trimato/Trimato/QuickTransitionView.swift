@@ -26,7 +26,6 @@ struct QuickTransitionView: View {
     @State private var durationText = TransitionDurationInput.defaultText
     @State private var fadeInDurationText = TransitionDurationInput.defaultText
     @State private var fadeOutDurationText = TransitionDurationInput.defaultText
-    @State private var presentedError: TransitionPresentedError?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -54,11 +53,6 @@ struct QuickTransitionView: View {
                     TransitionDurationField(text: $durationText)
                         .focused($focusedField, equals: .duration)
                 }
-            }
-
-            if let message = presentedError?.message ?? session.errorMessage {
-                Text(message)
-                    .foregroundStyle(.red)
             }
 
             Spacer(minLength: 0)
@@ -158,7 +152,7 @@ struct QuickTransitionView: View {
     }
 
     private func apply() {
-        do { presentedError = nil; session.apply(try quitTransitions()) }
+        do { session.apply(try quitTransitions()) }
         catch { showValidation(error.localizedDescription) }
     }
 
@@ -206,7 +200,7 @@ struct QuickTransitionView: View {
     }
 
     private func showValidation(_ message: String) {
-        presentedError = .invalidSettings(message)
+        session.presentError(message)
     }
 
 }

@@ -178,12 +178,65 @@ struct TransitionToolLifecycleTests {
         let session = try #require(controller.transitionToolSession)
         let original = controller.project
         session.apply([])
-        for _ in 0..<100 where session.isApplying { await Task.yield() }
-        #expect(session.completionRequested && session.errorMessage != nil)
-        session.preparationDismissed()
+        #expect(!session.isApplying && !session.completionRequested)
+        #expect(session.presentedError?.initialFocus == .message)
+        #expect(session.presentedError?.message == "Choose a transition to apply.")
+        let revision = controller.toolFocusRevision
+        session.dismissError()
+        #expect(session.presentedError == nil)
+        #expect(controller.toolFocusRevision > revision)
+        session.apply([])
+        #expect(session.presentedError?.initialFocus == .message)
+        session.dismissError()
         #expect(controller.transitionToolSession === session)
         #expect(controller.project == original)
         #expect(!session.completionRequested)
+        controller.closeToolPaneImmediately()
+    }
+
+    @Test(arguments: [TransitionRequest.Mode.standard, .quickCross])
+    func insufficientFootagePresentsAnErrorBeforeProgress(mode: TransitionRequest.Mode) throws {
+        let controller = try controller()
+        let track = try #require(controller.project.tracks.first { $0.kind == .video })
+        let leading = try #require(track.sortedClips.first)
+        let trailing = try #require(track.sortedClips.last)
+        controller.requestTransition(at: trailing.timelineStart, mode: mode)
+        let session = try #require(controller.transitionToolSession)
+        let original = controller.project
+        session.apply([TimelineTransition(trackID: track.id, edge: .between,
+            kind: .video(.crossDissolve), duration: ProjectTime(seconds: 2),
+            leadingClipID: leading.id, trailingClipID: trailing.id)])
+
+        let message = try #require(session.presentedError)
+        #expect(message.initialFocus == .message)
+        #expect(message.message.contains(leading.displayName))
+        #expect(message.message.contains(trailing.displayName))
+        #expect(message.message.contains("needs 1.0 seconds"))
+        #expect(message.message.contains("0.0 seconds are available"))
+        #expect(message.message.contains("Shorten the transition"))
+        #expect(!session.isApplying && !session.completionRequested)
+        #expect(controller.applyingTransitionName == nil)
+        #expect(controller.project == original)
+        controller.closeToolPaneImmediately()
+    }
+
+    @Test func preparationFailureWaitsForProgressDismissalBeforePresentingError() async throws {
+        let controller = try controller()
+        controller.requestTransition(at: .zero, mode: .quickFade)
+        let session = try #require(controller.transitionToolSession)
+        let transitions = try #require(session.request.makeFades(in: controller.project,
+            fadeInDuration: ProjectTime(seconds: 0.25), fadeOutDuration: nil, includeAudio: false))
+        session.apply(transitions)
+        for _ in 0..<100 where session.isApplying { await Task.yield() }
+        #expect(session.completionRequested)
+        #expect(session.presentedError == nil)
+        let revision = controller.toolFocusRevision
+        session.preparationDismissed()
+        #expect(session.presentedError?.initialFocus == .message)
+        #expect(controller.toolFocusRevision == revision)
+        session.dismissError()
+        #expect(controller.toolFocusRevision > revision)
+        #expect(controller.transitionToolSession === session)
         controller.closeToolPaneImmediately()
     }
 

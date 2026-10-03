@@ -1460,8 +1460,13 @@ final class ProjectController: ObservableObject {
         }
         let outgoing = mode == .quickFade && clip.timelineStart == time
             ? track.sortedClips.last(where: { $0.id != clip.id && $0.timelineEnd == time }) : nil
+        let edit = incomingAtCut.flatMap { incoming in
+            clips.last(where: { $0.id != incoming.id && $0.timelineEnd == time }).map {
+                TransitionEdit(leadingClipID: $0.id, trailingClipID: incoming.id)
+            }
+        }
         openTransitionTool(TransitionRequest(trackID: track.id, clipID: clip.id, mode: mode,
-                                               initialEdge: mode == .standard && incomingAtCut != nil ? .intro : nil,
+                                               edit: mode == .standard ? edit : nil,
                                                fadeOutClipID: outgoing?.id), returnsToEditor: true)
     }
 
@@ -1472,7 +1477,7 @@ final class ProjectController: ObservableObject {
             : project.track(id: request.trackID)?.kind == .audio ? .quickCrossFade : .quickCrossDissolve
         let current = transitionToolSession
         let sameTarget = current?.request.trackID == request.trackID && current?.request.clipID == request.clipID
-            && current?.request.initialEdge == request.initialEdge
+            && current?.request.edit == request.edit
             && current?.request.fadeOutClipID == request.fadeOutClipID && current?.editing?.id == editing?.id
         openToolPane(tool, replacingCurrent: !sameTarget) { [weak self] in
             guard let self else { return }

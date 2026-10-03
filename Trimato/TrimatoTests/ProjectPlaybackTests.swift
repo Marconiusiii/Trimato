@@ -1045,12 +1045,15 @@ struct ProjectPlaybackTests {
         #expect(controller.transitionRequest?.mode == .standard)
         #expect(controller.transitionRequest?.trackID == track.id)
         #expect(controller.transitionRequest?.clipID == track.sortedClips.last?.id)
-        #expect(controller.transitionRequest?.initialEdge == .intro)
+        #expect(controller.transitionRequest?.edit == TransitionEdit(
+            leadingClipID: try #require(track.sortedClips.first).id,
+            trailingClipID: try #require(track.sortedClips.last).id))
+        #expect(controller.transitionRequest?.availableEdits(in: project).count == 1)
         #expect(controller.transitionRequestReturnsToEditor)
     }
 
     @Test(arguments: [0.0, 2.0, 5.0])
-    @MainActor func standardTransitionAwayFromSharedEditLeavesSidesUnselected(seconds: Double) throws {
+    @MainActor func standardTransitionWithoutAdjoiningClipsHasNoAvailableEdit(seconds: Double) throws {
         let asset = fixtureAsset(name: "Single clip", duration: 5)
         var project = TrimatoProject(name: "Single clip transition")
         project.media = [asset]
@@ -1060,7 +1063,7 @@ struct ProjectPlaybackTests {
         controller.requestTransition(at: ProjectTime(seconds: seconds))
 
         #expect(controller.transitionRequest?.clipID == clipID)
-        #expect(controller.transitionRequest?.initialEdge == nil)
+        #expect(controller.transitionRequest?.availableEdits(in: project).isEmpty == true)
     }
 
     @Test(arguments: [true, false], ["in", "out", "both"])

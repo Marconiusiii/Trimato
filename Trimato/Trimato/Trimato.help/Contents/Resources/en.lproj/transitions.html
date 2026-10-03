@@ -12,15 +12,15 @@
     <h1>Add and edit transitions</h1>
     <h2>Add and edit transitions</h2>
     <p>Transition tools open beside the Editor in the Tool pane. Press Command-4 to return to the open tool. The target clip or edit stays the same while you adjust its settings. Cancel, Escape, or Command-W closes the pane; unfinished changes require a discard decision when closing or switching tools.</p>
-    <p>Successful application closes the pane and returns focus to the Editor or Timeline. If application fails or is cancelled, the settings remain available in the pane.</p>
+    <p>Successful application closes the pane and returns focus to the Editor or Timeline. If application fails, read the error window and choose OK to return to the transition settings. For insufficient source footage, shorten the duration or adjust the named clips’ trim points.</p>
     <ol>
-        <li>Move the Editor playhead onto a clip, or focus the clip in Timeline clips.</li>
+        <li>Move the Editor playhead to a shared edit, or focus a clip with an adjoining clip in Timeline Clips.</li>
         <li>Press Command-T to open Transitions in the Tool pane.</li>
-        <li>Choose Intro Transition, Outro Transition, or both, then choose a Transition Type for each enabled side. At a shared edit point in Editor, Intro Transition is already enabled for the incoming clip.</li>
-        <li>If the video clip has audio, choose Fade Audio or Crossfade Audio to apply the matching audio transition.</li>
+        <li>Confirm the outgoing and incoming clip names. If the selected clip has an adjoining clip on both sides, choose the pair from the Edit picker.</li>
+        <li>Choose a Transition Type. If both video clips have linked audio at the same edit, choose Fade Audio or Crossfade Audio to include the matching audio transition.</li>
         <li>Enter the duration in seconds, then activate Add.</li>
     </ol>
-    <p>The duration begins at 1.0 seconds and accepts fractional seconds such as 1.25. Trimato checks that the selected clip and any neighboring clip have enough media for the transition.</p>
+    <p>The duration begins at 1.0 seconds and accepts fractional seconds such as 1.25. The transition is centered on the shared edit and keeps the timeline duration unchanged. Each clip must contain at least half the transition duration. Cross dissolves, wipes, and audio crossfades also need unused source footage equal to half the duration after the outgoing clip’s trim and before the incoming clip’s trim.</p>
 
     <h3>Use Quick Fade</h3>
     <ol>
@@ -57,7 +57,7 @@
         <dt>Cross Fade</dt>
         <dd>Lowers the outgoing audio while raising the incoming audio across their shared edit.</dd>
         <dt>Fade Out/Fade In</dt>
-        <dd>Fades outgoing video through black into incoming video, or fades outgoing audio through silence into incoming audio. Unlike a cross dissolve or cross fade, the two sources do not overlap.</dd>
+        <dd>Fades outgoing video through black into incoming video, or fades outgoing audio through silence into incoming audio. Half the duration fades out within the outgoing clip, reaching black or silence at the edit. The other half fades in from the incoming clip’s trimmed start. No unused source footage is needed. For a two-second transition at timeline second 8, the fade out runs from seconds 7–8 and the fade in from seconds 8–9.</dd>
         <dt>Wipe Left</dt>
         <dd>Replaces the outgoing picture with the incoming picture using an edge that moves left.</dd>
         <dt>Wipe Right</dt>

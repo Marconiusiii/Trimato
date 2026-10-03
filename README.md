@@ -13,7 +13,7 @@ Created by Marco Salsiccia.
 - Record audio description with Describer and narration with Voicer. Adjust voice levels, match loudness, and reduce other audio during descriptions.
 - Use Generator, transition tools, Captioner, Describer, and Voicer beside the main video preview. Mix audio live and loop an In–Out range in a separate Mixer window.
 - Mix audio tracks with volume, mute, solo, pan, stereo balance, stereo width, and channel routing controls.
-- Add transitions, Bleach Bypass and Technicolor video filters, room and Plate Reverb audio effects, titles, lower thirds, and other generated clips. Press Command-T at a shared edit in Editor to choose an intro transition for the incoming clip.
+- Add transitions, Bleach Bypass and Technicolor video filters, room and Plate Reverb audio effects, titles, lower thirds, and other generated clips. Press Command-T at a shared edit in Editor to choose a transition connecting the outgoing and incoming clips.
 - Preview filter changes in the Cutting Board, then choose Update Clip to save them to the timeline clip. Video filters preserve the clip's audio during playback and clip export.
 - Tap out absolute markers with M or chapter boundaries with Option-M. Export a chapter text file for your YouTube video description.
 - Export a full-resolution PNG from the playhead, or export web video with a poster, optional captions, and an HTML embed fragment.

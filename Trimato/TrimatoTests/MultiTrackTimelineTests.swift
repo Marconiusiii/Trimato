@@ -538,6 +538,112 @@ struct MultiTrackTimelineTests {
         #expect(project.timelineClip(id: secondID)?.timelineStart == ProjectTime(seconds: 5))
     }
 
+    @Test(arguments: [VideoTransitionType.crossDissolve, .wipeLeft, .wipeRight, .wipeUp, .wipeDown])
+    func twoSecondTransitionUsesHandlesFromSeparateTrimmedSources(type: VideoTransitionType) throws {
+        let first = fixtureAsset(name: "A", duration: 10)
+        let second = fixtureAsset(name: "B", duration: 10)
+        var project = TrimatoProject()
+        project.media = [first, second]
+        let leadingID = try project.append(asset: first, segments: [segment(0, 8)])
+        let trailingID = try project.append(asset: second, segments: [segment(2, 5)])
+        let track = try #require(project.tracks.first { $0.kind == .video })
+        let edit = TransitionEdit(leadingClipID: leadingID, trailingClipID: trailingID)
+        let transitions = edit.makeTransitions(trackID: track.id, kind: .video(type),
+            duration: ProjectTime(seconds: 2), includeAudio: false, in: project)
+
+        _ = try project.addTransitionBatch(transitions)
+
+        #expect(project.transitions.count == 1)
+        #expect(project.transitions.first?.edge == .between)
+        #expect(project.timelineClip(id: leadingID)?.timelineEnd == ProjectTime(seconds: 8))
+        #expect(project.timelineClip(id: trailingID)?.timelineStart == ProjectTime(seconds: 8))
+        #expect(project.duration == ProjectTime(seconds: 13))
+    }
+
+    @Test(arguments: [TimelineTrackKind.video, .audio])
+    func fadeOutInNeedsNoUnusedSourceFootage(kind: TimelineTrackKind) throws {
+        let first = fixtureAsset(name: "A", duration: 8)
+        let second = fixtureAsset(name: "B", duration: 5)
+        var project = TrimatoProject()
+        project.media = [first, second]
+        _ = try project.append(asset: first)
+        _ = try project.append(asset: second)
+        let track = try #require(project.tracks.first { $0.kind == kind })
+        let edit = TransitionEdit(leadingClipID: try #require(track.sortedClips.first).id,
+                                  trailingClipID: try #require(track.sortedClips.last).id)
+        let transitions = edit.makeTransitions(trackID: track.id,
+            kind: kind == .video ? .video(.fadeOutIn) : .audio(.fadeOutIn),
+            duration: ProjectTime(seconds: 2), includeAudio: false, in: project)
+
+        _ = try project.addTransitionBatch(transitions)
+
+        #expect(project.transitions.count == 1)
+        #expect(project.timelineClip(id: edit.leadingClipID)?.timelineEnd == ProjectTime(seconds: 8))
+        #expect(project.timelineClip(id: edit.trailingClipID)?.timelineStart == ProjectTime(seconds: 8))
+        #expect(project.duration == ProjectTime(seconds: 13))
+        var changed = try #require(project.transitions.first)
+        changed.kind = kind == .video ? .video(.crossDissolve) : .audio(.crossFade)
+        #expect(throws: (any Error).self) { try project.updateTransition(changed) }
+        #expect(project.transitions == transitions)
+    }
+
+    @Test(arguments: [true, false], [VideoTransitionType.crossDissolve, .wipeLeft])
+    func overlappingTransitionRejectsInsufficientSourceOnEitherSide(leadingShort: Bool, type: VideoTransitionType) throws {
+        let first = fixtureAsset(name: "A", duration: leadingShort ? 8.5 : 10)
+        let second = fixtureAsset(name: "B", duration: 10)
+        var project = TrimatoProject()
+        project.media = [first, second]
+        let leadingID = try project.append(asset: first, segments: [segment(0, 8)])
+        let trailingID = try project.append(asset: second, segments: [segment(leadingShort ? 2 : 0.5, 5)])
+        let track = try #require(project.tracks.first { $0.kind == .video })
+        let transition = TimelineTransition(trackID: track.id, edge: .between, kind: .video(type),
+            duration: ProjectTime(seconds: 2), leadingClipID: leadingID, trailingClipID: trailingID)
+
+        #expect(throws: (any Error).self) { try project.addTransition(transition) }
+        #expect(project.transitions.isEmpty)
+    }
+
+    @Test(arguments: [true, false], [VideoTransitionType.fadeOutIn, .crossDissolve, .wipeLeft])
+    func transitionRejectsInsufficientTimelineDurationOnEitherSide(leadingShort: Bool, type: VideoTransitionType) throws {
+        let asset = fixtureAsset(name: "Source", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let leadingID = try project.append(asset: asset, segments: [segment(2, leadingShort ? 0.5 : 4)])
+        let trailingID = try project.append(asset: asset, segments: [segment(10, leadingShort ? 4 : 0.5)])
+        let track = try #require(project.tracks.first { $0.kind == .video })
+        let transition = TimelineTransition(trackID: track.id, edge: .between, kind: .video(type),
+            duration: ProjectTime(seconds: 2), leadingClipID: leadingID, trailingClipID: trailingID)
+
+        #expect(throws: (any Error).self) { try project.addTransition(transition) }
+        #expect(project.transitions.isEmpty)
+    }
+
+    @Test func selectedClipOffersOnlyAdjoiningPairsAndCreatesOneChosenTransition() throws {
+        let asset = fixtureAsset(name: "Source", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let a = try project.append(asset: asset, segments: [segment(2, 4)])
+        let b = try project.append(asset: asset, segments: [segment(8, 4)])
+        let c = try project.append(asset: asset, segments: [segment(14, 4)])
+        let track = try #require(project.tracks.first { $0.kind == .video })
+        let request = TransitionRequest(trackID: track.id, clipID: b, mode: .standard)
+        let pairs = request.availableEdits(in: project)
+        #expect(pairs == [TransitionEdit(leadingClipID: a, trailingClipID: b),
+                          TransitionEdit(leadingClipID: b, trailingClipID: c)])
+        let selected = try #require(pairs.last)
+        let transitions = selected.makeTransitions(trackID: track.id, kind: .video(.fadeOutIn),
+            duration: ProjectTime(seconds: 2), includeAudio: true, in: project)
+        _ = try project.addTransitionBatch(transitions)
+        #expect(project.transitions.count == 2)
+        let video = try #require(project.transitions.first { $0.trackID == track.id })
+        #expect(video.leadingClipID == b)
+        #expect(video.trailingClipID == c)
+        let audio = try #require(project.transitions.first { $0.kind == .audio(.fadeOutIn) })
+        #expect(audio.leadingClipID == project.timelineClip(id: b)?.linkedClipID)
+        #expect(audio.trailingClipID == project.timelineClip(id: c)?.linkedClipID)
+        #expect(video.bundleID != nil && video.bundleID == audio.bundleID)
+    }
+
     @Test func linkedVideoAndAudioTransitionsShareADeletedBundle() throws {
         let asset = fixtureAsset(name: "Interview", duration: 20)
         var project = TrimatoProject()

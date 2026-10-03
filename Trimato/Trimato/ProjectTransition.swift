@@ -86,6 +86,46 @@ nonisolated struct TimelineTransition: Codable, Equatable, Hashable, Identifiabl
     }
 }
 
+nonisolated struct TransitionEdit: Hashable, Sendable {
+    let leadingClipID: UUID
+    let trailingClipID: UUID
+
+    func description(in project: TrimatoProject) -> String {
+        let leading = project.timelineClip(id: leadingClipID)?.displayName ?? "Outgoing clip"
+        let trailing = project.timelineClip(id: trailingClipID)?.displayName ?? "Incoming clip"
+        return "\(leading) to \(trailing)"
+    }
+
+    func linkedAudioEdit(in project: TrimatoProject) -> (trackID: UUID, edit: TransitionEdit)? {
+        guard let leading = project.timelineClip(id: leadingClipID),
+              let trailing = project.timelineClip(id: trailingClipID),
+              let leadingAudioID = leading.linkedClipID, let trailingAudioID = trailing.linkedClipID,
+              let track = project.tracks.first(where: { track in
+                  track.kind == .audio && track.clips.contains { $0.id == leadingAudioID }
+                      && track.clips.contains { $0.id == trailingAudioID }
+              }),
+              let leadingAudio = track.clips.first(where: { $0.id == leadingAudioID }),
+              let trailingAudio = track.clips.first(where: { $0.id == trailingAudioID }),
+              leadingAudio.timelineEnd == leading.timelineEnd,
+              trailingAudio.timelineStart == trailing.timelineStart else { return nil }
+        return (track.id, TransitionEdit(leadingClipID: leadingAudioID, trailingClipID: trailingAudioID))
+    }
+
+    func makeTransitions(trackID: UUID, kind: TimelineTransitionKind, duration: ProjectTime,
+                         includeAudio: Bool, in project: TrimatoProject) -> [TimelineTransition] {
+        var result = [TimelineTransition(trackID: trackID, edge: .between, kind: kind,
+            duration: duration, leadingClipID: leadingClipID, trailingClipID: trailingClipID)]
+        if includeAudio, case .video(let type) = kind,
+           type == .crossDissolve || type == .fadeOutIn,
+           let audio = linkedAudioEdit(in: project) {
+            result.append(TimelineTransition(trackID: audio.trackID, edge: .between,
+                kind: .audio(type == .fadeOutIn ? .fadeOutIn : .crossFade), duration: duration,
+                leadingClipID: audio.edit.leadingClipID, trailingClipID: audio.edit.trailingClipID))
+        }
+        return result
+    }
+}
+
 nonisolated struct TransitionRequest: Identifiable, Equatable, Sendable {
     enum Mode: Equatable, Sendable {
         case standard
@@ -97,10 +137,22 @@ nonisolated struct TransitionRequest: Identifiable, Equatable, Sendable {
     var trackID: UUID
     var clipID: UUID
     var mode: Mode
-    var initialEdge: TimelineTransitionEdge? = nil
+    var edit: TransitionEdit? = nil
     // Quick Fade at a shared edit has two targets. Requests made for a
     // selected clip keep both fades on that clip by leaving this unset.
     var fadeOutClipID: UUID? = nil
+
+    func availableEdits(in project: TrimatoProject) -> [TransitionEdit] {
+        guard let track = project.track(id: trackID) else { return [] }
+        let clips = track.sortedClips
+        let candidates = zip(clips, clips.dropFirst()).compactMap { leading, trailing -> TransitionEdit? in
+            guard leading.timelineEnd == trailing.timelineStart,
+                  leading.id == clipID || trailing.id == clipID else { return nil }
+            return TransitionEdit(leadingClipID: leading.id, trailingClipID: trailing.id)
+        }
+        if let edit { return candidates.filter { $0 == edit } }
+        return candidates
+    }
 
     func fadeClip(for edge: TimelineTransitionEdge, in project: TrimatoProject) -> TimelineClip? {
         let id = edge == .outro ? (fadeOutClipID ?? clipID) : clipID

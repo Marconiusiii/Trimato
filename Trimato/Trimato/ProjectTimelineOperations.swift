@@ -1002,6 +1002,9 @@ extension TrimatoProject {
     }
 
     private func validateTransition(_ transition: TimelineTransition, on track: TimelineTrack) throws {
+        guard transition.duration.isPositive else {
+            throw ProjectTimelineError.transitionNotAvailable("Enter a transition duration greater than zero.")
+        }
         let leading = transition.leadingClipID.flatMap { id in track.clips.first { $0.id == id } }
         let trailing = transition.trailingClipID.flatMap { id in track.clips.first { $0.id == id } }
         if transition.edge == .between {
@@ -1009,8 +1012,30 @@ extension TrimatoProject {
                 throw ProjectTimelineError.transitionNotAvailable("Cross transitions require two clips that meet at the same edit.")
             }
             let half = ProjectTime(seconds: transition.duration.seconds / 2)
-            guard sourceHandleAfter(leading) >= half, sourceHandleBefore(trailing) >= half else {
-                throw ProjectTimelineError.transitionNotAvailable("The adjoining clips do not have enough unused source media for that duration.")
+            let required = TransitionDurationInput.string(for: half)
+            let shortClips = [leading, trailing].filter { $0.duration < half }
+            if !shortClips.isEmpty {
+                let details = shortClips.map {
+                    "\($0.displayName) contains \(TransitionDurationInput.string(for: $0.duration)) seconds; this transition needs \(required) seconds within that clip."
+                }.joined(separator: " ")
+                throw ProjectTimelineError.transitionNotAvailable("\(details) Shorten the transition or lengthen the clip’s trimmed range.")
+            }
+            let fadesThroughBlackOrSilence = transition.kind == .video(.fadeOutIn)
+                || transition.kind == .audio(.fadeOutIn)
+            if !fadesThroughBlackOrSilence {
+                var shortages: [String] = []
+                let after = sourceHandleAfter(leading)
+                let before = sourceHandleBefore(trailing)
+                if after < half {
+                    shortages.append("\(leading.displayName) needs \(required) seconds of unused source media after its trimmed end; \(TransitionDurationInput.string(for: after)) seconds are available.")
+                }
+                if before < half {
+                    shortages.append("\(trailing.displayName) needs \(required) seconds of unused source media before its trimmed start; \(TransitionDurationInput.string(for: before)) seconds are available.")
+                }
+                if !shortages.isEmpty {
+                    throw ProjectTimelineError.transitionNotAvailable(shortages.joined(separator: " ")
+                        + " Shorten the transition or adjust the clips’ trim points to leave enough unused source media.")
+                }
             }
         } else {
             guard let clip = leading ?? trailing, transition.duration < clip.duration else {

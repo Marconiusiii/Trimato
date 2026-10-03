@@ -4,7 +4,6 @@ struct TransitionEditorView: View {
     @State private var draft: TimelineTransition
     @State private var transitionName: String
     @State private var durationText: String
-    @State private var validationMessage: String?
     private struct QuitDraft: Equatable {
         let transition: TimelineTransition
         let name: String
@@ -57,11 +56,6 @@ struct TransitionEditorView: View {
             }
 
             Button("Delete Transition", role: .destructive, action: session.delete)
-
-            if let message = validationMessage ?? session.errorMessage {
-                Text(message)
-                    .foregroundStyle(.red)
-            }
 
             Spacer(minLength: 0)
 
@@ -150,18 +144,7 @@ struct TransitionEditorView: View {
     }
 
     private func applyUpdate() {
-        guard let duration = TransitionDurationInput.parse(durationText) else {
-            validationMessage = "Enter a duration greater than zero, such as 1.0 or 1.25 seconds."
-            return
-        }
-        draft.duration = duration
-        let trimmedName = transitionName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
-            validationMessage = "Enter a name for the transition."
-            return
-        }
-        draft.customName = trimmedName == draft.defaultDisplayName ? nil : trimmedName
-        validationMessage = nil
-        session.update(draft)
+        do { session.update(try quitTransition()) }
+        catch { session.presentError(error.localizedDescription) }
     }
 }
