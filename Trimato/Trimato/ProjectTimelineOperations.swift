@@ -1012,13 +1012,10 @@ extension TrimatoProject {
                 throw ProjectTimelineError.transitionNotAvailable("Cross transitions require two clips that meet at the same edit.")
             }
             let half = ProjectTime(seconds: transition.duration.seconds / 2)
-            let required = TransitionDurationInput.string(for: half)
             let shortClips = [leading, trailing].filter { $0.duration < half }
             if !shortClips.isEmpty {
-                let details = shortClips.map {
-                    "\($0.displayName) contains \(TransitionDurationInput.string(for: $0.duration)) seconds; this transition needs \(required) seconds within that clip."
-                }.joined(separator: " ")
-                throw ProjectTimelineError.transitionNotAvailable("\(details) Shorten the transition or lengthen the clip’s trimmed range.")
+                throw ProjectTimelineError.transitionNotAvailable(
+                    shortClips.map(transitionTooShortMessage).joined(separator: " "))
             }
             let fadesThroughBlackOrSilence = transition.kind == .video(.fadeOutIn)
                 || transition.kind == .audio(.fadeOutIn)
@@ -1027,14 +1024,13 @@ extension TrimatoProject {
                 let after = sourceHandleAfter(leading)
                 let before = sourceHandleBefore(trailing)
                 if after < half {
-                    shortages.append("\(leading.displayName) needs \(required) seconds of unused source media after its trimmed end; \(TransitionDurationInput.string(for: after)) seconds are available.")
+                    shortages.append(transitionTooShortMessage(leading))
                 }
                 if before < half {
-                    shortages.append("\(trailing.displayName) needs \(required) seconds of unused source media before its trimmed start; \(TransitionDurationInput.string(for: before)) seconds are available.")
+                    shortages.append(transitionTooShortMessage(trailing))
                 }
                 if !shortages.isEmpty {
-                    throw ProjectTimelineError.transitionNotAvailable(shortages.joined(separator: " ")
-                        + " Shorten the transition or adjust the clips’ trim points to leave enough unused source media.")
+                    throw ProjectTimelineError.transitionNotAvailable(shortages.joined(separator: " "))
                 }
             }
         } else {
@@ -1042,6 +1038,10 @@ extension TrimatoProject {
                 throw ProjectTimelineError.transitionNotAvailable("The transition must be shorter than the clip.")
             }
         }
+    }
+
+    private func transitionTooShortMessage(_ clip: TimelineClip) -> String {
+        "\(clip.displayName) is too short for this transition. Give the clip more time in the Cutting Board and try again."
     }
 
     private func sourceHandleBefore(_ clip: TimelineClip) -> ProjectTime {

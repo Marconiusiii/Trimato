@@ -209,11 +209,7 @@ struct TransitionToolLifecycleTests {
 
         let message = try #require(session.presentedError)
         #expect(message.initialFocus == .message)
-        #expect(message.message.contains(leading.displayName))
-        #expect(message.message.contains(trailing.displayName))
-        #expect(message.message.contains("needs 1.0 seconds"))
-        #expect(message.message.contains("0.0 seconds are available"))
-        #expect(message.message.contains("Shorten the transition"))
+        #expect(message.message == "\(leading.displayName) is too short for this transition. Give the clip more time in the Cutting Board and try again. \(trailing.displayName) is too short for this transition. Give the clip more time in the Cutting Board and try again.")
         #expect(!session.isApplying && !session.completionRequested)
         #expect(controller.applyingTransitionName == nil)
         #expect(controller.project == original)
