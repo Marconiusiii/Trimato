@@ -130,7 +130,7 @@ struct GeneralSettingsView: View {
             Toggle("Show Audio Waveforms", isOn: $showAudioWaveforms)
 
             Text("Saving")
-                .font(.headline)
+                .editorFont(.headline)
                 .accessibilityAddTraits(.isHeader)
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
@@ -148,20 +148,20 @@ struct GeneralSettingsView: View {
             }
 
             Text("File handling")
-                .font(.headline)
+                .editorFont(.headline)
                 .accessibilityAddTraits(.isHeader)
             Picker("Imported files", selection: $importedFileHandling) {
                 ForEach(ImportedFileHandling.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
 
-            Text("Sounds").font(.headline).accessibilityAddTraits(.isHeader)
+            Text("Sounds").editorFont(.headline).accessibilityAddTraits(.isHeader)
             Toggle("Marker audio", isOn: $markerAudio)
             Toggle("Processing sounds", isOn: $processingSounds)
             Toggle("Export completion sound", isOn: $exportCompletionSound)
 
             Text("Export notifications")
-                .font(.headline)
+                .editorFont(.headline)
                 .accessibilityAddTraits(.isHeader)
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
@@ -189,6 +189,7 @@ struct GeneralSettingsView: View {
 }
 
 struct AccessibilitySettingsView: View {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
     @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @AppStorage(AppPreferenceKey.timecodeFeedback)
     private var timecodeFeedback = TimecodeFeedback.whenStopped
@@ -200,8 +201,16 @@ struct AccessibilitySettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            Picker("Interface Text Size", selection: $textSize) {
+                ForEach(InterfaceTextSize.allCases) { size in
+                    Text(size.title).tag(size)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("trimato.settings.interface-text-size")
+
             Text("VoiceOver")
-                .font(.headline)
+                .editorFont(.headline)
                 .accessibilityAddTraits(.isHeader)
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {

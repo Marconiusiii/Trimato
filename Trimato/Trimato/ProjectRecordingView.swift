@@ -476,10 +476,10 @@ struct ProjectRecordingView: View {
             }
             .disabled(capture.isBusy || session.busy)
             if session.isDescriber {
-                Text("Description transcript").font(.headline).accessibilityAddTraits(.isHeader)
+                Text("Description transcript").editorFont(.headline).accessibilityAddTraits(.isHeader)
                 VStack(alignment: .leading, spacing: 6) {
                     TextEditor(text: $session.text)
-                    .font(.body)
+                    .editorFont(.body)
                     .accessibilityLabel("Description text")
                     .focused($keyboardFocus, equals: .transcript)
                     .frame(minHeight: 100, idealHeight: 220, maxHeight: .infinity)
@@ -565,7 +565,7 @@ struct ProjectRecordingView: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(session.purpose.toolTitle).font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
+            Text(session.purpose.toolTitle).editorFont(.title2, weight: .semibold).accessibilityAddTraits(.isHeader)
             Text("Project time: \(AppPreferences.passiveTimecode(seconds: session.position, precision: precisionTimecode))")
                 .monospacedDigit()
             HStack {

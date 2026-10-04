@@ -34,6 +34,8 @@ nonisolated struct ProjectSourceFocusRequest: Equatable, Sendable {
 }
 
 struct ProjectBrowserView: View {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
+    @State private var availableWidth: CGFloat = 260
     @Environment(\.controlActiveState) private var windowActivity
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
@@ -65,10 +67,15 @@ struct ProjectBrowserView: View {
         _sourceSelection = State(initialValue: .timeline(controller.project.id))
     }
 
+    private var importControlsLayout: AnyLayout {
+        availableWidth >= 230 * textSize.scale ? AnyLayout(HStackLayout(spacing: 8))
+            : AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Text("Project")
-                .font(.headline)
+                .editorFont(.headline)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -78,10 +85,10 @@ struct ProjectBrowserView: View {
 
             Divider()
 
-            HStack(spacing: 8) {
+            importControlsLayout {
                 sourceImportControls
-                Spacer()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)
             .background(.bar)
 
@@ -108,6 +115,7 @@ struct ProjectBrowserView: View {
             .padding(8)
             .background(.bar)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .sheet(isPresented: $showingNewFolder) {
             folderEditor(
                 title: "New Project Folder",
@@ -383,7 +391,7 @@ struct ProjectBrowserView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
-                .font(.headline)
+                .editorFont(.headline)
             LabeledContent("Folder Name") {
                 TextField("Folder Name", text: fieldValue, prompt: Text(""))
                     .labelsHidden()

@@ -409,6 +409,7 @@ struct TimelineCollectionActions {
 }
 
 struct TimelineClipsCollection: NSViewRepresentable {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
     let items: [TimelineCollectionItemModel]
     let accessibilityLabel: String
     var emptyTitle: String = "No clips on this track"
@@ -426,7 +427,7 @@ struct TimelineClipsCollection: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let layout = NSCollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
-        layout.itemSize = NSSize(width: 200, height: 72)
+        layout.itemSize = NSSize(width: 200 * textSize.scale, height: 72 * textSize.scale)
         layout.minimumInteritemSpacing = 8
         layout.minimumLineSpacing = 8
         layout.sectionInset = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
@@ -458,6 +459,13 @@ struct TimelineClipsCollection: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        if let layout = context.coordinator.collectionView?.collectionViewLayout as? NSCollectionViewFlowLayout {
+            let size = NSSize(width: 200 * textSize.scale, height: 72 * textSize.scale)
+            if layout.itemSize != size {
+                layout.itemSize = size
+                layout.invalidateLayout()
+            }
+        }
         context.coordinator.update(from: self)
     }
 
@@ -801,7 +809,7 @@ struct TimelineNativeButton: View {
                     if model.sourceMissing { Image(systemName: "exclamationmark.triangle.fill") }
                     VStack(alignment: .leading) {
                         Text(model.title)
-                        if let subtitle = model.subtitle { Text(subtitle).font(.caption) }
+                        if let subtitle = model.subtitle { Text(subtitle).editorFont(.caption1) }
                     }
                     Spacer(minLength: 0)
                 }

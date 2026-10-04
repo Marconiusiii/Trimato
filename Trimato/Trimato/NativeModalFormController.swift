@@ -15,6 +15,7 @@ final class NativeModalFocusRequest: ObservableObject {
 /// consistently in Trimato: a primary action that is also the window's real
 /// native default button.
 struct NativeDefaultButton: NSViewRepresentable {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     let title: String
     var isEnabled = true
@@ -35,6 +36,7 @@ struct NativeDefaultButton: NSViewRepresentable {
         button.keyEquivalent = "\r"
         button.keyEquivalentModifierMask = []
         button.isEnabled = isEnabled
+        button.font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize * textSize.scale)
         button.bezelColor = NSColor(named: accentChoice.assetName + "Fill")
         return button
     }
@@ -43,6 +45,7 @@ struct NativeDefaultButton: NSViewRepresentable {
         context.coordinator.action = action
         button.title = title
         button.isEnabled = isEnabled
+        button.font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize * textSize.scale)
         button.bezelColor = NSColor(named: accentChoice.assetName + "Fill")
         button.installAsDefaultButton()
     }

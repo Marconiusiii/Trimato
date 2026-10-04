@@ -41,6 +41,8 @@ nonisolated enum TimelineTrackDeletionConfirmation {
 }
 
 struct ProjectTimelineView: View {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
+    @State private var availableWidth: CGFloat = 600
     @AppStorage(AppPreferenceKey.precisionTimecode) private var precisionTimecode = true
     @ObservedObject var controller: ProjectController
     let openClipEditor: (EditorSelection) -> Void
@@ -70,10 +72,15 @@ struct ProjectTimelineView: View {
     @State private var errorMessage: String?
     @State private var errorTitle = "Timeline Change Failed"
 
+    private var trackControlsLayout: AnyLayout {
+        availableWidth >= 540 * textSize.scale ? AnyLayout(HStackLayout(spacing: 8))
+            : AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Text("Timeline")
-                .font(.headline)
+                .editorFont(.headline)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -81,7 +88,7 @@ struct ProjectTimelineView: View {
                 .padding(.vertical, 6)
                 .background(EditorTheme.controlSurface)
             Divider()
-            HStack {
+            trackControlsLayout {
                 Picker("Track", selection: activeTrackBinding) {
                     ForEach(controller.project.orderedTimelineTracks) { track in
                         Text(track.name).tag(Optional(track.id))
@@ -148,6 +155,7 @@ struct ProjectTimelineView: View {
             .padding(8)
             .background(.bar)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .accessibilityIdentifier("trimato.timeline.root")
         .background(TimelineKeyboardBridge(
             accessibilitySelection: focusedElement,
@@ -313,7 +321,7 @@ struct ProjectTimelineView: View {
                 navigation.pane == .timeline && controller.workspaceNavigation == navigation
             }
         )
-        .frame(minHeight: 88)
+        .frame(minHeight: 72 * textSize.scale + 16)
     }
 
     private func emptyMessage(_ message: String) -> some View {
@@ -707,7 +715,7 @@ struct ProjectTimelineView: View {
 
     private var renameClipSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename Timeline Clip").font(.headline).accessibilityAddTraits(.isHeader)
+            Text("Rename Timeline Clip").editorFont(.headline).accessibilityAddTraits(.isHeader)
             LabeledContent("Timeline Clip Name") {
                 TextField("Timeline Clip Name", text: $renamedClipName, prompt: Text(""))
                     .labelsHidden()
@@ -728,7 +736,7 @@ struct ProjectTimelineView: View {
 
     private var renameTrackSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename Track").font(.headline).accessibilityAddTraits(.isHeader)
+            Text("Rename Track").editorFont(.headline).accessibilityAddTraits(.isHeader)
             LabeledContent("Track Name") {
                 TextField("Track Name", text: $trackName, prompt: Text(""))
                     .labelsHidden()
@@ -808,7 +816,7 @@ private struct AddTrackView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Track")
-                .font(.headline)
+                .editorFont(.headline)
                 .accessibilityAddTraits(.isHeader)
             Picker("Track Type", selection: $trackKind) {
                 ForEach([TimelineTrackKind.video, .audio]) { kind in

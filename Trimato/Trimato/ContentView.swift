@@ -12,6 +12,8 @@ struct ContentView: View {
     private let isPreparingClipPreview: Bool
     private let entryCompleted: () -> Void
     @State private var showingSilenceTrim = false
+    @State private var controlsHeight: CGFloat = 280
+    @State private var availableHeight: CGFloat = 640
     @StateObject private var entryFocus = ClipEditorEntryFocus()
 
     init(
@@ -34,7 +36,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             if let editorHeading {
                 Text(editorHeading)
-                    .font(.title2)
+                    .editorFont(.title2)
                     .accessibilityAddTraits(.isHeader)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
@@ -42,9 +44,15 @@ struct ContentView: View {
                     .background(EditorTheme.controlSurface)
             }
             videoArea
-            controlsArea
+            ScrollView(.vertical) {
+                controlsArea
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
+            }
+            .frame(height: min(controlsHeight, max(120, availableHeight * 0.45)))
         }
         .frame(minWidth: 640, minHeight: compact ? 280 : 480)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { availableHeight = $0 }
         .background(EditorTheme.workspace)
         .editorAppearance()
         .focusedObject(viewModel)
@@ -160,11 +168,11 @@ struct ContentView: View {
                 Button { viewModel.toggleTimecodeDisplay() } label: {
                     VStack(spacing: 2) {
                         ClipLiveTimecode(clock: viewModel.playbackClock, showingFrames: viewModel.showingFrames)
-                            .font(.system(.title, design: .monospaced).weight(.semibold))
+                            .editorFont(.title1, design: .monospaced, weight: .semibold)
                             .monospacedDigit()
                             .foregroundStyle(EditorTheme.accent(for: accentChoice))
                         Text(viewModel.showingFrames ? "Frames" : "Timecode")
-                            .font(.system(.caption, design: .monospaced))
+                            .editorFont(.caption1, design: .monospaced)
                             .foregroundStyle(EditorTheme.secondaryText)
                     }
                     .frame(maxWidth: .infinity)
@@ -240,7 +248,7 @@ struct ContentView: View {
             Text(viewModel.playbackRate < 0
                  ? "← \(Int(abs(viewModel.playbackRate)))×"
                  : "\(Int(viewModel.playbackRate))× →")
-                .font(.system(.caption, design: .monospaced).weight(.medium))
+                .editorFont(.caption1, design: .monospaced, weight: .medium)
                 .foregroundStyle(EditorTheme.secondaryText)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -264,7 +272,7 @@ struct ClipExportControlsView: View {
 
             if !viewModel.isExporting, let exportStatus = viewModel.exportStatus {
                 Text(exportStatus)
-                    .font(.caption)
+                    .editorFont(.caption1)
                     .foregroundStyle(EditorTheme.secondaryText)
             }
         }
@@ -273,12 +281,19 @@ struct ClipExportControlsView: View {
 }
 
 struct ClipMarkerControlsView: View {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
     @ObservedObject var viewModel: VideoPlayerViewModel
     @State private var availableWidth: CGFloat = 460
+    private var markerRowLayout: AnyLayout {
+        availableWidth >= EditorControlLayout.markerRowWidth(inValue: viewModel.inMarkerDisplay,
+            outValue: viewModel.outMarkerDisplay, textSize: textSize) ? AnyLayout(HStackLayout(spacing: 8))
+            : AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+    }
+
     var body: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
+                markerRowLayout {
                     Button("Mark In") { viewModel.markIn() }
                         .fixedSize()
                     Text("In: \(viewModel.inMarkerDisplay)")
@@ -287,7 +302,7 @@ struct ClipMarkerControlsView: View {
                         .fixedSize()
                         .disabled(viewModel.inMarker == nil)
                 }
-                HStack {
+                markerRowLayout {
                     Button("Mark Out") { viewModel.markOut() }
                         .fixedSize()
                     Text("Out: \(viewModel.outMarkerDisplay)")
@@ -307,9 +322,6 @@ struct ClipMarkerControlsView: View {
             Text("Markers").accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .font(.system(size: EditorButtonSizing.fontSize(
-            labels: ["Mark In", "Clear In", "Mark Out", "Clear Out", "Delete Selection"],
-            availableWidth: availableWidth)))
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
         .accessibilityElement(children: .contain)

@@ -9,6 +9,7 @@ nonisolated enum AppPreferenceKey {
     static let appearance = "appearance"
     static let portraitVideo = "portraitVideo"
     static let accentColor = "accentColor"
+    static let interfaceTextSize = "interfaceTextSize"
     static let importedFileHandling = "importedFileHandling"
     static let autoSaveEnabled = "autoSaveEnabled"
     static let autoSaveMinutes = "autoSaveMinutes"
@@ -22,6 +23,15 @@ nonisolated enum AppPreferenceKey {
     // Keep the persisted key so existing preferences survive the label change.
     static let showMilliseconds = "precisionTimecode"
     static let precisionTimecode = showMilliseconds
+}
+
+/// macOS does not apply SwiftUI Dynamic Type sizes to interface text.
+nonisolated enum InterfaceTextSize: Int, CaseIterable, Identifiable, Sendable {
+    case standard = 100, larger = 125, large = 150, extraLarge = 175, largest = 200
+
+    var id: Int { rawValue }
+    var title: String { "\(rawValue)%" }
+    var scale: CGFloat { CGFloat(rawValue) / 100 }
 }
 
 nonisolated enum TimecodeFeedback: RawRepresentable, CaseIterable, Identifiable, Equatable, Sendable {

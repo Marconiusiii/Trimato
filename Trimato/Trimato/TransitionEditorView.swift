@@ -51,7 +51,7 @@ struct TransitionEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Transition Editor")
-                .font(EditorTheme.dialogTitle)
+                .editorFont(.title2, weight: .semibold)
                 .accessibilityAddTraits(.isHeader)
 
             if let contextDescription {

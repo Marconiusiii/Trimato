@@ -65,6 +65,7 @@ struct ProjectSourceOutlineView: View {
 }
 
 private struct ProjectSourceNativeOutline: NSViewRepresentable {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
     let controller: ProjectController
     let hierarchy: ProjectSourceItem
     @Binding var selection: ProjectSourceItemID?
@@ -88,7 +89,8 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
         outline.headerView = nil
         outline.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         outline.style = .sourceList
-        outline.rowSizeStyle = .default
+        outline.rowSizeStyle = .custom
+        outline.rowHeight = 24 * textSize.scale
         outline.allowsMultipleSelection = false
         outline.allowsEmptySelection = false
         outline.autosaveExpandedItems = false
@@ -132,7 +134,14 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
         func update(from source: ProjectSourceNativeOutline) {
             self.source = source
             guard let outlineView else { return }
+            let font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize * source.textSize.scale)
+            if outlineView.rowHeight != 24 * source.textSize.scale {
+                outlineView.rowHeight = 24 * source.textSize.scale
+            }
             for row in 0..<outlineView.numberOfRows {
+                let view = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false)
+                (view as? NSButton)?.font = font
+                (view as? NSTableCellView)?.textField?.font = font
                 if let node = outlineView.item(atRow: row) as? ProjectSourceNode,
                    case .asset(let id) = node.id,
                    let button = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? ProjectSourceAssetButton {
@@ -343,6 +352,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                     owner: self,
                     accessibilityIdentifier: accessibilityIdentifier(for: node.id)
                 )
+                button.font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize * (source?.textSize.scale ?? 1))
                 return button
             }
             let cell: NSTableCellView
@@ -363,6 +373,7 @@ private struct ProjectSourceNativeOutline: NSViewRepresentable {
                 ])
             }
             cell.textField?.stringValue = node.name
+            cell.textField?.font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize * (source?.textSize.scale ?? 1))
             cell.setAccessibilityLabel(node.isExpandable ? node.name : nil)
             cell.setAccessibilityIdentifier(accessibilityIdentifier(for: node.id))
             return cell

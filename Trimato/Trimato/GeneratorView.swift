@@ -201,7 +201,7 @@ struct GeneratorView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Generator")
-                    .font(EditorTheme.dialogTitle)
+                    .editorFont(.title2, weight: .semibold)
                     .accessibilityAddTraits(.isHeader)
                 Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
 

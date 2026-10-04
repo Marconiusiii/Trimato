@@ -210,7 +210,7 @@ struct CaptionEditorView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(session.title)
-                .font(EditorTheme.dialogTitle)
+                .editorFont(.title2, weight: .semibold)
                 .accessibilityAddTraits(.isHeader)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -221,7 +221,7 @@ struct CaptionEditorView: View {
             }
 
             TextEditor(text: $session.text)
-                .font(.body)
+                .editorFont(.body)
                 .focused($textFocused)
                 .accessibilityLabel("Caption Text")
                 .frame(minHeight: 100, idealHeight: 220, maxHeight: .infinity)
@@ -235,7 +235,7 @@ struct CaptionEditorView: View {
             if let errorMessage = session.errorMessage {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Caption Could Not Be Saved")
-                        .font(.headline)
+                        .editorFont(.headline)
                         .accessibilityAddTraits(.isHeader)
                     Text(errorMessage)
                     Button("Dismiss Error", action: session.dismissError)

@@ -11,6 +11,8 @@ struct EditorWorkspaceView: View {
     @StateObject private var clipEditorWindows: ClipEditorWindowCoordinator
     @StateObject private var captionEditorWindows: CaptionEditorWindowCoordinator
     @StateObject private var projectWindowSaveCoordinator: ProjectWindowSaveCoordinator
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
+    @State private var workspaceHeight: CGFloat = 900
     @State private var hasHandledInitialPreparation = false
     @State private var initialImportFocusRequest = 0
     @State private var pendingPreviewRecovery: PreviewRecovery?
@@ -335,7 +337,7 @@ struct EditorWorkspaceView: View {
                         viewModel: projectPlayer
                     )
                 }
-                .frame(minHeight: 360)
+                .frame(minHeight: 360, idealHeight: workspaceHeight * 0.67)
                 .layoutPriority(1)
 
                 MacEditorPane("Timeline") {
@@ -347,18 +349,20 @@ struct EditorWorkspaceView: View {
                     )
                 }
                 .frame(minWidth: 460)
-                .frame(minHeight: 240, idealHeight: 260)
+                .frame(minHeight: 240 + 100 * (textSize.scale - 1),
+                       idealHeight: max(240 + 100 * (textSize.scale - 1), workspaceHeight * 0.33))
                 .disabled(controller.recordingSession != nil)
             }
             if let tool = controller.toolPane {
                 MacEditorPane(tool.title) {
                     toolContent(tool)
                 }
-                .frame(minWidth: 440, idealWidth: 500, maxWidth: 720, maxHeight: .infinity)
+                .frame(minWidth: 400, idealWidth: 440, maxWidth: 560, maxHeight: .infinity)
                 .background(EditorTheme.controlSurface)
             }
         }
-        .frame(minWidth: controller.toolPane == nil ? 800 : 1140, minHeight: 720)
+        .frame(minWidth: controller.toolPane == nil ? 800 : 1080, minHeight: 720)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { workspaceHeight = $0 }
     }
 
     @ViewBuilder
@@ -395,6 +399,7 @@ struct EditorWorkspaceView: View {
 }
 
 struct ProjectViewerView: View {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
     @AppStorage(AppPreferenceKey.portraitVideo) private var portraitVideo = false
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     fileprivate enum AccessibilityTarget: Hashable {
@@ -428,11 +433,12 @@ struct ProjectViewerView: View {
     @Environment(\.controlActiveState) private var windowActivity
     @State private var pendingProjectPlayheadFocus: WorkspaceFocusRequest?
     @State private var controlsHeight: CGFloat = 240
+    @State private var availableHeight: CGFloat = 500
     @State private var availableWidth: CGFloat = 0
     @FocusState private var paneCommandKeyboardTarget: AccessibilityTarget?
 
     private var controlsBesideVideo: Bool {
-        PortraitEditorLayout.placesControlsBesideVideo(enabled: portraitVideo, width: availableWidth)
+        PortraitEditorLayout.placesControlsBesideVideo(enabled: portraitVideo, width: availableWidth / textSize.scale)
     }
 
     private var viewerLayout: AnyLayout {
@@ -452,7 +458,7 @@ struct ProjectViewerView: View {
     var body: some View {
         VStack(spacing: 0) {
             Text("Editor")
-                .font(.headline)
+                .editorFont(.headline)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityLinkedGroup(id: "workspace-panes", in: workspacePaneLinks)
                 .accessibilityIdentifier("trimato.editor.heading")
@@ -471,16 +477,19 @@ struct ProjectViewerView: View {
             } else {
                 viewerLayout {
                     videoArea
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 60, maxHeight: .infinity)
-                    controlsArea
-                        .frame(width: controlsBesideVideo ? PortraitEditorLayout.controlsWidth : nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .layoutPriority(1)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 160, maxHeight: .infinity)
+                    ScrollView(.vertical) {
+                        controlsArea
+                            .fixedSize(horizontal: false, vertical: true)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
+                    }
+                    .frame(width: controlsBesideVideo ? PortraitEditorLayout.controlsWidth * textSize.scale : nil)
+                    .frame(height: controlsBesideVideo ? nil : min(controlsHeight, max(120, availableHeight * 0.4)))
                 }
             }
         }
-        .frame(minHeight: controller.recordingSession == nil ? controlsHeight + (controlsBesideVideo ? 32 : 92) : 180)
+        .frame(minHeight: 320)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { availableHeight = $0 }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .accessibilityIdentifier("trimato.editor.root")
         .background(EditorAccessibilityFocusBridge(scope: focusScope))
@@ -658,7 +667,7 @@ struct ProjectViewerView: View {
             } else if viewModel.errorMessage != nil {
                 VStack(spacing: 12) {
                     Text("Project preview unavailable")
-                        .font(.headline)
+                        .editorFont(.headline)
                     Button("Show Preview Error") { viewModel.showPreviewFailure() }
                 }
                 .padding()
@@ -702,6 +711,7 @@ private struct ProjectPlaybackControls: View, Equatable {
 }
 
 private struct ProjectPlaybackControlsPresentation: View {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     let controller: ProjectController
     @ObservedObject var viewModel: ProjectPlayerViewModel
@@ -722,17 +732,33 @@ private struct ProjectPlaybackControlsPresentation: View {
             }
 
             moveAndEditGroup
-            markersGroup
-            playbackGroup
+            detailLayout {
+                markersGroup
+                playbackGroup
+            }
 
         }
         .padding(.horizontal, 8)
         .padding(.top, 6)
         .padding(.bottom, 8)
-        .font(.system(size: EditorButtonSizing.fontSize(
-            labels: ["Mark In", "Clear In", "Mark Out", "Clear Out"], availableWidth: controlsWidth)))
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { controlsWidth = $0 }
         .background(EditorTheme.controlSurface)
+    }
+
+    private var detailsBesideEachOther: Bool { controlsWidth >= 760 * textSize.scale }
+    private var detailWidth: CGFloat { detailsBesideEachOther ? (controlsWidth - 24) / 2 : controlsWidth - 16 }
+    private var detailLayout: AnyLayout {
+        detailsBesideEachOther ? AnyLayout(HStackLayout(alignment: .top, spacing: 8))
+            : AnyLayout(VStackLayout(spacing: 6))
+    }
+    private var markerRowLayout: AnyLayout {
+        detailWidth >= EditorControlLayout.markerRowWidth(inValue: viewModel.inMarkerDisplay,
+            outValue: viewModel.outMarkerDisplay, textSize: textSize) ? AnyLayout(HStackLayout(spacing: 8))
+            : AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+    }
+    private var playbackRowLayout: AnyLayout {
+        detailWidth >= 560 * textSize.scale ? AnyLayout(HStackLayout(spacing: 12))
+            : AnyLayout(VStackLayout(spacing: 8))
     }
 
     private var moveAndEditGroup: some View {
@@ -770,7 +796,7 @@ private struct ProjectPlaybackControlsPresentation: View {
                     .accessibilityIdentifier("trimato.editor.go-to-video-end")
                     .accessibilityFocused(focusedAccessibilityTarget, equals: .goToVideoEnd)
             }
-            .font(.body)
+            .editorFont(.body)
             .foregroundStyle(EditorTheme.accent(for: accentChoice))
             .padding(.top, 2)
         } label: {
@@ -786,7 +812,7 @@ private struct ProjectPlaybackControlsPresentation: View {
     private var markersGroup: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
+                markerRowLayout {
                     Button("Mark In") { viewModel.markIn() }
                         .fixedSize()
                         .accessibilityIdentifier("trimato.editor.mark-in")
@@ -798,7 +824,7 @@ private struct ProjectPlaybackControlsPresentation: View {
                         .accessibilityIdentifier("trimato.editor.clear-in")
                         .accessibilityFocused(focusedAccessibilityTarget, equals: .clearIn)
                 }
-                HStack {
+                markerRowLayout {
                     Button("Mark Out") { viewModel.markOut() }
                         .fixedSize()
                         .accessibilityIdentifier("trimato.editor.mark-out")
@@ -826,22 +852,15 @@ private struct ProjectPlaybackControlsPresentation: View {
     private var playbackGroup: some View {
         GroupBox {
             VStack(spacing: 4) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) {
-                        projectTimecode.fixedSize()
-                        Spacer(minLength: 0)
-                        transportControls.fixedSize()
-                    }
-                    VStack(spacing: 4) {
-                        projectTimecode
-                        transportControls
-                    }
+                playbackRowLayout {
+                    projectTimecode.fixedSize()
+                    transportControls.fixedSize()
                 }
                 if viewModel.isPlaying, viewModel.playbackRate != 1 {
                     Text(viewModel.playbackRate < 0
                          ? "\(Int(abs(viewModel.playbackRate))) times backward"
                          : "\(Int(viewModel.playbackRate)) times forward")
-                        .font(.system(.caption, design: .monospaced).weight(.medium))
+                        .editorFont(.caption1, design: .monospaced, weight: .medium)
                         .foregroundStyle(EditorTheme.secondaryText)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -865,11 +884,11 @@ private struct ProjectPlaybackControlsPresentation: View {
         Button { viewModel.toggleTimecodeDisplay() } label: {
             VStack(spacing: 2) {
                 ProjectLiveTimecode(clock: viewModel.playbackClock, showingFrames: viewModel.showingFrames)
-                    .font(.system(.headline, design: .monospaced).weight(.semibold))
+                    .editorFont(.headline, design: .monospaced, weight: .semibold)
                     .monospacedDigit()
                     .foregroundStyle(EditorTheme.accent(for: accentChoice))
                 Text(viewModel.showingFrames ? "Frames" : "Timecode")
-                    .font(.system(.caption2, design: .monospaced))
+                    .editorFont(.caption2, design: .monospaced)
                     .foregroundStyle(EditorTheme.secondaryText)
             }
             .accessibilityHidden(true)
@@ -885,14 +904,14 @@ private struct ProjectPlaybackControlsPresentation: View {
     private var transportControls: some View {
         HStack(spacing: 8) {
             Button { viewModel.stepBackward() } label: {
-                Image(systemName: "backward.frame.fill").font(.body)
+                Image(systemName: "backward.frame.fill").editorFont(.body)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("Step backward one frame")
             .accessibilityIdentifier("trimato.editor.step-backward")
             .accessibilityFocused(focusedAccessibilityTarget, equals: .stepBackward)
             Button { viewModel.seekBackward() } label: {
-                Image(systemName: "gobackward.10").font(.body)
+                Image(systemName: "gobackward.10").editorFont(.body)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("Skip back 10 seconds")
@@ -900,21 +919,21 @@ private struct ProjectPlaybackControlsPresentation: View {
             .accessibilityFocused(focusedAccessibilityTarget, equals: .skipBackward)
             Button { viewModel.togglePlayback() } label: {
                 Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.body)
+                    .editorFont(.body)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
             .accessibilityIdentifier("trimato.editor.play-pause")
             .accessibilityFocused(focusedAccessibilityTarget, equals: .playPause)
             Button { viewModel.seekForward() } label: {
-                Image(systemName: "goforward.10").font(.body)
+                Image(systemName: "goforward.10").editorFont(.body)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("Skip forward 10 seconds")
             .accessibilityIdentifier("trimato.editor.skip-forward")
             .accessibilityFocused(focusedAccessibilityTarget, equals: .skipForward)
             Button { viewModel.stepForward() } label: {
-                Image(systemName: "forward.frame.fill").font(.body)
+                Image(systemName: "forward.frame.fill").editorFont(.body)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("Step forward one frame")
@@ -945,7 +964,7 @@ struct ProjectPreviewFailureSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(failure.title).font(.headline)
+            Text(failure.title).editorFont(.headline)
             Text(failure.message)
                 .textSelection(.enabled)
                 .accessibilityFocused($messageFocused)

@@ -1,15 +1,16 @@
 import SwiftUI
 import AppKit
 
-enum EditorButtonSizing {
-    static func fontSize(labels: [String], availableWidth: CGFloat, columns: Int = 4) -> CGFloat {
-        let base: CGFloat = 13
-        let longest = labels.map {
-            ($0 as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: base)]).width
-        }.max() ?? 1
-        let widthPerControl = (availableWidth - CGFloat(max(columns - 1, 0)) * 12) / CGFloat(max(columns, 1))
-        let scale = min((widthPerControl - 24) / max(longest, 1), availableWidth / 460)
-        return min(17, max(base, base * scale))
+/// Use the actual marker labels and time strings when deciding whether a row fits.
+enum EditorControlLayout {
+    static func markerRowWidth(inValue: String, outValue: String, textSize: InterfaceTextSize) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize * textSize.scale)
+        let rows = [["Mark In", "In: \(inValue)", "Clear In"],
+                    ["Mark Out", "Out: \(outValue)", "Clear Out"]]
+        return rows.map { labels in
+            labels.reduce(CGFloat(0)) { $0 + ($1 as NSString).size(withAttributes: [.font: font]).width }
+                + 96 // Native button insets, row spacing, and group padding.
+        }.max() ?? 0
     }
 }
 
@@ -43,15 +44,36 @@ enum EditorTheme {
 private struct EditorAppearance: ViewModifier {
     var filledAction = false
     @AppStorage(AppPreferenceKey.accentColor) private var accent = EditorAccent.teal
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
 
     func body(content: Content) -> some View {
         content
             .tint(filledAction ? EditorTheme.controlAccent(for: accent) : EditorTheme.accent(for: accent))
             .controlSize(.regular)
+            .font(.system(size: NSFont.preferredFont(forTextStyle: .body).pointSize * textSize.scale))
+    }
+}
+
+/// Scales explicit text styles as well as the inherited body font. Each view
+/// observes the preference directly, including separately hosted AppKit cells.
+private struct EditorTextStyle: ViewModifier {
+    @AppStorage(AppPreferenceKey.interfaceTextSize) private var textSize = InterfaceTextSize.standard
+    let style: NSFont.TextStyle
+    let design: Font.Design
+    let weight: Font.Weight?
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: NSFont.preferredFont(forTextStyle: style).pointSize * textSize.scale,
+                             weight: weight ?? (style == .headline ? .semibold : .regular), design: design))
     }
 }
 
 extension View {
+    func editorFont(_ style: NSFont.TextStyle = .body, design: Font.Design = .default,
+                    weight: Font.Weight? = nil) -> some View {
+        modifier(EditorTextStyle(style: style, design: design, weight: weight))
+    }
+
     func editorAppearance() -> some View { modifier(EditorAppearance()) }
     func editorPrimaryAction() -> some View { modifier(EditorAppearance(filledAction: true)) }
 }

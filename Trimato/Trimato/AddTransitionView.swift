@@ -137,7 +137,7 @@ struct TransitionToolView: View {
     let returnWindow: NSWindow?
 
     var body: some View {
-        Group {
+        ScrollView(.vertical) {
             if let transition = session.editing {
                 TransitionEditorView(transition: transition,
                     contextDescription: TimelineElementSequence.contextDescription(for: transition, in: session.project),
@@ -193,7 +193,7 @@ struct AddTransitionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Add Transition")
-                .font(EditorTheme.dialogTitle)
+                .editorFont(.title2, weight: .semibold)
                 .accessibilityAddTraits(.isHeader)
 
             if edits.count > 1 {
