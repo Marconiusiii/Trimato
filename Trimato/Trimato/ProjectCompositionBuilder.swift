@@ -604,6 +604,7 @@ nonisolated enum ProjectCompositionBuilder {
                     trailingClip: trailing,
                     type: type,
                     duration: transition.duration,
+                    curve: transition.effectiveAudioCurve,
                     muteLeading: muteLeading, muteTrailing: muteTrailing,
                     sampleRate: Int(projectAudioFormat.sampleRate),
                     progress: await progressReporter?.beginJob()

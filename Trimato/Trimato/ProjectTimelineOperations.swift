@@ -893,13 +893,40 @@ extension TrimatoProject {
         return prepared
     }
 
-    mutating func updateTransition(_ transition: TimelineTransition) throws {
-        guard let index = transitions.firstIndex(where: { $0.id == transition.id }),
-              let track = track(id: transition.trackID) else {
+    func linkedTransition(to transition: TimelineTransition) -> TimelineTransition? {
+        transitions.first { other in
+            guard other.id != transition.id else { return false }
+            if let bundle = transition.bundleID { return other.bundleID == bundle }
+            return other.bundleID == nil && transitionsCanShareBundle(transition, other)
+        }
+    }
+
+    mutating func updateTransition(_ transition: TimelineTransition,
+                                   linkedAudio: TimelineTransition? = nil,
+                                   managesLinkedAudio: Bool = false) throws {
+        guard let original = transitions.first(where: { $0.id == transition.id }) else {
             throw ProjectTimelineError.transitionNotAvailable("The selected transition is no longer available.")
         }
-        try validateTransition(transition, on: track)
-        transitions[index] = transition
+        let companion = linkedTransition(to: original)
+        var candidate = self
+        var replacements = [transition]
+        if managesLinkedAudio, case .video = transition.kind, transition.edge == .between {
+            if var audio = linkedAudio {
+                if let companion { audio.id = companion.id; audio.customName = companion.customName }
+                audio.duration = transition.duration
+                replacements.append(audio)
+            } else {
+                replacements[0].bundleID = nil
+            }
+        } else if var companion, transition.edge == .between {
+            companion.duration = transition.duration
+            replacements.append(companion)
+        }
+        let replacedIDs = Set(replacements.map(\.id)).union(
+            managesLinkedAudio ? Set(companion.map { [$0.id] } ?? []) : [])
+        candidate.transitions.removeAll { replacedIDs.contains($0.id) }
+        _ = try candidate.addTransitionBatch(replacements)
+        self = candidate
     }
 
     mutating func removeTransition(id: UUID) {
@@ -977,16 +1004,8 @@ extension TrimatoProject {
     ) -> Bool {
         guard case .video(let videoType) = videoKind,
               case .audio(let audioType) = audioKind else { return false }
-        switch videoType {
-        case .fade:
-            return audioType == .fade
-        case .fadeOutIn:
-            return audioType == .fadeOutIn
-        case .crossDissolve:
-            return audioType == .crossFade
-        case .wipeLeft, .wipeRight, .wipeUp, .wipeDown:
-            return false
-        }
+        if videoType == .fade { return audioType == .fade }
+        return audioType == .crossFade || audioType == .fadeOutIn
     }
 
     private func linkedClipIDs(_ videoClipID: UUID?, _ audioClipID: UUID?) -> Bool {
@@ -1018,6 +1037,7 @@ extension TrimatoProject {
                     shortClips.map(transitionTooShortMessage).joined(separator: " "))
             }
             let fadesThroughBlackOrSilence = transition.kind == .video(.fadeOutIn)
+                || transition.kind == .video(.fadeThroughWhite)
                 || transition.kind == .audio(.fadeOutIn)
             if !fadesThroughBlackOrSilence {
                 var shortages: [String] = []

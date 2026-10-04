@@ -107,17 +107,17 @@ final class TransitionToolSession: ObservableObject, Identifiable {
         controller.dismissTransitionTool(restoreFocus: false)
     }
 
-    func update(_ transition: TimelineTransition) {
+    func update(_ transition: TimelineTransition, linkedAudio: TimelineTransition? = nil, managesLinkedAudio: Bool = false) {
         do {
             let controller = try validateProject()
-            try controller.updateTransition(transition)
+            try controller.updateTransition(transition, linkedAudio: linkedAudio, managesLinkedAudio: managesLinkedAudio)
             controller.dismissTransitionTool()
         } catch { presentError(error.localizedDescription, title: "Transition Could Not Be Updated") }
     }
 
-    func updateForQuit(_ transition: TimelineTransition) throws {
+    func updateForQuit(_ transition: TimelineTransition, linkedAudio: TimelineTransition? = nil, managesLinkedAudio: Bool = false) throws {
         let controller = try validateProject()
-        try controller.updateTransition(transition)
+        try controller.updateTransition(transition, linkedAudio: linkedAudio, managesLinkedAudio: managesLinkedAudio)
         controller.dismissTransitionTool(restoreFocus: false)
     }
 
@@ -164,6 +164,7 @@ struct AddTransitionView: View {
         let edit: TransitionEdit?
         let videoType: VideoTransitionType
         let audioType: AudioTransitionType
+        let audioCurve: AudioCrossFadeCurve
         let duration: String
         let includeAudio: Bool
     }
@@ -178,6 +179,7 @@ struct AddTransitionView: View {
     @State private var selectedEdit: TransitionEdit?
     @State private var videoType = VideoTransitionType.crossDissolve
     @State private var audioType = AudioTransitionType.crossFade
+    @State private var audioCurve = AudioCrossFadeCurve.linear
     @State private var durationText = TransitionDurationInput.defaultText
     @State private var includeAudio = false
 
@@ -207,22 +209,17 @@ struct AddTransitionView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 if track?.kind == .video {
-                    Picker("Transition Type", selection: $videoType) {
-                        ForEach(VideoTransitionType.allCases.filter { $0 != .fade }) { type in
-                            Text(type.title).tag(type)
-                        }
-                    }
-                    .focused($typeFocused)
+                    VideoTransitionOptions(selection: $videoType, focused: $typeFocused)
                     if showsAudioToggle {
-                        Toggle(videoType == .fadeOutIn ? "Fade Audio" : "Crossfade Audio", isOn: $includeAudio)
+                        Toggle("Include Audio Transition", isOn: $includeAudio)
+                        if includeAudio {
+                            AudioTransitionOptions(selection: $audioType, curve: $audioCurve,
+                                linked: true, focused: $typeFocused)
+                        }
                     }
                 } else {
-                    Picker("Transition Type", selection: $audioType) {
-                        ForEach([AudioTransitionType.crossFade, .fadeOutIn]) { type in
-                            Text(type.title).tag(type)
-                        }
-                    }
-                    .focused($typeFocused)
+                    AudioTransitionOptions(selection: $audioType, curve: $audioCurve,
+                        linked: false, focused: $typeFocused)
                 }
                 TransitionDurationField(text: $durationText)
             }
@@ -254,15 +251,14 @@ struct AddTransitionView: View {
     private var track: TimelineTrack? { project.track(id: request.trackID) }
     private var edits: [TransitionEdit] { request.availableEdits(in: project) }
     private var showsAudioToggle: Bool {
-        (videoType == .crossDissolve || videoType == .fadeOutIn)
-            && selectedEdit?.linkedAudioEdit(in: project) != nil
+        track?.kind == .video && selectedEdit?.linkedAudioEdit(in: project) != nil
     }
     private var quitDraft: QuitDraft {
-        QuitDraft(edit: selectedEdit, videoType: videoType, audioType: audioType,
+        QuitDraft(edit: selectedEdit, videoType: videoType, audioType: audioType, audioCurve: audioCurve,
                   duration: durationText, includeAudio: includeAudio)
     }
     private var initialDraft: QuitDraft {
-        QuitDraft(edit: edits.first, videoType: .crossDissolve, audioType: .crossFade,
+        QuitDraft(edit: edits.first, videoType: .crossDissolve, audioType: .crossFade, audioCurve: .linear,
                   duration: TransitionDurationInput.defaultText, includeAudio: false)
     }
     private func quitTransitions() throws -> [TimelineTransition] {
@@ -274,10 +270,76 @@ struct AddTransitionView: View {
         }
         return selectedEdit.makeTransitions(trackID: track.id,
             kind: track.kind == .video ? .video(videoType) : .audio(audioType),
-            duration: duration, includeAudio: showsAudioToggle && includeAudio, in: project)
+            duration: duration, includeAudio: showsAudioToggle && includeAudio,
+            audioType: audioType, audioCurve: audioCurve, in: project)
     }
     private func apply() {
         do { session.apply(try quitTransitions()) }
         catch { session.presentError(error.localizedDescription) }
+    }
+}
+
+struct VideoTransitionOptions: View {
+    @Binding var selection: VideoTransitionType
+    var focused: FocusState<Bool>.Binding
+
+    var body: some View {
+        Picker("Transition Type", selection: Binding(
+            get: { selection.family }, set: { if $0 != selection.family { selection = $0.types[0] } }
+        )) {
+            ForEach(VideoTransitionFamily.allCases) { family in
+                Text(family.rawValue).tag(family)
+            }
+        }
+        .focused(focused)
+        if selection.family == .fade {
+            Picker("Fade Style", selection: Binding(
+                get: { selection != .crossDissolve },
+                set: { if $0 != (selection != .crossDissolve) { selection = $0 ? .fadeOutIn : .crossDissolve } }
+            )) {
+                Text("Cross Dissolve").tag(false)
+                Text("Fade Through Color").tag(true)
+            }
+            if selection != .crossDissolve {
+                Picker("Fade Color", selection: $selection) {
+                    Text("Black").tag(VideoTransitionType.fadeOutIn)
+                    Text("White").tag(VideoTransitionType.fadeThroughWhite)
+                }
+            }
+        } else if selection.family != .pixelDissolve {
+            Picker(selection.family == .circle ? "Action" : "Direction", selection: $selection) {
+                ForEach(selection.family.types) { type in
+                    Text(type.optionTitle).tag(type)
+                }
+            }
+        }
+    }
+}
+
+struct AudioTransitionOptions: View {
+    @Binding var selection: AudioTransitionType
+    @Binding var curve: AudioCrossFadeCurve
+    var linked: Bool
+    var focused: FocusState<Bool>.Binding
+
+    var body: some View {
+        if linked {
+            typePicker
+        } else {
+            typePicker.focused(focused)
+        }
+        if selection == .crossFade {
+            Picker(linked ? "Audio Fade Curve" : "Fade Curve", selection: $curve) {
+                ForEach(AudioCrossFadeCurve.allCases) { curve in
+                    Text(curve.title).tag(curve)
+                }
+            }
+        }
+    }
+    private var typePicker: some View {
+        Picker(linked ? "Audio Transition Type" : "Transition Type", selection: $selection) {
+            Text("Crossfade").tag(AudioTransitionType.crossFade)
+            Text("Fade Out/Fade In").tag(AudioTransitionType.fadeOutIn)
+        }
     }
 }

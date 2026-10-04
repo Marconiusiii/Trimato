@@ -644,6 +644,89 @@ struct MultiTrackTimelineTests {
         #expect(video.bundleID != nil && video.bundleID == audio.bundleID)
     }
 
+    @Test(arguments: VideoTransitionType.allCases.filter { $0 != .fade })
+    func transitionFamiliesPreserveVideoChoiceAndIndependentAudioOnSave(type: VideoTransitionType) throws {
+        let asset = fixtureAsset(name: "Source", duration: 20)
+        var project = TrimatoProject()
+        project.media = [asset]
+        let first = try project.append(asset: asset, segments: [segment(2, 5)])
+        let second = try project.append(asset: asset, segments: [segment(10, 5)])
+        let track = try #require(project.tracks.first { $0.kind == .video })
+        let edit = TransitionEdit(leadingClipID: first, trailingClipID: second)
+        let additions = edit.makeTransitions(trackID: track.id, kind: .video(type),
+            duration: ProjectTime(seconds: 2), includeAudio: true, audioType: .crossFade,
+            audioCurve: .equalPower, in: project)
+        _ = try project.addTransitionBatch(additions)
+        let decoded = try JSONDecoder().decode(TrimatoProject.self, from: JSONEncoder().encode(project))
+        let video = try #require(decoded.transitions.first { $0.kind == .video(type) })
+        let audio = try #require(decoded.transitions.first { $0.kind == .audio(.crossFade) })
+        #expect(type.family.types.contains(type))
+        #expect(audio.effectiveAudioCurve == .equalPower)
+        #expect(video.bundleID != nil && video.bundleID == audio.bundleID)
+    }
+
+    @Test func legacyTransitionWithoutCurveDecodesAsLinear() throws {
+        let transition = TimelineTransition(trackID: UUID(), edge: .between,
+            kind: .audio(.crossFade), duration: ProjectTime(seconds: 2))
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(transition)) as? [String: Any])
+        json.removeValue(forKey: "audioCurve")
+        let decoded = try JSONDecoder().decode(TimelineTransition.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(decoded.effectiveAudioCurve == .linear)
+    }
+
+    @Test func linkedTransitionUpdatesValidateBothPartsAndPreserveIdentity() throws {
+        let first = fixtureAsset(name: "A", duration: 8)
+        let second = fixtureAsset(name: "B", duration: 5)
+        var project = TrimatoProject()
+        project.media = [first, second]
+        let a = try project.append(asset: first)
+        let b = try project.append(asset: second)
+        let track = try #require(project.tracks.first { $0.kind == .video })
+        let edit = TransitionEdit(leadingClipID: a, trailingClipID: b)
+        _ = try project.addTransitionBatch(edit.makeTransitions(trackID: track.id, kind: .video(.fadeThroughWhite),
+            duration: ProjectTime(seconds: 2), includeAudio: true, audioType: .fadeOutIn, in: project))
+        let video = try #require(project.transitions.first { $0.trackID == track.id })
+        var audio = try #require(project.linkedTransition(to: video))
+        let original = project
+        audio.kind = .audio(.crossFade)
+        audio.audioCurve = .equalPower
+        #expect(throws: (any Error).self) {
+            try project.updateTransition(video, linkedAudio: audio, managesLinkedAudio: true)
+        }
+        #expect(project == original)
+        audio.kind = .audio(.fadeOutIn)
+        audio.duration = ProjectTime(seconds: 3)
+        try project.updateTransition(audio)
+        #expect(project.transitions.allSatisfy { $0.duration == audio.duration })
+        #expect(Set(project.transitions.map(\.id)) == Set(original.transitions.map(\.id)))
+        let updatedVideo = try #require(project.transitions.first { $0.id == video.id })
+        try project.updateTransition(updatedVideo, linkedAudio: nil, managesLinkedAudio: true)
+        #expect(project.transitions.count == 1)
+        #expect(project.transitions.first?.bundleID == nil)
+        try project.updateTransition(updatedVideo, linkedAudio: audio, managesLinkedAudio: true)
+        #expect(project.transitions.count == 2)
+        #expect(project.linkedTransition(to: try #require(project.transitions.first { $0.id == video.id })) != nil)
+    }
+
+    @Test func whiteFadeMakesTransparentSourcesOpaqueAtTheEdit() {
+        let graph = FFmpegTimelineEffectRenderer.videoFadeOutInGraph(
+            leadingStart: 7, trailingStart: 2, duration: 2,
+            width: 1920, height: 1080, frameRate: 30, hasAlpha: true, fadeColor: "white")
+        #expect(graph.contains("trim=start=7:duration=1"))
+        #expect(graph.contains("trim=start=2:duration=1"))
+        #expect(graph.contains("color=white,lut=a=negval,fade=t=out:st=0:d=1:alpha=1,lut=a=negval"))
+        #expect(graph.contains("color=white,lut=a=negval,fade=t=in:st=0:d=1:alpha=1,lut=a=negval"))
+    }
+
+    @Test func equalPowerSpatialRampMatchesSineCurve() {
+        let linear = SpatialAudioRenderPlan.Region(sourceStart: 0, start: 0, duration: 2,
+            gain: 1, ramp: (0, 1), curve: .linear)
+        let equalPower = SpatialAudioRenderPlan.Region(sourceStart: 0, start: 0, duration: 2,
+            gain: 1, ramp: (0, 1), curve: .equalPower)
+        #expect(abs(linear.level(at: 48000, rate: 48000) - 0.5) < 0.0001)
+        #expect(abs(equalPower.level(at: 48000, rate: 48000) - Float(sqrt(0.5))) < 0.0001)
+    }
+
     @Test func linkedVideoAndAudioTransitionsShareADeletedBundle() throws {
         let asset = fixtureAsset(name: "Interview", duration: 20)
         var project = TrimatoProject()

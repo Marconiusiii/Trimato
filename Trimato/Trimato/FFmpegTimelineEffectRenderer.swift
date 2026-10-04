@@ -86,7 +86,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         }
         let hasAlpha = leadingReport.hasAlpha || trailingReport.hasAlpha
         var graph: String
-        if type == .fadeOutIn {
+        if type == .fadeOutIn || type == .fadeThroughWhite {
             graph = videoFadeOutInGraph(
                 leadingStart: max(leadingEnd.seconds - half, 0),
                 trailingStart: trailingStart.seconds,
@@ -94,7 +94,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
                 width: width,
                 height: height,
                 frameRate: frameRate,
-                hasAlpha: hasAlpha
+                hasAlpha: hasAlpha, fadeColor: type == .fadeThroughWhite ? "white" : "black"
             )
         } else if let transitionName = videoTransitionName(type) {
             graph = videoTransitionGraph(
@@ -152,6 +152,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         trailingClip: TimelineClip,
         type: AudioTransitionType,
         duration: ProjectTime,
+        curve: AudioCrossFadeCurve = .linear,
         muteLeading: Bool = false,
         muteTrailing: Bool = false,
         sampleRate: Int? = nil,
@@ -188,7 +189,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
                 leadingSettings: leadingClip.audioSettings,
                 trailingSettings: trailingClip.audioSettings,
                 format: audioFormat,
-                curve: .linear
+                curve: curve
             )
         }
         if selected.channels == 2 {
@@ -253,17 +254,23 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         width: Int,
         height: Int,
         frameRate: Double,
-        hasAlpha: Bool = false
+        hasAlpha: Bool = false,
+        fadeColor: String = "black"
     ) -> String {
         let half = duration / 2
         let normalized = "fps=\(frameRateExpression(frameRate)),settb=AVTB,setpts=PTS-STARTPTS," +
             (hasAlpha ? "format=yuva444p," : "") +
             "scale=\(width):\(height):force_original_aspect_ratio=decrease," +
             "pad=\(width):\(height):(ow-iw)/2:(oh-ih)/2:\(hasAlpha ? "black@0" : "black"),setsar=1,format=\(hasAlpha ? "yuva444p:alpha_modes=straight" : "yuv444p")"
+        // White must be opaque at the edit, including for transparent sources.
+        let whiteAlphaOut = hasAlpha && fadeColor == "white"
+            ? ",lut=a=negval,fade=t=out:st=0:d=\(number(half)):alpha=1,lut=a=negval" : ""
+        let whiteAlphaIn = hasAlpha && fadeColor == "white"
+            ? ",lut=a=negval,fade=t=in:st=0:d=\(number(half)):alpha=1,lut=a=negval" : ""
         return "[0:v:0]trim=start=\(number(leadingStart)):duration=\(number(half)),\(normalized)," +
-            "fade=t=out:st=0:d=\(number(half))\(hasAlpha ? ":alpha=1" : "")[v0];" +
+            "fade=t=out:st=0:d=\(number(half)):color=\(fadeColor)\(hasAlpha && fadeColor == "black" ? ":alpha=1" : "")\(whiteAlphaOut)[v0];" +
             "[1:v:0]trim=start=\(number(trailingStart)):duration=\(number(half)),\(normalized)," +
-            "fade=t=in:st=0:d=\(number(half))\(hasAlpha ? ":alpha=1" : "")[v1];" +
+            "fade=t=in:st=0:d=\(number(half)):color=\(fadeColor)\(hasAlpha && fadeColor == "black" ? ":alpha=1" : "")\(whiteAlphaIn)[v1];" +
             "[v0][v1]concat=n=2:v=1:a=0,trim=duration=\(number(duration))," +
             "setpts=PTS-STARTPTS[outv]"
     }
@@ -345,12 +352,28 @@ nonisolated enum FFmpegTimelineEffectRenderer {
 
     static func videoTransitionName(_ type: VideoTransitionType) -> String? {
         switch type {
-        case .fade, .fadeOutIn: nil
+        case .fade, .fadeOutIn, .fadeThroughWhite: nil
         case .crossDissolve: "fade"
         case .wipeLeft: "wipeleft"
         case .wipeRight: "wiperight"
         case .wipeUp: "wipeup"
         case .wipeDown: "wipedown"
+        case .slideLeft: "slideleft"
+        case .slideRight: "slideright"
+        case .slideUp: "slideup"
+        case .slideDown: "slidedown"
+        case .coverLeft: "coverleft"
+        case .coverRight: "coverright"
+        case .coverUp: "coverup"
+        case .coverDown: "coverdown"
+        case .revealLeft: "revealleft"
+        case .revealRight: "revealright"
+        case .revealUp: "revealup"
+        case .revealDown: "revealdown"
+        case .circleOpen: "circleopen"
+        case .circleClose: "circleclose"
+        case .pixelDissolve: "dissolve"
+
         }
     }
 
@@ -412,9 +435,12 @@ nonisolated enum FFmpegTimelineEffectRenderer {
     }
 }
 
-nonisolated enum AudioCrossFadeCurve: Equatable {
+nonisolated enum AudioCrossFadeCurve: String, Codable, CaseIterable, Identifiable, Sendable {
     case linear
     case equalPower
+
+    var id: String { rawValue }
+    var title: String { self == .linear ? "Linear" : "Equal Power" }
 
     var ffmpegName: String {
         switch self {

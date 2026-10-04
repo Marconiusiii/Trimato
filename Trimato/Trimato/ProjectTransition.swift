@@ -8,6 +8,22 @@ nonisolated enum VideoTransitionType: String, Codable, CaseIterable, Identifiabl
     case wipeRight
     case wipeUp
     case wipeDown
+    case slideLeft
+    case slideRight
+    case slideUp
+    case slideDown
+    case coverLeft
+    case coverRight
+    case coverUp
+    case coverDown
+    case revealLeft
+    case revealRight
+    case revealUp
+    case revealDown
+    case circleOpen
+    case circleClose
+    case pixelDissolve
+    case fadeThroughWhite
 
     var id: String { rawValue }
 
@@ -20,6 +36,59 @@ nonisolated enum VideoTransitionType: String, Codable, CaseIterable, Identifiabl
         case .wipeRight: "Wipe Right"
         case .wipeUp: "Wipe Up"
         case .wipeDown: "Wipe Down"
+        case .slideLeft: "Slide Left"
+        case .slideRight: "Slide Right"
+        case .slideUp: "Slide Up"
+        case .slideDown: "Slide Down"
+        case .coverLeft: "Cover Left"
+        case .coverRight: "Cover Right"
+        case .coverUp: "Cover Up"
+        case .coverDown: "Cover Down"
+        case .revealLeft: "Reveal Left"
+        case .revealRight: "Reveal Right"
+        case .revealUp: "Reveal Up"
+        case .revealDown: "Reveal Down"
+        case .circleOpen: "Circle Open"
+        case .circleClose: "Circle Close"
+        case .pixelDissolve: "Pixel Dissolve"
+        case .fadeThroughWhite: "Fade Through White"
+
+        }
+    }
+}
+
+nonisolated enum VideoTransitionFamily: String, CaseIterable, Identifiable {
+    case fade = "Fade", wipes = "Wipes", slide = "Slide", cover = "Cover"
+    case reveal = "Reveal", circle = "Circle", pixelDissolve = "Pixel Dissolve"
+    var id: String { rawValue }
+    var types: [VideoTransitionType] {
+        switch self {
+        case .fade: [.crossDissolve, .fadeOutIn, .fadeThroughWhite]
+        case .wipes: [.wipeLeft, .wipeRight, .wipeUp, .wipeDown]
+        case .slide: [.slideLeft, .slideRight, .slideUp, .slideDown]
+        case .cover: [.coverLeft, .coverRight, .coverUp, .coverDown]
+        case .reveal: [.revealLeft, .revealRight, .revealUp, .revealDown]
+        case .circle: [.circleOpen, .circleClose]
+        case .pixelDissolve: [.pixelDissolve]
+        }
+    }
+}
+
+extension VideoTransitionType {
+    var family: VideoTransitionFamily {
+        VideoTransitionFamily.allCases.first { $0.types.contains(self) } ?? .fade
+    }
+    var optionTitle: String {
+        switch self {
+        case .wipeLeft, .slideLeft, .coverLeft, .revealLeft: "Left"
+        case .wipeRight, .slideRight, .coverRight, .revealRight: "Right"
+        case .wipeUp, .slideUp, .coverUp, .revealUp: "Up"
+        case .wipeDown, .slideDown, .coverDown, .revealDown: "Down"
+        case .circleOpen: "Open"
+        case .circleClose: "Close"
+        case .fadeOutIn: "Black"
+        case .fadeThroughWhite: "White"
+        default: title
         }
     }
 }
@@ -60,6 +129,9 @@ nonisolated struct TimelineTransition: Codable, Equatable, Hashable, Identifiabl
     var leadingClipID: UUID?
     var trailingClipID: UUID?
     var customName: String?
+    var audioCurve: AudioCrossFadeCurve? = nil
+
+    var effectiveAudioCurve: AudioCrossFadeCurve { audioCurve ?? .linear }
 
     var displayName: String {
         if let customName = normalizedCustomName {
@@ -112,15 +184,16 @@ nonisolated struct TransitionEdit: Hashable, Sendable {
     }
 
     func makeTransitions(trackID: UUID, kind: TimelineTransitionKind, duration: ProjectTime,
-                         includeAudio: Bool, in project: TrimatoProject) -> [TimelineTransition] {
+                         includeAudio: Bool, audioType: AudioTransitionType? = nil,
+                         audioCurve: AudioCrossFadeCurve = .linear, in project: TrimatoProject) -> [TimelineTransition] {
         var result = [TimelineTransition(trackID: trackID, edge: .between, kind: kind,
-            duration: duration, leadingClipID: leadingClipID, trailingClipID: trailingClipID)]
+            duration: duration, leadingClipID: leadingClipID, trailingClipID: trailingClipID,
+            audioCurve: { if case .audio = kind { return audioCurve }; return nil }())]
         if includeAudio, case .video(let type) = kind,
-           type == .crossDissolve || type == .fadeOutIn,
            let audio = linkedAudioEdit(in: project) {
             result.append(TimelineTransition(trackID: audio.trackID, edge: .between,
-                kind: .audio(type == .fadeOutIn ? .fadeOutIn : .crossFade), duration: duration,
-                leadingClipID: audio.edit.leadingClipID, trailingClipID: audio.edit.trailingClipID))
+                kind: .audio(audioType ?? (type == .fadeOutIn || type == .fadeThroughWhite ? .fadeOutIn : .crossFade)), duration: duration,
+                leadingClipID: audio.edit.leadingClipID, trailingClipID: audio.edit.trailingClipID, audioCurve: audioCurve))
         }
         return result
     }

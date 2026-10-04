@@ -1718,8 +1718,10 @@ final class ProjectController: ObservableObject {
         return true
     }
 
-    func updateTransition(_ transition: TimelineTransition) throws {
-        try mutateProjectThrowing(actionName: "Update Transition") { try $0.updateTransition(transition) }
+    func updateTransition(_ transition: TimelineTransition, linkedAudio: TimelineTransition? = nil, managesLinkedAudio: Bool = false) throws {
+        try mutateProjectThrowing(actionName: "Update Transition") {
+            try $0.updateTransition(transition, linkedAudio: linkedAudio, managesLinkedAudio: managesLinkedAudio)
+        }
         selection = .transition(transition.id)
     }
 

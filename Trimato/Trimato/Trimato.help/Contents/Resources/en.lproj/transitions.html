@@ -17,16 +17,33 @@
         <li>Move the Editor playhead to a shared edit, or focus a clip with an adjoining clip in Timeline Clips.</li>
         <li>Press Command-T to open Transitions in the Tool pane.</li>
         <li>Confirm the outgoing and incoming clip names. If the selected clip has an adjoining clip on both sides, choose the pair from the Edit picker.</li>
-        <li>Choose a Transition Type. If both video clips have linked audio at the same edit, choose Fade Audio or Crossfade Audio to include the matching audio transition.</li>
+        <li>Choose a Transition Type, then its options: Fade Style and Fade Color, Direction, or Action for Circle. If both video clips have linked audio at the same edit, select Include Audio Transition, then choose Audio Transition Type and, for Crossfade, Audio Fade Curve.</li>
         <li>Enter the duration in seconds, then activate Add.</li>
     </ol>
-    <p>The duration begins at 1.0 seconds and accepts fractional seconds such as 1.25. The transition is centered on the shared edit and keeps the timeline duration unchanged. Each clip must contain at least half the transition duration. Cross dissolves, wipes, and audio crossfades also need unused source footage equal to half the duration after the outgoing clip’s trim and before the incoming clip’s trim.</p>
+    <p>The duration begins at 1.0 seconds and accepts fractional seconds such as 1.25. The transition is centered on the shared edit and keeps the timeline duration unchanged. Each clip must contain at least half the transition duration. Overlapping video transitions and audio crossfades also need unused source footage equal to half the duration after the outgoing clip’s trim and before the incoming clip’s trim.</p>
 
     <h3>Prepare clips for a transition</h3>
-    <p>When a clip is too short for a transition, open the named clip in its Cutting Board and review its In and Out points. Keep enough time within the selected range for the transition, and, for a dissolve, wipe, or crossfade, leave source footage outside the selected range around the shared edit.</p>
+    <p>When a clip is too short for a transition, open the named clip in its Cutting Board and review its In and Out points. Keep enough time within the selected range for the transition, and, for an overlapping video transition or audio crossfade, leave source footage outside the selected range around the shared edit.</p>
     <p>A two-second dissolve or wipe needs one second of source footage after the outgoing clip’s Out point and one second before the incoming clip’s In point. Each selected clip must also contain at least one second. For example, if a ten-second source is selected from seconds 0–8 and the next source is selected from seconds 2–7, the transition uses source seconds 7–9 of the first clip and seconds 1–3 of the second clip.</p>
     <p>For these overlapping transitions, moving the outgoing Out point earlier leaves more source footage after it; moving the incoming In point later leaves more source footage before it. These adjustments also shorten the selected range, so keep enough time within both clips. If the source cannot provide the required footage, choose a shorter transition or use a different source range.</p>
     <p>Fade Out/Fade In uses only the selected ranges. A two-second transition needs the final second of the outgoing clip and the first second of the incoming clip. It requires no footage outside the In and Out points. If either selected range is too short, extend that range in the Cutting Board or choose a shorter transition. See <a href="clip-editor.html">Edit a clip on the Cutting Board</a> for marking and updating a timeline clip.</p>
+
+    <h3>Video transition families</h3>
+    <ul>
+        <li>Fade: choose Cross Dissolve to blend the two pictures, or Fade Through Color to fade the outgoing picture to Black or White at the edit and then fade in the incoming picture. Fade Through Color uses footage within the selected ranges.</li>
+        <li>Wipes: choose Left, Right, Up, or Down. A moving boundary reveals the incoming picture.</li>
+        <li>Slide: choose Left, Right, Up, or Down. Both pictures move across the frame during the change.</li>
+        <li>Cover: choose Left, Right, Up, or Down. The incoming picture moves over the outgoing picture.</li>
+        <li>Reveal: choose Left, Right, Up, or Down. The outgoing picture moves away to expose the incoming picture.</li>
+        <li>Circle: choose Open or Close. A circular area expands or contracts during the change.</li>
+        <li>Pixel Dissolve: individual pixels change progressively from the outgoing picture to the incoming picture.</li>
+    </ul>
+    <p>Cross Dissolve, Wipes, Slide, Cover, Reveal, Circle, and Pixel Dissolve overlap the two sources and require footage beyond the trim points.</p>
+
+    <h3>Choose an audio transition</h3>
+    <p>With an audio track active, move to a shared audio edit and press Command-T. Choose Crossfade or Fade Out/Fade In. Crossfade overlaps the outgoing and incoming sound and requires unused source footage. Fade Out/Fade In reaches silence at the edit and uses footage within the trims.</p>
+    <p>For Crossfade, choose a Fade Curve. Linear changes both sound levels at a steady rate. Equal Power uses a curved change to reduce the dip in loudness when blending unrelated sounds. Similar or identical sounds can become louder during an Equal Power crossfade.</p>
+    <p>For a video transition, Include Audio Transition provides independent Audio Transition Type and Audio Fade Curve choices when both clips have linked audio at the edit. Any video family can include an audio transition. Video and audio share the edit and duration, and each must have enough footage for its selected type.</p>
 
     <h3>Use Quick Fade</h3>
     <ol>
@@ -73,11 +90,11 @@
         <dt>Wipe Down</dt>
         <dd>Replaces the outgoing picture with the incoming picture using an edge that moves downward.</dd>
     </dl>
-    <p>Wipes affect video only. Audio-only projects offer audio fades and cross fades without video transition choices. Each transition appears as its own Timeline clips item. Activate it to edit or delete the transition without changing the source edit.</p>
+    <p>Each video family can include an independently selected audio transition. Audio-only projects offer audio fades and cross fades without video transition choices. Each transition appears as its own Timeline clips item. Activate it to edit or delete the transition without changing the source edit.</p>
     <p>Trimato creates temporary render files so it can play transitions and adjusted audio. These files support the current preview and are normally removed when the preview changes or the project closes. <a href="storage-and-temporary-media.html">Learn about temporary renders and cleanup.</a></p>
 
     <h2>Change an existing transition</h2>
-    <p>Open a transition from Timeline Clips to change its name, type, or duration in the Tool pane. Update Transition saves the changes. Delete Transition removes that transition while keeping the clips.</p>
+    <p>Open a transition from Timeline Clips to change its name, family, options, or duration in the Tool pane. For a video transition, Include Audio Transition lets you add, change, or remove its linked audio transition. Changing the duration of either part updates both parts. Update Transition saves the changes. Delete Transition removes that transition while keeping the clips.</p>
 </main>
 <footer><p><a href="clip-editor.html">Edit a clip.</a></p></footer>
 </body>

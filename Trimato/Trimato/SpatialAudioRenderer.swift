@@ -10,6 +10,7 @@ nonisolated struct SpatialAudioRenderPlan: Sendable {
         var duration: Double
         var gain: Float
         var ramp: (Float, Float)? = nil
+        var curve: AudioCrossFadeCurve = .linear
         var fades: [(Double, Double, Float, Float)] = []
         var exclusions: [(Double, Double)] = []
         var sourceURL: URL? = nil
@@ -20,7 +21,11 @@ nonisolated struct SpatialAudioRenderPlan: Sendable {
             guard frame >= first, frame < last,
                   !exclusions.contains(where: { frame >= boundary($0.0) && frame < boundary($0.1) }) else { return 0 }
             var value = gain
-            if let ramp { value *= ramp.0 + Float(frame - first) / Float(last - first) * (ramp.1 - ramp.0) }
+            if let ramp {
+                let progress = Float(frame - first) / Float(last - first)
+                let level = ramp.0 + progress * (ramp.1 - ramp.0)
+                value *= curve == .equalPower ? sin(level * .pi / 2) : level
+            }
             for (begin, length, a, b) in fades {
                 let startFrame = boundary(begin), endFrame = boundary(begin + length)
                 if frame >= startFrame, frame < endFrame { value *= a + Float(frame - startFrame) / Float(endFrame - startFrame) * (b - a) }
@@ -95,8 +100,8 @@ nonisolated struct SpatialAudioRenderPlan: Sendable {
                 regions.append(Region(sourceStart: end - half, start: start, duration: half, gain: gain(leading), ramp: (1, 0), sourceURL: urls[leading.assetID]))
                 regions.append(Region(sourceStart: begin, start: start + half, duration: half, gain: gain(trailing), ramp: (0, 1), sourceURL: urls[trailing.assetID]))
             } else if type == .crossFade {
-                regions.append(Region(sourceStart: end - half, start: start, duration: length, gain: gain(leading), ramp: (1, 0), sourceURL: urls[leading.assetID]))
-                regions.append(Region(sourceStart: begin - half, start: start, duration: length, gain: gain(trailing), ramp: (0, 1), sourceURL: urls[trailing.assetID]))
+                regions.append(Region(sourceStart: end - half, start: start, duration: length, gain: gain(leading), ramp: (1, 0), curve: transition.effectiveAudioCurve, sourceURL: urls[leading.assetID]))
+                regions.append(Region(sourceStart: begin - half, start: start, duration: length, gain: gain(trailing), ramp: (0, 1), curve: transition.effectiveAudioCurve, sourceURL: urls[trailing.assetID]))
             }
         }
         guard project.duration.seconds.isFinite, project.duration.seconds > 0,
