@@ -224,6 +224,11 @@ struct ContentView: View {
                 .foregroundStyle(EditorTheme.accent(for: accentChoice))
                 .disabled(!viewModel.hasMedia || viewModel.isExporting || viewModel.isApplyingEdit)
                 .padding(.bottom, 8)
+                Toggle("Play In–Out Range", isOn: Binding(
+                    get: { viewModel.playsInOutRange }, set: viewModel.setPlaysInOutRange))
+                    .toggleStyle(.checkbox)
+                    .disabled(!viewModel.canPlayInOutRange || !canNavigateTimeline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.top, 4)
         } label: {

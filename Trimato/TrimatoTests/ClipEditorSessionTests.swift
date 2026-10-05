@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 import CoreMedia
 import Testing
@@ -6,6 +7,79 @@ import Testing
 
 @Suite("Clip editor sessions", .serialized)
 struct ClipEditorSessionTests {
+    @Test @MainActor func markedPlaybackIsOptInAndClearingEitherPointRestoresFullPlayback() {
+        let player = VideoPlayerViewModel(announcementHandler: { _ in })
+        let composition = AVMutableComposition()
+        composition.insertEmptyTimeRange(CMTimeRange(start: .zero, duration: CMTime(seconds: 10, preferredTimescale: 600)))
+        player.player.replaceCurrentItem(with: AVPlayerItem(asset: composition))
+        defer { player.closeMedia() }
+        player.setInMarker(at: CMTime(seconds: 2, preferredTimescale: 600))
+        player.setOutMarker(at: CMTime(seconds: 4, preferredTimescale: 600))
+        #expect(!player.playsInOutRange)
+        #expect(player.markedPlaybackRange == nil)
+        #expect(player.player.currentItem?.forwardPlaybackEndTime.isValid == false)
+        player.setPlaysInOutRange(true)
+        #expect(player.markedPlaybackRange?.start.seconds == 2)
+        #expect(player.player.currentItem?.forwardPlaybackEndTime.seconds == 4)
+        #expect(player.player.currentItem?.reversePlaybackEndTime.seconds == 2)
+        player.clearOut()
+        #expect(!player.playsInOutRange)
+        #expect(player.player.currentItem?.forwardPlaybackEndTime.isValid == false)
+        player.setOutMarker(at: CMTime(seconds: 5, preferredTimescale: 600))
+        player.setPlaysInOutRange(true)
+        player.clearIn()
+        #expect(!player.playsInOutRange)
+        #expect(player.player.currentItem?.reversePlaybackEndTime.isValid == false)
+        player.setPlaysInOutRange(true)
+        #expect(!player.playsInOutRange)
+    }
+
+    @Test @MainActor func appendingRetainsMarkerCommandsWithoutAWindowFocusChange() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 240_000))
+        buffer.frameLength = buffer.frameCapacity
+        buffer.floatChannelData![0].update(repeating: 0, count: Int(buffer.frameLength))
+        do { let file = try AVAudioFile(forWriting: url, settings: format.settings); try file.write(from: buffer) }
+        let player = VideoPlayerViewModel(announcementHandler: { _ in })
+        player.player.isMuted = true
+        let source = MediaSource.native(url: url, asset: AVURLAsset(url: url), contentType: nil,
+            mode: .nativePassthrough, hasVideo: false, hasAudio: true)
+        player.load(url: url, preparedSource: source)
+        for _ in 0..<500 where player.isLoadingMedia { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(player.hasMedia)
+        defer { player.closeMedia() }
+        var active = true
+        player.scopeKeyboardCommands { active }
+        let router = ClipEditorCommandRouter()
+        router.registerPlayer(player)
+        var asset = fixtureAsset(name: "Append and clear", duration: 5)
+        asset.naturalWidth = nil; asset.naturalHeight = nil
+        var project = TrimatoProject(); project.media = [asset]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(asset.id), segments: asset.sourceEdit)
+        context.placementFeedback = { _ in }
+        for _ in 0..<3 {
+            player.setInMarker(at: CMTime(seconds: 1, preferredTimescale: 600))
+            player.setOutMarker(at: CMTime(seconds: 3, preferredTimescale: 600))
+            context.setSegments(player.placementSourceSegments)
+            context.place(.append)
+            #expect(router.activePlayer === player)
+            #expect(player.canClearMarkers)
+            for (key, code) in [("i", UInt16(34)), ("o", UInt16(31))] {
+                let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: .option, timestamp: 0, windowNumber: 0, context: nil,
+                    characters: key, charactersIgnoringModifiers: key, isARepeat: false, keyCode: code))
+                #expect(player.handleKeyEvent(event) == nil)
+            }
+            #expect(player.inMarker == nil && player.outMarker == nil)
+        }
+        #expect(controller.project.duration == ProjectTime(seconds: 6))
+        active = false
+        #expect(router.activePlayer == nil)
+    }
+
     @Test func externalOpenRequestRetainsTheSelectedFilename() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

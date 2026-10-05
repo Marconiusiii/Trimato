@@ -33,6 +33,8 @@ In a project, use Project Source to organize media, Editor to preview it, and Ti
 
 Project windows fill the screen’s usable area, with adjustable panes for the video preview and timeline. Use the Mac’s full-screen command for system full screen. Settings > Accessibility > Interface Text Size enlarges workspace text up to 200%; controls adapt to the available space within the panes.
 
+Cutting Board playback continues beyond In and Out points by default. Select Play In–Out Range to audition only the marked section. Clear points with Option-I and Option-O as you work. Deleting a timeline transition asks for confirmation.
+
 Generated images and silence can supply the additional media needed for adjoining transitions while keeping the timeline length unchanged.
 
 For editing instructions and keyboard shortcuts, open the Trimato Manual from the app's Help menu. Help buttons open the topic for the current tool or Settings page.

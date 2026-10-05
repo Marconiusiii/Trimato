@@ -135,7 +135,8 @@ final class TransitionToolSession: ObservableObject, Identifiable {
         do {
             _ = try validateProject()
             controller?.dismissTransitionTool(restoreFocus: false)
-            deleteAction?()
+            if let deleteAction { deleteAction() }
+            else if let editing { controller?.transitionDeletionRequest = editing.id }
         } catch { presentError(error.localizedDescription, title: "Transition Could Not Be Deleted") }
     }
 }

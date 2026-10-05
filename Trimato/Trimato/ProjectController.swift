@@ -1731,6 +1731,8 @@ final class ProjectController: ObservableObject {
         }
     }
 
+    @Published var transitionDeletionRequest: UUID?
+
     func deleteTransition(id: UUID, selecting selectionAfterDeletion: EditorSelection = .project) {
         mutateProject(actionName: "Delete Transition") { $0.removeTransition(id: id) }
         if selection != selectionAfterDeletion { selection = selectionAfterDeletion }
@@ -2851,7 +2853,7 @@ final class ProjectController: ObservableObject {
             selection = .project
             announce("Cutaway removed")
         case .transition(let id):
-            deleteTransition(id: id)
+            transitionDeletionRequest = id
         default:
             break
         }

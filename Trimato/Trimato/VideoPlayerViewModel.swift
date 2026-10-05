@@ -147,6 +147,25 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var accessibilityTimecodeLabel: String = AppPreferences.spokenTimecode(seconds: 0, frameRate: 30)
     @Published private(set) var inMarker: CMTime?
     @Published private(set) var outMarker: CMTime?
+    @Published private(set) var playsInOutRange = false
+    private var markerCommandObservation: AnyCancellable?
+
+    var isActiveCuttingBoard: Bool { keyboardCommandsAreActive?() == true }
+    var canClearMarkers: Bool {
+        hasMedia && !isLoadingMedia && !isExporting && !isApplyingEdit &&
+            NSApp.modalWindow == nil && NSApp.keyWindow?.attachedSheet == nil
+    }
+    var canPlayInOutRange: Bool { Self.validExportRange(inMarker: inMarker, outMarker: outMarker) != nil }
+
+    func setPlaysInOutRange(_ enabled: Bool) {
+        playsInOutRange = enabled && canPlayInOutRange
+        updatePlaybackBounds()
+    }
+
+    var markedPlaybackRange: CMTimeRange? {
+        playsInOutRange ? Self.validExportRange(inMarker: inMarker, outMarker: outMarker) : nil
+    }
+
     @Published private(set) var isExporting = false
     @Published private(set) var exportStatus: String?
     @Published private(set) var exportProgress: Double?
@@ -251,6 +270,11 @@ final class VideoPlayerViewModel: ObservableObject {
 
     func scopeKeyboardCommands(to isActive: @escaping () -> Bool) {
         keyboardCommandsAreActive = isActive
+        ClipEditorCommandRouter.shared.registerPlayer(self)
+        markerCommandObservation = objectWillChange.sink { [weak self] _ in
+            guard self?.isActiveCuttingBoard == true else { return }
+            ClipEditorCommandRouter.shared.objectWillChange.send()
+        }
     }
 
     func configureCreateProjectFromClipAction(_ action: @escaping () -> Void) {
@@ -418,6 +442,7 @@ final class VideoPlayerViewModel: ObservableObject {
         mediaDuration = .zero
         inMarker = nil
         outMarker = nil
+        playsInOutRange = false
         exportStatus = nil
         exportProgress = nil
         exportErrorMessage = nil
@@ -647,8 +672,9 @@ final class VideoPlayerViewModel: ObservableObject {
         }
         if preparePlayback?() == false { waitingForClipPreview = true; return }
         guard let item = player.currentItem else { return }
-        let start = max(0, inMarker?.seconds ?? 0)
-        let end = min(duration, outMarker?.seconds ?? duration)
+        let range = markedPlaybackRange
+        let start = max(0, range?.start.seconds ?? 0)
+        let end = min(duration, range?.end.seconds ?? duration)
         guard end > start else { return }
         updatePlaybackBounds()
         jklIndex = 1
@@ -744,8 +770,10 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func updatePlaybackBounds(respectingMarkers: Bool = true) {
-        player.currentItem?.forwardPlaybackEndTime = respectingMarkers ? (outMarker ?? .invalid) : .invalid
-        player.currentItem?.reversePlaybackEndTime = respectingMarkers ? (inMarker ?? .invalid) : .invalid
+        if playsInOutRange && !canPlayInOutRange { playsInOutRange = false }
+        let range = respectingMarkers ? markedPlaybackRange : nil
+        player.currentItem?.forwardPlaybackEndTime = range?.end ?? .invalid
+        player.currentItem?.reversePlaybackEndTime = range?.start ?? .invalid
     }
 
     func clearIn() {
@@ -1507,6 +1535,16 @@ final class VideoPlayerViewModel: ObservableObject {
 
         switch event.type {
         case .keyDown:
+            if commandModifiers == .option, isActiveCuttingBoard {
+                // Option modifies the characters themselves on some keyboard layouts.
+                let character = event.characters(byApplyingModifiers: [])?.lowercased()
+                if character == "i" || character == "o" {
+                    if !event.isARepeat {
+                        if character == "i" { self.clearIn() } else { self.clearOut() }
+                    }
+                    return nil
+                }
+            }
             if commandModifiers == .command {
                 if event.charactersIgnoringModifiers == "[" {
                     if !event.isARepeat { self.trimStartToPlayhead() }

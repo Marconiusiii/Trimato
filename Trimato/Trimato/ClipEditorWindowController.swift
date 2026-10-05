@@ -69,6 +69,23 @@ final class ClipEditorCommandRouter: ObservableObject {
     static let shared = ClipEditorCommandRouter()
     @Published private(set) var activeContext: ClipPlacementCommandContext?
     private var changes: AnyCancellable?
+    private let players = NSHashTable<VideoPlayerViewModel>.weakObjects()
+    private var windowChanges: AnyCancellable?
+
+    init() {
+        windowChanges = NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
+    var activePlayer: VideoPlayerViewModel? {
+        players.allObjects.first { $0.isActiveCuttingBoard }
+    }
+
+    func registerPlayer(_ player: VideoPlayerViewModel) {
+        players.add(player)
+        objectWillChange.send()
+    }
 
     func isAvailable(_ command: ClipEditorPlacementCommand) -> Bool {
         guard let context = activeContext, context.isKeyWindow, context.hostWindow?.attachedSheet == nil, NSApp.modalWindow == nil else { return false }

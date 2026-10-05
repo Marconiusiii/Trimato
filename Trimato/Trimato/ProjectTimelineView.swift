@@ -28,6 +28,15 @@ nonisolated enum TimelineClipDeletionConfirmation {
     }
 }
 
+nonisolated enum TimelineTransitionDeletionConfirmation {
+    static let title = "Delete Transition?"
+
+    static func message(name: String, linkedName: String?) -> String {
+        if let linkedName { return "Delete \(name) and its linked transition, \(linkedName)?" }
+        return "Delete \(name)?"
+    }
+}
+
 nonisolated enum TimelineTrackDeletionConfirmation {
     static let title = "Delete Track?"
 
@@ -62,6 +71,9 @@ struct ProjectTimelineView: View {
     @State private var confirmedTrackDeletionID: UUID?
     @FocusState private var trackActionsKeyboardFocused: Bool
     @State private var clipPendingDeletion: TimelineClip?
+    @State private var transitionPendingDeletion: TimelineTransition?
+    @State private var transitionDeletionFocusID: UUID?
+    @State private var transitionDeletionWasConfirmed = false
     @State private var mediaPendingDeletion: MediaAssetRecord?
     @State private var mediaDeletionOrigin: UUID?
     @State private var confirmedMediaDeletion: UUID?
@@ -176,6 +188,11 @@ struct ProjectTimelineView: View {
         .onAppear {
             reconcileActiveTrack()
         }
+        .onChange(of: controller.transitionDeletionRequest) { _, id in
+            guard let id else { return }
+            controller.transitionDeletionRequest = nil
+            deleteTimelineTransition(id)
+        }
         .onChange(of: controller.workspaceFocusRequest) { _, request in
             guard request.pane == .timeline, controller.acceptsWorkspaceCommands else { return }
             controller.requestTimelineListFocusRestore()
@@ -231,6 +248,19 @@ struct ProjectTimelineView: View {
                 confirmTitle: "Remove from Timeline",
                 cancel: { clipPendingDeletion = nil },
                 confirm: { confirmClipDeletion(clip) }
+            )
+        }
+        .sheet(item: $transitionPendingDeletion, onDismiss: finishTransitionDeletion) { transition in
+            ConfirmationView(
+                title: TimelineTransitionDeletionConfirmation.title,
+                message: TimelineTransitionDeletionConfirmation.message(name: transition.displayName,
+                    linkedName: controller.project.linkedTransition(to: transition)?.displayName),
+                confirmTitle: "Delete Transition",
+                cancel: { transitionPendingDeletion = nil },
+                confirm: {
+                    transitionDeletionWasConfirmed = true
+                    transitionPendingDeletion = nil
+                }
             )
         }
         .sheet(item: $mediaPendingDeletion, onDismiss: finishMediaDeletion) { asset in
@@ -565,6 +595,22 @@ struct ProjectTimelineView: View {
     }
 
     private func deleteTimelineTransition(_ id: UUID) {
+        guard let transition = controller.project.transition(id: id) else { return }
+        guard transitionPendingDeletion == nil else { return }
+        controller.selection = .transition(id)
+        focusedElement = nil
+        keyboardFocusedElement = nil
+        transitionDeletionFocusID = id
+        transitionDeletionWasConfirmed = false
+        transitionPendingDeletion = transition
+    }
+
+    private func finishTransitionDeletion() {
+        guard let id = transitionDeletionFocusID else { return }
+        let confirmed = transitionDeletionWasConfirmed
+        transitionDeletionFocusID = nil
+        transitionDeletionWasConfirmed = false
+        guard confirmed else { restoreTimelineElementFocus(to: .transition(id)); return }
         guard let transition = controller.project.transition(id: id) else { return }
         let target = fallbackFocusAfterDeleting(transition)
         commitDeletionAndRestoreFocus(target) {

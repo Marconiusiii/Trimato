@@ -11,6 +11,7 @@ nonisolated enum ProjectCommandContext {
 struct TrimatoApp: App {
     @NSApplicationDelegateAdaptor(TrimatoApplicationDelegate.self) private var appDelegate
     @FocusedObject private var viewModel: VideoPlayerViewModel?
+    @ObservedObject private var clipCommands = ClipEditorCommandRouter.shared
     @FocusedObject private var focusedProjectPlayer: ProjectPlayerViewModel?
     @ObservedObject private var mixer = MixerWindowRegistry.shared
     private var projectPlayer: ProjectPlayerViewModel? { mixer.activeSession?.player ?? focusedProjectPlayer }
@@ -164,17 +165,21 @@ struct TrimatoApp: App {
                 .disabled(projectPlayer?.canControlPlayback != true && (viewModel?.hasMedia != true || viewModel?.isExporting == true))
                 Divider()
                 Button("Clear In") {
-                    if let projectPlayer { projectPlayer.clearIn() }
+                    if let player = clipCommands.activePlayer { player.clearIn() }
+                    else if let projectPlayer { projectPlayer.clearIn() }
                     else { viewModel?.clearIn() }
                 }
                 .keyboardShortcut("i", modifiers: .option)
-                .disabled(projectPlayer?.inMarker == nil && viewModel?.inMarker == nil)
+                .disabled(clipCommands.activePlayer.map { !$0.canClearMarkers || $0.inMarker == nil }
+                    ?? (projectPlayer?.inMarker == nil && viewModel?.inMarker == nil))
                 Button("Clear Out") {
-                    if let projectPlayer { projectPlayer.clearOut() }
+                    if let player = clipCommands.activePlayer { player.clearOut() }
+                    else if let projectPlayer { projectPlayer.clearOut() }
                     else { viewModel?.clearOut() }
                 }
                 .keyboardShortcut("o", modifiers: .option)
-                .disabled(projectPlayer?.outMarker == nil && viewModel?.outMarker == nil)
+                .disabled(clipCommands.activePlayer.map { !$0.canClearMarkers || $0.outMarker == nil }
+                    ?? (projectPlayer?.outMarker == nil && viewModel?.outMarker == nil))
             }
             ClipPlacementCommands()
             CommandMenu("Timeline") {

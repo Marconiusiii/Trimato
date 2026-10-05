@@ -1,7 +1,22 @@
+import Foundation
 import Testing
 @testable import Trimato
 
 struct ProjectTimelineOperationsTests {
+    @Test @MainActor func transitionDeleteCommandRequestsConfirmationBeforeChangingTheProject() {
+        var project = TrimatoProject()
+        let transition = TimelineTransition(trackID: UUID(), edge: .between,
+            kind: .video(.crossDissolve), duration: ProjectTime(seconds: 1))
+        project.transitions = [transition]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        controller.selection = .transition(transition.id)
+        controller.deleteSelection()
+        #expect(controller.transitionDeletionRequest == transition.id)
+        #expect(controller.project == project)
+        controller.transitionDeletionRequest = nil
+        #expect(controller.project == project)
+    }
+
     @Test func deletingASourceAssetRemovesItsTimelineUsesTransitionsAndFolderReference() throws {
         let removed = fixtureAsset(name: "Delete Me", duration: 12)
         let retained = fixtureAsset(name: "Keep Me", duration: 12)
