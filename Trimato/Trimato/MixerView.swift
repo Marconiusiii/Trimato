@@ -88,9 +88,7 @@ struct MixerView: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                controls.fixedSize(horizontal: false, vertical: true)
-            }
+            controls.fixedSize(horizontal: false, vertical: true)
             Divider()
             actions.padding(EditorTheme.dialogPadding)
         }

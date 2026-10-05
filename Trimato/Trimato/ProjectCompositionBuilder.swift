@@ -607,6 +607,8 @@ nonisolated enum ProjectCompositionBuilder {
                     curve: transition.effectiveAudioCurve,
                     muteLeading: muteLeading, muteTrailing: muteTrailing,
                     sampleRate: Int(projectAudioFormat.sampleRate),
+                    leadingIsGenerator: project.asset(id: leading.assetID)?.generator != nil,
+                    trailingIsGenerator: project.asset(id: trailing.assetID)?.generator != nil,
                     progress: await progressReporter?.beginJob()
                 )
                 await progressReporter?.completeJob()
@@ -662,6 +664,8 @@ nonisolated enum ProjectCompositionBuilder {
                         width: width,
                         height: height,
                         frameRate: projectFrameRate,
+                        leadingIsGenerator: project.asset(id: leading.assetID)?.generator != nil,
+                        trailingIsGenerator: project.asset(id: trailing.assetID)?.generator != nil,
                         progress: await progressReporter?.beginJob()
                     )
                     await progressReporter?.completeJob()

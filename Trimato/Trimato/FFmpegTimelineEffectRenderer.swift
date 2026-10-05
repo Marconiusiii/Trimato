@@ -60,6 +60,8 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         width: Int,
         height: Int,
         frameRate: Double,
+        leadingIsGenerator: Bool = false,
+        trailingIsGenerator: Bool = false,
         progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         guard let leadingEnd = leadingClip.segments.last?.sourceRange.end,
@@ -88,8 +90,8 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         var graph: String
         if type == .fadeOutIn || type == .fadeThroughWhite {
             graph = videoFadeOutInGraph(
-                leadingStart: max(leadingEnd.seconds - half, 0),
-                trailingStart: trailingStart.seconds,
+                leadingStart: leadingIsGenerator ? 0 : max(leadingEnd.seconds - half, 0),
+                trailingStart: trailingIsGenerator ? 0 : trailingStart.seconds,
                 duration: duration.seconds,
                 width: width,
                 height: height,
@@ -98,8 +100,8 @@ nonisolated enum FFmpegTimelineEffectRenderer {
             )
         } else if let transitionName = videoTransitionName(type) {
             graph = videoTransitionGraph(
-                leadingStart: max(leadingEnd.seconds - half, 0),
-                trailingStart: max(trailingStart.seconds - half, 0),
+                leadingStart: leadingIsGenerator ? 0 : max(leadingEnd.seconds - half, 0),
+                trailingStart: trailingIsGenerator ? 0 : max(trailingStart.seconds - half, 0),
                 type: transitionName,
                 duration: duration.seconds,
                 width: width,
@@ -117,8 +119,10 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         }
         var arguments = ["-hide_banner", "-nostdin", "-y"]
         if leadingReport.hasAlpha, leadingReport.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
+        if leadingIsGenerator { arguments += ["-stream_loop", "-1"] }
         arguments += ["-i", leadingURL.path]
         if trailingReport.hasAlpha, trailingReport.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
+        if trailingIsGenerator { arguments += ["-stream_loop", "-1"] }
         arguments += ["-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outv]", "-an", "-sn", "-dn",
             "-c:v", "prores_ks", "-profile:v", hasAlpha ? "4" : "3", "-pix_fmt", hasAlpha ? "yuva444p10le" : "yuv422p10le",
@@ -156,6 +160,8 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         muteLeading: Bool = false,
         muteTrailing: Bool = false,
         sampleRate: Int? = nil,
+        leadingIsGenerator: Bool = false,
+        trailingIsGenerator: Bool = false,
         progress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         guard let leadingEnd = leadingClip.segments.last?.sourceRange.end,
@@ -174,8 +180,8 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         var graph: String
         if type == .fadeOutIn {
             graph = audioFadeOutInGraph(
-                leadingStart: max(leadingEnd.seconds - half, 0),
-                trailingStart: trailingStart.seconds,
+                leadingStart: leadingIsGenerator ? 0 : max(leadingEnd.seconds - half, 0),
+                trailingStart: trailingIsGenerator ? 0 : trailingStart.seconds,
                 duration: duration.seconds,
                 leadingSettings: leadingClip.audioSettings,
                 trailingSettings: trailingClip.audioSettings,
@@ -183,8 +189,8 @@ nonisolated enum FFmpegTimelineEffectRenderer {
             )
         } else {
             graph = audioCrossFadeGraph(
-                leadingStart: max(leadingEnd.seconds - half, 0),
-                trailingStart: max(trailingStart.seconds - half, 0),
+                leadingStart: leadingIsGenerator ? 0 : max(leadingEnd.seconds - half, 0),
+                trailingStart: trailingIsGenerator ? 0 : max(trailingStart.seconds - half, 0),
                 duration: duration.seconds,
                 leadingSettings: leadingClip.audioSettings,
                 trailingSettings: trailingClip.audioSettings,
@@ -203,9 +209,11 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         let directory = try TemporaryMediaSession.directory(named: "TrimatoTimelineEffects")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let outputURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
-        let arguments = [
-            "-hide_banner", "-nostdin", "-y",
-            "-i", leadingURL.path, "-i", trailingURL.path,
+        var arguments = ["-hide_banner", "-nostdin", "-y"]
+        if leadingIsGenerator { arguments += ["-stream_loop", "-1"] }
+        arguments += ["-i", leadingURL.path]
+        if trailingIsGenerator { arguments += ["-stream_loop", "-1"] }
+        arguments += ["-i", trailingURL.path,
             "-filter_complex", graph, "-map", "[outa]", "-vn", "-sn", "-dn",
             "-c:a", "pcm_f32le", "-t", number(duration.seconds),
             "-progress", "pipe:1", "-nostats", outputURL.path,

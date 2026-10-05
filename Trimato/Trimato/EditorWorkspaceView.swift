@@ -433,7 +433,6 @@ struct ProjectViewerView: View {
     @Environment(\.controlActiveState) private var windowActivity
     @State private var pendingProjectPlayheadFocus: WorkspaceFocusRequest?
     @State private var controlsHeight: CGFloat = 240
-    @State private var availableHeight: CGFloat = 500
     @State private var availableWidth: CGFloat = 0
     @FocusState private var paneCommandKeyboardTarget: AccessibilityTarget?
 
@@ -478,18 +477,14 @@ struct ProjectViewerView: View {
                 viewerLayout {
                     videoArea
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 160, maxHeight: .infinity)
-                    ScrollView(.vertical) {
-                        controlsArea
-                            .fixedSize(horizontal: false, vertical: true)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
-                    }
-                    .frame(width: controlsBesideVideo ? PortraitEditorLayout.controlsWidth * textSize.scale : nil)
-                    .frame(height: controlsBesideVideo ? nil : min(controlsHeight, max(120, availableHeight * 0.4)))
+                    controlsArea
+                        .frame(width: controlsBesideVideo ? PortraitEditorLayout.controlsWidth * textSize.scale : nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
                 }
             }
         }
-        .frame(minHeight: 320)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { availableHeight = $0 }
+        .frame(minHeight: controlsBesideVideo ? max(320, controlsHeight + 40) : controlsHeight + 200)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .accessibilityIdentifier("trimato.editor.root")
         .background(EditorAccessibilityFocusBridge(scope: focusScope))

@@ -1043,10 +1043,10 @@ extension TrimatoProject {
                 var shortages: [String] = []
                 let after = sourceHandleAfter(leading)
                 let before = sourceHandleBefore(trailing)
-                if after < half {
+                if asset(id: leading.assetID)?.generator == nil && after < half {
                     shortages.append(transitionTooShortMessage(leading))
                 }
-                if before < half {
+                if asset(id: trailing.assetID)?.generator == nil && before < half {
                     shortages.append(transitionTooShortMessage(trailing))
                 }
                 if !shortages.isEmpty {

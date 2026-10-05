@@ -42,7 +42,7 @@ struct TrimatoSettingsView: View {
                 .tabItem { Label("Storage", systemImage: "internaldrive") }
         }
         .accessibilityIdentifier(SettingsToolbarAccessibility.contentIdentifier)
-        .frame(width: 600, height: 680)
+        .frame(minWidth: 600, idealWidth: 700, minHeight: 680)
         .focusedSceneValue(\.closeSettings, SettingsCloseAction(capture: capture))
         .task {
             await Task.yield()
@@ -209,29 +209,22 @@ struct AccessibilitySettingsView: View {
             .pickerStyle(.menu)
             .accessibilityIdentifier("trimato.settings.interface-text-size")
 
-            Text("VoiceOver")
-                .editorFont(.headline)
-                .accessibilityAddTraits(.isHeader)
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Picker("Timecode Feedback", selection: $timecodeFeedback) {
-                        ForEach(TimecodeFeedback.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    Toggle("Show milliseconds", isOn: $precisionTimecode)
-
-                    Picker("Timecode style", selection: timecodeStyle) {
-                        ForEach(TimecodeStyle.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
+            Picker("Timecode Feedback", selection: $timecodeFeedback) {
+                ForEach(TimecodeFeedback.allCases) { option in
+                    Text(option.title).tag(option)
                 }
             }
+            .pickerStyle(.segmented)
+
+            Toggle("Show milliseconds", isOn: $precisionTimecode)
+
+            Picker("Timecode style", selection: timecodeStyle) {
+                ForEach(TimecodeStyle.allCases) { option in
+                    Text(option.title).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(20)
@@ -250,7 +243,7 @@ struct VideoSettingsView: View {
     }
 }
 
-/// Each Settings page scrolls independently above its final native Help button.
+/// Each Settings page places its controls directly above the native Help button.
 struct SettingsHelpPage<Content: View>: View {
     let topic: TrimatoHelp.Topic
     let content: Content
@@ -260,21 +253,9 @@ struct SettingsHelpPage<Content: View>: View {
         self.content = content()
     }
 
-    var scrollAreaLabel: String {
-        switch topic {
-        case .generalSettings: "General"
-        case .audioSettings: "Audio"
-        case .videoSettings: "Video"
-        case .accessibilitySettings: "Accessibility"
-        case .storageSettings: "Storage"
-        default: "Settings"
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView { content }
-                .accessibilityLabel(scrollAreaLabel)
+            content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             HStack {
                 Spacer()

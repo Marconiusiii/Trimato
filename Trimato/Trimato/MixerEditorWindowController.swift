@@ -64,8 +64,8 @@ final class MixerEditorWindowController: NSWindowController, NSWindowDelegate {
                     guard window?.attachedSheet == nil, NSApp.modalWindow == nil else { return }
                     window?.performClose(nil)
                 })
-        // The resizable window provides the viewport; the ScrollView handles
-        // overflowing controls. Do not remeasure minimum/ideal/maximum content
+        // The resizable window accommodates the native controls.
+        // Do not remeasure minimum/ideal/maximum content
         // sizes on each playback tick or live control adjustment.
         hostingController.sizingOptions = []
         window.contentViewController = hostingController

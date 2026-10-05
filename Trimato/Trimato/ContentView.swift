@@ -12,8 +12,6 @@ struct ContentView: View {
     private let isPreparingClipPreview: Bool
     private let entryCompleted: () -> Void
     @State private var showingSilenceTrim = false
-    @State private var controlsHeight: CGFloat = 280
-    @State private var availableHeight: CGFloat = 640
     @StateObject private var entryFocus = ClipEditorEntryFocus()
 
     init(
@@ -44,15 +42,10 @@ struct ContentView: View {
                     .background(EditorTheme.controlSurface)
             }
             videoArea
-            ScrollView(.vertical) {
-                controlsArea
-                    .fixedSize(horizontal: false, vertical: true)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
-            }
-            .frame(height: min(controlsHeight, max(120, availableHeight * 0.45)))
+            controlsArea
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(minWidth: 640, minHeight: compact ? 280 : 480)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { availableHeight = $0 }
         .background(EditorTheme.workspace)
         .editorAppearance()
         .focusedObject(viewModel)

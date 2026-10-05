@@ -1,9 +1,11 @@
 import SwiftUI
 import AppKit
 import Combine
+import OSLog
 
 @MainActor
 final class TransitionToolSession: ObservableObject, Identifiable {
+    private static let diagnostics = Logger(subsystem: "com.marconius.trimato", category: "Transitions")
     let id = UUID()
     weak var controller: ProjectController?
     let project: TrimatoProject
@@ -46,8 +48,15 @@ final class TransitionToolSession: ObservableObject, Identifiable {
             let controller = try validateProject()
             guard !transitions.isEmpty else { throw QuitDraftError(message: "Choose a transition to apply.") }
             var candidate = controller.project
+            for transition in transitions {
+                let kind = String(describing: transition.kind)
+                let leading = transition.leadingClipID.flatMap { candidate.timelineClip(id: $0) }
+                let trailing = transition.trailingClipID.flatMap { candidate.timelineClip(id: $0) }
+                Self.diagnostics.notice("Apply request: type=\(kind, privacy: .public), duration=\(transition.duration.seconds), outgoingDuration=\(leading?.duration.seconds ?? -1), incomingDuration=\(trailing?.duration.seconds ?? -1), outgoingEnd=\(leading?.segments.last?.sourceRange.end.seconds ?? -1), incomingStart=\(trailing?.segments.first?.sourceRange.start.seconds ?? -1)")
+            }
             _ = try candidate.addTransitionBatch(transitions)
         } catch {
+            Self.diagnostics.error("Transition preflight rejected: \(error.localizedDescription, privacy: .private)")
             presentError(error.localizedDescription)
             return
         }
@@ -68,6 +77,7 @@ final class TransitionToolSession: ObservableObject, Identifiable {
                 outcome = .cancelled
             } catch {
                 outcome = .failed
+                Self.diagnostics.error("Transition preparation failed: \(error.localizedDescription, privacy: .private)")
                 pendingRenderError = error.localizedDescription
             }
             operation = nil
@@ -137,7 +147,7 @@ struct TransitionToolView: View {
     let returnWindow: NSWindow?
 
     var body: some View {
-        ScrollView(.vertical) {
+        Group {
             if let transition = session.editing {
                 TransitionEditorView(transition: transition,
                     contextDescription: TimelineElementSequence.contextDescription(for: transition, in: session.project),

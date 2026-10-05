@@ -198,68 +198,68 @@ struct GeneratorView: View {
     @FocusState private var typePickerKeyboardFocused: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Generator")
-                    .editorFont(.title2, weight: .semibold)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Generator")
+                .editorFont(.title2, weight: .semibold)
+                .accessibilityAddTraits(.isHeader)
+            Text("Destination playhead: \(ProjectPlayerViewModel.accessibilityTimeLabel(time: session.playhead, showingFrames: false, frameRate: session.definition.frameRate))")
 
-                Form {
-                    Picker("Generator", selection: $session.definition.kind) {
-                        ForEach(GeneratorKind.allCases) { kind in
-                            Text(kind.title).tag(kind)
+            Form {
+                Picker("Generator", selection: $session.definition.kind) {
+                    ForEach(GeneratorKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+                .pickerStyle(.menu)
+                .focused($typePickerKeyboardFocused)
+                .help(session.definition.kind.description)
+                .disabled(session.editing != nil)
+
+                generatorParameters
+
+                Picker("Duration Units", selection: Binding(
+                    get: { session.durationUnit },
+                    set: { session.setDurationUnit($0) }
+                )) {
+                    ForEach(GeneratorDurationUnit.allCases) { unit in
+                        Text(unit.title).tag(unit)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                TextField(session.durationUnit.fieldLabel, value: $session.durationValue, format: .number, prompt: Text(""))
+
+                if session.editing == nil {
+                    Picker("Destination Track", selection: $session.trackID) {
+                        ForEach(session.compatibleTracks) { track in
+                            Text(track.name).tag(Optional(track.id))
                         }
+                        Text("New Track").tag(UUID?.none)
                     }
                     .pickerStyle(.menu)
-                    .focused($typePickerKeyboardFocused)
-                    .help(session.definition.kind.description)
-                    .disabled(session.editing != nil)
 
-                    generatorParameters
-
-                    Picker("Duration Units", selection: Binding(
-                        get: { session.durationUnit },
-                        set: { session.setDurationUnit($0) }
-                    )) {
-                        ForEach(GeneratorDurationUnit.allCases) { unit in
-                            Text(unit.title).tag(unit)
-                        }
+                    if session.trackID == nil {
+                        TextField("New Track Name", text: $session.newTrackName, prompt: Text(""))
                     }
-                    .pickerStyle(.segmented)
-
-                    TextField(session.durationUnit.fieldLabel, value: $session.durationValue, format: .number, prompt: Text(""))
-
-                    if session.editing == nil {
-                        Picker("Destination Track", selection: $session.trackID) {
-                            ForEach(session.compatibleTracks) { track in
-                                Text(track.name).tag(Optional(track.id))
-                            }
-                            Text("New Track").tag(UUID?.none)
-                        }
-                        .pickerStyle(.menu)
-
-                        if session.trackID == nil {
-                            TextField("New Track Name", text: $session.newTrackName, prompt: Text(""))
-                        }
-                    }
-                }
-                .disabled(session.progress != nil)
-
-                placementControls
-                    .disabled(session.progress != nil)
-                HStack {
-                    Spacer()
-                    Button(session.progress == nil ? "Cancel" : "Cancel Preparation", role: .cancel) {
-                        session.cancelPreparation()
-                        close()
-                    }
-                    .keyboardShortcut(.cancelAction)
-                    ContextualHelpButton(topic: .generator)
                 }
             }
-            .padding(EditorTheme.dialogPadding)
+            .formStyle(.columns)
+            .fixedSize(horizontal: false, vertical: true)
+            .disabled(session.progress != nil)
+
+            placementControls
+                .disabled(session.progress != nil)
+            HStack {
+                Spacer()
+                Button(session.progress == nil ? "Cancel" : "Cancel Preparation", role: .cancel) {
+                    session.cancelPreparation()
+                    close()
+                }
+                .keyboardShortcut(.cancelAction)
+                ContextualHelpButton(topic: .generator)
+            }
         }
+        .padding(EditorTheme.dialogPadding)
         .operationProgress(session.progress.map { OperationProgress(
             title: "Preparing Generator", progress: $0, cancel: session.cancelPreparation
         ) }, outcome: session.errorMessage == nil ? .completed : .failed,
