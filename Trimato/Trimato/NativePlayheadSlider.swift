@@ -145,6 +145,9 @@ struct NativePlayheadSlider: NSViewRepresentable {
             lastFormattedValue = formatted
             wasMoving = moving
             guard changed else { return }
+            if !moving {
+                ClipEntryDiagnostics.record("playhead.valueChanged focused=\(isAccessibilityFocused()) \(ClipEntryDiagnostics.window(controlView?.window))")
+            }
             cancelPendingValue()
             settledValue = nil
             guard feedback == .whenStopped, !moving else { return }
@@ -172,6 +175,7 @@ struct NativePlayheadSlider: NSViewRepresentable {
                     self.pendingValue = nil
                     if focusedForUpdate, self.announcesValueChanges(), self.isAccessibilityFocused(),
                        self.controlView?.window?.isKeyWindow == true, self.controlView?.window?.attachedSheet == nil {
+                        ClipEntryDiagnostics.record("playhead.postValueChanged \(ClipEntryDiagnostics.identity(self))")
                         NSAccessibility.post(element: self, notification: .valueChanged)
                     }
                 } catch { }

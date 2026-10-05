@@ -99,6 +99,8 @@ struct JumpToTimeView: View {
         .frame(minWidth: 360, idealWidth: 420)
         .fixedSize(horizontal: false, vertical: true)
         .interactiveDismissDisabled(seeking)
+        .onAppear { ClipEntryDiagnostics.record("jump.sheet.appeared") }
+        .onDisappear { ClipEntryDiagnostics.record("jump.sheet.disappeared seeking=\(seeking)") }
         .applicationMessage(error) {
             error = nil
             Task { @MainActor in
@@ -118,11 +120,19 @@ struct JumpToTimeView: View {
     private func jump() {
         do {
             let destination = try input.destination(for: text)
+            guard !seeking else { return }
             seeking = true
+            ClipEntryDiagnostics.record("jump.seek.started controlsEnabled=false")
             seek(destination) { finished in
-                seeking = false
-                if finished { completed() }
-                else { presentError("The playhead could not move to that position. Try Jump again.", title: "Could Not Jump") }
+                ClipEntryDiagnostics.record("jump.seek.completed success=\(finished)")
+                if finished {
+                    // Keep the closing sheet stable instead of re-enabling its controls.
+                    completed()
+                } else {
+                    seeking = false
+                    ClipEntryDiagnostics.record("jump.seek.failed controlsEnabled=true")
+                    presentError("The playhead could not move to that position. Try Jump again.", title: "Could Not Jump")
+                }
             }
         } catch {
             presentError(error.localizedDescription, title: "Could Not Jump")

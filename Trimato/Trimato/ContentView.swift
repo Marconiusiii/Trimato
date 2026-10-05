@@ -85,8 +85,10 @@ struct ContentView: View {
             let target: JumpFocus = jumpCompleted ? .playhead : .timecode
             Task { @MainActor in
                 await Task.yield()
+                ClipEntryDiagnostics.record("jump.clip.return target=\(target)")
+                // Native keyboard focus performs the handoff. A second accessibility
+                // focus write reports a window update (see the Editor pane handoff).
                 jumpKeyboardFocus = target
-                jumpAccessibilityFocus = target
             }
         }) { input in
             JumpToTimeView(input: input, cancel: { jumpInput = nil }, seek: viewModel.jump) {
@@ -158,9 +160,8 @@ struct ContentView: View {
                     viewModel.spokenTime(CMTime(seconds: fraction * viewModel.duration, preferredTimescale: 600_000))
                 }, isMoving: { viewModel.isPlayheadMoving }, seek: viewModel.seek,
                 entry: ClipEditorEntryRequest(owner: entryFocus, ready: entryFocusReady,
-                    willEnter: viewModel.refreshAccessibilityValueForFocus, completed: entryCompleted))
-            .focused($jumpKeyboardFocus, equals: .playhead)
-            .accessibilityFocused($jumpAccessibilityFocus, equals: .playhead)
+                    willEnter: viewModel.refreshAccessibilityValueForFocus, completed: entryCompleted),
+                keyboardFocus: $jumpKeyboardFocus, accessibilityFocus: $jumpAccessibilityFocus)
             .disabled(viewModel.duration <= 0)
             .tint(EditorTheme.playhead)
 
@@ -492,9 +493,13 @@ private struct ClipLivePlayhead: View {
     let isMoving: () -> Bool
     let seek: (Double) -> Void
     let entry: ClipEditorEntryRequest
+    var keyboardFocus: FocusState<ContentView.JumpFocus?>.Binding
+    var accessibilityFocus: AccessibilityFocusState<ContentView.JumpFocus?>.Binding
     var body: some View {
         NativePlayheadSlider(value: Binding(get: { duration > 0 ? clock.time / duration : 0 }, set: seek),
             step: step, label: "Clip playhead", identifier: ClipEditorAccessibilityIdentifier.playhead,
             spokenValue: spokenValue, feedback: feedback, isMoving: isMoving, clipEntry: entry)
+            .focused(keyboardFocus, equals: .playhead)
+            .accessibilityFocused(accessibilityFocus, equals: .playhead)
     }
 }

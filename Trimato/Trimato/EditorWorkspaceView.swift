@@ -745,8 +745,10 @@ private struct ProjectPlaybackControlsPresentation: View {
             let target: ProjectViewerView.AccessibilityTarget = jumpCompleted ? .playhead : .timecode
             Task { @MainActor in
                 await Task.yield()
+                ClipEntryDiagnostics.record("jump.editor.return target=\(target)")
+                // Match the established Editor pane handoff: native keyboard focus
+                // moves to the control without a second accessibility-focus write.
                 paneCommandKeyboardTarget.wrappedValue = target
-                focusedAccessibilityTarget.wrappedValue = target
             }
         }) { input in
             JumpToTimeView(input: input, cancel: { jumpInput = nil }, seek: viewModel.jump) {
