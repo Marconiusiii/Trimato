@@ -21,8 +21,32 @@ struct ClipEditorSessionTests {
             _ = try input.destination(for: "00:05:25")
             Issue.record("An out-of-range time was accepted")
         } catch {
-            #expect(error.localizedDescription == "Enter a time between zero and 5 minutes, 24 seconds.")
+            #expect(error.localizedDescription == "That time is outside the timeline. Enter a time between zero and 5 minutes, 24 seconds.")
             #expect(!error.localizedDescription.contains(":"))
+        }
+    }
+
+    @Test func jumpErrorsExplainFailureAndRespectMilliseconds() {
+        for milliseconds in [false, true] {
+            let input = JumpToTimeInput(position: 0, duration: 324.125, frameRate: 24,
+                frames: false, milliseconds: milliseconds)
+            do {
+                _ = try input.destination(for: "invalid")
+                Issue.record("An invalid timecode was accepted")
+            } catch {
+                #expect(error.localizedDescription == "The timecode format is invalid. Enter hours, minutes, and seconds separated by colons.")
+            }
+            do {
+                _ = try input.destination(for: "00:05:25")
+                Issue.record("An out-of-range time was accepted")
+            } catch {
+                let limit = milliseconds ? "5 minutes, 24 seconds, 125 milliseconds" : "5 minutes, 24 seconds"
+                #expect(error.localizedDescription == "That time is outside the timeline. Enter a time between zero and \(limit).")
+                #expect(!error.localizedDescription.contains(":"))
+            }
+            // Precision affects the error's presentation, not the valid seek range.
+            #expect((try? input.destination(for: "00:05:24.125")) == 324.125)
+            #expect(throws: JumpToTimeError.self) { try input.destination(for: "00:05:24.126") }
         }
     }
 
@@ -43,7 +67,7 @@ struct ClipEditorSessionTests {
             #expect(try input.destination(for: String(input.lastFrame)) <= 10)
             for text in ["-1", "1.5", "nan", "1e2", "", String(input.lastFrame + 1), String(repeating: "9", count: 40)] {
                 do { _ = try input.destination(for: text); Issue.record("Invalid frame was accepted") }
-                catch { #expect(error.localizedDescription.hasPrefix("Enter a frame number between 0 and ")) }
+                catch { #expect(error.localizedDescription.hasPrefix("That frame number is invalid. Enter a frame number between 0 and ")) }
             }
         }
     }

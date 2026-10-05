@@ -22,12 +22,12 @@ nonisolated struct JumpToTimeInput: Identifiable {
         if frames {
             guard !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }),
                   let frame = Int64(text), frame >= 0, frame <= lastFrame else {
-                throw JumpToTimeError(message: "Enter a frame number between 0 and \(lastFrame.formatted()).")
+                throw JumpToTimeError(message: "That frame number is invalid. Enter a frame number between 0 and \(lastFrame.formatted()).")
             }
             value = min(Double(frame) / rate, duration)
         } else {
             let parts = text.split(separator: ":", omittingEmptySubsequences: false)
-            let invalid = JumpToTimeError(message: "Enter hours, minutes, and seconds separated by colons.")
+            let invalid = JumpToTimeError(message: "The timecode format is invalid. Enter hours, minutes, and seconds separated by colons.")
             guard parts.count == 3,
                   parts[0].allSatisfy({ $0.isASCII && $0.isNumber }),
                   parts[1].allSatisfy({ $0.isASCII && $0.isNumber }),
@@ -38,7 +38,7 @@ nonisolated struct JumpToTimeInput: Identifiable {
             value = text == initialText ? position : hours * 3600 + minutes * 60 + seconds
         }
         guard value.isFinite, value >= 0, value <= duration else {
-            throw JumpToTimeError(message: "Enter a time between zero and \(Self.spokenDuration(duration)).")
+            throw JumpToTimeError(message: "That time is outside the timeline. Enter a time between zero and \(AppPreferences.spokenTimecode(seconds: duration, frameRate: rate, milliseconds: milliseconds, style: .timeUnits)).")
         }
         return value
     }
@@ -55,20 +55,7 @@ nonisolated struct JumpToTimeInput: Identifiable {
         return Int(abs(value - nearest) <= tolerance ? nearest : value.rounded(.down))
     }
 
-    static func spokenDuration(_ duration: Double) -> String {
-        let seconds = max(0, duration)
-        let hours = Int(seconds / 3600)
-        let minutes = Int(seconds.truncatingRemainder(dividingBy: 3600) / 60)
-        let remainder = seconds.truncatingRemainder(dividingBy: 60)
-        var parts: [String] = []
-        if hours > 0 { parts.append("\(hours) \(hours == 1 ? "hour" : "hours")") }
-        if minutes > 0 { parts.append("\(minutes) \(minutes == 1 ? "minute" : "minutes")") }
-        if remainder > 0 || parts.isEmpty {
-            let number = remainder.formatted(.number.precision(.fractionLength(0...6)))
-            parts.append("\(number) \(remainder == 1 ? "second" : "seconds")")
-        }
-        return parts.joined(separator: ", ")
-    }
+
 }
 
 nonisolated struct JumpToTimeError: LocalizedError {
@@ -138,7 +125,7 @@ struct JumpToTimeView: View {
                 else { presentError("The playhead could not move to that position. Try Jump again.", title: "Could Not Jump") }
             }
         } catch {
-            presentError(error.localizedDescription, title: "Check Jump Position")
+            presentError(error.localizedDescription, title: "Could Not Jump")
         }
     }
 }
