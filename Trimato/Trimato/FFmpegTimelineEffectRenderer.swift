@@ -56,6 +56,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         leadingClip: TimelineClip,
         trailingClip: TimelineClip,
         type: VideoTransitionType,
+        ease: VideoTransitionEase = .linear,
         duration: ProjectTime,
         width: Int,
         height: Int,
@@ -103,6 +104,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
                 leadingStart: leadingIsGenerator ? 0 : max(leadingEnd.seconds - half, 0),
                 trailingStart: trailingIsGenerator ? 0 : max(trailingStart.seconds - half, 0),
                 type: transitionName,
+                ease: type.supportsEasing ? ease : .linear,
                 duration: duration.seconds,
                 width: width,
                 height: height,
@@ -237,6 +239,7 @@ nonisolated enum FFmpegTimelineEffectRenderer {
         leadingStart: Double,
         trailingStart: Double,
         type: String,
+        ease: VideoTransitionEase = .linear,
         duration: Double,
         width: Int,
         height: Int,
@@ -247,12 +250,61 @@ nonisolated enum FFmpegTimelineEffectRenderer {
             (hasAlpha ? "format=yuva444p," : "") +
             "scale=\(width):\(height):force_original_aspect_ratio=decrease," +
             "pad=\(width):\(height):(ow-iw)/2:(oh-ih)/2:\(hasAlpha ? "black@0" : "black"),setsar=1,format=\(hasAlpha ? "yuva444p" : "yuv444p")"
+        let transition: String
+        if ease != .linear, let expression = videoTransitionExpression(type: type, ease: ease) {
+            transition = "custom:expr='\(expression)'"
+        } else {
+            transition = type
+        }
         let association = hasAlpha ? ",premultiply=inplace=1" : ""
         let restore = hasAlpha ? "unpremultiply=inplace=1," : ""
         return "[0:v:0]trim=start=\(number(leadingStart)):duration=\(number(duration)),\(normalized)\(association)[v0];" +
             "[1:v:0]trim=start=\(number(trailingStart)):duration=\(number(duration)),\(normalized)\(association)[v1];" +
-            "[v0][v1]xfade=transition=\(type):duration=\(number(duration)):offset=0," +
+            "[v0][v1]xfade=transition=\(transition):duration=\(number(duration)):offset=0," +
             "\(restore)trim=duration=\(number(duration)),setpts=PTS-STARTPTS[outv]"
+    }
+
+    // Reparameterize spatial movement, keeping both source streams at their original timestamps.
+    // Geometry follows FFmpeg xfade's named effects; P is the remaining outgoing progress.
+    // https://github.com/FFmpeg/FFmpeg/blob/master/libavfilter/vf_xfade.c
+    // Avoid expression registers (st/ld): xfade evaluates pixels on multiple threads.
+    static func videoTransitionExpression(type: String, ease: VideoTransitionEase) -> String? {
+        let p = ease.remainingProgressExpression
+        let body: String
+        switch type {
+        case "wipeleft": body = "if(gt(X,floor(W*\(p))),B,A)"
+        case "wiperight": body = "if(gt(X,floor(W*(1-\(p)))),A,B)"
+        case "wipeup": body = "if(gt(Y,floor(H*\(p))),B,A)"
+        case "wipedown": body = "if(gt(Y,floor(H*(1-\(p)))),A,B)"
+        case "circleopen", "circleclose":
+            let phase = type == "circleopen" ? p : "(1-\(p))"
+            let radius = "hypot(X-floor(W/2),Y-floor(H/2))/hypot(floor(W/2),floor(H/2))"
+            let ramp = "clip(\(radius)+(\(phase)-0.5)*3,0,1)"
+            let weight = "(\(ramp)*\(ramp)*(3-2*\(ramp)))"
+            body = type == "circleopen" ? "B+(A-B)*\(weight)" : "A+(B-A)*\(weight)"
+        case "slideleft", "slideright", "slideup", "slidedown",
+             "coverleft", "coverright", "coverup", "coverdown",
+             "revealleft", "revealright", "revealup", "revealdown":
+            let horizontal = type.hasSuffix("left") || type.hasSuffix("right")
+            let negative = type.hasSuffix("left") || type.hasSuffix("up")
+            let coordinate = horizontal ? "X" : "Y"
+            let length = horizontal ? "W" : "H"
+            let shifted = "(\(coordinate)\(negative ? "-" : "+")floor(\(p)*\(length)))"
+            let wrapped = "mod(\(shifted)+\(length),\(length))"
+            let x = horizontal ? wrapped : "X"
+            let y = horizontal ? "Y" : wrapped
+            let outgoing = type.hasPrefix("cover") ? "A" : transitionSample("a", x: x, y: y)
+            let incoming = type.hasPrefix("reveal") ? "B" : transitionSample("b", x: x, y: y)
+            body = "if(between(\(shifted),0,\(length)-1),\(incoming),\(outgoing))"
+        default: return nil
+        }
+        return "if(gte(P,1),A,if(lte(P,0),B,\(body)))"
+    }
+
+    private static func transitionSample(_ source: String, x: String, y: String) -> String {
+        "if(eq(PLANE,0),\(source)0(\(x),\(y))," +
+        "if(eq(PLANE,1),\(source)1(\(x),\(y))," +
+        "if(eq(PLANE,2),\(source)2(\(x),\(y)),\(source)3(\(x),\(y)))))"
     }
 
     static func videoFadeOutInGraph(

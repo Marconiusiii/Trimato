@@ -136,6 +136,7 @@ struct TransitionEditorView: View {
         case .video(let current):
             if draft.edge == .between {
                 VideoTransitionOptions(selection: Binding(get: { current }, set: { setKind(.video($0)) }),
+                    ease: Binding(get: { draft.videoEase ?? .linear }, set: { draft.videoEase = $0 }),
                     focused: $typeFocused)
             } else {
                 Picker("Transition Type", selection: Binding(get: { current }, set: { setKind(.video($0)) })) {

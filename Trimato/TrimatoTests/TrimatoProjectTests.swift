@@ -27,6 +27,52 @@ struct TrimatoProjectTests {
         #expect(decoded.primaryTimeline.map(\.displayName) == ["Interview A", "Interview B"])
         #expect(decoded.duration == ProjectTime(seconds: 30))
     }
+    @Test func transitionEasePersistsAndOlderTransitionsDefaultToLinear() throws {
+        var transition = TimelineTransition(trackID: UUID(), edge: .between, kind: .video(.wipeLeft),
+            duration: ProjectTime(seconds: 2), leadingClipID: UUID(), trailingClipID: UUID())
+        // An absent optional property matches projects saved before easing was introduced.
+        let legacyData = try JSONEncoder().encode(transition)
+        #expect(!String(decoding: legacyData, as: UTF8.self).contains("videoEase"))
+        #expect(try JSONDecoder().decode(TimelineTransition.self, from: legacyData).effectiveVideoEase == .linear)
+        for ease in VideoTransitionEase.allCases {
+            transition.videoEase = ease
+            let decoded = try JSONDecoder().decode(TimelineTransition.self, from: JSONEncoder().encode(transition))
+            #expect(decoded == transition)
+            #expect(decoded.effectiveVideoEase == ease)
+        }
+    }
+
+    @Test func easingIsRestrictedToMovementTransitions() {
+        let families: [VideoTransitionFamily] = [.wipes, .slide, .cover, .reveal, .circle]
+        for type in VideoTransitionType.allCases {
+            let transition = TimelineTransition(trackID: UUID(), edge: .between, kind: .video(type),
+                duration: ProjectTime(seconds: 2), videoEase: .easyEase)
+            #expect(type.supportsEasing == families.contains(type.family))
+            #expect(transition.effectiveVideoEase == (families.contains(type.family) ? .easyEase : .linear))
+        }
+        let audio = TimelineTransition(trackID: UUID(), edge: .between, kind: .audio(.crossFade),
+            duration: ProjectTime(seconds: 2), videoEase: .easeIn)
+        #expect(audio.effectiveVideoEase == .linear)
+    }
+
+    @Test func easingPreservesSourceTimingAndLinearRendering() throws {
+        for type in VideoTransitionType.allCases where type.supportsEasing {
+            let name = try #require(FFmpegTimelineEffectRenderer.videoTransitionName(type))
+            let linear = FFmpegTimelineEffectRenderer.videoTransitionGraph(leadingStart: 7, trailingStart: 1,
+                type: name, duration: 2, width: 160, height: 90, frameRate: 24)
+            #expect(linear.contains("xfade=transition=\(name):duration=2:offset=0"))
+            for ease in VideoTransitionEase.allCases where ease != .linear {
+                let graph = FFmpegTimelineEffectRenderer.videoTransitionGraph(leadingStart: 7, trailingStart: 1,
+                    type: name, ease: ease, duration: 2, width: 160, height: 90, frameRate: 24)
+                #expect(graph.contains("xfade=transition=custom:expr="))
+                #expect(graph.contains("[0:v:0]trim=start=7:duration=2,"))
+                #expect(graph.contains("[1:v:0]trim=start=1:duration=2,"))
+                #expect(graph.contains(":duration=2:offset=0"))
+                #expect(graph.hasSuffix("trim=duration=2,setpts=PTS-STARTPTS[outv]"))
+            }
+        }
+    }
+
     @Test func generatedClipsSupplyHandlesForEveryVideoTransition() throws {
         var black = fixtureAsset(name: "Black", duration: 5)
         black.hasAudio = false

@@ -660,6 +660,7 @@ nonisolated enum ProjectCompositionBuilder {
                         leadingClip: leading,
                         trailingClip: trailing,
                         type: type,
+                        ease: transition.effectiveVideoEase,
                         duration: transition.duration,
                         width: width,
                         height: height,

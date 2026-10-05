@@ -78,6 +78,8 @@ extension VideoTransitionType {
     var family: VideoTransitionFamily {
         VideoTransitionFamily.allCases.first { $0.types.contains(self) } ?? .fade
     }
+    var supportsEasing: Bool { family != .fade && family != .pixelDissolve }
+
     var optionTitle: String {
         switch self {
         case .wipeLeft, .slideLeft, .coverLeft, .revealLeft: "Left"
@@ -89,6 +91,32 @@ extension VideoTransitionType {
         case .fadeOutIn: "Black"
         case .fadeThroughWhite: "White"
         default: title
+        }
+    }
+}
+
+nonisolated enum VideoTransitionEase: String, Codable, CaseIterable, Identifiable, Sendable {
+    case linear, easeIn, easeOut, easyEase
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .linear: "Linear"
+        case .easeIn: "Ease In"
+        case .easeOut: "Ease Out"
+        case .easyEase: "Easy Ease"
+        }
+    }
+
+    // FFmpeg's P runs from 1 (outgoing) to 0 (incoming).
+    // Trimato names easing for the arrival/departure of the picture:
+    // Ease In slows into the incoming clip; Ease Out accelerates away.
+    var remainingProgressExpression: String {
+        switch self {
+        case .linear: "P"
+        case .easeIn: "(P*P)"
+        case .easeOut: "(1-(1-P)*(1-P))"
+        case .easyEase: "(P*P*(3-2*P))"
         }
     }
 }
@@ -130,8 +158,14 @@ nonisolated struct TimelineTransition: Codable, Equatable, Hashable, Identifiabl
     var trailingClipID: UUID?
     var customName: String?
     var audioCurve: AudioCrossFadeCurve? = nil
+    var videoEase: VideoTransitionEase? = nil
 
     var effectiveAudioCurve: AudioCrossFadeCurve { audioCurve ?? .linear }
+
+    var effectiveVideoEase: VideoTransitionEase {
+        guard edge == .between, case .video(let type) = kind, type.supportsEasing else { return .linear }
+        return videoEase ?? .linear
+    }
 
     var displayName: String {
         if let customName = normalizedCustomName {
@@ -185,10 +219,11 @@ nonisolated struct TransitionEdit: Hashable, Sendable {
 
     func makeTransitions(trackID: UUID, kind: TimelineTransitionKind, duration: ProjectTime,
                          includeAudio: Bool, audioType: AudioTransitionType? = nil,
-                         audioCurve: AudioCrossFadeCurve = .linear, in project: TrimatoProject) -> [TimelineTransition] {
+                         audioCurve: AudioCrossFadeCurve = .linear, videoEase: VideoTransitionEase = .linear, in project: TrimatoProject) -> [TimelineTransition] {
         var result = [TimelineTransition(trackID: trackID, edge: .between, kind: kind,
             duration: duration, leadingClipID: leadingClipID, trailingClipID: trailingClipID,
-            audioCurve: { if case .audio = kind { return audioCurve }; return nil }())]
+            audioCurve: { if case .audio = kind { return audioCurve }; return nil }(),
+            videoEase: { if case .video(let type) = kind, type.supportsEasing { return videoEase }; return nil }())]
         if includeAudio, case .video(let type) = kind,
            let audio = linkedAudioEdit(in: project) {
             result.append(TimelineTransition(trackID: audio.trackID, edge: .between,

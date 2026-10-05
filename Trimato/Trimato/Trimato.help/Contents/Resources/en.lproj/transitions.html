@@ -17,7 +17,7 @@
         <li>Move the Editor playhead to a shared edit, or focus a clip with an adjoining clip in Timeline Clips.</li>
         <li>Press Command-T to open Transitions in the Tool pane.</li>
         <li>Confirm the outgoing and incoming clip names. If the selected clip has an adjoining clip on both sides, choose the pair from the Edit picker.</li>
-        <li>Choose a Transition Type, then its options: Fade Style and Fade Color, Direction, or Action for Circle. If both video clips have linked audio at the same edit, select Include Audio Transition, then choose Audio Transition Type and, for Crossfade, Audio Fade Curve.</li>
+        <li>Choose a Transition Type, then its options: Fade Style and Fade Color, Direction, or Action for Circle. For Wipes, Slide, Cover, Reveal, or Circle, choose an Ease setting. If both video clips have linked audio at the same edit, select Include Audio Transition, then choose Audio Transition Type and, for Crossfade, Audio Fade Curve.</li>
         <li>Enter the duration in seconds, then activate Add.</li>
     </ol>
     <p>The duration begins at 1.0 seconds and accepts fractional seconds such as 1.25. The transition is centered on the shared edit and keeps the timeline duration unchanged. Each clip must contain at least half the transition duration. Overlapping video transitions and audio crossfades also need unused source footage equal to half the duration after the outgoing clip’s trim and before the incoming clip’s trim.</p>
@@ -40,6 +40,16 @@
         <li>Pixel Dissolve: individual pixels change progressively from the outgoing picture to the incoming picture.</li>
     </ul>
     <p>Cross Dissolve, Wipes, Slide, Cover, Reveal, Circle, and Pixel Dissolve overlap the two sources and require footage beyond the trim points.</p>
+
+    <h3>Choose how a transition moves</h3>
+    <p>For Wipes, Slide, Cover, Reveal, and Circle, use the Ease picker after Direction or Action to change how the movement speeds up or slows down. New transitions begin with Linear.</p>
+    <ul>
+        <li>Linear: moves at a constant rate throughout the transition.</li>
+        <li>Ease In: starts at speed, then gradually slows into the incoming clip.</li>
+        <li>Ease Out: starts slowly, accelerates, and finishes at speed.</li>
+        <li>Easy Ease: starts slowly, moves faster through the middle, then slows into the incoming clip.</li>
+    </ul>
+    <p>Ease changes the transition movement while keeping the chosen duration and normal clip playback speed. To change an existing transition’s Ease setting, open it from Timeline Clips, choose Ease, and activate Update Transition.</p>
 
     <h3>Choose an audio transition</h3>
     <p>With an audio track active, move to a shared audio edit and press Command-T. Choose Crossfade or Fade Out/Fade In. Crossfade overlaps the outgoing and incoming sound and requires unused source footage. Fade Out/Fade In reaches silence at the edit and uses footage within the trims.</p>

@@ -173,6 +173,7 @@ struct AddTransitionView: View {
     private struct QuitDraft: Equatable {
         let edit: TransitionEdit?
         let videoType: VideoTransitionType
+        let videoEase: VideoTransitionEase
         let audioType: AudioTransitionType
         let audioCurve: AudioCrossFadeCurve
         let duration: String
@@ -188,6 +189,7 @@ struct AddTransitionView: View {
     @FocusState private var typeFocused: Bool
     @State private var selectedEdit: TransitionEdit?
     @State private var videoType = VideoTransitionType.crossDissolve
+    @State private var videoEase = VideoTransitionEase.linear
     @State private var audioType = AudioTransitionType.crossFade
     @State private var audioCurve = AudioCrossFadeCurve.linear
     @State private var durationText = TransitionDurationInput.defaultText
@@ -219,7 +221,7 @@ struct AddTransitionView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 if track?.kind == .video {
-                    VideoTransitionOptions(selection: $videoType, focused: $typeFocused)
+                    VideoTransitionOptions(selection: $videoType, ease: $videoEase, focused: $typeFocused)
                     if showsAudioToggle {
                         Toggle("Include Audio Transition", isOn: $includeAudio)
                         if includeAudio {
@@ -264,11 +266,11 @@ struct AddTransitionView: View {
         track?.kind == .video && selectedEdit?.linkedAudioEdit(in: project) != nil
     }
     private var quitDraft: QuitDraft {
-        QuitDraft(edit: selectedEdit, videoType: videoType, audioType: audioType, audioCurve: audioCurve,
+        QuitDraft(edit: selectedEdit, videoType: videoType, videoEase: videoType.supportsEasing ? videoEase : .linear, audioType: audioType, audioCurve: audioCurve,
                   duration: durationText, includeAudio: includeAudio)
     }
     private var initialDraft: QuitDraft {
-        QuitDraft(edit: edits.first, videoType: .crossDissolve, audioType: .crossFade, audioCurve: .linear,
+        QuitDraft(edit: edits.first, videoType: .crossDissolve, videoEase: .linear, audioType: .crossFade, audioCurve: .linear,
                   duration: TransitionDurationInput.defaultText, includeAudio: false)
     }
     private func quitTransitions() throws -> [TimelineTransition] {
@@ -281,7 +283,7 @@ struct AddTransitionView: View {
         return selectedEdit.makeTransitions(trackID: track.id,
             kind: track.kind == .video ? .video(videoType) : .audio(audioType),
             duration: duration, includeAudio: showsAudioToggle && includeAudio,
-            audioType: audioType, audioCurve: audioCurve, in: project)
+            audioType: audioType, audioCurve: audioCurve, videoEase: videoEase, in: project)
     }
     private func apply() {
         do { session.apply(try quitTransitions()) }
@@ -291,6 +293,7 @@ struct AddTransitionView: View {
 
 struct VideoTransitionOptions: View {
     @Binding var selection: VideoTransitionType
+    @Binding var ease: VideoTransitionEase
     var focused: FocusState<Bool>.Binding
 
     var body: some View {
@@ -322,6 +325,14 @@ struct VideoTransitionOptions: View {
                     Text(type.optionTitle).tag(type)
                 }
             }
+        }
+        if selection.supportsEasing {
+            Picker("Ease", selection: $ease) {
+                ForEach(VideoTransitionEase.allCases) { option in
+                    Text(option.title).tag(option)
+                }
+            }
+            .pickerStyle(.menu)
         }
     }
 }
