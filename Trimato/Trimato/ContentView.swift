@@ -164,6 +164,7 @@ struct ContentView: View {
             .disabled(viewModel.duration <= 0)
             .tint(EditorTheme.playhead)
 
+            clipTimecode
             playbackControls
             Button("Trim Silences…") { showingSilenceTrim = true }
                 .disabled(!viewModel.canTrimSilences)
@@ -175,34 +176,34 @@ struct ContentView: View {
         .background(EditorTheme.controlSurface)
     }
 
+    private var clipTimecode: some View {
+        Button {
+            jumpCompleted = false
+            jumpInput = viewModel.prepareJumpToTime()
+        } label: {
+            VStack(spacing: 2) {
+                ClipLiveTimecode(clock: viewModel.playbackClock, showingFrames: viewModel.showingFrames)
+                    .editorFont(.title1, design: .monospaced, weight: .semibold)
+                    .monospacedDigit()
+                    .foregroundStyle(EditorTheme.accent(for: accentChoice))
+                Text(viewModel.showingFrames ? "Frames" : "Timecode")
+                    .editorFont(.caption1, design: .monospaced)
+                    .foregroundStyle(EditorTheme.secondaryText)
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityHidden(true)
+        }
+        .buttonStyle(.plain)
+        .disabled(!viewModel.hasMedia)
+        .accessibilityLabel("Clip timecode")
+        .accessibilityValue(viewModel.accessibilityTimecodeLabel)
+        .focused($jumpKeyboardFocus, equals: .timecode)
+        .accessibilityFocused($jumpAccessibilityFocus, equals: .timecode)
+    }
+
     private var playbackControls: some View {
         GroupBox {
             VStack(spacing: 8) {
-                Button {
-                    jumpCompleted = false
-                    jumpKeyboardFocus = nil
-                    jumpAccessibilityFocus = nil
-                    jumpInput = viewModel.prepareJumpToTime()
-                } label: {
-                    VStack(spacing: 2) {
-                        ClipLiveTimecode(clock: viewModel.playbackClock, showingFrames: viewModel.showingFrames)
-                            .editorFont(.title1, design: .monospaced, weight: .semibold)
-                            .monospacedDigit()
-                            .foregroundStyle(EditorTheme.accent(for: accentChoice))
-                        Text(viewModel.showingFrames ? "Frames" : "Timecode")
-                            .editorFont(.caption1, design: .monospaced)
-                            .foregroundStyle(EditorTheme.secondaryText)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .accessibilityHidden(true)
-                }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.hasMedia)
-                .accessibilityLabel("Clip timecode")
-                .accessibilityValue(viewModel.accessibilityTimecodeLabel)
-                .focused($jumpKeyboardFocus, equals: .timecode)
-                .accessibilityFocused($jumpAccessibilityFocus, equals: .timecode)
-
                 speedBadge
 
                 HStack(spacing: EditorTheme.actionSpacing) {

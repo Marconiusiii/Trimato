@@ -112,11 +112,6 @@ struct JumpToTimeView: View {
         .frame(minWidth: 360, idealWidth: 420)
         .fixedSize(horizontal: false, vertical: true)
         .interactiveDismissDisabled(seeking)
-        .task {
-            await Task.yield()
-            inputFocused = true
-            inputAccessibilityFocused = true
-        }
         .applicationMessage(error) {
             error = nil
             Task { @MainActor in

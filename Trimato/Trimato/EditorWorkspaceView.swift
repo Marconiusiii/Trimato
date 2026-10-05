@@ -728,6 +728,7 @@ private struct ProjectPlaybackControlsPresentation: View {
                     .offset(y: -9)
             }
 
+            projectTimecode
             moveAndEditGroup
             detailLayout {
                 markersGroup
@@ -765,10 +766,6 @@ private struct ProjectPlaybackControlsPresentation: View {
         detailWidth >= EditorControlLayout.markerRowWidth(inValue: viewModel.inMarkerDisplay,
             outValue: viewModel.outMarkerDisplay, textSize: textSize) ? AnyLayout(HStackLayout(spacing: 8))
             : AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-    }
-    private var playbackRowLayout: AnyLayout {
-        detailWidth >= 560 * textSize.scale ? AnyLayout(HStackLayout(spacing: 12))
-            : AnyLayout(VStackLayout(spacing: 8))
     }
 
     private var moveAndEditGroup: some View {
@@ -862,10 +859,7 @@ private struct ProjectPlaybackControlsPresentation: View {
     private var playbackGroup: some View {
         GroupBox {
             VStack(spacing: 4) {
-                playbackRowLayout {
-                    projectTimecode.fixedSize()
-                    transportControls.fixedSize()
-                }
+                transportControls.fixedSize()
                 if viewModel.isPlaying, viewModel.playbackRate != 1 {
                     Text(viewModel.playbackRate < 0
                          ? "\(Int(abs(viewModel.playbackRate))) times backward"
@@ -893,8 +887,6 @@ private struct ProjectPlaybackControlsPresentation: View {
     private var projectTimecode: some View {
         Button {
             jumpCompleted = false
-            paneCommandKeyboardTarget.wrappedValue = nil
-            focusedAccessibilityTarget.wrappedValue = nil
             jumpInput = viewModel.prepareJumpToTime()
         } label: {
             VStack(spacing: 2) {
@@ -909,7 +901,9 @@ private struct ProjectPlaybackControlsPresentation: View {
             .accessibilityHidden(true)
         }
         .buttonStyle(.borderless)
+        .disabled(!viewModel.canControlPlayback)
         .accessibilityLabel("Project timecode")
+        .accessibilityHint("Opens Timecode Jumper")
         .accessibilityValue(viewModel.accessibilityTimecodeLabel)
         .focused(paneCommandKeyboardTarget, equals: .timecode)
         .accessibilityIdentifier("trimato.editor.timecode")
