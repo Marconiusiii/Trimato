@@ -148,7 +148,12 @@ struct NativePlayheadSlider: NSViewRepresentable {
             cancelPendingValue()
             settledValue = nil
             guard feedback == .whenStopped, !moving else { return }
-            if initial || preferenceChanged {
+            // A completed seek behind a sheet must expose its value before focus
+            // returns. Only defer feedback for an actively focused playhead.
+            let focusedForUpdate = isAccessibilityFocused()
+                && controlView?.window?.isKeyWindow == true
+                && controlView?.window?.attachedSheet == nil
+            if initial || preferenceChanged || !focusedForUpdate {
                 settledValue = formatted.flatMap { $0.isEmpty ? nil : $0 }
                 return
             }
@@ -165,7 +170,8 @@ struct NativePlayheadSlider: NSViewRepresentable {
                     let value = self.format(self.doubleValue)
                     self.settledValue = value.isEmpty ? nil : value
                     self.pendingValue = nil
-                    if self.announcesValueChanges(), self.isAccessibilityFocused(), self.controlView?.window?.isKeyWindow == true {
+                    if focusedForUpdate, self.announcesValueChanges(), self.isAccessibilityFocused(),
+                       self.controlView?.window?.isKeyWindow == true, self.controlView?.window?.attachedSheet == nil {
                         NSAccessibility.post(element: self, notification: .valueChanged)
                     }
                 } catch { }

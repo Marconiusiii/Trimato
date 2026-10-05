@@ -7,6 +7,43 @@ import Testing
 
 @Suite("Clip editor sessions", .serialized)
 struct ClipEditorSessionTests {
+    @Test @MainActor func unfocusedPlayheadExposesCompletedJumpImmediately() async throws {
+        let slider = NativePlayheadSlider.PlayheadSlider()
+        let cell = NativePlayheadSlider.PlayheadCell()
+        slider.cell = cell
+        slider.minValue = 0
+        slider.maxValue = 1
+        var moving = false
+        func update(_ fraction: Double) {
+            slider.doubleValue = fraction
+            cell.updateSpokenValue(format: { "\(Int(($0 * 100).rounded())) seconds" },
+                feedback: .whenStopped, isMoving: { moving })
+        }
+        defer { cell.cancelPendingValue() }
+        update(0)
+        #expect(cell.accessibilityValue() as? String == "0 seconds")
+        moving = true
+        update(0.42)
+        #expect(cell.accessibilityValue() == nil)
+        moving = false
+        update(0.42)
+        #expect(cell.accessibilityValue() as? String == "42 seconds")
+        update(0.75)
+        #expect(cell.accessibilityValue() as? String == "75 seconds")
+        try await Task.sleep(for: .milliseconds(350))
+        #expect(cell.accessibilityValue() as? String == "75 seconds")
+    }
+
+    @Test @MainActor func unfocusedPlayheadRetainsOnDemandFeedback() {
+        let cell = NativePlayheadSlider.PlayheadCell()
+        cell.doubleValue = 0.42
+        cell.updateSpokenValue(format: { _ in "42 seconds" }, feedback: .onDemand, isMoving: { false })
+        #expect(cell.accessibilityValue() == nil)
+        cell.updateSpokenValue(format: { _ in "42 seconds" }, feedback: .whenStopped, isMoving: { false })
+        #expect(cell.accessibilityValue() as? String == "42 seconds")
+        cell.cancelPendingValue()
+    }
+
     @Test func jumpTimeInputAlwaysUsesHoursAndPreservesHiddenPrecision() throws {
         let input = JumpToTimeInput(position: 65.125, duration: 324, frameRate: 24, frames: false, milliseconds: false)
         #expect(input.initialText == "00:01:05")
