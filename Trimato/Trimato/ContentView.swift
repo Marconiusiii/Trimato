@@ -11,6 +11,11 @@ struct ContentView: View {
     private let isPreparingSource: Bool
     private let isPreparingClipPreview: Bool
     private let entryCompleted: () -> Void
+    enum JumpFocus: Hashable { case timecode, playhead }
+    @State private var jumpInput: JumpToTimeInput?
+    @State private var jumpCompleted = false
+    @FocusState private var jumpKeyboardFocus: JumpFocus?
+    @AccessibilityFocusState private var jumpAccessibilityFocus: JumpFocus?
     @State private var showingSilenceTrim = false
     @StateObject private var entryFocus = ClipEditorEntryFocus()
 
@@ -74,6 +79,19 @@ struct ContentView: View {
                 }
                 .help("Go to end")
                 .disabled(!canNavigateTimeline)
+            }
+        }
+        .sheet(item: $jumpInput, onDismiss: {
+            let target: JumpFocus = jumpCompleted ? .playhead : .timecode
+            Task { @MainActor in
+                await Task.yield()
+                jumpKeyboardFocus = target
+                jumpAccessibilityFocus = target
+            }
+        }) { input in
+            JumpToTimeView(input: input, cancel: { jumpInput = nil }, seek: viewModel.jump) {
+                jumpCompleted = true
+                jumpInput = nil
             }
         }
         .sheet(isPresented: $showingSilenceTrim) { TrimSilencesView(viewModel: viewModel) }
@@ -141,6 +159,8 @@ struct ContentView: View {
                 }, isMoving: { viewModel.isPlayheadMoving }, seek: viewModel.seek,
                 entry: ClipEditorEntryRequest(owner: entryFocus, ready: entryFocusReady,
                     willEnter: viewModel.refreshAccessibilityValueForFocus, completed: entryCompleted))
+            .focused($jumpKeyboardFocus, equals: .playhead)
+            .accessibilityFocused($jumpAccessibilityFocus, equals: .playhead)
             .disabled(viewModel.duration <= 0)
             .tint(EditorTheme.playhead)
 
@@ -158,7 +178,12 @@ struct ContentView: View {
     private var playbackControls: some View {
         GroupBox {
             VStack(spacing: 8) {
-                Button { viewModel.toggleTimecodeDisplay() } label: {
+                Button {
+                    jumpCompleted = false
+                    jumpKeyboardFocus = nil
+                    jumpAccessibilityFocus = nil
+                    jumpInput = viewModel.prepareJumpToTime()
+                } label: {
                     VStack(spacing: 2) {
                         ClipLiveTimecode(clock: viewModel.playbackClock, showingFrames: viewModel.showingFrames)
                             .editorFont(.title1, design: .monospaced, weight: .semibold)
@@ -175,11 +200,8 @@ struct ContentView: View {
                 .disabled(!viewModel.hasMedia)
                 .accessibilityLabel("Clip timecode")
                 .accessibilityValue(viewModel.accessibilityTimecodeLabel)
-                .accessibilityHint(
-                    viewModel.hasVideo
-                        ? (viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
-                        : "Current playback time"
-                )
+                .focused($jumpKeyboardFocus, equals: .timecode)
+                .accessibilityFocused($jumpAccessibilityFocus, equals: .timecode)
 
                 speedBadge
 

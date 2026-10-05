@@ -7,6 +7,47 @@ import Testing
 
 @Suite("Clip editor sessions", .serialized)
 struct ClipEditorSessionTests {
+    @Test func jumpTimeInputAlwaysUsesHoursAndPreservesHiddenPrecision() throws {
+        let input = JumpToTimeInput(position: 65.125, duration: 324, frameRate: 24, frames: false, milliseconds: false)
+        #expect(input.initialText == "00:01:05")
+        #expect(try input.destination(for: input.initialText) == 65.125)
+        #expect(try input.destination(for: "00:02:03.5") == 123.5)
+        #expect(try input.destination(for: "00:00:00") == 0)
+        #expect(try input.destination(for: "00:05:24") == 324)
+        for text in ["", "1:00", "00:60:00", "00:00:60", "-01:00:00", "00:00:nan", "00:00:1e2", "00:00:1.2.3"] {
+            #expect(throws: JumpToTimeError.self) { try input.destination(for: text) }
+        }
+        do {
+            _ = try input.destination(for: "00:05:25")
+            Issue.record("An out-of-range time was accepted")
+        } catch {
+            #expect(error.localizedDescription == "Enter a time between zero and 5 minutes, 24 seconds.")
+            #expect(!error.localizedDescription.contains(":"))
+        }
+    }
+
+    @Test func jumpFrameNumbersSurviveTimelineTimeQuantization() {
+        for rate in [24.0, 30, 60, 120, 24_000.0 / 1_001, 30_000.0 / 1_001, 60_000.0 / 1_001] {
+            for frame in [0, 1, 2, 42, 100, 100_000] {
+                let time = ProjectTime(seconds: Double(frame) / rate)
+                #expect(JumpToTimeInput.frameNumber(seconds: time.seconds, rate: rate) == frame)
+            }
+        }
+    }
+
+    @Test func jumpFrameInputUsesFractionalRatesAndRejectsInvalidFrames() throws {
+        for rate in [24.0, 25, 30, 60, 24_000.0 / 1_001, 30_000.0 / 1_001, 60_000.0 / 1_001] {
+            let input = JumpToTimeInput(position: 0, duration: 10, frameRate: rate, frames: true, milliseconds: false)
+            #expect(abs(try input.destination(for: "42") - 42 / rate) < 0.000001)
+            #expect(try input.destination(for: "0") == 0)
+            #expect(try input.destination(for: String(input.lastFrame)) <= 10)
+            for text in ["-1", "1.5", "nan", "1e2", "", String(input.lastFrame + 1), String(repeating: "9", count: 40)] {
+                do { _ = try input.destination(for: text); Issue.record("Invalid frame was accepted") }
+                catch { #expect(error.localizedDescription.hasPrefix("Enter a frame number between 0 and ")) }
+            }
+        }
+    }
+
     @Test @MainActor func markedPlaybackIsOptInAndClearingEitherPointRestoresFullPlayback() {
         let player = VideoPlayerViewModel(announcementHandler: { _ in })
         let composition = AVMutableComposition()

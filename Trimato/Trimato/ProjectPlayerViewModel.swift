@@ -1135,10 +1135,30 @@ final class ProjectPlayerViewModel: ObservableObject {
         seekPrecisely(to: ProjectTime(seconds: min(max(fraction, 0), 1) * projectDuration.seconds))
     }
 
+    // Mixer retains its existing display action; Editor opens Jump to Time.
     func toggleTimecodeDisplay() {
         UserDefaults.standard.set((showingFrames ? TimecodeStyle.numeric : .frames).rawValue, forKey: AppPreferenceKey.timecodeStyle)
         refreshTimecodePreference()
         refreshAccessibilityTimecode()
+    }
+
+    func prepareJumpToTime() -> JumpToTimeInput {
+        cancelFrameStepping()
+        stop()
+        player.currentItem?.cancelPendingSeeks()
+        return JumpToTimeInput(position: max(0, precisePlayhead.seconds), duration: projectDuration.seconds,
+            frameRate: projectFrameRate, frames: AppPreferences.timecodeStyle == .frames,
+            milliseconds: AppPreferences.showMilliseconds())
+    }
+
+    func jump(to seconds: Double, completion: @escaping (Bool) -> Void) {
+        guard canControlPlayback, seconds.isFinite, seconds >= 0, seconds <= projectDuration.seconds else {
+            completion(false); return
+        }
+        pendingInsertionPlayhead = nil
+        cancelFrameStepping()
+        stop()
+        seekPrecisely(to: ProjectTime(seconds: seconds), completion: completion)
     }
 
     func markIn() {
@@ -1309,7 +1329,7 @@ final class ProjectPlayerViewModel: ObservableObject {
         }
     }
 
-    private func seekPrecisely(to time: ProjectTime, navigationValue: String? = nil, announcement: String? = nil) {
+    private func seekPrecisely(to time: ProjectTime, navigationValue: String? = nil, announcement: String? = nil, completion: ((Bool) -> Void)? = nil) {
         cancelMixerRestart()
         let bounded = min(max(time, .zero), projectDuration)
         let request = UUID()
@@ -1318,17 +1338,19 @@ final class ProjectPlayerViewModel: ObservableObject {
         navigationPoint = navigationValue.map { (bounded, $0) }
         player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
             Task { @MainActor [weak self] in
-                guard let self, self.seekRequest == request, self.player.currentItem === item else { return }
+                guard let self, self.seekRequest == request, self.player.currentItem === item else { completion?(false); return }
                 self.seekRequest = nil
                 guard finished else {
                     self.navigationPoint = nil
                     self.refreshAccessibilityTimecode()
+                    completion?(false)
                     return
                 }
-                guard !self.isScrubbing, !self.isSteppingFrames else { return }
+                guard !self.isScrubbing, !self.isSteppingFrames else { completion?(false); return }
                 self.updateDisplayedTime(ProjectTime(self.player.currentTime()))
                 self.refreshAccessibilityTimecode()
                 if let announcement { self.announce(announcement) }
+                completion?(true)
             }
         }
         updateDisplayedTime(bounded)
@@ -1474,7 +1496,10 @@ final class ProjectPlayerViewModel: ObservableObject {
     }
 
     func spokenTimecode(at time: ProjectTime) -> String {
-        AppPreferences.spokenTimecode(seconds: time.seconds, frameRate: projectFrameRate)
+        if AppPreferences.timecodeStyle == .frames {
+            return "Frame \(JumpToTimeInput.frameNumber(seconds: time.seconds, rate: projectFrameRate))"
+        }
+        return AppPreferences.spokenTimecode(seconds: time.seconds, frameRate: projectFrameRate)
     }
 
     func refreshAccessibilityValueForFocus() {
@@ -1971,7 +1996,7 @@ final class ProjectPlayerViewModel: ObservableObject {
 
     func update(_ position: ProjectTime, frameRate: Double) {
         if time != position { time = position }
-        let nextFrame = max(Int((position.seconds * frameRate).rounded(.towardZero)), 0)
+        let nextFrame = JumpToTimeInput.frameNumber(seconds: position.seconds, rate: frameRate)
         if frame != nextFrame { frame = nextFrame }
         let nextTimecode = ProjectTimecodeFormatter.string(position)
         if timecode != nextTimecode { timecode = nextTimecode }

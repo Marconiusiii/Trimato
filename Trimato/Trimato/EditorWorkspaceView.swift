@@ -711,6 +711,8 @@ private struct ProjectPlaybackControlsPresentation: View {
     let controller: ProjectController
     @ObservedObject var viewModel: ProjectPlayerViewModel
     @State private var controlsWidth: CGFloat = 460
+    @State private var jumpInput: JumpToTimeInput?
+    @State private var jumpCompleted = false
     var focusedAccessibilityTarget: AccessibilityFocusState<ProjectViewerView.AccessibilityTarget?>.Binding
     var paneCommandKeyboardTarget: FocusState<ProjectViewerView.AccessibilityTarget?>.Binding
 
@@ -738,6 +740,19 @@ private struct ProjectPlaybackControlsPresentation: View {
         .padding(.bottom, 8)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { controlsWidth = $0 }
         .background(EditorTheme.controlSurface)
+        .sheet(item: $jumpInput, onDismiss: {
+            let target: ProjectViewerView.AccessibilityTarget = jumpCompleted ? .playhead : .timecode
+            Task { @MainActor in
+                await Task.yield()
+                paneCommandKeyboardTarget.wrappedValue = target
+                focusedAccessibilityTarget.wrappedValue = target
+            }
+        }) { input in
+            JumpToTimeView(input: input, cancel: { jumpInput = nil }, seek: viewModel.jump) {
+                jumpCompleted = true
+                jumpInput = nil
+            }
+        }
     }
 
     private var detailsBesideEachOther: Bool { controlsWidth >= 760 * textSize.scale }
@@ -876,7 +891,12 @@ private struct ProjectPlaybackControlsPresentation: View {
     }
 
     private var projectTimecode: some View {
-        Button { viewModel.toggleTimecodeDisplay() } label: {
+        Button {
+            jumpCompleted = false
+            paneCommandKeyboardTarget.wrappedValue = nil
+            focusedAccessibilityTarget.wrappedValue = nil
+            jumpInput = viewModel.prepareJumpToTime()
+        } label: {
             VStack(spacing: 2) {
                 ProjectLiveTimecode(clock: viewModel.playbackClock, showingFrames: viewModel.showingFrames)
                     .editorFont(.headline, design: .monospaced, weight: .semibold)
@@ -891,7 +911,7 @@ private struct ProjectPlaybackControlsPresentation: View {
         .buttonStyle(.borderless)
         .accessibilityLabel("Project timecode")
         .accessibilityValue(viewModel.accessibilityTimecodeLabel)
-        .accessibilityHint(viewModel.showingFrames ? "Toggles to timecode" : "Toggles to frames")
+        .focused(paneCommandKeyboardTarget, equals: .timecode)
         .accessibilityIdentifier("trimato.editor.timecode")
         .accessibilityFocused(focusedAccessibilityTarget, equals: .timecode)
     }

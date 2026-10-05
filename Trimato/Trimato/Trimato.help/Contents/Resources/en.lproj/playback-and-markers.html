@@ -32,7 +32,7 @@
 
     <h2>Use the time display</h2>
     <ul>
-        <li>Activate the time display to switch between timecode and frame number.</li>
+        <li>In Editor or a Cutting Board, activate the time display to open Jump to Time. Choose the display format in Settings.</li>
         <li>Choose Trimato &gt; Settings &gt; Accessibility to set Timecode Feedback to When stopped or On Demand. On Demand speaks the timeline playhead time only when you press T.</li>
         <li>Use Show milliseconds to include or hide fractional seconds in displayed and spoken timecodes.</li>
         <li>Choose Numeric, Time units, or Frames from Timecode style.</li>
@@ -41,6 +41,15 @@
     </ul>
 
     <p>The playhead’s VoiceOver timecode stays stable during continuous playback. Pausing or completing a seek or frame jog updates it to the stopped position without requiring a focus change. The visible timecode continues to advance during playback.</p>
+
+    <h2>Jump to a time or frame</h2>
+    <ol>
+        <li>Activate the timecode button in Editor, Video Cutting Board, or Audio Cutting Board. Playback pauses and Jump to Time opens with the current position.</li>
+        <li>If Frames is selected in Settings, enter a frame number. Frame numbering starts at zero. With any other timecode format, edit hours, minutes, and seconds separated by colons. You can include fractional seconds.</li>
+        <li>Activate Jump or press Return. The playhead moves to that position and receives focus.</li>
+    </ol>
+    <p>Cancel or Escape returns focus to the timecode button. If the entry is invalid or outside the available timeline, an error window explains what to enter. Choose OK to return to the field and correct the entry.</p>
+    <p>Jump to Time uses the complete Editor timeline or current Cutting Board clip, including positions outside In and Out markers. Playback stays paused after a jump.</p>
 
     <h2>Set and clear points</h2>
     <ul>

@@ -730,11 +730,36 @@ final class VideoPlayerViewModel: ObservableObject {
         seekTo(seconds: fraction * duration)
     }
 
-    func toggleTimecodeDisplay() {
-        guard hasVideo else { return }
-        UserDefaults.standard.set((showingFrames ? TimecodeStyle.numeric : .frames).rawValue, forKey: AppPreferenceKey.timecodeStyle)
-        refreshTimecodePreference()
-        accessibilityTimecodeLabel = buildAccessibilityLabel()
+    func prepareJumpToTime() -> JumpToTimeInput {
+        cancelScrub()
+        pendingPlaybackStart = nil
+        jklIndex = 0
+        player.pause()
+        player.currentItem?.cancelPendingSeeks()
+        updateStoppedPlayhead()
+        return JumpToTimeInput(position: max(0, effectivePlayheadTime.seconds), duration: duration,
+            frameRate: effectiveFeedbackFrameRate, frames: AppPreferences.timecodeStyle == .frames,
+            milliseconds: AppPreferences.showMilliseconds())
+    }
+
+    func jump(to seconds: Double, completion: @escaping (Bool) -> Void) {
+        guard hasMedia, seconds.isFinite, seconds >= 0, seconds <= duration,
+              let item = player.currentItem else { completion(false); return }
+        cancelScrub()
+        pendingPlaybackStart = nil
+        jklIndex = 0
+        player.pause()
+        updatePlaybackBounds(respectingMarkers: false)
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: ProjectTime.defaultTimescale),
+                    toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak item] finished in
+            Task { @MainActor in
+                guard let self, let item, finished, self.player.currentItem === item else {
+                    completion(false); return
+                }
+                self.updateStoppedPlayhead()
+                completion(true)
+            }
+        }
     }
 
     func markIn() {
@@ -860,7 +885,7 @@ final class VideoPlayerViewModel: ObservableObject {
         player.replaceCurrentItem(with: AVPlayerItem(asset: snapshot.asset))
         player.seek(to: snapshot.time, toleranceBefore: .zero, toleranceAfter: .zero)
         currentTime = snapshot.time.seconds
-        currentFrame = Int(currentTime * Double(frameRate))
+        currentFrame = JumpToTimeInput.frameNumber(seconds: currentTime, rate: effectiveFeedbackFrameRate)
         displayTimecode = Self.formatTimecode(snapshot.time)
         refreshAccessibilityTimecode()
         announce("Clip edit updated")
@@ -1408,9 +1433,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 let destination = CMTimeMinimum(targetTime, updatedTimeline.duration)
                 await self.player.seek(to: destination, toleranceBefore: .zero, toleranceAfter: .zero)
                 self.currentTime = max(CMTimeGetSeconds(destination), 0)
-                if self.frameRate > 0 {
-                    self.currentFrame = Int(self.currentTime * Double(self.frameRate))
-                }
+                self.currentFrame = JumpToTimeInput.frameNumber(seconds: self.currentTime, rate: self.effectiveFeedbackFrameRate)
                 self.displayTimecode = Self.formatTimecode(destination)
                 self.accessibilityTimecodeLabel = self.buildAccessibilityLabel()
                 self.isApplyingEdit = false
@@ -1452,7 +1475,10 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func spokenTime(_ time: CMTime) -> String {
-        AppPreferences.spokenTimecode(seconds: time.seconds, frameRate: effectiveFeedbackFrameRate)
+        if AppPreferences.timecodeStyle == .frames {
+            return "Frame \(JumpToTimeInput.frameNumber(seconds: time.seconds, rate: effectiveFeedbackFrameRate))"
+        }
+        return AppPreferences.spokenTimecode(seconds: time.seconds, frameRate: effectiveFeedbackFrameRate)
     }
 
     private func announce(_ message: String) {
@@ -1475,7 +1501,7 @@ final class VideoPlayerViewModel: ObservableObject {
         displayTimecode = Self.formatTimecode(time)
         let seconds = CMTimeGetSeconds(time)
         currentTime = seconds.isFinite ? max(seconds, 0) : 0
-        if frameRate > 0 { currentFrame = Int(currentTime * Double(frameRate)) }
+        currentFrame = JumpToTimeInput.frameNumber(seconds: currentTime, rate: effectiveFeedbackFrameRate)
     }
 
     private func updateStoppedPlayhead() {
@@ -1871,14 +1897,11 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func buildAccessibilityLabel() -> String {
-        AppPreferences.spokenTimecode(
-            seconds: currentTime,
-            frameRate: effectiveFeedbackFrameRate
-        )
+        spokenTime(CMTime(seconds: currentTime, preferredTimescale: ProjectTime.defaultTimescale))
     }
 
     private var effectiveFeedbackFrameRate: Double {
-        frameRate > 0 ? Double(frameRate) : 30
+        ProjectFormat.stableFrameRate(frameRate > 0 ? Double(frameRate) : 30)
     }
 
     private func refreshAccessibilityTimecode() {
