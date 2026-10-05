@@ -76,6 +76,8 @@
 			<string>YouTube Chapter File</string>
 			<key>CFBundleTypeRole</key>
 			<string>None</string>
+			<key>LSHandlerRank</key>
+			<string>None</string>
 			<key>NSIsRelatedItemType</key>
 			<true/>
 			<key>LSItemContentTypes</key>

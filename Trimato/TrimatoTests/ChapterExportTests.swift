@@ -50,8 +50,10 @@ struct ChapterExportTests {
     @Test func chapterTextIsADeclaredRelatedExportFileAndCanBeWrittenBesideTheMovie() throws {
         let types = try #require(Bundle.main.infoDictionary?["CFBundleDocumentTypes"] as? [[String: Any]])
         #expect(types.contains {
+            $0["CFBundleTypeName"] as? String == "YouTube Chapter File" &&
             ($0["LSItemContentTypes"] as? [String])?.contains("public.plain-text") == true &&
-            $0["NSIsRelatedItemType"] as? Bool == true && $0["CFBundleTypeRole"] as? String == "None"
+            $0["NSIsRelatedItemType"] as? Bool == true && $0["CFBundleTypeRole"] as? String == "None" &&
+            $0["LSHandlerRank"] as? String == "None"
         })
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("chapter-export-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
