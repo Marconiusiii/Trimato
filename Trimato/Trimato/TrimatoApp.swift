@@ -18,6 +18,7 @@ struct TrimatoApp: App {
     @FocusedObject private var projectController: ProjectController?
     @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
     @Environment(\.openWindow) private var openWindow
+    @StateObject private var supportStore = SupportStore.applicationStore()
 
     private var projectCommandController: ProjectController? {
         mixer.activeSession?.controller ?? ProjectCommandContext.resolve(
@@ -33,6 +34,7 @@ struct TrimatoApp: App {
         }
         .defaultSize(width: 560, height: 680)
         .windowResizability(.contentSize)
+        .commands { SupportCommands() }
 
         Window("Save changes before quitting?", id: "quit-review") {
             QuitReviewWindow().editorAppearance()
@@ -50,6 +52,7 @@ struct TrimatoApp: App {
             ContextualExportCommands()
             GetInfoCommands()
             FeedbackCommands()
+            SupportCommands()
             CommandGroup(replacing: .appInfo) {
                 Button("About Trimato") {
                     openWindow(id: "about")
@@ -263,7 +266,13 @@ struct TrimatoApp: App {
         .defaultSize(width: 940, height: 760)
         .commandsReplaced {
             ProjectFileCommands()
+            SupportCommands()
         }
+
+        Window("Support Trimato", id: "support-trimato") {
+            SupportTrimatoView(store: supportStore)
+        }
+        .windowResizability(.contentSize)
 
         Window("About Trimato", id: "about") {
             AboutView()
@@ -582,6 +591,16 @@ private struct FeedbackCommands: Commands {
                 guard let url = TrimatoFeedback.emailURL else { return }
                 openURL(url)
             }
+        }
+    }
+}
+
+private struct SupportCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Support Trimato…") { openWindow(id: "support-trimato") }
         }
     }
 }

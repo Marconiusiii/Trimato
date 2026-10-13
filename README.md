@@ -4,6 +4,8 @@ Trimato is an accessibility-first audio and video editor for macOS, designed for
 
 Created by Marco Salsiccia.
 
+Trimato is free, with optional one-time support purchases. Choose Support Trimato from the Trimato menu or welcome window to send a tip. Every editing feature is available without a purchase.
+
 ## Features
 
 - Edit standalone audio and video clips or arrange multiple tracks in a saved `.trimato` project.

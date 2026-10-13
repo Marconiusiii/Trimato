@@ -30,5 +30,7 @@
 	<string>settings-accessibility.html</string>
 	<key>trimato-settings-storage</key>
 	<string>settings-storage.html</string>
+	<key>trimato-support</key>
+	<string>support.html</string>
 </dict>
 </plist>

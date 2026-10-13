@@ -32,3 +32,4 @@ $(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/settings-audio.html
 $(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/settings-video.html
 $(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/settings-accessibility.html
 $(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/settings-storage.html
+$(SRCROOT)/Trimato/Trimato.help/Contents/Resources/en.lproj/support.html

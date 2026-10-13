@@ -29,6 +29,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A18B20012FA0000000000001 /* SupportTrimato.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = StoreKit/SupportTrimato.storekit; sourceTree = SOURCE_ROOT; };
 		82306B612FAAAF1000B67C04 /* Trimato.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Trimato.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		82306B6E2FAAAF1100B67C04 /* TrimatoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrimatoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		82306B782FAAAF1100B67C04 /* TrimatoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrimatoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -96,6 +97,7 @@
 		82306B582FAAAF1000B67C04 = {
 			isa = PBXGroup;
 			children = (
+				A18B20012FA0000000000001 /* SupportTrimato.storekit */,
 				82306B632FAAAF1000B67C04 /* Trimato */,
 				82306B712FAAAF1100B67C04 /* TrimatoTests */,
 				82306B7B2FAAAF1100B67C04 /* TrimatoUITests */,
@@ -208,6 +210,9 @@
 				TargetAttributes = {
 					82306B602FAAAF1000B67C04 = {
 						CreatedOnToolsVersion = 26.4.1;
+						SystemCapabilities = {
+							com.apple.InAppPurchase = { enabled = 1; };
+						};
 					};
 					82306B6D2FAAAF1100B67C04 = {
 						CreatedOnToolsVersion = 26.4.1;

@@ -43,6 +43,11 @@ struct ProjectLauncherView: View {
             welcome
             primaryActions
             recentProjectGroup
+            Button("Support Trimato…") {
+                openWindow(id: "support-trimato")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
         }
     }
 

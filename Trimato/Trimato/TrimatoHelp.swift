@@ -20,6 +20,7 @@ enum TrimatoHelp {
         case videoSettings = "trimato-settings-video"
         case accessibilitySettings = "trimato-settings-accessibility"
         case storageSettings = "trimato-settings-storage"
+        case support = "trimato-support"
     }
 
     struct Destination {
