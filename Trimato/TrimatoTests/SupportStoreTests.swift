@@ -34,8 +34,46 @@ final class SupportStoreTests: XCTestCase {
         XCTFail("Timed out waiting for StoreKit processing")
     }
 
-    func testRepeatedConsumablePurchasesPersistAndFinish() async throws {
+    private func activeStore() -> SupportStore {
         let store = SupportStore(defaults: defaults)
+        store.setPresentationActive(true)
+        return store
+    }
+
+    func testConfirmationWaitsForAppActivation() async throws {
+        let store = activeStore()
+        await store.loadProducts()
+        let product = try XCTUnwrap(store.products.first)
+        store.setPresentationActive(false)
+        await store.purchase(product)
+        XCTAssertNotNil(store.latestThankYou)
+        XCTAssertNil(store.purchaseNotice)
+        XCTAssertFalse(store.isNoticePresented)
+        store.setPresentationActive(true)
+        XCTAssertEqual(store.purchaseNotice?.title, "Thank you")
+        XCTAssertTrue(store.isNoticePresented)
+    }
+
+    func testCompletionDuringPendingDismissalWaitsForNativeCallback() async throws {
+        session.askToBuyEnabled = true
+        let store = activeStore()
+        await store.loadProducts()
+        let product = try XCTUnwrap(store.products.first)
+        await store.purchase(product)
+        XCTAssertEqual(store.purchaseNotice?.title, "Purchase pending")
+        store.dismissPurchaseNotice()
+        let pending = try XCTUnwrap(session.allTransactions().first(where: { $0.pendingAskToBuyConfirmation }))
+        try session.approveAskToBuyTransaction(identifier: pending.identifier)
+        try await waitUntil { store.latestThankYou != nil }
+        XCTAssertFalse(store.isNoticePresented)
+        XCTAssertEqual(store.purchaseNotice?.title, "Purchase pending")
+        store.purchaseNoticeDidDismiss()
+        XCTAssertTrue(store.isNoticePresented)
+        XCTAssertEqual(store.purchaseNotice?.title, "Thank you")
+    }
+
+    func testRepeatedConsumablePurchasesPersistAndFinish() async throws {
+        let store = activeStore()
         await store.loadProducts()
         XCTAssertEqual(store.products.count, 4)
         XCTAssertFalse(store.loadFailed)
@@ -51,6 +89,7 @@ final class SupportStoreTests: XCTestCase {
         }
         XCTAssertEqual(confirmedFirst.transactionID, first.transactionID)
         store.dismissPurchaseNotice()
+        store.purchaseNoticeDidDismiss()
         await store.purchase(product)
         let second = try XCTUnwrap(store.latestThankYou)
         XCTAssertNotEqual(first.transactionID, second.transactionID)
@@ -72,7 +111,7 @@ final class SupportStoreTests: XCTestCase {
 
     func testPendingApprovalPresentsConfirmationThroughTransactionUpdates() async throws {
         session.askToBuyEnabled = true
-        let store = SupportStore(defaults: defaults)
+        let store = activeStore()
         await store.loadProducts()
         let product = try XCTUnwrap(store.products.first)
         await store.purchase(product)
@@ -87,13 +126,18 @@ final class SupportStoreTests: XCTestCase {
         let pending = try XCTUnwrap(session.allTransactions().first(where: { $0.pendingAskToBuyConfirmation }))
         try session.approveAskToBuyTransaction(identifier: pending.identifier)
         // Transaction updates must resolve the open window without forcing recovery.
-        try await waitUntil { store.latestThankYou != nil && store.purchaseNotice?.title == "Thank you" }
+        try await waitUntil { store.latestThankYou != nil && !store.isNoticePresented }
+        XCTAssertEqual(store.purchaseNotice?.title, "Purchase pending",
+            "Retain pending content until the native sheet finishes dismissing")
+        store.purchaseNoticeDidDismiss()
+        XCTAssertTrue(store.isNoticePresented)
+        XCTAssertEqual(store.purchaseNotice?.title, "Thank you")
         XCTAssertFalse(store.pending)
         XCTAssertNil(store.purchaseError)
     }
 
     func testPurchaseFailureDoesNotCreateThankYouAndAllowsRetry() async throws {
-        let store = SupportStore(defaults: defaults)
+        let store = activeStore()
         await store.loadProducts()
         let product = try XCTUnwrap(store.products.first)
         try await session.setSimulatedError(.generic(.notAvailableInStorefront), forAPI: .purchase)
@@ -102,6 +146,7 @@ final class SupportStoreTests: XCTestCase {
         XCTAssertNotNil(store.purchaseError)
         XCTAssertFalse(store.isPurchasing)
         store.dismissPurchaseNotice()
+        store.purchaseNoticeDidDismiss()
         try await session.setSimulatedError(nil, forAPI: .purchase)
         await store.purchase(product)
         XCTAssertNotNil(store.latestThankYou)
@@ -109,12 +154,13 @@ final class SupportStoreTests: XCTestCase {
     }
 
     func testCancelledPurchaseKeepsPreviousThankYouAndReturnsReady() async throws {
-        let store = SupportStore(defaults: defaults)
+        let store = activeStore()
         await store.loadProducts()
         let product = try XCTUnwrap(store.products.first)
         await store.purchase(product)
         let previous = try XCTUnwrap(store.latestThankYou)
         store.dismissPurchaseNotice()
+        store.purchaseNoticeDidDismiss()
         await store.purchase(product, using: { _ in .userCancelled })
         XCTAssertEqual(store.latestThankYou, previous)
         XCTAssertNil(store.purchaseError)
@@ -123,7 +169,7 @@ final class SupportStoreTests: XCTestCase {
     }
 
     func testProductLoadFailureCanBeRetried() async throws {
-        let store = SupportStore(defaults: defaults)
+        let store = activeStore()
         try await session.setSimulatedError(.generic(.notAvailableInStorefront), forAPI: .loadProducts)
         await store.loadProducts()
         XCTAssertTrue(store.loadFailed)
@@ -137,7 +183,7 @@ final class SupportStoreTests: XCTestCase {
 
     func testStartupRecoversAnUnfinishedPurchase() async throws {
         let transaction = try await session.buyProduct(identifier: SupportStore.options[1].id)
-        let store = SupportStore(defaults: defaults)
+        let store = activeStore()
         try await waitUntil { store.latestThankYou?.transactionID == transaction.id && store.purchaseNotice?.title == "Thank you" }
         XCTAssertEqual(store.latestThankYou?.productID, SupportStore.options[1].id)
     }

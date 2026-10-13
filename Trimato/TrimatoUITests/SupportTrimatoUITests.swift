@@ -84,6 +84,12 @@ final class SupportTrimatoUITests: XCTestCase {
         support.buttons["com.marconius.trimato.support.littleSlice"].click()
         let result = support.sheets.firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 15), "A verified purchase must present its confirmation sheet")
+        let completedMessage = result.staticTexts.containing(NSPredicate(
+            format: "value == %@ OR label == %@",
+            "Thank you for supporting Trimato with A little slice.",
+            "Thank you for supporting Trimato with A little slice."
+        )).firstMatch
+        XCTAssertTrue(completedMessage.waitForExistence(timeout: 15), "Wait for verified completion, including a delayed StoreKit result")
         let resultMessage = result.staticTexts["trimato.support.result-message"]
         XCTAssertTrue(resultMessage.exists)
         XCTAssertEqual(resultMessage.value as? String ?? resultMessage.label, "Thank you for supporting Trimato with A little slice.")

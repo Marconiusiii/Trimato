@@ -60,7 +60,7 @@ struct SupportTrimatoView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .disabled(product == nil || store.isPurchasing || store.isLoading)
+                .disabled(product == nil || store.isPurchasing || store.isLoading || store.purchaseNotice != nil)
                 .accessibilityIdentifier(option.id)
             }
             if store.loadFailed {
@@ -84,21 +84,28 @@ struct SupportTrimatoView: View {
         .background(EditorTheme.controlSurface)
         .focusedSceneValue(\.closeSupport, close)
         .task {
+            store.setPresentationActive(scenePhase == .active && NSApp.isActive)
             await store.loadProducts()
             await store.refreshUnfinishedTransactions()
         }
         .onChange(of: scenePhase) { _, phase in
+            store.setPresentationActive(phase == .active && NSApp.isActive)
             if phase == .active {
                 Task { await store.refreshUnfinishedTransactions() }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.setPresentationActive(scenePhase == .active)
             Task { await store.refreshUnfinishedTransactions() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
+            store.setPresentationActive(false)
+        }
+        .onDisappear { store.setPresentationActive(false) }
         .sheet(isPresented: Binding(
-            get: { store.purchaseNotice != nil },
+            get: { store.isNoticePresented },
             set: { if !$0 { store.dismissPurchaseNotice() } }
-        ), onDismiss: store.presentNextNotice) {
+        ), onDismiss: store.purchaseNoticeDidDismiss) {
             SupportPurchaseResultView(store: store)
         }
     }
