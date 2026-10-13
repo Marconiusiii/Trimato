@@ -418,6 +418,7 @@ private struct ProjectFileCommands: Commands {
     @ObservedObject private var mixer = MixerWindowRegistry.shared
     @FocusedValue(\.closeToolPane) private var closeToolPane
     @FocusedValue(\.closeSettings) private var closeSettings
+    @FocusedValue(\.closeSupport) private var closeSupport
     @FocusedObject private var standaloneContext: StandaloneClipCommandContext?
     @Environment(\.openWindow) private var openWindow
     @FocusedObject private var projectController: ProjectController?
@@ -449,9 +450,10 @@ private struct ProjectFileCommands: Commands {
 
         }
         CommandGroup(replacing: .saveItem) {
-            Button(quitReview.coordinator != nil ? "Cancel Quit" : closeSettings != nil ? "Close Settings" :
+            Button(quitReview.coordinator != nil ? "Cancel Quit" : closeSupport != nil ? "Close Support" : closeSettings != nil ? "Close Settings" :
                 (mixer.activeSession != nil ? "Close Mixer" : nil) ?? closeToolPane?.title ?? (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Cutting Board" : "Close Project")) {
                 if let coordinator = quitReview.coordinator { coordinator.cancelQuitReview() }
+                else if let closeSupport { closeSupport() }
                 else if let closeSettings { closeSettings() }
                 else if let window = mixer.activeWindow { window.performClose(nil) }
                 else if let closeToolPane { closeToolPane.action() }
@@ -461,7 +463,7 @@ private struct ProjectFileCommands: Commands {
             }
             .keyboardShortcut("w", modifiers: .command)
             .disabled(quitReview.coordinator?.isResolvingClose == true ||
-                (mixer.activeSession == nil && closeToolPane == nil && closeSettings == nil && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil))
+                (closeSupport == nil && mixer.activeSession == nil && closeToolPane == nil && closeSettings == nil && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil))
             Divider()
             Button(quitReview.coordinator != nil ? "Save and Quit" : "Save") {
                 if let coordinator = quitReview.coordinator { coordinator.chooseCloseDecision(.save) }

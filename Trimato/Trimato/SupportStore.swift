@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import OSLog
 import StoreKit
 
 @MainActor
@@ -23,6 +24,33 @@ final class SupportStore: ObservableObject {
         let message: String
     }
 
+    struct PurchaseNotice: Identifiable {
+        enum Result {
+            case thankYou(ThankYou)
+            case pending(productID: String, name: String)
+            case failure(String)
+        }
+
+        let id = UUID()
+        let result: Result
+
+        var title: String {
+            switch result {
+            case .thankYou: "Thank you"
+            case .pending: "Purchase pending"
+            case .failure: "Support purchase"
+            }
+        }
+
+        var message: String {
+            switch result {
+            case .thankYou(let thankYou): thankYou.message
+            case .pending(_, let name): "The purchase of \(name) is pending. Complete any approval or payment request from the App Store."
+            case .failure(let message): message
+            }
+        }
+    }
+
     static func applicationStore() -> SupportStore {
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-trimato-support-ui-tests") {
@@ -30,8 +58,9 @@ final class SupportStore: ObservableObject {
             defaults.removePersistentDomain(forName: "TrimatoSupportUITests")
             return SupportStore(defaults: defaults)
         }
-        // Hosted unit tests create their own store and must own their test transactions.
-        return SupportStore(listensForTransactions: NSClassFromString("XCTestCase") == nil)
+        // Only an explicitly configured hosted test may suppress the app's listener.
+        let hostedTest = ProcessInfo.processInfo.environment["TRIMATO_SUPPORT_HOSTED_UNIT_TESTS"] == "1"
+        return SupportStore(listensForTransactions: !hostedTest)
 #else
         return SupportStore()
 #endif
@@ -52,12 +81,16 @@ final class SupportStore: ObservableObject {
     @Published private(set) var loadFailed = false
     @Published private(set) var latestThankYou: ThankYou?
     @Published var purchaseError: PurchaseError?
+    @Published var purchaseNotice: PurchaseNotice?
 
     private let defaults: UserDefaults
     private var listener: Task<Void, Never>?
     private var recovery: Task<Void, Never>?
     private static let historyKey = "trimato.support.history"
     private var history: [ThankYou]
+    private var notices: [PurchaseNotice] = []
+    private var processingIDs: Set<UInt64> = []
+    private static let logger = Logger(subsystem: "com.marconius.trimato", category: "SupportPurchases")
 
     init(defaults: UserDefaults = .standard, listensForTransactions: Bool = true) {
         self.defaults = defaults
@@ -97,7 +130,14 @@ final class SupportStore: ObservableObject {
                 loaded.first { $0.id == option.id && $0.type == .consumable }
             }
             loadFailed = products.count != Self.options.count
+            if loadFailed {
+#if DEBUG
+                let missing = Self.options.map(\.id).filter { id in !products.contains { $0.id == id } }
+                Self.logger.error("StoreKit returned no consumable product for: \(missing.joined(separator: ", "), privacy: .public)")
+#endif
+            }
         } catch {
+            log(error, operation: "Loading products")
             products = []
             loadFailed = true
         }
@@ -112,23 +152,35 @@ final class SupportStore: ObservableObject {
               product.type == .consumable else { return }
         isPurchasing = true
         purchaseError = nil
-        defer { isPurchasing = false }
+        let recordedIDs = Set(history.map(\.transactionID))
+        defer {
+            isPurchasing = false
+            presentNextNotice()
+        }
         do {
             switch try await action(product) {
             case .success(let result):
                 await process(result)
             case .pending:
-                pendingProductIDs.insert(product.id)
+                // A verified update may arrive before the purchase call returns pending.
+                if !history.contains(where: { $0.productID == product.id && !recordedIDs.contains($0.transactionID) }) {
+                    pendingProductIDs.insert(product.id)
+                    await refreshUnfinishedTransactions()
+                    if pendingProductIDs.contains(product.id) {
+                        enqueue(PurchaseNotice(result: .pending(productID: product.id, name: product.displayName)))
+                    }
+                }
             case .userCancelled:
                 break
             @unknown default:
-                purchaseError = PurchaseError(message: "The purchase result could not be read. Check your purchase history in the App Store.")
+                reportError("The purchase result could not be read. Check your purchase history in the App Store.")
             }
         } catch StoreKitError.userCancelled {
             // Cancellation requires no error or purchase confirmation.
         } catch {
+            log(error, operation: "Purchasing support")
             // A failure to receive a result is not proof that no payment occurred.
-            purchaseError = PurchaseError(message: "The purchase could not be completed. Check your App Store connection and purchase history before trying again.")
+            reportError("The purchase could not be completed. Check your App Store connection and purchase history before trying again.")
         }
     }
 
@@ -143,6 +195,9 @@ final class SupportStore: ObservableObject {
         case .verified(let transaction):
             guard Self.options.contains(where: { $0.id == transaction.productID }),
                   transaction.productType == .consumable else { return }
+            guard processingIDs.insert(transaction.id).inserted else { return }
+            defer { processingIDs.remove(transaction.id) }
+            pendingProductIDs.remove(transaction.productID)
             guard transaction.revocationDate == nil else {
                 history.removeAll { $0.transactionID == transaction.id }
                 saveHistory()
@@ -152,14 +207,65 @@ final class SupportStore: ObservableObject {
             }
             let name = products.first { $0.id == transaction.productID }?.displayName
                 ?? Self.options.first { $0.id == transaction.productID }!.name
-            recordSupport(id: transaction.id, productID: transaction.productID,
+            let isNew = recordSupport(id: transaction.id, productID: transaction.productID,
                           name: name, date: transaction.purchaseDate)
             await transaction.finish()
-            pendingProductIDs.remove(transaction.productID)
-        case .unverified(let transaction, _):
+            if isNew, let thankYou = history.first(where: { $0.transactionID == transaction.id }) {
+                enqueue(PurchaseNotice(result: .thankYou(thankYou)))
+            }
+        case .unverified(let transaction, let error):
             guard Self.options.contains(where: { $0.id == transaction.productID }) else { return }
-            purchaseError = PurchaseError(message: "The App Store purchase could not be verified. Check your purchase history in the App Store before trying again.")
+            log(error, operation: "Verifying support")
+            reportError("The App Store purchase could not be verified. Check your purchase history in the App Store before trying again.")
         }
+    }
+
+    func dismissPurchaseNotice() {
+        if let notice = purchaseNotice, case .failure = notice.result {
+            purchaseError = nil
+        }
+        purchaseNotice = nil
+    }
+
+    func presentNextNotice() {
+        guard !isPurchasing, purchaseNotice == nil, !notices.isEmpty else { return }
+        purchaseNotice = notices.removeFirst()
+    }
+
+    private func enqueue(_ notice: PurchaseNotice) {
+        if case .thankYou(let thankYou) = notice.result {
+            notices.removeAll {
+                if case .pending(let id, _) = $0.result { return id == thankYou.productID }
+                return false
+            }
+            if let current = purchaseNotice,
+               case .pending(let id, _) = current.result, id == thankYou.productID {
+                purchaseNotice = notice
+                return
+            }
+        }
+        notices.append(notice)
+        presentNextNotice()
+    }
+
+    private func reportError(_ message: String) {
+        purchaseError = PurchaseError(message: message)
+        if let current = purchaseNotice, case .failure(let text) = current.result, text == message { return }
+        if notices.contains(where: {
+            if case .failure(let text) = $0.result { return text == message }
+            return false
+        }) { return }
+        enqueue(PurchaseNotice(result: .failure(message)))
+    }
+
+    private func log(_ error: Error, operation: String) {
+#if DEBUG
+        let detail = error as NSError
+        Self.logger.error("\(operation, privacy: .public) failed: \(detail.domain, privacy: .public), code \(detail.code)")
+        if let underlying = detail.userInfo[NSUnderlyingErrorKey] as? NSError {
+            Self.logger.error("Underlying StoreKit error: \(underlying.domain, privacy: .public), code \(underlying.code)")
+        }
+#endif
     }
 
     // Persist before finishing; redelivery must not record the same tip twice.
