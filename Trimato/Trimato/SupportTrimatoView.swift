@@ -15,7 +15,6 @@ extension FocusedValues {
 
 struct SupportTrimatoView: View {
     @Environment(\.purchase) private var purchase
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismissWindow) private var dismissWindow
     @ObservedObject var store: SupportStore
 
@@ -24,7 +23,7 @@ struct SupportTrimatoView: View {
             Text("Support Trimato")
                 .font(.title)
                 .accessibilityAddTraits(.isHeader)
-            Text("If Trimato helps you make the cut, you can support future updates with an optional support purchase. Every editing feature is free, and each option receives the same heartfelt thank-you.")
+            Text("If Trimato helps you make the cut, you can support future updates. Any amount is appreciated, and your support is always optional. Thank you for helping Trimato grow!")
                 .fixedSize(horizontal: false, vertical: true)
             if let thankYou = store.latestThankYou {
                 Text("Thank you")
@@ -50,7 +49,10 @@ struct SupportTrimatoView: View {
                 let product = store.product(for: option)
                 Button {
                     if let product {
-                        Task { await store.purchase(product) { try await purchase($0) } }
+                        Task {
+                            await store.purchase(product) { try await purchase($0) }
+                            store.setPresentationActive(NSApp.isActive)
+                        }
                     }
                 } label: {
                     HStack {
@@ -84,18 +86,12 @@ struct SupportTrimatoView: View {
         .background(EditorTheme.controlSurface)
         .focusedSceneValue(\.closeSupport, close)
         .task {
-            store.setPresentationActive(scenePhase == .active && NSApp.isActive)
+            store.setPresentationActive(NSApp.isActive)
             await store.loadProducts()
             await store.refreshUnfinishedTransactions()
         }
-        .onChange(of: scenePhase) { _, phase in
-            store.setPresentationActive(phase == .active && NSApp.isActive)
-            if phase == .active {
-                Task { await store.refreshUnfinishedTransactions() }
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            store.setPresentationActive(scenePhase == .active)
+            store.setPresentationActive(NSApp.isActive)
             Task { await store.refreshUnfinishedTransactions() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in

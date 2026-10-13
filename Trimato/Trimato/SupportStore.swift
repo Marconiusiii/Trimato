@@ -16,7 +16,17 @@ final class SupportStore: ObservableObject {
         let name: String
         let date: Date
 
-        var message: String { "Thank you for supporting Trimato with \(name)." }
+        var message: String {
+            let supportName: String
+            switch productID {
+            case "com.marconius.trimato.support.littleSlice": supportName = "Little Slice"
+            case "com.marconius.trimato.support.juicyCut": supportName = "Juicy Cut"
+            case "com.marconius.trimato.support.freshTake": supportName = "Fresh Take"
+            case "com.marconius.trimato.support.wholeTomato": supportName = "Whole Tomato"
+            default: supportName = name
+            }
+            return "Thank you for your \(supportName) on \(date.formatted(date: .abbreviated, time: .omitted))."
+        }
     }
 
     struct PurchaseError: Identifiable {
@@ -38,7 +48,7 @@ final class SupportStore: ObservableObject {
             switch result {
             case .thankYou: "Thank you"
             case .pending: "Purchase pending"
-            case .failure: "Support purchase"
+            case .failure: "Support Trimato"
             }
         }
 

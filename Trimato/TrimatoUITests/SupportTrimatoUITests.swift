@@ -85,14 +85,15 @@ final class SupportTrimatoUITests: XCTestCase {
         let result = support.sheets.firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 15), "A verified purchase must present its confirmation sheet")
         let completedMessage = result.staticTexts.containing(NSPredicate(
-            format: "value == %@ OR label == %@",
-            "Thank you for supporting Trimato with A little slice.",
-            "Thank you for supporting Trimato with A little slice."
+            format: "value BEGINSWITH %@ OR label BEGINSWITH %@",
+            "Thank you for your Little Slice on ",
+            "Thank you for your Little Slice on "
         )).firstMatch
         XCTAssertTrue(completedMessage.waitForExistence(timeout: 15), "Wait for verified completion, including a delayed StoreKit result")
         let resultMessage = result.staticTexts["trimato.support.result-message"]
         XCTAssertTrue(resultMessage.exists)
-        XCTAssertEqual(resultMessage.value as? String ?? resultMessage.label, "Thank you for supporting Trimato with A little slice.")
+        let confirmationMessage = resultMessage.value as? String ?? resultMessage.label
+        XCTAssertTrue(confirmationMessage.hasPrefix("Thank you for your Little Slice on "))
         XCTAssertTrue(result.buttons["Done"].exists)
         result.buttons["Done"].click()
         XCTAssertTrue(result.waitForNonExistence(timeout: 5))
@@ -100,7 +101,7 @@ final class SupportTrimatoUITests: XCTestCase {
         let thanks = support.staticTexts["trimato.support.thank-you"]
         XCTAssertTrue(thanks.waitForExistence(timeout: 15), support.debugDescription)
         XCTAssertTrue(support.buttons["com.marconius.trimato.support.littleSlice"].isEnabled)
-        XCTAssertEqual(thanks.value as? String ?? thanks.label, "Thank you for supporting Trimato with A little slice.")
+        XCTAssertEqual(thanks.value as? String ?? thanks.label, confirmationMessage)
         XCTAssertTrue(try supportHeadings(in: app).contains("Thank you"))
         let confirmation = XCTAttachment(screenshot: support.screenshot())
         confirmation.name = "TrimatoSupport-Confirmation"

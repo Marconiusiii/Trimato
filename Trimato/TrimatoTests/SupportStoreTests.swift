@@ -82,7 +82,7 @@ final class SupportStoreTests: XCTestCase {
         let first = try XCTUnwrap(store.latestThankYou)
         XCTAssertFalse(store.isPurchasing)
         XCTAssertNil(store.purchaseError)
-        XCTAssertEqual(first.message, "Thank you for supporting Trimato with A little slice.")
+        XCTAssertEqual(first.message, "Thank you for your Little Slice on \(first.date.formatted(date: .abbreviated, time: .omitted)).")
         let firstNotice = try XCTUnwrap(store.purchaseNotice)
         guard case .thankYou(let confirmedFirst) = firstNotice.result else {
             return XCTFail("A verified purchase must present a confirmation")
@@ -95,7 +95,7 @@ final class SupportStoreTests: XCTestCase {
         XCTAssertNotEqual(first.transactionID, second.transactionID)
         let secondNotice = try XCTUnwrap(store.purchaseNotice)
         guard case .thankYou(let confirmedSecond) = secondNotice.result else {
-            return XCTFail("A repeated support purchase must present its own confirmation")
+            return XCTFail("Repeated support must present its own confirmation")
         }
         XCTAssertEqual(confirmedSecond.transactionID, second.transactionID)
         let reopened = SupportStore(defaults: defaults, listensForTransactions: false)
