@@ -24,7 +24,7 @@ struct SupportTrimatoView: View {
             Text("Support Trimato")
                 .font(.title)
                 .accessibilityAddTraits(.isHeader)
-            Text("If Trimato helps you make the cut, you can support future updates with an optional tip. Every editing feature is free, and each option receives the same heartfelt thank-you.")
+            Text("If Trimato helps you make the cut, you can support future updates with an optional support purchase. Every editing feature is free, and each option receives the same heartfelt thank-you.")
                 .fixedSize(horizontal: false, vertical: true)
             if let thankYou = store.latestThankYou {
                 Text("Thank you")
@@ -43,7 +43,7 @@ struct SupportTrimatoView: View {
             if store.pending {
                 Text("Purchase pending.")
             }
-            Text("Choose a tip")
+            Text("Support options")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             ForEach(SupportStore.options) { option in
@@ -95,24 +95,11 @@ struct SupportTrimatoView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.refreshUnfinishedTransactions() }
         }
-        .sheet(item: $store.purchaseNotice, onDismiss: store.presentNextNotice) { notice in
-            VStack(alignment: .leading, spacing: 20) {
-                Text(notice.title)
-                    .font(.title2)
-                    .accessibilityAddTraits(.isHeader)
-                Text(notice.message)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier("trimato.support.result-message")
-                HStack {
-                    Spacer()
-                    Button("Done") { store.dismissPurchaseNotice() }
-                        .keyboardShortcut(.defaultAction)
-                }
-            }
-            .padding(24)
-            .frame(width: 430)
-            .onExitCommand { store.dismissPurchaseNotice() }
+        .sheet(isPresented: Binding(
+            get: { store.purchaseNotice != nil },
+            set: { if !$0 { store.dismissPurchaseNotice() } }
+        ), onDismiss: store.presentNextNotice) {
+            SupportPurchaseResultView(store: store)
         }
     }
 
@@ -123,5 +110,40 @@ struct SupportTrimatoView: View {
         } else {
             dismissWindow(id: "support-trimato")
         }
+    }
+}
+
+private struct SupportPurchaseResultView: View {
+    @ObservedObject var store: SupportStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if let notice = store.purchaseNotice {
+                Text(notice.title)
+                    .font(.title2)
+                    .accessibilityAddTraits(.isHeader)
+                Text(notice.message)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("trimato.support.result-message")
+                if case .pending = notice.result {
+                    ProgressView("Waiting for purchase completion.")
+                }
+                HStack {
+                    Spacer()
+                    switch notice.result {
+                    case .thankYou:
+                        Button("Done") { store.dismissPurchaseNotice() }
+                            .keyboardShortcut(.defaultAction)
+                    case .pending, .failure:
+                        Button("Close") { store.dismissPurchaseNotice() }
+                            .keyboardShortcut(.cancelAction)
+                    }
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 430)
+        .onExitCommand { store.dismissPurchaseNotice() }
     }
 }

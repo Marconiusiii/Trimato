@@ -24,7 +24,7 @@ final class SupportTrimatoUITests: XCTestCase {
         XCTAssertTrue(support.waitForExistence(timeout: 5), app.debugDescription)
         let headings = try supportHeadings(in: app)
         XCTAssertTrue(headings.contains("Support Trimato"), headings.description)
-        XCTAssertTrue(headings.contains("Choose a tip"), headings.description)
+        XCTAssertTrue(headings.contains("Support options"), headings.description)
         XCTAssertTrue(support.staticTexts.containing(NSPredicate(format: "value CONTAINS %@ OR label CONTAINS %@", "If Trimato helps you make the cut", "If Trimato helps you make the cut")).firstMatch.exists)
         let options = [
             ("littleSlice", "A little slice", "$0.99"),
@@ -79,8 +79,8 @@ final class SupportTrimatoUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 10))
         entry.click()
         let support = app.windows["Support Trimato"]
-        let tip = support.buttons["com.marconius.trimato.support.littleSlice"]
-        XCTAssertTrue(tip.waitForExistence(timeout: 15))
+        let option = support.buttons["com.marconius.trimato.support.littleSlice"]
+        XCTAssertTrue(option.waitForExistence(timeout: 15))
         support.buttons["com.marconius.trimato.support.littleSlice"].click()
         let result = support.sheets.firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 15), "A verified purchase must present its confirmation sheet")

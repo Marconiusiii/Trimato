@@ -56,7 +56,7 @@ final class SupportStoreTests: XCTestCase {
         XCTAssertNotEqual(first.transactionID, second.transactionID)
         let secondNotice = try XCTUnwrap(store.purchaseNotice)
         guard case .thankYou(let confirmedSecond) = secondNotice.result else {
-            return XCTFail("A repeated tip must present its own confirmation")
+            return XCTFail("A repeated support purchase must present its own confirmation")
         }
         XCTAssertEqual(confirmedSecond.transactionID, second.transactionID)
         let reopened = SupportStore(defaults: defaults, listensForTransactions: false)

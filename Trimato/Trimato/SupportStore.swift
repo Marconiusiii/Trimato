@@ -268,7 +268,7 @@ final class SupportStore: ObservableObject {
 #endif
     }
 
-    // Persist before finishing; redelivery must not record the same tip twice.
+    // Persist before finishing; redelivery must not record the same purchase twice.
     @discardableResult
     func recordSupport(id: UInt64, productID: String, name: String, date: Date) -> Bool {
         guard Self.options.contains(where: { $0.id == productID }),
