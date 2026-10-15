@@ -293,7 +293,8 @@ struct TrimatoTests {
         ]))
     }
 
-    @Test func bundledToolsEncodeTrimmedMP4FromMKV() async throws {
+    @Test(arguments: [false, true])
+    func bundledToolsEncodeTrimmedMP4FromMKV(hasAudio: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -301,11 +302,23 @@ struct TrimatoTests {
         let sourceURL = directory.appendingPathComponent("source.mkv")
         let outputURL = directory.appendingPathComponent("trimmed.mp4")
 
-        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: [
+        var arguments = [
             "-hide_banner", "-nostdin", "-y",
-            "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24",
-            "-t", "1", "-c:v", "mpeg4", sourceURL.path
-        ])
+            "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24"
+        ]
+        if hasAudio {
+            arguments += ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000"]
+        }
+        arguments += ["-t", "1", "-c:v", "mpeg4"]
+        if hasAudio {
+            arguments += ["-c:a", "pcm_s16le"]
+        }
+        arguments.append(sourceURL.path)
+        _ = try await FFmpegRunner.run(tool: .ffmpeg, arguments: arguments)
+
+        let sourceReport = try await FFmpegMediaProbe.inspect(url: sourceURL)
+        let sourceHasAudio = sourceReport.hasAudio
+        #expect(sourceHasAudio == hasAudio)
         try await FFmpegClipExporter.export(
             sourceURL: sourceURL,
             timeRange: CMTimeRange(
@@ -324,6 +337,23 @@ struct TrimatoTests {
 
         #expect(report.contains("\"codec_type\": \"video\""))
         #expect(report.contains("mp4"))
+
+        let outputReport = try await FFmpegMediaProbe.inspect(url: outputURL)
+        let outputHasAudio = outputReport.hasAudio
+        let outputDuration = outputReport.duration
+        #expect(outputHasAudio == hasAudio)
+        #expect(abs(outputDuration - 0.5) <= 0.15)
+
+        if !hasAudio {
+            do {
+                try await ExportOutputValidator.validate(
+                    outputURL, duration: 0.5, video: true, audio: true
+                )
+                Issue.record("Validation accepted a video-only export when audio was required.")
+            } catch let error as ProjectExporter.ExportError {
+                guard case .encodingFailed = error else { throw error }
+            }
+        }
     }
 
     @Test func bundledToolsJoinTwoEditedRanges() async throws {

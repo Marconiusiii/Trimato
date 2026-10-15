@@ -127,10 +127,11 @@ struct FFmpegClipExporter {
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws {
         try ExportFileCommit.protectSources([sourceURL], destination: outputURL)
+        let report = try await FFmpegMediaProbe.inspect(url: sourceURL)
         try await export(
             sourceURL: sourceURL,
             sourceRanges: [timeRange],
-            hasAudio: true,
+            hasAudio: report.hasAudio,
             to: outputURL,
             progress: progress
         )
