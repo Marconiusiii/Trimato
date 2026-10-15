@@ -33,8 +33,12 @@
             value = "1"
             isEnabled = "YES">
          </EnvironmentVariable>
-      <EnvironmentVariable key="TRIMATO_SUPPORT_HOSTED_UNIT_TESTS" value="1" isEnabled="YES"/>
-</EnvironmentVariables>
+         <EnvironmentVariable
+            key = "TRIMATO_SUPPORT_HOSTED_UNIT_TESTS"
+            value = "1"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
       <Testables>
          <TestableReference
             skipped = "NO">
@@ -81,9 +85,6 @@
             ReferencedContainer = "container:Trimato.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <StoreKitConfigurationFileReference
-         identifier = "../../TrimatoUITests/SupportTrimato.storekit">
-      </StoreKitConfigurationFileReference>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

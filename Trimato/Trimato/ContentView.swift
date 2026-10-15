@@ -383,6 +383,7 @@ final class ClipEditorEntryFocus: ObservableObject {
     private var completed: (() -> Void)?
     private var observers: [NSObjectProtocol] = []
     private var delivery: Task<Void, Never>?
+    private var windowIsClosing = false
     private let isWindowAvailable: @MainActor (NSWindow) -> Bool
 
     init(isWindowAvailable: @escaping @MainActor (NSWindow) -> Bool = {
@@ -392,26 +393,34 @@ final class ClipEditorEntryFocus: ObservableObject {
     }
 
     func update(_ request: ClipEditorEntryRequest, slider: NativePlayheadSlider.PlayheadSlider) {
+        guard !windowIsClosing else { return }
         if ready != request.ready {
-            ClipEntryDiagnostics.record("entry.ready=\(request.ready) \(ClipEntryDiagnostics.window(slider.window))")
+            ClipEntryDiagnostics.record("entry.ready=\(request.ready)")
         }
         ready = request.ready
         self.slider = slider
         willEnter = request.willEnter
         completed = request.completed
-        attach(slider.window)
         schedule()
     }
 
-    func attach(_ window: NSWindow?) {
+    func attach(_ window: NSWindow?, slider: NativePlayheadSlider.PlayheadSlider) {
+        guard self.slider === slider else { return }
+        guard !windowIsClosing else { return }
         guard self.window !== window else { return }
         cancelDelivery()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         ClipEntryDiagnostics.record("entry.attach \(ClipEntryDiagnostics.window(window))")
         self.window = window
-        policy = ClipEditorEntryFocusPolicy()
         guard let window else { return }
+        observe(NSWindow.willCloseNotification, object: window) {
+            $0.windowIsClosing = true
+            $0.detachFromWindow()
+            $0.slider = nil
+            $0.willEnter = nil
+            $0.completed = nil
+        }
         observe(NSWindow.didBecomeKeyNotification, object: window) { $0.schedule() }
         observe(NSWindow.willBeginSheetNotification, object: window) { $0.cancelDelivery() }
         observe(NSWindow.didEndSheetNotification, object: window) { $0.schedule() }
@@ -463,13 +472,22 @@ final class ClipEditorEntryFocus: ObservableObject {
 
     func disconnect(slider: NativePlayheadSlider.PlayheadSlider) {
         guard self.slider === slider else { return }
+        detachFromWindow()
+        self.slider = nil
+        willEnter = nil
+        completed = nil
+    }
+
+    func detachFromWindow(slider: NativePlayheadSlider.PlayheadSlider) {
+        guard self.slider === slider else { return }
+        detachFromWindow()
+    }
+
+    private func detachFromWindow() {
         cancelDelivery()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         window = nil
-        self.slider = nil
-        willEnter = nil
-        completed = nil
     }
 }
 

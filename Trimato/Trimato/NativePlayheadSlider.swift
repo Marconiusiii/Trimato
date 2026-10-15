@@ -26,6 +26,7 @@ struct NativePlayheadSlider: NSViewRepresentable {
         slider.target = context.coordinator
         slider.action = #selector(Coordinator.changed(_:))
         slider.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        slider.configureEntry(clipEntry)
         return slider
     }
 
@@ -40,12 +41,11 @@ struct NativePlayheadSlider: NSViewRepresentable {
                               announcesValueChanges: announcesValueChanges)
         if cell.accessibilityLabel() != label { cell.setAccessibilityLabel(label) }
         if cell.accessibilityIdentifier() != identifier { cell.setAccessibilityIdentifier(identifier) }
-        slider.entryFocus = clipEntry?.owner
-        if let clipEntry { clipEntry.owner.update(clipEntry, slider: slider) }
+        slider.configureEntry(clipEntry)
     }
 
     static func dismantleNSView(_ slider: PlayheadSlider, coordinator: Coordinator) {
-        slider.entryFocus?.disconnect(slider: slider)
+        slider.dismantleEntry()
         (slider.cell as? PlayheadCell)?.cancelPendingValue()
     }
 
@@ -58,6 +58,36 @@ struct NativePlayheadSlider: NSViewRepresentable {
     final class PlayheadSlider: NSSlider {
         var frameStep = 1.0
         weak var entryFocus: ClipEditorEntryFocus?
+        private var attachment: Task<Void, Never>?
+        private var dismantled = false
+
+        func configureEntry(_ request: ClipEditorEntryRequest?) {
+            guard !dismantled else { return }
+            let changedOwner = entryFocus !== request?.owner
+            if changedOwner {
+                attachment?.cancel()
+                entryFocus?.disconnect(slider: self)
+                entryFocus = request?.owner
+            }
+            if let request { request.owner.update(request, slider: self) }
+            guard changedOwner, request != nil else { return }
+            // A reused view may already have a window. Resolve it outside SwiftUI's
+            // update callback, which can run reentrantly during NSWindow deallocation.
+            attachment = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled, let self, !self.dismantled else { return }
+                self.attachment = nil
+                self.entryFocus?.attach(self.window, slider: self)
+            }
+        }
+
+        func dismantleEntry() {
+            dismantled = true
+            attachment?.cancel()
+            attachment = nil
+            entryFocus?.disconnect(slider: self)
+            entryFocus = nil
+        }
 
         #if DEBUG
         override func becomeFirstResponder() -> Bool {
@@ -80,9 +110,17 @@ struct NativePlayheadSlider: NSViewRepresentable {
         }
         #endif
 
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            attachment?.cancel()
+            attachment = nil
+            entryFocus?.detachFromWindow(slider: self)
+            super.viewWillMove(toWindow: newWindow)
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            entryFocus?.attach(window)
+            guard !dismantled else { return }
+            entryFocus?.attach(window, slider: self)
             ClipEntryDiagnostics.record("slider.windowChanged \(ClipEntryDiagnostics.identity(self)) \(ClipEntryDiagnostics.window(window))")
         }
 

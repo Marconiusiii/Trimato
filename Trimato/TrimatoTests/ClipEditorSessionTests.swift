@@ -7,6 +7,120 @@ import Testing
 
 @Suite("Clip editor sessions", .serialized)
 struct ClipEditorSessionTests {
+    @Test @MainActor func closingOneCuttingBoardCannotRefocusItWhileAnotherOpens() async throws {
+        var closedEntries = 0
+        var nextEntries = 0
+        let closedFocus = ClipEditorEntryFocus(isWindowAvailable: { _ in true })
+        let nextFocus = ClipEditorEntryFocus(isWindowAvailable: { _ in true })
+        let first = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 100),
+                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        first.isReleasedWhenClosed = false
+        let firstSlider = NativePlayheadSlider.PlayheadSlider()
+        firstSlider.configureEntry(ClipEditorEntryRequest(owner: closedFocus, ready: false,
+            willEnter: { closedEntries += 1 }, completed: {}))
+        first.contentView = firstSlider
+        first.close()
+        // SwiftUI can still update a closed window's content before deallocation.
+        firstSlider.configureEntry(ClipEditorEntryRequest(owner: closedFocus, ready: true,
+            willEnter: { closedEntries += 1 }, completed: {}))
+
+        let second = NSWindow(contentRect: first.frame, styleMask: [.titled, .closable],
+                              backing: .buffered, defer: false)
+        second.isReleasedWhenClosed = false
+        let secondSlider = NativePlayheadSlider.PlayheadSlider()
+        secondSlider.configureEntry(ClipEditorEntryRequest(owner: nextFocus, ready: true,
+            willEnter: { nextEntries += 1 }, completed: {}))
+        second.contentView = secondSlider
+        defer { second.close(); firstSlider.dismantleEntry(); secondSlider.dismantleEntry() }
+        for _ in 0..<30 { await Task.yield() }
+        #expect(closedEntries == 0)
+        #expect(nextEntries == 1)
+        // Later edits must not recreate entry focus in either window.
+        second.contentView = nil
+        second.contentView = secondSlider
+        secondSlider.configureEntry(ClipEditorEntryRequest(owner: nextFocus, ready: true,
+            willEnter: { nextEntries += 1 }, completed: {}))
+        for _ in 0..<30 { await Task.yield() }
+        #expect(closedEntries == 0)
+        #expect(nextEntries == 1)
+    }
+
+    @Test @MainActor func dismantledPlayheadCannotReattachOrRetainItsWindow() async {
+        let focus = ClipEditorEntryFocus(isWindowAvailable: { _ in true })
+        let slider = NativePlayheadSlider.PlayheadSlider()
+        var entries = 0
+        weak var releasedWindow: NSWindow?
+        autoreleasepool {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 100),
+                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            releasedWindow = window
+            slider.configureEntry(ClipEditorEntryRequest(owner: focus, ready: true,
+                willEnter: { entries += 1 }, completed: {}))
+            window.contentView = slider
+            slider.dismantleEntry()
+            window.close()
+            window.contentView = nil
+        }
+        slider.configureEntry(ClipEditorEntryRequest(owner: focus, ready: true,
+            willEnter: { entries += 1 }, completed: {}))
+        for _ in 0..<30 { await Task.yield() }
+        #expect(entries == 0)
+        #expect(releasedWindow == nil)
+        #expect(slider.entryFocus == nil)
+    }
+
+    @Test @MainActor func deletionThenHomeAndSemicolonWorksAcrossTwoClipSessions() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 96_000))
+        buffer.frameLength = buffer.frameCapacity
+        buffer.floatChannelData![0].update(repeating: 0, count: Int(buffer.frameLength))
+        do { let file = try AVAudioFile(forWriting: url, settings: format.settings); try file.write(from: buffer) }
+        var project = TrimatoProject()
+        var asset = fixtureAsset(name: "Two Cutting Boards", duration: 2)
+        asset.naturalWidth = nil; asset.naturalHeight = nil
+        project.media = [asset]
+        let controller = ProjectController(document: ProjectDocument(project: project))
+        for session in 0..<2 {
+            let player = VideoPlayerViewModel(announcementHandler: { _ in })
+            player.player.isMuted = true
+            let source = MediaSource.native(url: url, asset: AVURLAsset(url: url), contentType: nil,
+                mode: .nativePassthrough, hasVideo: false, hasAudio: true)
+            player.load(url: url, preparedSource: source)
+            defer { player.closeMedia() }
+            for _ in 0..<500 where player.isLoadingMedia { try await Task.sleep(for: .milliseconds(10)) }
+            try #require(player.hasMedia)
+            player.scopeKeyboardCommands { true }
+            player.setInMarker(at: CMTime(seconds: 0.5, preferredTimescale: 600))
+            player.setOutMarker(at: CMTime(seconds: 1, preferredTimescale: 600))
+            player.deleteSelection()
+            for _ in 0..<500 where player.isApplyingEdit { try await Task.sleep(for: .milliseconds(10)) }
+            try #require(!player.isApplyingEdit)
+            #expect(abs(player.duration - 1.5) < 0.01)
+            if session == 0 {
+                let context = ClipPlacementCommandContext(controller: controller, editSelection: .asset(asset.id),
+                    segments: player.placementSourceSegments)
+                context.placementFeedback = { _ in }
+                context.place(.append)
+                #expect(context.presentedError == nil)
+            } else {
+                for (character, code) in [("", UInt16(115)), (";", UInt16(41))] {
+                    let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                        modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                        characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code))
+                    #expect(player.handleKeyEvent(event) == nil)
+                }
+                for _ in 0..<500 where abs(player.currentTime) >= 0.001 {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                #expect(abs(player.currentTime) < 0.001)
+            }
+            player.closeMedia()
+        }
+    }
+
     @Test @MainActor func unfocusedPlayheadExposesCompletedJumpImmediately() async throws {
         let slider = NativePlayheadSlider.PlayheadSlider()
         let cell = NativePlayheadSlider.PlayheadCell()
