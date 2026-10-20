@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import SwiftUI
 
 nonisolated enum ProjectCommandContext {
@@ -34,7 +35,11 @@ struct TrimatoApp: App {
         }
         .defaultSize(width: 560, height: 680)
         .windowResizability(.contentSize)
-        .commands { SupportCommands() }
+        .commands {
+            SupportCommands()
+            HelpContentsCommands()
+            FeedbackCommands()
+        }
 
         Window("Save changes before quitting?", id: "quit-review") {
             QuitReviewWindow().editorAppearance()
@@ -53,6 +58,7 @@ struct TrimatoApp: App {
             GetInfoCommands()
             FeedbackCommands()
             SupportCommands()
+            HelpContentsCommands()
             CommandGroup(replacing: .appInfo) {
                 Button("About Trimato") {
                     openWindow(id: "about")
@@ -267,6 +273,8 @@ struct TrimatoApp: App {
         .commandsReplaced {
             ProjectFileCommands()
             SupportCommands()
+            HelpContentsCommands()
+            FeedbackCommands()
         }
 
         Window("Support Trimato", id: "support-trimato") {
@@ -581,6 +589,60 @@ nonisolated enum TrimatoFeedback {
         components.path = recipient
         components.queryItems = [URLQueryItem(name: "subject", value: subject)]
         return components.url
+    }
+}
+
+private struct HelpContentsCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .help) {
+            Button("Trimato Help", action: openContents)
+                .keyboardShortcut("?", modifiers: .command)
+            Button("Trimato QuickStart", action: openQuickStart)
+        }
+    }
+
+    private func openContents() {
+        let application = Bundle.main
+        guard let bookName = application.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String,
+              !bookName.isEmpty else {
+            showError("Trimato Help could not be found. Reinstall Trimato.")
+            return
+        }
+        let registration = AHRegisterHelpBookWithURL(application.bundleURL as CFURL)
+        guard registration == noErr else {
+            showError("Trimato Help could not be registered (error \(registration)). Close Help and try again.")
+            return
+        }
+        // A nil page and anchor request the registered book's declared contents page.
+        let result = AHGotoPage(bookName as CFString, nil, nil)
+        if result != noErr {
+            showError("Trimato Help could not be opened (error \(result)). Close Help and try again.")
+        }
+    }
+
+    private func openQuickStart() {
+        let application = Bundle.main
+        guard let bookName = application.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String,
+              !bookName.isEmpty else {
+            showError("Trimato Help could not be found. Reinstall Trimato.")
+            return
+        }
+        let registration = AHRegisterHelpBookWithURL(application.bundleURL as CFURL)
+        guard registration == noErr else {
+            showError("Trimato Help could not be registered (error \(registration)). Close Help and try again.")
+            return
+        }
+        let result = AHLookupAnchor(bookName as CFString, "trimato-quickstart-guide" as CFString)
+        if result != noErr {
+            showError("Trimato QuickStart could not be opened (error \(result)). Close Help and try again.")
+        }
+    }
+
+    private func showError(_ message: String) {
+        ApplicationMessageWindowCoordinator.shared.present(
+            ApplicationMessageDescriptor(title: "Help Could Not Be Opened", message: message),
+            dismissed: {}
+        )
     }
 }
 
