@@ -7,151 +7,89 @@
     <link rel="stylesheet" href="trimato-help.css">
 </head>
 <body>
-<header><p><a href="index.html">Trimato Help</a></p></header>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
-    <h1>Create projects and organize media</h1>
 
-    <h2>Create a project</h2>
-    <ol>
-        <li>Activate New Project.</li>
-        <li>Enter the project name and choose its format.</li>
-        <li>Activate Next.</li>
-        <li>In Save Project, choose where to create the project folder, then activate Create.</li>
-    </ol>
-    <p>Trimato creates the project folder and places the saved <code>.trimato</code> project inside it.</p>
-
-    <h2>Open a project</h2>
-    <p>Trimato opens one project at a time. Opening or creating another project closes the current project after handling unsaved changes. Cancel to keep the current project open. Opening the same project brings its window forward.</p>
-    <ul>
-        <li>Activate Open Project to select a saved Trimato project.</li>
-        <li>Activate a project in Recent Projects to reopen it.</li>
-    </ul>
-
-    <p>Preparing Project appears while Trimato loads the project. When preparation finishes, focus enters Project Source. For an empty project, focus enters Import Files.</p>
-
-    <h2>Auto-Save</h2>
-    <p>Open Trimato &gt; Settings &gt; General and enable Auto-Save. Enter a whole number from 1 to 120 in Minutes between saves. The default interval is five minutes; Auto-Save is off until you enable it.</p>
-    <p>Auto-Save saves changes already added to the project at its current location. Save a new project first with Command-S. Pending changes in an open editor remain drafts until you add or update them. Command-S remains available at any time.</p>
-
-    <h2>Save and quit</h2>
-    <p>Press Command-Q to quit Trimato. If the project or an open editor has pending changes, choose an action in Save changes before quitting:</p>
-    <ul>
-        <li>Save and Quit applies pending editor changes, saves the project, and quits.</li>
-        <li>Quit Without Saving discards pending editor changes and project changes since the last manual save or Auto-Save, then quits.</li>
-        <li>Cancel returns to editing. Escape or closing the quit window also cancels quitting.</li>
-    </ul>
-    <p>Cancel also stops quitting while changes are being prepared. If a project write has already started, Trimato finishes that write before returning to editing. Editors close as their changes are applied. If quitting is cancelled or saving fails, changes already applied remain in the project, and unapplied editors remain available.</p>
-    <p>Correct any reported invalid settings before trying Save and Quit again. Stop an active recording before saving its take. A source clip must be added to a track before its audio settings can be saved. A new Generator draft uses Insert and Split at its captured playhead and selected destination track.</p>
-    <p>Closing an individual timeline cutting board with Command-W still offers Update Clip, Close without Updating, or Cancel when that editor has unapplied changes.</p>
-
-    <h2>Change project settings</h2>
-    <ol>
-        <li>Choose File &gt; Project Settings.</li>
-        <li>Edit the project name, format, or target duration.</li>
-        <li>Activate Save Project Settings.</li>
-    </ol>
-
-    <h2>Choose a project format</h2>
-    <p>Every project containing video has one resolution and frame rate. These values define the project frame used for preview and export; they do not modify the original media. An audio-only project does not need a visual format.</p>
-    <dl>
-        <dt>Automatic from First Clip</dt>
-        <dd>Uses the displayed dimensions and nominal frame rate of the first video clip placed on the primary timeline. Importing a file into the Project Browser does not establish the format, and an audio-only clip does not establish visual dimensions or a frame rate.</dd>
-        <dt>Custom</dt>
-        <dd>Provides Resolution and Frame Rate menus with common choices. Choose Custom dimensions or Custom frame rate when the project needs values that are not listed.</dd>
-    </dl>
-    <p>Custom dimensions must be even numbers from 2 through 8,192 pixels. Lock aspect ratio is on initially: changing Width calculates Height, and changing Height calculates Width. Turn the checkbox off to edit the dimensions independently. Turning it back on locks the current ratio.</p>
-    <p>A custom frame rate must be from 1 through 240 frames per second. Fractional rates are allowed. Standard menu choices include 23.976, 24, 25, 29.97, 30, 50, 59.94, 60, and 120 fps.</p>
-    <p>If a populated project is changed to Automatic, Trimato resolves the format from its first primary timeline clip.</p>
-
-    <h2>Understand non-destructive editing</h2>
-    <p>Editing does not cut or rewrite an imported source file. Trimming, deleting sections, splitting clips, and arranging the timeline save instructions that identify which source ranges to use and where to use them.</p>
-    <p>The project package saves these editing instructions and a reference to each source file. It does not contain a copy of the original media. Keep original files available at their saved locations. If a file is moved, renamed, disconnected, or deleted, Trimato may report it as offline until it is relinked.</p>
-
-    <h2>Relink missing media</h2>
-    <p>Unavailable sources have an error badge and “Source Missing” in their label in Project Source and Timeline Clips. Their edits and timeline positions remain in the project. Trimato checks availability in the background and clears the missing state when the media returns.</p>
-    <ol>
-        <li>Open the source clip’s context menu in Project Source.</li>
-        <li>Choose Relink Media.</li>
-        <li>Select the replacement audio or video file in the Open panel.</li>
-    </ol>
-    <p>The replacement must contain the required audio and video and be long enough for the existing edits. Relinking updates every timeline use of that source.</p>
-
-    <h2>Consolidate project media</h2>
-    <ol>
-        <li>Save the project, then choose File &gt; Consolidate Clips.</li>
-        <li>If sources are missing, use their Relink buttons, then run Consolidate Clips again.</li>
-        <li>Choose Copy Clips to keep the originals, or Move Clips to remove them after verification and a successful project save.</li>
-    </ol>
-    <p>The Clips folder is created beside the .trimato document in the project folder. Consolidation includes imported media and referenced recordings. Generator caches are not copied. Existing destination files are not overwritten, and multiple references to the same source share one copy.</p>
-    <p>Cancel stops the operation at a safe point. If a transfer or save fails, originals are kept. If removing an original fails, the project continues to use its verified copy and the result identifies the original that remains. Keep the .trimato document and its Clips folder together when moving the project in Finder.</p>
-    <p>If Trimato requests folder access, select the folder containing the project. Moving source files can affect other projects that reference those originals.</p>
-
-    <h2>Choose how imports are stored</h2>
-    <p>Open Trimato &gt; Settings &gt; General. Under File handling, use Imported files to choose Keep in Place, Move to Project, or Ask Each Time. Keep in Place is the default. Ask Each Time asks once per import batch. Save the project before importing with Move to Project. This setting affects new media imports; use Consolidate Clips for media already in a project.</p>
-
-    <h2>Select media to open or import</h2>
-    <p>Trim a Clip and Relink accept audio and video. Import Files also accepts SRT and WebVTT captions and folders containing supported files. Additional supported video formats include MKV, WebM, TS, MTS, M2TS, VOB, WMV, and FLV. Use Open Project for saved Trimato projects.</p>
-
-    <h2>Understand playback compatibility</h2>
-    <p>Trimato examines the media streams inside a file instead of deciding compatibility from the filename extension alone. Two files with the same extension can use different codecs.</p>
-    <ul>
-        <li>If macOS can play and pass through a source, Trimato plays the original and can retain its original file type and codec for a Same as original standalone clip export.</li>
-        <li>If macOS can play a source but cannot pass it through, Trimato still plays the original and converts it when exporting.</li>
-        <li>If macOS cannot play a source, Trimato creates a local playback proxy for preview and editing. Audio-only proxies remain audio-only.</li>
-    </ul>
-
-    <h2>Understand playback proxies</h2>
-    <p>Trimato creates a playback proxy only when macOS cannot play an original file directly. A proxy is a compatible editing copy. It does not modify the original and is not used as the final-quality source for project export.</p>
-    <p>Compatible media can use the original directly, so substantial editing may use no playback proxy storage. <a href="storage-and-temporary-media.html">Learn what Trimato stores and when it removes temporary media.</a></p>
-
-    <h2>Use media with different dimensions and frame rates</h2>
-    <p>A project can contain clips with different file formats, codecs, sizes, orientations, and frame rates. Each clip plays and exports in the project format.</p>
-    <p>For high-resolution iPhone recordings, set the project dimensions and frame rate to the output you want. Use Settings &gt; Video &gt; Preserve HDR for compatible HDR output. Combine compatible Spatial Audio recordings and choose spatial or high-quality stereo audio in Export. When you export Cinematic video to another format, you cannot change its focus afterward using the exported copy. <a href="saving-and-exporting.html#hdr">Read about HDR, audio quality, and export limits.</a></p>
-    <p>Audio clips use the same markers, trimming, splitting, naming, and ordering tools as video clips. In a video project, an audio-only section shows black while its audio plays. Add a video clip on top if you want picture during that section.</p>
-    <p>For dimensions and orientation, Trimato uses proportional Fit:</p>
-    <ul>
-        <li>A vertical or narrower source in a landscape project is centered and pillarboxed with black space on the left and right.</li>
-        <li>A source wider than the project frame is centered and letterboxed with black space above and below.</li>
-        <li>A source with the same aspect ratio is scaled proportionally to the project frame.</li>
-        <li>Trimato does not stretch or automatically crop a source to fill the project frame.</li>
-    </ul>
-    <p>Fit may enlarge a lower-resolution source until one dimension reaches the project boundary. It does not enlarge the source beyond that boundary to remove letterboxing or pillarboxing.</p>
-    <p>Clips with a different frame rate play at the project frame rate. Clip speed and audio length stay the same.</p>
-
-    <h2>Review how a clip fits the project</h2>
-    <p>Select a source clip, timeline clip, or cutaway, then press Command-I. In Get Info, Project Fit and Frame Rate Conversion describe what Trimato will do when the source dimensions, aspect ratio, or frame rate differ from the project.</p>
-
-    <h2>Use project folders</h2>
-    <ul>
-        <li>Activate New Folder to create a folder.</li>
-        <li>Select a folder and use Actions to import clips into it, rename it, or remove it.</li>
-        <li>Select a source clip and use Actions &gt; Move Clip to place it in the project root or a folder.</li>
-    </ul>
-
-    <h2>Relink an offline clip</h2>
-    <ol>
-        <li>Select the offline source clip.</li>
-        <li>Choose Relink Clip from Actions.</li>
-        <li>Select the source file and activate Open.</li>
-    </ol>
-    <h2>Create a generator</h2>
-    <p>In the Editor, press Command-G or choose Timeline &gt; Generator. Choose Black, Solid Color, Static Gradient, Silence, or Text. Set its controls and duration in seconds or project frames.</p>
-    <p>Choose a Destination Track, or choose New Track and enter a name. Then choose Append, Insert and Split, or Insert and Replace. For video, Insert on Top in New Video Track adds it at the project playhead. Choose Cancel Preparation if you want to stop.</p>
-    <p>Generated items appear in the Generators folder in Project Source. Repeated names use letter suffixes, such as Black and Black A. Open a generated timeline clip in Cutting Board and choose Edit Generator to change that copy.</p>
-    <h3>Create text</h3>
-    <p>Choose Text, then a Template: Center Title, Title and Subtitle, Lower Third Center, Lower Third Left, Lower Third Right, Name and Role, Caption, or Subtitle. Enter text in the multiline editor. Return starts a new line. Title and Subtitle and Name and Role provide separately labeled editors for the main and supporting text. The supporting text is smaller. Changing templates and Reset Style preserve your text.</p>
-    <ul>
-        <li>Typography contains Font, Weight, Font Size in Points, Text Alignment, and Additional Line Spacing in Points. Line spacing adds space between lines; zero adds no extra space. Changing font size preserves the entered line spacing. Fonts are System Sans, Rounded Sans, Serif, and Monospaced.</li>
-        <li>Appearance contains Text Color and the full-frame Black or Transparent background. Outline, Shadow, and Text Backing Panel are independent options. The backing panel has its own color and opacity. Choose Custom in a color picker to enter a six-digit hexadecimal color.</li>
-        <li>Layout contains Screen Position, Safe Margin, Maximum Width, and offsets. Positive offsets move text right or down. Each percentage field names its reference: the video frame or safe area.</li>
-    </ul>
-    <p>Expand a group to change its settings. Opening another detailed group closes the previous one. Safe margins are enabled by default, and text sizes scale with video dimensions. The lower-right template is both anchored on the right and right-aligned.</p>
-    <p>Check Text Fit reports the line count and whether the text fits within the safe area. It warns about small text and low contrast against a known opaque background. It cannot assess contrast over changing video. Text that extends outside the safe area cannot be placed until its size, wording, or layout is adjusted. Trimato does not silently clip text or shrink it.</p>
-    <p>Use a Transparent background and Insert on Top in New Video Track to place text over the underlying picture. A text backing panel affects only the area behind the lettering. Use the existing transitions for fades, with separate Fade In Duration and Fade Out Duration values. Review the result in the Editor. Project exports include the composed text and video; a separate transparent-video export format is not provided.</p>
-    <p>Caption and Subtitle are appearance templates for individual text clips with their own durations. Subtitle-file import and transcription are not included. Reopen a generated clip with Edit Generator to change its wording or style.</p>
-<h2>Remove clips and delete media</h2>
-    <p>Choose Remove from Timeline in a clip’s context menu to remove that timeline clip and keep its source in Project Source. Choose Delete Media in Timeline Clips or Project Source to remove the source from the project, including all timeline clips and transitions that use it. The confirmation shows how many timeline clips use the source. Files remain in Finder. Use Undo to restore a removal or deletion. Save the project to keep your changes.</p>
-    </main>
-<footer><p><a href="clip-editor.html">Next topic: Edit a clip</a></p></footer>
+<h1>Create projects and organize media</h1>
+<h2>Create a project</h2>
+<ol>
+<li>Choose New Project in the welcome window.</li>
+<li>Enter a Project Name and choose a Project Format.</li>
+<li>For a reference length, turn on Use Target Duration and enter seconds.</li>
+<li>Choose Next, select a location in Save Project, then choose Create.</li>
+</ol>
+<p>The project folder contains the saved <code>.trimato</code> project. Choose File &gt; Project Settings to change the name, format, or target duration later.</p>
+<h2>Choose a project format</h2>
+<p>A video project uses one resolution and frame rate for preview and export.</p>
+<dl>
+<dt>Automatic from First Clip</dt>
+<dd>Uses the displayed dimensions and nominal frame rate of the first video clip placed on the primary timeline.</dd>
+<dt>Custom</dt>
+<dd>Provides Resolution and Frame rate menus. Choose Custom dimensions or Custom frame rate to enter your own values.</dd>
+</dl>
+<p>Custom dimensions must be even numbers from 2 through 8,192 pixels. Lock aspect ratio starts on: editing Width calculates Height, and editing Height calculates Width. Turn it off to enter each independently. Turning it on locks the current ratio.</p>
+<p>Frame rate accepts values from 1 through 240 frames per second. Presets include 23.976, 24, 25, 29.97, 30, 50, 59.94, 60, and 120 fps.</p>
+<p>Changing a populated project to Automatic resolves its format from the first primary timeline clip.</p>
+<h2>Open a project</h2>
+<p>Choose Open Project to select a saved project, or choose an entry in Recent Projects. Opening the same project brings its window forward.</p>
+<p>Trimato works with one project at a time. Creating or opening another closes the current project after reviewing unsaved changes.</p>
+<p>Preparing Project shows loading progress. When preparation finishes, Project Source is ready for use.</p>
+<h2>Import media</h2>
+<p>Choose Import Files in Project or press Command-Shift-I. Select audio, video, SRT or WebVTT captions, or folders containing supported files, then choose Open.</p>
+<p>Supported video containers include MKV, WebM, TS, MTS, M2TS, VOB, WMV, and FLV. Playback and export depend on the codecs inside each file.</p>
+<p>Imported media appears in Project Source. Use a clip’s Actions or context menu to open Cutting Board or place the clip on a track.</p>
+<h2>Organize folders</h2>
+<p>Choose New Folder to create a folder. Select a folder and use Actions to import into it, rename it, or remove it. Use a source clip’s Actions &gt; Move Clip command to move it to another project folder or the root.</p>
+<h2>Choose where media is stored</h2>
+<p>A project stores editing choices and references to source files. Keep those files available at their saved locations, or gather them into the project folder with Consolidate Clips.</p>
+<p>In Settings &gt; General, set Imported files:</p>
+<ul>
+<li>Keep in Place uses media at its current location. This is the default.</li>
+<li>Move to Project transfers media into the project’s Clips folder and removes the originals after verification and a successful save.</li>
+<li>Ask Each Time asks once for each import batch.</li>
+</ul>
+<p>Save the project before importing with Move to Project. Use Consolidate Clips to gather media already imported.</p>
+<h2>Consolidate project media</h2>
+<ol>
+<li>Save the project and choose File &gt; Consolidate Clips.</li>
+<li>Relink any missing sources identified in the window, then run Consolidate Clips again.</li>
+<li>Choose Copy Clips to keep the originals, or Move Clips to remove them after verification and a successful save.</li>
+</ol>
+<p>Consolidation places imported media and referenced recordings in a Clips folder beside the project. Multiple references to one source share a copy. Keep the project and Clips folder together when moving them in Finder.</p>
+<p>If folder access is requested, select the folder containing the project. Moving source files affects other projects that use them.</p>
+<p>Choose Cancel to stop consolidation. If removing an original fails after its copy is saved, the result identifies the original that remains.</p>
+<h2>Relink missing media</h2>
+<p>Missing sources show Source Missing in Project Source and Timeline Clips. To choose their location:</p>
+<ol>
+<li>Open the source clip’s Actions or context menu in Project Source.</li>
+<li>Choose Relink Media.</li>
+<li>Select the replacement audio or video file, then choose Open.</li>
+</ol>
+<p>The replacement must contain the required tracks and be long enough for the saved edits. Relinking updates every timeline use of the source. A disconnected source also becomes available when its original location returns.</p>
+<h2>Use mixed media</h2>
+<p>Clips with different dimensions, orientations, and frame rates play and export in the project format. Fit scales the complete source proportionally into the frame. A narrower picture has black space on its sides; a wider picture has black space above and below.</p>
+<p>Frame-rate conversion keeps the clip’s playback speed and audio duration. An audio-only section in a video project has black picture; place video above it to supply a picture.</p>
+<p>Focus a source or timeline clip and press Command-I. Project Fit and Frame Rate Conversion describe its conversion to the project format.</p>
+<p><a href="saving-and-exporting.html#hdr">Choose HDR export settings.</a> <a href="saving-and-exporting.html#spatial-audio">Export Spatial Audio.</a></p>
+<h2>Playback copies</h2>
+<p>Trimato plays original media directly when supported by macOS. For other sources, it creates a compatible playback copy called a proxy. Editing uses the proxy; final project export uses the original source.</p>
+<p><a href="storage-and-temporary-media.html">Review cached and temporary media.</a></p>
+<h2>Save and close</h2>
+<p>Press Command-S to save project changes. Auto-Save in Settings &gt; General saves changes already added to the project at intervals from 1 through 120 minutes. It starts off; the default interval is five minutes.</p>
+<p>Press Command-Q to quit. If changes are pending, Save changes before quitting offers:</p>
+<ul>
+<li>Save and Quit applies pending editor changes, saves the project, and quits.</li>
+<li>Quit Without Saving discards pending drafts and project changes since the last manual save or Auto-Save.</li>
+<li>Cancel returns to editing.</li>
+</ul>
+<p>Resolve any settings identified during Save and Quit, and stop recording before saving a take. A new Generator draft is placed with Insert and Split at its captured playhead and destination track.</p>
+<p>If saving is interrupted or fails, review the reported problem before continuing. Editors whose changes were applied have closed; remaining drafts stay in their editors.</p>
+<p>Closing a timeline Cutting Board with Command-W offers Update Clip, Close without Updating, or Cancel when it has pending changes.</p>
+<h2>Remove clips and media</h2>
+<p>Choose Remove from Timeline in a clip’s context menu to remove that instance and keep its source in Project Source.</p>
+<p>Choose Delete Media to remove a source from the project together with all timeline clips and transitions using it. Review the number of affected clips before confirming. The media file stays at its Finder location.</p>
+<p>Use Undo to restore a removal, then save to keep the chosen project state.</p>
+<p><a href="generator.html">Create titles, backgrounds, and other generated clips.</a> <a href="captioner.html">Create or import captions.</a></p>
+</main>
 </body>
 </html>

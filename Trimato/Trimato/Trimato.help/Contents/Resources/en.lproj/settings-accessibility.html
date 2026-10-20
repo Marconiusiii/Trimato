@@ -6,27 +6,31 @@
     <link rel="stylesheet" href="trimato-help.css">
 </head>
 <body>
-<header><p><a href="index.html">Trimato Manual contents.</a></p></header>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
-    <a name="trimato-settings-accessibility"></a>
-    <h1>Accessibility settings</h1>
-    <p>Choose Trimato &gt; Settings, then Accessibility.</p>
-    <h2>Interface Text Size</h2>
-    <p>Choose a size from 100% to 200% to enlarge text in the workspace, including Project Source and Timeline Clips. The choice applies to open views and is saved for your next session. Controls move onto additional rows when space is limited. Resize the window or adjust the pane dividers to give enlarged controls more room.</p>
-    <h2>Timecode Feedback</h2>
-<ul><li>When stopped speaks the time when you focus a stopped timeline playhead and after you finish adjusting it. Playback and continuous jogging do not speak changing timecodes.</li><li>On Demand speaks the timeline playhead time only when you press T. Focusing or moving a timeline slider does not speak its time.</li></ul>
-<p>Press T in Editor or Mixer to hear the current timecode while playing or paused. T also works in Cutting Board with either feedback setting.</p>
+<a name="trimato-settings-accessibility"></a>
+<h1>Accessibility settings</h1>
+<p>Choose Trimato &gt; Settings, then Accessibility.</p>
+<h2>Interface text size</h2>
+<p>Set Interface Text Size from 100% to 200% to enlarge workspace text, including Project Source and Timeline Clips. Controls arrange themselves to fit the available space. Resize the window or adjust the pane dividers to give them more room.</p>
+<h2>Timecode feedback</h2>
+<p>Timecode Feedback controls playhead announcements with VoiceOver.</p>
+<ul>
+<li>When stopped announces the time when you focus a paused playhead and after you finish adjusting it.</li>
+<li>On Demand announces the time when you press T.</li>
+</ul>
+<p>Press T in Editor, Mixer, or Cutting Board to hear the current time with either setting.</p>
 <h2>Show milliseconds</h2>
-<p>Show milliseconds is on by default. Turn it off to hide fractional seconds in displayed and spoken timeline positions, In and Out points, marker positions, caption boundaries, recording times, project information, and the allowed time range in Jump to Time errors. Turn it on to include milliseconds again. The setting applies to open views.</p>
-<p>This changes how times are presented. Existing edit positions retain their exact timing. Timing fields accept fractional seconds even when milliseconds are hidden. Effect parameters, such as audio delay and transition duration, retain their precise values.</p>
+<p>Show milliseconds starts on. It includes fractional seconds in displayed and spoken timecodes, In and Out points, marker positions, caption boundaries, and recording times. Turn it off to present whole seconds.</p>
+<p>Edit positions retain their exact timing. Time fields accept fractional seconds with either setting.</p>
 <h2>Timecode style</h2>
 <ul>
-    <li>Numeric always includes minutes and seconds, such as 01:23.115. Hours appear when the time reaches one hour, such as 01:04:12.344. Show milliseconds hides or shows the fractional part.</li>
-    <li>Time units uses names: 1 hour, 4 minutes, 12 seconds, 344 milliseconds. It omits zero units. Show milliseconds controls whether the fractional part is included.</li>
-    <li>Frames uses the frame number at the current frame rate. Show milliseconds does not affect frame numbers.</li>
+<li>Numeric uses minutes and seconds, such as 01:23.115. Hours appear from one hour onward, such as 01:04:12.344.</li>
+<li>Time units uses names, such as 1 hour, 4 minutes, 12 seconds, 344 milliseconds.</li>
+<li>Frames uses the frame number at the current frame rate.</li>
 </ul>
-<p>The style applies to timeline readouts and requested playhead announcements. Editable time fields keep their numeric format. Jump to Time accepts a frame number when Frames is selected, or hours, minutes, and seconds for the other styles. Timecode Feedback controls timeline playhead speech; other time values, including In and Out points, marker positions, and duration fields, remain available.</p>
-<p><a href="voiceover.html">Navigate and edit with VoiceOver.</a> <a href="keyboard-shortcuts.html">Review keyboard shortcuts.</a></p>
+<p>Show milliseconds controls the fractional part of Numeric and Time units. Timecode style applies to readouts and requested playhead announcements. Editable time fields use numeric time. Jump to Time accepts a frame number with Frames selected, or hours, minutes, and seconds for the other styles.</p>
+<p><a href="voiceover.html">Use Trimato with VoiceOver.</a> <a href="keyboard-shortcuts.html">Review keyboard shortcuts.</a></p>
 </main>
 </body>
 </html>

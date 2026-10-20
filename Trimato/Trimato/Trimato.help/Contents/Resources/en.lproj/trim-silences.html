@@ -20,23 +20,23 @@
         <li>Shortest pause to trim leaves shorter pauses alone. It starts at 0.6 seconds and changes by 0.05 seconds per step.</li>
         <li>Keep this much of each pause leaves breathing room around each cut, shared between its two sides. It starts at 0.15 seconds and changes by 0.05 seconds per step. Choose less than Shortest pause to trim.</li>
     </ul>
-    <p>Use the arrow keys to adjust a focused slider. Values include their units; you do not need to type units.</p>
-    <p>Quiet speech, breaths, and intentional pauses can qualify as silence. Lower Quiet level or increase Shortest pause to trim if too much would be removed. Both stereo channels must be quiet. An entirely silent selection is left unchanged.</p>
+    <p>Use the arrow keys to adjust a focused slider. Each value includes its unit.</p>
+    <p>Preview the detected pauses to check quiet speech, breaths, and intentional pauses. Lower Quiet level or increase Shortest pause to trim to retain more of them. Both stereo channels must be quiet to qualify.</p>
 
     <h2>Find pauses and preview</h2>
-    <p>Choose Find Pauses to prepare a preview. The result gives the number of pauses and how much shorter the clip will become. Play Preview plays the result without audio effects and filters; Pause Preview pauses it. Video preview shows the matching picture.</p>
-    <p>Cancel Search stops the work without changing the clip. Changing a setting clears the previous result and preview. Choose Find Pauses again to check the new settings.</p>
+    <p>Choose Find Pauses to prepare a preview. The result gives the number of pauses and how much shorter the clip will become. Play Preview plays the retained audio before effects and filters; Pause Preview pauses it. Video preview shows the matching picture.</p>
+    <p>Choose Cancel Search to stop finding pauses. Changing a setting clears the result and preview; choose Find Pauses to review the new settings.</p>
 
     <h2>Video jump cuts</h2>
-    <p>Warning: Trimming silences from video removes both the silent audio and the matching video. This creates jump cuts, where the picture abruptly changes between the remaining sections. Preview the result before choosing Trim Pauses. The original media file is unchanged.</p>
+    <p>Trimming pauses from video removes the matching picture and sound. The remaining sections meet at jump cuts. Review Play Preview before choosing Trim Pauses.</p>
 
     <h2>Keep or undo the edit</h2>
-    <p>Trim Pauses keeps the cuts in the clip draft. Cancel closes the sheet without applying them. Existing In and Out points follow the shortened edit. Use Edit &gt; Undo to undo Trim Silences, or Redo to reapply it while the operation remains in the undo history.</p>
-    <p>The shortened edit stays as one clip made from retained sections of the original recording. Individual removed pauses cannot currently be restored or adjusted separately. Finding pauses again checks only the remaining audio. Saved projects keep the retained sections; undo history is not saved with the project.</p>
+    <p>Trim Pauses keeps the cuts in the clip draft. Cancel discards the proposed cuts. Existing In and Out points follow the shortened edit. Use Edit &gt; Undo to undo Trim Silences, or Redo to reapply it while the operation remains in the undo history.</p>
+    <p>The result stays as one clip made from retained source sections. Undo reverses the trimming as one operation. Saved projects retain those sections; reopening the project starts a new undo history. A later search checks the retained audio.</p>
     <p>Update Clip saves a timeline instance; Add to Timeline places the retained edit; Export Clip saves a separate file.</p>
 
     <h2>Check project timing</h2>
-    <p>With Magnetic off, updating a shortened timeline clip preserves its start time and the positions of all other clips, leaving space after the shortened clip. On a magnetic track, later clips move earlier by the time removed. Other tracks, captions, and description transcripts keep their assigned times. Check the track’s Magnetic setting before updating. An update that conflicts with existing placement may be rejected; the draft remains available. <a href="timeline-editing.html">Learn about Magnetic and absolute placement.</a></p>
+    <p>With Magnetic off, updating a shortened timeline clip preserves its start time and the positions of all other clips, leaving space after the shortened clip. On a magnetic track, later clips move earlier by the time removed. Other tracks, captions, and description transcripts keep their assigned times. Check the track’s Magnetic setting before updating. Resolve any placement conflict reported when updating the clip. <a href="timeline-editing.html">Learn about Magnetic and absolute placement.</a></p>
 </main>
 <footer><p><a href="clip-editor.html">Related topic: Edit a clip.</a></p></footer>
 </body>

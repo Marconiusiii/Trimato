@@ -2,150 +2,119 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="description" content="Save and export video or audio, preserve HDR, choose audio quality, and understand Spatial Audio and Cinematic export limits.">
+    <meta name="description" content="Save projects and export video, audio, captions, frames, and web video.">
     <title>Save and export</title>
     <link rel="stylesheet" href="trimato-help.css">
 </head>
 <body>
-<header><p><a href="index.html">Trimato Help</a></p></header>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
-    <h1>Save and export</h1>
-
-    <h2>Save the project</h2>
-    <ul>
-        <li>Choose File &gt; Save or press Command-S from any pane or tool window to save the open project.</li>
-        <li>Choose File &gt; Save As or press Shift-Command-S to save another project package.</li>
-        <li>Choose File &gt; Close Project or press Shift-Command-W to close the project.</li>
-    </ul>
-
-    <p>Closing the project, opening another project, or quitting Trimato asks you to Save, Don’t Save, or Cancel when changes remain since your last Save. Don’t Save restores the last explicitly saved version, including when macOS has autosaved newer edits. Cancel or a failed save keeps the project open.</p>
-
-    <h2>Mute tracks before export</h2>
-    <p>Choose an audio track in Timeline, then turn on Mute Track. Repeat for each track you want silent. The setting affects the whole track in preview and exported audio, including audio transitions, not just the clip beneath the playhead. It does not remove clips, change timing, or hide video. Mute is saved with the project and can be undone. Turn Mute Track off to restore that track’s sound.</p>
-
-    <h2>Choose the export range</h2>
-    <ul>
-        <li>Set both In and Out points in the project Editor to export that range.</li>
-        <li>Clear both In and Out points to export the complete project.</li>
-        <li>Place In earlier than Out.</li>
-    </ul>
-
-    <h2>Understand the exported project frame</h2>
-    <p>An audio-only project has no picture and offers audio output formats. When a project contains video, it also offers video output formats and uses the project's resolution and frame rate.</p>
-    <p>Every video export uses the project's resolution and frame rate. Mixed source dimensions are proportionally fitted without stretching or automatic cropping. Narrower sources are pillarboxed, wider sources are letterboxed, and unused parts of the project frame are black.</p>
-    <p>An audio-only timeline section inside a video project uses black picture for that section unless a video cutaway supplies the picture.</p>
-    <p>The exported file uses the project frame rate. When a clip uses a different frame rate, its speed and audio length stay the same.</p>
-
-    <p>Choose MP4 for broad compatibility (H.264) for sharing with a wide range of players. HEVC can use less space at similar picture quality, but requires a compatible player. ProRes is intended for further editing and usually creates larger files. H.264 and HEVC both compress video; converting a clip does not guarantee a smaller file.</p>
-
-    <p>Choose MP4 for smaller files (H.264) to reduce file size while keeping the output dimensions and frame rate. This preset uses compressed audio and converts HDR video to standard video automatically, including for project exports. For spatial recordings, choose High-quality Stereo to make this format available. File size and picture quality depend on the recording; an already compressed file may not become smaller. Use the other formats when retaining more detail or spatial sound matters more than file size.</p>
-
-    <h2 id="hdr">Preserve HDR or export SDR video</h2>
-    <ol>
-        <li>Open Trimato &gt; Settings &gt; Video.</li>
-        <li>Leave Preserve HDR on to retain HDR brightness and color from supported recordings. It is on by default.</li>
-        <li>Choose an HEVC or ProRes video format.</li>
-    </ol>
-    <p>HDR output supports video filters, transitions, and burned-in captions. HEVC HDR exports use 10-bit video with Dolby Vision metadata; ProRes exports retain HLG HDR.</p>
-    <p>For project exports, turn Preserve HDR off when you need standard dynamic range, or SDR, including H.264 output. With Preserve HDR on, project exports offer compatible formats. When exporting from Trim a Clip, choosing H.264 automatically converts HDR video to SDR without changing your settings. Choose HEVC or ProRes with Preserve HDR on to retain HDR. Same as original retains the source format for supported clips and does not apply SDR conversion.</p>
-    <p>Open File &gt; Project Settings to match the intended resolution and frame rate. A 4K recording placed in a 1080p project exports at 1080p. A 120 fps recording placed in a 30 fps project exports at 30 fps. Variable-frame-rate sources use the project's fixed frame grid rather than their exact original frame timing.</p>
-    <p>Preserving HDR does not make video encoding lossless. The project format, filters, and export codec still affect the finished picture.</p>
-
-    <h2 id="audio-quality">Choose audio quality</h2>
-    <p>For mono or stereo audio-only work or a mixed video soundtrack, choose the output format to suit the next editing or delivery step. Spatial QuickTime exports keep the source audio encoding for unchanged audio or use uncompressed audio for supported volume and transition edits.</p>
-    <table>
-        <caption>Audio export choices</caption>
-        <thead><tr><th scope="col">Format</th><th scope="col">When to choose it</th></tr></thead>
-        <tbody>
-            <tr><th scope="row">Lossless audio (M4A Apple Lossless or FLAC)</th><td>Keep the rendered audio without lossy compression.</td></tr>
-            <tr><th scope="row">Uncompressed audio (WAV, 24-bit)</th><td>Save uncompressed audio for further editing.</td></tr>
-            <tr><th scope="row">Uncompressed audio (WAV, 16-bit)</th><td>Use when delivery requires 16-bit uncompressed audio.</td></tr>
-            <tr><th scope="row">ProRes for editing (422 LT, 422, or 422 HQ)</th><td>Keep uncompressed 24-bit audio inside the video file.</td></tr>
-            <tr><th scope="row">Compressed audio (M4A AAC), H.264, or HEVC video</th><td>Use compressed AAC audio for delivery. This re-encodes audio and is not lossless.</td></tr>
-        </tbody>
-    </table>
-    <p>Clip processing retains the source audio sample rate. A project mixes at the highest sample rate among its source audio, converting lower-rate sources to that common rate. Mixed project exports are stereo; standalone mono audio can remain mono. Spatial exports retain the spatial channels and a stereo playback alternative. Unsupported multichannel sources without a usable mono or stereo track cannot be mixed.</p>
-    <p>A lossless format avoids an additional lossy encoding stage. It does not recover information missing from the original recording or undo changes made with filters, volume, or other mix controls.</p>
-
-    <h2 id="spatial-audio">Preserve iPhone Spatial Audio</h2>
-    <p>Import your iPhone recordings, trim and arrange them on the timeline, and add volume changes, fades, Cross Fade, or Fade Out/In. Compatible recordings keep their spatial sound through the finished edit.</p>
-    <ol>
-        <li>Choose Export Project, or Export Clip for a standalone edit.</li>
-        <li>Choose Audio: Preserve Spatial Audio or High-quality Stereo.</li>
-        <li>Choose a compatible Format. Preserve Spatial Audio uses QuickTime movies. For stereo, 24-bit WAV, Apple Lossless, FLAC, and ProRes offer uncompressed or lossless audio; AAC formats use lossy compression.</li>
-        <li>Export the complete edit, or set In and Out beforehand to export a selected range.</li>
-    </ol>
-    <p>Trimato remembers your audio choice. Combining spatial recordings or changing their audio creates larger files with uncompressed audio and a stereo playback alternative. Ordered cuts from one recording with unchanged audio keep the original encoding. Processed spatial exports do not include the original Apple Audio Mix analysis information.</p>
-    <p>Spatial preservation supports compatible recording layouts and sample rates, including standard iPhone and Cinematic recordings together. Other audio effects, voice adjustments, pan, balance, width, channel routing, ducking, and mixing spatial recordings with ordinary audio currently use a stereo preview. Export explains when High-quality Stereo is required.</p>
-    <p>Wait for preview preparation after changing the edit. In Settings &gt; Video, keep Preserve HDR on for compatible HDR output. Trim a Clip automatically converts to SDR when you choose H.264 QuickTime.</p>
-    <p>When you export Cinematic video to another format, you cannot change its focus afterward using the exported copy. Select the clip and press Command-I to check its actual dimensions and frame rate; Cinematic mode can use different recording settings.</p>
-
-    <p>Choose an export filename that is different from your original source files. Wait for Export complete before opening the finished file. If you cancel before the finished file is put in place, an existing file at that destination is kept.</p>
-
-    <h2>Understand which media export uses</h2>
-    <p>Playback proxies are used for responsive preview and editing, not as the final-quality sources for a project export. Trimato returns to the original source files and applies the source ranges, timeline arrangement, cutaways, audio choices, project resolution, and project frame rate saved in the project.</p>
-    <p>If macOS cannot use an original directly, Trimato makes a temporary full-quality copy for export. Trimato removes that copy when export finishes, is cancelled, or fails.</p>
-    <p>Keep every original source used by the timeline available. A cached proxy does not make an offline original available for final export.</p>
-    <p><a href="storage-and-temporary-media.html">Learn what Trimato stores and when temporary media is removed.</a></p>
-
-    <h2>Export a project</h2>
-    <ol>
-        <li>If the project contains caption drafts, choose Timeline &gt; Captions &gt; Finalize Captions and resolve any passages that remain drafts.</li>
-        <li>Choose File &gt; Export Project or press Command-E.</li>
-        <li>Enter a filename and choose a location and format.</li>
-        <li>If the project has captions, turn on Include captions, then choose Burn Captions into Video, WebVTT Sidecar File, or SRT Sidecar File. Include captions starts off for ordinary exports.</li>
-        <li>Choose Export. A progress bar will appear. Choose Cancel Export if you want to stop.</li>
-    </ol>
-    <p>Burn Captions into Video places the captions in the exported video. WebVTT Sidecar File and SRT Sidecar File save a caption file beside the exported media with the same filename. Leave Include captions off to omit captions. Audio formats offer WebVTT Sidecar File and SRT Sidecar File when captions are included.</p>
-
-    <h2>Export the caption track</h2>
-    <ol>
-        <li>Choose Timeline &gt; Captions &gt; Finalize Captions. Resolve any passages that remain drafts.</li>
-        <li>Choose Timeline &gt; Captions &gt; Export Captions.</li>
-        <li>Choose WebVTT, SRT, or Plain Text.</li>
-        <li>Enter a filename and choose Export.</li>
-    </ol>
-    <p>Caption files cannot be exported while drafts remain. If the project has In and Out points, the exported caption file contains the cues in that range and begins at zero. Clear both points to export the complete caption track. Plain Text places the project title first, followed by each caption as a separate paragraph without timecodes.</p>
-
-    <h2>Export a standalone clip</h2>
-    <ol>
-        <li>Open the clip in a standalone Cutting Board.</li>
-        <li>Set both In and Out points to export a range, or clear both to export the complete edit.</li>
-        <li>Activate Export Clip or press Command-E.</li>
-        <li>In the Export Clip dialog, enter a filename, choose a location and format, then activate Export.</li>
-        <li>A progress bar will appear. Choose Cancel Export if you want to stop.</li>
-    </ol>
-
-    <h2>Check an export result</h2>
-    <p>When export finishes, Trimato announces “Export complete.” If Trimato notifications are allowed, macOS sends a system notification containing the exported filename. Open the saved movie or audio file from its chosen location.</p>
-
-    <h2>Review export notification permission</h2>
-    <p>Choose Trimato &gt; Settings and read Export Notifications. If the permission is Not requested, activate Allow Export Notifications. If the permission is Not allowed, open System Settings, choose Notifications, choose Trimato, and turn on Allow Notifications.</p>
-    <h2>Export an audio mix</h2>
-    <p>Press Command-E and choose Audio only from Export type, then choose the audio format. The export combines audible audio tracks using their levels, fades, and description ducking. Muted tracks are silent. In and Out points limit the exported range.</p>
-    <h2>Export a frame</h2>
-    <p>Place the project playhead on the frame to save and press Shift-Command-P, or choose File &gt; Export Frame. The frame time is captured when the command is invoked. Choose Include captions if wanted, then Continue and save the PNG.</p>
-    <p>The PNG uses the project's full output dimensions and includes the picture edits, effects, and titles at that time. It uses SDR color for web and image compatibility.</p>
-    <h2>Export web video</h2>
-    <ol>
-        <li>Place the project playhead on the poster frame. If exporting an In/Out range, choose a frame within that range.</li>
-        <li>Press Shift-Command-E or choose File &gt; Export Web Video.</li>
-        <li>Review Poster frame. Include captions starts on when captions are present. Choose the caption language if including captions.</li>
-        <li>Choose Continue, select the destination folder, and choose Export.</li>
-    </ol>
-    <p>The new Web Video folder contains video.mp4, poster.png, embed.txt, and captions.vtt when captions are included. Existing export folders are kept; a numbered folder is created when needed.</p>
-    <p>Upload the files to your website and copy the HTML fragment from embed.txt into your page or blog's HTML editor. Adjust its file paths to match the uploaded locations. The fragment supplies native video controls, a poster, a download link, and a default caption track when included. It does not autoplay. Web video uses H.264 MP4 with SDR color.</p>
-    <p>Caption files need to be served from the same website as the player or with appropriate cross-origin access. Test the published player with the browsers and assistive technologies your audience uses. Include accurate captions and any needed audio description in the content; player markup does not create them.</p>
-    <h2>YouTube chapters</h2>
-    <ol>
-        <li>Press Option-M in Editor to add a Chapter at the playhead. Edit its title in the Markers track.</li>
-        <li>Start with a Chapter at 00:00, add at least three Chapters, and leave at least 10 seconds between Chapters and after the last one.</li>
-        <li>Choose Export Project and keep Export YouTube Chapters checked. The chapter list is saved beside the movie as a chapters.txt companion file.</li>
-        <li>Open the chapter file and paste its timestamps and titles into the video's description in YouTube Studio.</li>
-    </ol>
-    <p>For a selected In–Out range, chapter timestamps start from the beginning of the exported movie. If the range begins inside a Chapter, that Chapter's title starts the list at 00:00. Only Chapters within the exported range appear after it. Ordinary Markers are editing cues and are not exported as chapters.</p>
-    <p>If a chapter list does not meet YouTube's timing requirements, correct the Chapters or turn off Export YouTube Chapters to export the movie without a chapter file. Export Web Video also offers Export YouTube Chapters and saves chapters.txt in its Web Video folder. Audio-only exports do not include this file. Chapters are delivered as description text; they are not embedded in the movie.</p>
+<h1>Save and export</h1>
+<p>Save your project for the next editing session, or export the finished cut as video, audio, captions, or a web player.</p>
+<h2>Save the project</h2>
+<ul>
+<li>Command-S or File &gt; Save saves project changes.</li>
+<li>Command-Shift-S or File &gt; Save As saves another project package.</li>
+<li>Command-Shift-W or File &gt; Close Project closes the project.</li>
+</ul>
+<p>Apply drafts with Add or Update in their editors before saving. When closing with unsaved changes, choose Save, Don’t Save, or Cancel. Don’t Save returns to the saved project state; Cancel returns to editing.</p>
+<p><a href="projects-and-media.html">Review Auto-Save, quitting, and project media storage.</a></p>
+<h2>Choose the range</h2>
+<p>Set both In and Out in Editor to export a range, with In before Out. Clear both to export the complete timeline.</p>
+<p>Choose an audio track and turn on Mute Track to silence it in preview and export. Turn it off to restore its sound.</p>
+<h2>Export a project</h2>
+<ol>
+<li>For written captions, choose Timeline &gt; Captions &gt; Finalize Captions and resolve any passages identified in the results.</li>
+<li>Press Command-E or choose File &gt; Export Project.</li>
+<li>Enter a filename and choose a location and format.</li>
+<li>For captions, turn on Include captions and choose Burn Captions into Video, WebVTT Sidecar File, or SRT Sidecar File.</li>
+<li>Choose Export.</li>
+</ol>
+<p>Burn Captions into Video places captions in the picture. Sidecar options save a caption file beside the media with a matching filename. Include captions starts off for ordinary exports.</p>
+<p>Choose Cancel Export to stop. When Export complete appears, open the saved media at the chosen location. A completion sound plays when enabled in Settings &gt; General. macOS sends a notification with the filename when export notifications are allowed.</p>
+<h2>Choose a video format</h2>
+<ul>
+<li>MP4 for broad compatibility (H.264) suits a wide range of players.</li>
+<li>MP4 for smaller files (H.264) uses stronger compression and converts HDR to standard video automatically. For spatial recordings, choose High-quality Stereo.</li>
+<li>HEVC compresses video efficiently for compatible players.</li>
+<li>ProRes provides larger files suited to further editing.</li>
+</ul>
+<p>Video exports use the project’s dimensions and frame rate. Fit scales each complete source proportionally into that frame, filling unused space with black. Frame-rate conversion keeps clip speed and audio duration.</p>
+<p>Set the project format in File &gt; Project Settings. A 4K source in a 1080p project exports at 1080p; a 120 fps source in a 30 fps project exports at 30 fps.</p>
+<h2 id="hdr">Preserve HDR or export standard video</h2>
+<p>HDR retains a recording’s extended brightness and color. To export HDR:</p>
+<ol>
+<li>Turn on Preserve HDR in Settings &gt; Video.</li>
+<li>Choose a compatible HEVC or ProRes format in Export.</li>
+</ol>
+<p>HEVC HDR exports use 10-bit video with Dolby Vision metadata. ProRes retains HLG HDR. Supported HDR output includes video filters, transitions, and burned-in captions.</p>
+<p>For standard dynamic range, or SDR, turn Preserve HDR off. MP4 for smaller files (H.264) converts automatically for both projects and clips. Other H.264 exports from a standalone Cutting Board also convert automatically.</p>
+<p>Same as original keeps the source format for supported standalone clips. Picture quality also depends on source quality, filters, project dimensions, and the chosen codec.</p>
+<h2 id="audio-quality">Choose audio quality</h2>
+<table>
+<caption>Audio export formats</caption>
+<thead><tr><th scope="col">Format</th><th scope="col">Use</th></tr></thead>
+<tbody>
+<tr><th scope="row">Apple Lossless or FLAC</th><td>Lossless compression of the rendered audio.</td></tr>
+<tr><th scope="row">WAV, 24-bit</th><td>Uncompressed audio for further editing.</td></tr>
+<tr><th scope="row">WAV, 16-bit</th><td>Uncompressed audio for delivery requiring 16-bit samples.</td></tr>
+<tr><th scope="row">ProRes</th><td>Video with uncompressed 24-bit audio.</td></tr>
+<tr><th scope="row">M4A AAC, H.264, or HEVC</th><td>Compressed AAC audio for delivery.</td></tr>
+</tbody>
+</table>
+<p>Clip processing retains the source sample rate. A project mixes at the highest sample rate among its audio sources. Mixed project exports are stereo; standalone mono clips can remain mono.</p>
+<p>For an audio mix, press Command-E, choose Audio only from Export type, then select an audio format. The mix includes track levels, fades, master volume, and description ducking.</p>
+<h2 id="spatial-audio">Export iPhone Spatial Audio</h2>
+<ol>
+<li>Choose Export Project or Export Clip.</li>
+<li>Set Audio to Preserve Spatial Audio or High-quality Stereo.</li>
+<li>Choose a compatible Format, then export.</li>
+</ol>
+<p>Preserve Spatial Audio uses compatible QuickTime movies with spatial channels and a stereo playback alternative. Supported volume changes, mute, fades, Cross Fade, and Fade Out/In retain spatial sound.</p>
+<p>Ordered cuts from one recording with unchanged audio keep the original encoding. Combining recordings or applying supported audio changes uses uncompressed audio and produces larger files.</p>
+<p>Choose High-quality Stereo for other audio effects, voice adjustments, pan, balance, width, channel routing, ducking, or mixing spatial and ordinary audio. Preview uses stereo for those adjustments.</p>
+<p>Trimato remembers the Audio choice. Review the finished export in the intended player and output device.</p>
+<h2>Export a standalone clip</h2>
+<ol>
+<li>Open a clip with Trim a Clip in the welcome window.</li>
+<li>Edit it in Cutting Board. Set In and Out for a range, or clear both for the complete edit.</li>
+<li>Choose Export Clip or press Command-E.</li>
+<li>Enter a filename, choose a location and format, then choose Export.</li>
+</ol>
+<h2>Export captions</h2>
+<ol>
+<li>Choose Timeline &gt; Captions &gt; Finalize Captions for written passages and resolve any drafts.</li>
+<li>Choose Timeline &gt; Captions &gt; Export Captions.</li>
+<li>Choose WebVTT, SRT, or Plain Text, enter a filename, then choose Export.</li>
+</ol>
+<p>With project In and Out set, captions use that range and their exported times begin at zero. Clear both points for the complete caption track.</p>
+<p>Plain Text begins with the project title and places each caption in its own paragraph. WebVTT and SRT include cue times.</p>
+<h2>Export a frame</h2>
+<p>Place the project playhead on the frame, then press Command-Shift-P or choose File &gt; Export Frame. Choose Include captions if wanted, then Continue and save the PNG.</p>
+<p>The image uses the project’s full dimensions, picture edits, effects, and titles at the captured time. Color is converted to SDR.</p>
+<h2>Export web video</h2>
+<ol>
+<li>Place the playhead on the poster frame, within the export range.</li>
+<li>Press Command-Shift-E or choose File &gt; Export Web Video.</li>
+<li>Review Poster frame and Include captions. Choose the caption language when including captions.</li>
+<li>Choose Continue, select a destination folder, then choose Export.</li>
+</ol>
+<p>The Web Video folder contains video.mp4, poster.png, embed.txt, and captions.vtt when captions are included. A numbered folder is created when an earlier export has the same name.</p>
+<p>Upload the files to your site and paste the HTML from embed.txt into your page’s HTML editor. Adjust the file paths to match their uploaded locations. The player includes native controls, a poster, a download link, and the chosen caption track. Video uses H.264 MP4 and SDR color.</p>
+<p>Serve captions from the player’s website or configure cross-origin access for them. Review the published video, captions, and audio description in the browsers your audience uses.</p>
+<h2>YouTube chapters</h2>
+<ol>
+<li>Press Option-M in Editor to add a Chapter. Edit its title in the Markers track.</li>
+<li>Add at least three Chapters, starting at 00:00. Allow at least 10 seconds for each, including the last.</li>
+<li>In Export Project, keep Export YouTube Chapters checked.</li>
+<li>Open the chapters.txt companion file and paste its timestamps and titles into the video’s description in YouTube Studio.</li>
+</ol>
+<p>For a range export, chapter times begin at the exported movie’s start. A range beginning inside a Chapter uses that title at 00:00, followed by Chapters within the range.</p>
+<p>Correct any chapter timing identified during export, or clear Export YouTube Chapters to export the movie alone. Export Web Video can also save chapters.txt in its output folder.</p>
+<h2>Keep sources available</h2>
+<p>Project export reads original source files and applies the saved edits, mix, and project format. Keep every source used by the timeline available. Relink missing sources in Project Source before exporting.</p>
+<p>Choose an export filename distinct from source media. If conversion is needed, Trimato prepares temporary export media and removes it when export ends.</p>
+<p><a href="storage-and-temporary-media.html">Review project storage and temporary media.</a> <a href="troubleshooting.html">Resolve export problems.</a></p>
 </main>
-<footer><p><a href="troubleshooting.html">Related topic: Resolve common problems</a></p></footer>
 </body>
 </html>

@@ -7,68 +7,73 @@
     <link rel="stylesheet" href="trimato-help.css">
 </head>
 <body>
-<header><p><a href="index.html">Trimato Help</a></p></header>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
     <a name="trimato-clip-editor"></a>
 
     <h1>Edit a clip</h1>
-<p>While a clip opens, Preparing Clip reports percentages for frame indexing and playback proxy creation. Other preparation stages show an indeterminate indicator. VoiceOver announces Clip Ready when the editor is ready to use.</p>
+<p>Use Cutting Board to mark ranges, remove sections, and adjust an individual clip.</p>
 
     <h2>Open the Cutting Board</h2>
     <ul>
-        <li>Activate Trim a Clip in the Trimato welcome window, select one audio or video file in the Open dialog, and activate Open to begin a standalone edit without creating a project.</li>
+        <li>Choose Trim a Clip in the welcome window, select an audio or video file, then choose Open.</li>
         <li>Select a source clip and choose Open Cutting Board from Actions.</li>
-        <li>Activate a timeline clip or cutaway to open that instance in the Cutting Board.</li>
-        <li>Open an audio or video file with Trimato from Finder to use a standalone Cutting Board.</li>
+        <li>Choose a timeline clip or cutaway to open that instance in the Cutting Board.</li>
+        <li>With no project open, open an audio or video file with Trimato from Finder to edit it in a standalone Cutting Board. With a project open, the file is imported into that project.</li>
     </ul>
 
-    <p>Open a clip from Project Source to start with the full original audio or video and no In or Out points. Mark a range and append it to the timeline. When you close and reopen the source editor, those markers are cleared. Open a clip from Timeline Clips to restore that timeline instance’s saved range.</p>
+    <p>Open a source clip from Project Source to start with its complete audio or video. Mark a range and append it to the timeline. When you close and reopen the source editor, those markers are cleared. Open a clip from Timeline Clips to restore that timeline instance’s saved range.</p>
 
     <h2>Continue after a standalone edit</h2>
     <ul>
         <li>Close the standalone Cutting Board window to return to the Trimato welcome window.</li>
-        <li>Activate Create Project from Clip, choose File &gt; Create Project from Clip, or press Command-R to create a new project from the current edited ranges. Trimato closes the standalone editor and opens the new project workspace.</li>
+        <li>Choose Create Project from Clip, choose File &gt; Create Project from Clip, or press Command-R to create a new project from the current edited ranges. Trimato closes the standalone editor and opens the new project workspace.</li>
     </ul>
 
     <h2>Edit audio</h2>
     <p>Clips opened from Primary Audio or another audio track use the Audio Cutting Board, including audio taken from a movie. Open the movie in Project Source or its clip on a video track to edit video.</p>
-    <p>The audio Cutting Board provides a playhead slider. For a static waveform overview, turn on Show Audio Waveforms in Settings &gt; General. Waveforms start off. Use the playhead, timecode, markers, playback controls, and edit commands. Left Arrow and Right Arrow move in 1/30-second steps and play a short audio preview. Shift-Left Arrow and Shift-Right Arrow jump ten steps. Home and End jump to the start and end of the Cutting Board timeline; Fn-Left Arrow and Fn-Right Arrow provide the same commands.</p>
+    <p>Use the Clip playhead slider to choose a position. Left Arrow and Right Arrow move in 1/30-second steps and play a short audio preview. Shift-Left Arrow and Shift-Right Arrow move ten steps. Home and End move to the edit’s boundaries; Fn-Left Arrow and Fn-Right Arrow provide the same commands.</p>
+    <p>Turn on Show Audio Waveforms in Settings &gt; General to display an audio overview.</p>
+
+    <h2>Mark a range</h2>
+    <p>Move the playhead to the range’s start and press I. Move to its end and press O. Option-I clears In; Option-O clears Out.</p>
 
     <h2>Delete or trim material</h2>
     <ul>
-        <li>Activate Delete Selection or press Delete to remove the marked section.</li>
+        <li>Choose Delete Selection or press Delete to remove the marked section.</li>
         <li>Choose Edit &gt; Trim Start to Playhead or press Command-[ to remove material before the playhead.</li>
         <li>Choose Edit &gt; Trim End from Playhead or press Command-] to remove material after the playhead.</li>
     </ul>
 
     <h2>Update an existing edit</h2>
-    <p>When editing a timeline clip or cutaway from a project, activate Update Clip to apply the current edit to that timeline item.</p>
+    <p>When editing a timeline clip or cutaway from a project, choose Update Clip to apply the current edit to that timeline item.</p>
 
     <h2>Add the edit to the project</h2>
-    <p>Use Append to Timeline, Insert and Split, or Insert and Replace with audio or video. Video clips also provide Insert on Top because a cutaway supplies picture. If both In and Out points are set, the placement uses that marked section. Otherwise, it uses the complete current edit.</p>
-    <p>Activate the timecode button immediately after the playhead slider and before Playback to open Jump to Time. Enter a frame number when Frames is selected in Settings, or enter hours, minutes, and seconds for other formats. Jump moves the playhead and focuses it. Cancel returns focus to the timecode button.</p>
+    <p>Use Append to Timeline, Insert and Split, or Insert and Replace with audio or video. Use Insert on Top to layer a video clip above the project picture. If both In and Out points are set, the placement uses that marked section. Otherwise, it uses the complete current edit.</p>
+    <p>Choose the timecode button immediately after the playhead slider and before Playback to open Jump to Time. Enter a frame number when Frames is selected in Settings, or enter hours, minutes, and seconds for other formats. Jump moves the playhead and focuses it. Cancel returns focus to the timecode button.</p>
     <p>Playback normally continues beyond your In and Out points. Select Play In–Out Range in Playback to audition only the marked section. Clear either point with Option-I or Option-O, including immediately after appending a clip with E.</p>
-    <p>When a video clip contains audio, use the Audio Only menu to append its audio to a track, insert it at the project playhead, or insert and replace. Add Audio Only to Track lists audio tracks and can create a named audio track. These commands add sound without adding picture.</p>
+    <p>When a video clip contains audio, use the Audio Only menu to append its audio to a track, insert it at the project playhead, or insert and replace. Add Audio Only to Track lists audio tracks and can create a named audio track. The new clip is placed on an audio track.</p>
     <p>Use New Track from Video or New Track from Audio to create a named track and append the current edit. The same commands are available from a source clip's Actions menu and context menu in Project Source.</p>
     <p>Press Option-E to open Add to Track. Choose a track, then choose Append to Selected Track. To create a track, enter a New Track Name and choose Create Audio Track and Append or Create Video Track and Append.</p>
 
     <h2>Adjust recorded narration</h2>
-    <p>Audio Description and Voicer recordings have a Voice tab. Set the dialogue reference In and Out times, audition it with Play reference, and choose Match voice loudness to Primary Audio. Matching adjusts loudness, not microphone tone or room sound. Use Even out voice with Smoothing amount to reduce differences between louder and quieter words. Voice level adjusts the overall level. Play with Primary Audio previews the draft at its project position, including description ducking.</p>
-    <p>Choose Update Clip to apply the draft to this clip. Apply voice settings to the named track changes the voice settings of existing recorded clips on that track. Other filters and clip edits are preserved. See <a href="recording.html">Record with Voicer and Describer</a> for the recording workflow.</p>
-    <p>Add Filter also offers Match voice loudness to Primary Audio and Even out voice for recorded AD and Voicer clips. Match voice loudness to Primary Audio includes the dialogue-reference controls. Choose Add to keep the adjustment in the clip draft. Use Play preview and the Bypass filter switch to compare the draft before choosing Add or Apply. Play with Primary Audio includes the surrounding project audio. Stop preview ends playback; Cancel leaves the draft unchanged. Both adjustments appear in Applied Filters, where their context menus offer Enable Filter or Disable Filter, Edit Filter, and Remove Filter. Disabling an adjustment preserves its settings.</p>
+    <p>For Audio Description and Voicer recordings, open the Voice tab to match loudness, even out levels, or adjust Voice level. Play with Primary Audio reviews the draft in context. Choose Update Clip to save it, or Apply voice settings to the named track to update existing narration on that track. <a href="recording.html">Adjust recorded narration.</a></p>
+
+    <p>Add Filter also offers Match voice loudness to Primary Audio and Even out voice for recorded narration. Use Play preview and Bypass filter to compare the adjustment, then choose Add or Apply. Manage these adjustments in Applied Filters.</p>
     <h2>Adjust the equalizer</h2>
-    <p>The Equalizer section appears before the Filters heading, Add Filter, and the Applied Filters list. The list remains present when empty. Adjust Bass, Midrange, and Treble, or choose Flat, Warmer voice, Clearer speech, or Less bass from EQ presets. Reduce low rumble and Reduce high-frequency hiss reveal their cutoff sliders when enabled. Gain is available in the Audio tab. These controls update the clip draft for playback. Choose Update Clip to keep the changes in the project.</p>
-    <p>After playback reaches Out, press Play or Space to play again from In. Pausing partway through resumes from the paused position.</p>
-    <p>If playback needs updated audio, Preparing updated preview appears with Cancel preparation. Playback begins when the latest settings are ready. Update Clip and placement actions remain available while a preview is prepared. Cancelling Add Filter discards its draft and returns to the editor.</p>
+    <p>Use Bass, Midrange, and Treble, or choose an EQ preset: Flat, Warmer voice, Clearer speech, or Less bass. Reduce low rumble and Reduce high-frequency hiss reveal cutoff sliders. Gain is in the Audio tab. Choose Update Clip to save the adjustments.</p>
+    <p>With Play In–Out Range enabled, reaching Out ends playback. Press Play or Space to start again from In. Pausing within the range resumes from the paused position.</p>
+    <p>If playback needs updated audio, Preparing updated preview appears with Cancel preparation. Playback begins when the latest settings are ready. </p>
     <h2>Apply clip filters</h2>
     <p>Match Loudness adjusts the retained edit toward your chosen Playback loudness. It keeps the result quieter if reaching that target would exceed the selected Peak ceiling. Later effects, clip volume, and track mixing can change the final level. Use Limit loud peaks to limit the clip after its other filters, and listen to the complete mix before exporting.</p>
-    <p>Video choices are Brightness and Contrast, Color Adjustment, Black and White, Bleach Bypass, Technicolor, Sharpen, Reduce Video Noise, and Crop and Orientation. Audio choices are Reduce Background Noise, Even Out Volume, Match Loudness, Reverb, Plate Reverb, Echo, Soften harsh S sounds, and Limit loud peaks. Reverb offers small, medium, and large rooms with an Amount slider. Plate Reverb provides Amount, Reverb length in seconds, and Brightness. Reverb, Plate Reverb, and Echo stop at the clip’s Out point. See <a href="filters.html">Add and adjust clip filters</a> for the controls.</p>
-    <p>Open a filter’s context menu and choose Edit Filter to change it, Enable Filter or Disable Filter to switch its effect on or off, or Remove Filter to remove it. Use Reset in the filter editor to restore its starting values. A disabled filter remains in the list but does not change the clip.</p>
+    <p>Choose Add Filter to select and adjust an effect. Preview the edited clip, then choose Update Clip to save a timeline instance. <a href="filters.html">Choose and adjust clip filters.</a></p>
+    <p>Open a filter’s context menu and choose Edit Filter to change it, Enable Filter or Disable Filter to switch its effect on or off, or Remove Filter to remove it. Use Reset in the filter editor to restore its starting values. Enable Filter restores a disabled filter with its saved settings.</p>
     <h2>Trim silences</h2>
     <p>Use Trim Silences in Audio Cutting Board or Video Cutting Board to shorten pauses. See <a href="trim-silences.html">Trim silences from a clip.</a></p>
     <h2>Export</h2>
     <p>The Export section at the bottom contains Export Clip, Update Clip, and Add to Timeline. Export Clip saves a separate media file. Update Clip saves edits to the timeline clip and appears when editing a timeline clip. Add to Timeline places the edited media in the project.</p>
+<p><a href="voiceover.html">Use playback and editing keys with VoiceOver.</a></p>
 </main>
-<footer><p><a href="playback-and-markers.html">Related topic: Control playback and use In and Out points</a></p></footer>
+<footer><p><a href="playback-and-markers.html">Related topic: Control playback and use In and Out points.</a></p></footer>
 </body>
 </html>

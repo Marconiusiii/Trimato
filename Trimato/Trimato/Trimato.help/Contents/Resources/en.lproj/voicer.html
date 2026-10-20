@@ -8,33 +8,34 @@
 <body>
 <header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
-    <a name="trimato-voicer"></a>
-    <h1>Voicer</h1>
-    <p>Use the Recording tab to edit recording details and the Voice Adjustments tab to adjust the voice. Project playback, recording, take playback, and the final actions remain available in either tab. Help is the last control in the pane.</p>
-    <p>When you first open Describer or Voicer, allow microphone access in the macOS permission request. If access was denied, allow Trimato in System Settings &gt; Privacy &amp; Security &gt; Microphone. Choose a microphone and playback device in Settings &gt; Audio. Use Record Test and Play Test to check the recording.</p>
-    <p>Choose System Default to use the current macOS input or playback device, or select a specific device. Input and playback can use different devices. Choose the input channel for a multi-channel interface. Recordings retain the input sample rate and use the selected recording quality.</p>
-
-    <p>Voicer opens in the full-height tool pane on the right. Press Command-4 to move keyboard and VoiceOver focus into it. Escape or Command-W closes the pane; unfinished changes require a discard decision. The main Editor shows the video while you record or use Play with Primary Audio. Project time shows the current position in the project during preview or recording. Choose Play Project from Insertion Point to play the project from the Insert at time through the end, without the new take. Choose Stop Playback to stop.</p>
-    <ol>
-        <li>Move the Editor playhead to the insertion point and press Shift-Command-V.</li>
-        <li>Set the clip name and insertion time.</li>
-        <li>Turn Record on and begin speaking after the start cue. Turn Record off to finish; the stop cue sounds before the microphone is released.</li>
-        <li>Use Play Take to hear the recording alone or Play with Primary Audio to hear it at the insertion point with the project audio.</li>
-        <li>Choose Add to Project. The take becomes an audio clip on a Voice Over track, and the tool pane closes.</li>
-    </ol>
-    <p>Open the clip in Audio Cutting Board to edit it. Move or trim it with the usual timeline controls. Overlapping takes use separate tracks.</p>
-    <h2>Keep recordings at their assigned times</h2>
-    <p>Each Voice Over recording starts at its requested project time. New recordings use a track with Magnetic off. If a previous recording track has been made magnetic, the new take uses an available absolute track or creates one. Overlapping takes use separate tracks.</p>
-    <p>With Magnetic off, replacing, trimming, deleting, or moving one recording leaves the other recordings at their assigned times. Enabling Magnetic in Timeline asks for confirmation before moving the first clip to zero and packing the rest together without gaps. One Undo restores the setting and exact original positions. <a href="timeline-editing.html">Learn about Magnetic and Move To Playhead.</a></p>
-    <h2>Adjust a recorded voice</h2>
-    <p>Select the Voice Adjustments tab in Describer or Voicer to adjust the recorded voice. Recording and take playback controls remain available below the tabs. Set Dialogue reference In and Dialogue reference Out to a passage of clear Primary Audio dialogue. These fields are separate from the recording markers. Use Play reference to hear the passage, then choose Match voice loudness to Primary Audio. Several seconds of dialogue give a more useful reference than a brief word. Added narration is excluded from the reference.</p>
-    <p>Turn on Even out voice to reduce differences between louder and quieter words. Adjust Voice level to raise or lower the result. Use Play Take or Play with Primary Audio to hear the adjustments. Remove match removes loudness matching; Reset voice adjustments also turns off voice leveling and resets Voice level.</p>
-    <p>Choose Apply voice settings to the named track to adjust its existing recorded clips. Each clip is measured separately. Add to Project saves the current take with its voice adjustments. The original recording is kept, and the adjustments are used for project playback and export.</p>
-    <p>For recordings already in the project, open the audio clip in Audio Cutting Board and select its Voice tab. Use Update Clip to keep changes to that clip, or Apply voice settings to the named track to update existing narration on that track. Undo reverses an applied change.</p>
-    <h2>Save and export</h2>
-    <p>Save the project before adding a recording. Accepted recordings are stored in the Recordings folder alongside the Trimato project. Keep that folder with the project when moving or copying it. Cancel discards the current unsaved take.</p>
-    <p>If Choose Project Media Folder opens, select the folder containing the saved Trimato project, then choose Choose Folder. This can be needed after Save As to a different location.</p>
-    <p>Choose Timeline &gt; Export Description Transcript to export the text separately. During project export, select Export description transcript (WebVTT) to write a timed description file alongside the exported media. Caption export remains a separate choice. Description text never appears on the video.</p>
+<a name="trimato-voicer"></a>
+<h1>Voicer</h1>
+<p>Add narration at a chosen position in the project.</p>
+<h2>Record a take</h2>
+<ol>
+<li>Move the Editor playhead to the insertion point and press Command-Shift-V.</li>
+<li>In Recording, set the clip name and Insert at time.</li>
+<li>Turn Record on and speak after the start cue. Turn Record off to finish.</li>
+<li>Choose Play Take to review the recording alone, or Play with Primary Audio to hear it in context.</li>
+<li>Choose Add to Project to place the take on a Voice Over track.</li>
+</ol>
+<p>The main Editor shows the video. Project time gives the current position during project playback and recording.</p>
+<p>Play Project from Insertion Point reviews existing project audio from Insert at through the end. Choose Stop Playback to stop.</p>
+<p>Set your microphone, input channel, recording quality, and playback device in Settings &gt; Audio. Use Record Test and Play Test to check the setup. <a href="settings-audio.html">Set up recording input and playback.</a></p>
+<h2>Place recordings</h2>
+<p>Each take starts at Insert at on a track with Magnetic off. Overlapping takes use separate tracks. If an earlier recording track is magnetic, Trimato uses another available absolute track or creates one.</p>
+<p>Open a saved recording in Audio Cutting Board to trim it. <a href="timeline-editing.html">Manage track timing and Magnetic.</a></p>
+<h2>Adjust the voice</h2>
+<p>Select Voice Adjustments. Set Dialogue reference In and Dialogue reference Out around several seconds of clear Primary Audio dialogue. Choose Play reference, then Match voice loudness to Primary Audio.</p>
+<p>Even out voice reduces differences between louder and quieter words. Voice level adjusts the overall level. Use Play Take or Play with Primary Audio to review the result.</p>
+<p>Remove match removes loudness matching. Reset voice adjustments clears matching, turns off leveling, and resets Voice level.</p>
+<p>Apply voice settings to the named track updates existing recordings on that track, measuring each clip separately. Add to Project saves the current take with its voice adjustments.</p>
+<p>To adjust a recording already in the project, open it in Audio Cutting Board and use its Voice tab. Choose Update Clip to save changes to that clip.</p>
+<h2>Save and close</h2>
+<p>Save the project before adding a recording. Accepted takes are stored in Recordings beside the project. Keep this folder with the project when moving or copying it.</p>
+<p>If Choose Project Media Folder opens, select the folder containing the saved project and choose Choose Folder.</p>
+<p>Choose Cancel, Escape, or Command-W to close the tool. If a draft is unfinished, choose whether to discard it or continue editing. Cancel discards the current unsaved take.</p>
+<p><a href="recording.html">Record with Voicer and Describer.</a></p>
 </main>
 </body>
 </html>

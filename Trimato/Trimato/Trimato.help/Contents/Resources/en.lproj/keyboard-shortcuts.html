@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="trimato-help.css">
 </head>
 <body>
-<header><p><a href="index.html">Trimato Help</a></p></header>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
     <h1>Keyboard shortcuts</h1>
 
@@ -15,10 +15,10 @@
     <table>
         <thead><tr><th scope="col">Shortcut</th><th scope="col">Command</th></tr></thead>
         <tbody>
-            <tr><td><kbd>Command-1</kbd></td><td>Move keyboard and VoiceOver focus to Project Source</td></tr>
-            <tr><td><kbd>Command-2</kbd></td><td>Move keyboard and VoiceOver focus to Editor</td></tr>
-            <tr><td><kbd>Command-3</kbd></td><td>Move keyboard and VoiceOver focus to Timeline</td></tr>
-            <tr><td><kbd>Command-4</kbd></td><td>Move keyboard and VoiceOver focus to the open tool pane</td></tr>
+            <tr><td><kbd>Command-1</kbd></td><td>Move focus to Project Source</td></tr>
+            <tr><td><kbd>Command-2</kbd></td><td>Move focus to Editor</td></tr>
+            <tr><td><kbd>Command-3</kbd></td><td>Move focus to Timeline</td></tr>
+            <tr><td><kbd>Command-4</kbd></td><td>Move focus to the open tool pane</td></tr>
             <tr><td><kbd>Command-L</kbd></td><td>Switch between portrait and landscape layouts</td></tr>
             <tr><td><kbd>Escape</kbd> or <kbd>Command-W</kbd></td><td>Close the open tool pane; unfinished changes require a discard decision</td></tr>
         </tbody>
@@ -36,8 +36,8 @@
             <tr><td><kbd>Right Arrow</kbd></td><td>Move forward one frame</td></tr>
             <tr><td><kbd>Shift-Left Arrow</kbd></td><td>Move backward ten frames; hold to repeat ten-frame jumps</td></tr>
             <tr><td><kbd>Shift-Right Arrow</kbd></td><td>Move forward ten frames; hold to repeat ten-frame jumps</td></tr>
-            <tr><td><kbd>Command-Left Arrow</kbd></td><td>Previous marker or edit point, announcing the clip name, caption text, or marker name</td></tr>
-            <tr><td><kbd>Command-Right Arrow</kbd></td><td>Next marker or edit point, announcing the clip name, caption text, or marker name</td></tr>
+            <tr><td><kbd>Command-Left Arrow</kbd></td><td>Previous marker or edit point on the active track</td></tr>
+            <tr><td><kbd>Command-Right Arrow</kbd></td><td>Next marker or edit point on the active track</td></tr>
             <tr><td><kbd>Home</kbd>, <kbd>Fn-Left Arrow</kbd>, or <kbd>Command-Up Arrow</kbd></td><td>Go to timeline start</td></tr>
             <tr><td><kbd>End</kbd>, <kbd>Fn-Right Arrow</kbd>, or <kbd>Command-Down Arrow</kbd></td><td>Go to timeline end</td></tr>
             <tr><td><kbd>T</kbd></td><td>Hear the current time in Editor, Mixer, or Cutting Board</td></tr>
@@ -72,29 +72,29 @@
             <tr><td><kbd>Command-Z</kbd></td><td>Undo the last edit or the complete pickup-and-drop move</td></tr>
             <tr><td><kbd>Command-B</kbd></td><td>Blade at the project playhead</td></tr>
             <tr><td><kbd>Command-T</kbd></td><td>Open Transitions at a shared edit in Editor or for the focused Timeline Clips item</td></tr>
-            <tr><td><kbd>Shift-Command-D</kbd></td><td>Open Describer</td></tr>
-            <tr><td><kbd>Shift-Command-V</kbd></td><td>Open Voicer at the Editor playhead</td></tr>
-            <tr><td><kbd>Shift-Command-C</kbd></td><td>Open New Caption for the project In and Out points</td></tr>
+            <tr><td><kbd>Command-Shift-D</kbd></td><td>Open Describer</td></tr>
+            <tr><td><kbd>Command-Shift-V</kbd></td><td>Open Voicer at the Editor playhead</td></tr>
+            <tr><td><kbd>Command-Shift-C</kbd></td><td>Open New Caption for the project In and Out points</td></tr>
             <tr><td><kbd>Command-[</kbd></td><td>While focus is in Editor, trim the start of the active track's announced clip to the shared project playhead</td></tr>
             <tr><td><kbd>Command-]</kbd></td><td>While focus is in Editor, trim the end of the active track's announced clip to the shared project playhead; when a Timeline clip is focused, trim that focused clip's end instead</td></tr>
-            <tr><td><kbd>[</kbd></td><td>While focus is in Editor, move the active additional-track clip with Magnetic off so its head begins at the shared project playhead without trimming its stored source</td></tr>
-            <tr><td><kbd>]</kbd></td><td>While focus is in Editor, move the active additional-track clip with Magnetic off so its tail ends at the shared project playhead without trimming its stored source; source positioned before project time zero is hidden non-destructively</td></tr>
+            <tr><td><kbd>[</kbd></td><td>While focus is in Editor, move the active additional-track clip with Magnetic off so its head begins at the shared project playhead as a placement adjustment</td></tr>
+            <tr><td><kbd>]</kbd></td><td>While focus is in Editor, move the active additional-track clip with Magnetic off so its tail ends at the shared project playhead as a placement adjustment; playback begins at project time zero</td></tr>
             <tr><td><kbd>C</kbd></td><td>Open Cutting Board for the active-track clip at or immediately after the Editor playhead</td></tr>
             <tr><td><kbd>Command-C</kbd></td><td>Copy the focused Timeline clip</td></tr>
             <tr><td><kbd>Command-V</kbd></td><td>Paste a copy after the focused Timeline clip</td></tr>
             <tr><td><kbd>Command-Option-V</kbd></td><td>Move the clip selected for moving, or the copied clip, after the focused Timeline clip</td></tr>
             <tr><td><kbd>Control-Enter</kbd></td><td>Open the focused item's context menu in Timeline Clips or Project Source</td></tr>
-            <tr><td><kbd>Option-Command-Up Arrow</kbd></td><td>Select the previous timeline track and announce its direct-edit clip</td></tr>
-            <tr><td><kbd>Option-Command-Down Arrow</kbd></td><td>Select the next timeline track and announce its direct-edit clip</td></tr>
-            <tr><td><kbd>Option-Command-Left Arrow</kbd></td><td>Move the focused clip one position earlier on a magnetic track, or nudge it one frame earlier on an additional track with Magnetic off; if a clip is picked up, adjust that clip instead</td></tr>
-            <tr><td><kbd>Option-Command-Right Arrow</kbd></td><td>Move the focused clip one position later on a magnetic track, or nudge it one frame later on an additional track with Magnetic off; if a clip is picked up, adjust that clip instead</td></tr>
+            <tr><td><kbd>Command-Option-Up Arrow</kbd></td><td>Select the previous timeline track</td></tr>
+            <tr><td><kbd>Command-Option-Down Arrow</kbd></td><td>Select the next timeline track</td></tr>
+            <tr><td><kbd>Command-Option-Left Arrow</kbd></td><td>Move the focused clip one position earlier on a magnetic track, or nudge it one frame earlier on an additional track with Magnetic off; if a clip is picked up, adjust that clip instead</td></tr>
+            <tr><td><kbd>Command-Option-Right Arrow</kbd></td><td>Move the focused clip one position later on a magnetic track, or nudge it one frame later on an additional track with Magnetic off; if a clip is picked up, adjust that clip instead</td></tr>
             <tr><td><kbd>X</kbd></td><td>Open Quick Cross Dissolve or Quick Cross Fade in the Tool pane for the edit at the Editor playhead</td></tr>
             <tr><td><kbd>F</kbd></td><td>Open Quick Fade in the Tool pane at the Editor playhead</td></tr>
         </tbody>
     </table>
 
-    <p>Finalize written caption passages with Timeline &gt; Captions &gt; Finalize Captions. This command does not have a keyboard shortcut.</p>
-    <p>Additional-track nudges use the project frame rate, or 30 fps if it is not defined. Nudges cannot overlap or cross a neighboring clip. Current identifies the clip under the playhead; Selected identifies a picked-up clip. VO-Arrow navigation does not pick up or move clips. <a href="timeline-editing.html">Read the movement and track-muting workflows.</a></p>
+    <p>Finalize written caption passages with Timeline &gt; Captions &gt; Finalize Captions. </p>
+    <p>Additional-track nudges use the project frame rate. Leave enough space between neighboring clips for the move. Current identifies the clip under the playhead; Selected identifies a picked-up clip. <a href="timeline-editing.html">Review clip movement.</a></p>
 
     <h2>Place a clip</h2>
     <p>Append, Insert and Split, and Insert and Replace accept audio or video. Insert on Top requires a video source.</p>
@@ -114,15 +114,15 @@
         <thead><tr><th scope="col">Shortcut</th><th scope="col">Command</th></tr></thead>
         <tbody>
             <tr><td><kbd>Command-S</kbd></td><td>Save project</td></tr>
-            <tr><td><kbd>Shift-Command-S</kbd></td><td>Save project as</td></tr>
-            <tr><td><kbd>Shift-Command-I</kbd></td><td>Import media or an SRT or WebVTT caption file</td></tr>
+            <tr><td><kbd>Command-Shift-S</kbd></td><td>Save project as</td></tr>
+            <tr><td><kbd>Command-Shift-I</kbd></td><td>Import media or an SRT or WebVTT caption file</td></tr>
             <tr><td><kbd>Command-R</kbd></td><td>Create a project from the current standalone clip edit</td></tr>
             <tr><td><kbd>Command-E</kbd></td><td>Export the active project or standalone clip</td></tr>
-            <tr><td><kbd>Shift-Command-W</kbd></td><td>Close project</td></tr>
+            <tr><td><kbd>Command-Shift-W</kbd></td><td>Close project</td></tr>
         </tbody>
     </table>
     <h2>Generators</h2>
-    <p>Command-G opens Generator from the project Editor. The Timeline menu provides the same command.</p>
+    <p>G opens Generator from the project Editor. The Timeline menu provides the same command.</p>
     <h2>Mixer</h2>
     <ul>
         <li>Command-Shift-M: Open the Mixer window or bring it forward.</li>
@@ -135,16 +135,16 @@
     <table>
         <thead><tr><th scope="col">Shortcut</th><th scope="col">Command</th></tr></thead>
         <tbody>
-            <tr><td><kbd>M</kbd></td><td>Create an absolute marker at the project playhead without stopping playback</td></tr>
-            <tr><td><kbd>Option-M</kbd></td><td>Create a Chapter at the project playhead without stopping playback</td></tr>
+            <tr><td><kbd>M</kbd></td><td>Create an absolute marker at the project playhead during playback</td></tr>
+            <tr><td><kbd>Option-M</kbd></td><td>Create a Chapter at the project playhead during playback</td></tr>
             <tr><td><kbd>;</kbd> and <kbd>'</kbd></td><td>Go to the previous and next edit points, matching Command-Left Arrow and Command-Right Arrow</td></tr>
             <tr><td><kbd>Enter</kbd></td><td>Edit the marker at the playhead on the Markers track, or the focused marker in Timeline Clips</td></tr>
             <tr><td><kbd>Delete</kbd></td><td>Remove the targeted marker on the Markers track</td></tr>
-            <tr><td><kbd>Shift-Command-E</kbd></td><td>Export Web Video using the playhead for its poster</td></tr>
-            <tr><td><kbd>Shift-Command-P</kbd></td><td>Export the playhead frame as PNG</td></tr>
+            <tr><td><kbd>Command-Shift-E</kbd></td><td>Export Web Video using the playhead for its poster</td></tr>
+            <tr><td><kbd>Command-Shift-P</kbd></td><td>Export the playhead frame as PNG</td></tr>
         </tbody>
     </table>
 </main>
-<footer><p><a href="playback-and-markers.html">Related topic: Control playback and use In and Out points</a></p></footer>
+<footer><p><a href="playback-and-markers.html">Related topic: Control playback and use In and Out points.</a></p></footer>
 </body>
 </html>

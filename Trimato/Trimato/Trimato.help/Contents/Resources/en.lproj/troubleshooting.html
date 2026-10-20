@@ -7,72 +7,46 @@
     <link rel="stylesheet" href="trimato-help.css">
 </head>
 <body>
-<header><p><a href="index.html">Trimato Help</a></p></header>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
-    <h1>Resolve common problems</h1>
 
-    <h2>A clip is offline</h2>
-    <ol>
-        <li>Select the source clip in Project.</li>
-        <li>Choose Relink Clip from Actions.</li>
-        <li>Select the source file and activate Open.</li>
-    </ol>
-
-    <h2>Export Project is unavailable</h2>
-    <ul>
-        <li>Add at least one clip to the timeline.</li>
-        <li>Set both In and Out points with In earlier than Out, or clear both points.</li>
-        <li>Wait for the current export to finish or cancel it.</li>
-    </ul>
-
-    <h2>Project Settings does not accept a custom format</h2>
-    <ul>
-        <li>Enter even width and height values from 2 through 8,192 pixels.</li>
-        <li>Enter a frame rate from 1 through 240 frames per second. Standard fractional rates such as 23.976 and 29.97 are allowed.</li>
-        <li>Use Automatic from First Clip if the first primary timeline clip should establish the project format.</li>
-    </ul>
-
-    <h2>A clip has black space around it</h2>
-    <p>Trimato uses proportional Fit so the complete source remains visible without stretching or automatic cropping. A vertical or narrower source in a landscape project is pillarboxed on the left and right. A wider source is letterboxed above and below. Select the clip and press Command-I to read Project Fit for its project conversion.</p>
-
-    <h2>Project preview is unavailable</h2>
-    <p>Choose Show Preview Error to open the error sheet and read the full explanation. Choose Retry Preview after correcting the problem, or Close to return to editing. If a transition caused the failure, Remove Transition is also available. A preview failure while opening a project appears after preparation finishes.</p>
-
-    <h2>A project cannot export offline media</h2>
-    <p>A playback proxy is not a replacement or backup for its original source. Relink every offline source used by the timeline, then choose Export Project again.</p>
-
-    <h2>Exported iPhone audio sounds less spacious</h2>
-    <p>Choose Preserve Spatial Audio in Export, then compare the movie with its originals in the same playback app and on the same output device. Some players use the included stereo alternative. High-quality Stereo intentionally produces a stereo mix. Export explains when an effect or source format requires stereo. <a href="saving-and-exporting.html#spatial-audio">Read about audio export choices.</a></p>
-
-    <h2>HDR export or H.264 is unavailable</h2>
-    <p>Choose HEVC or ProRes to retain HDR brightness and color. For a smaller standard-video file, choose MP4 for smaller files (H.264); it converts HDR automatically for clips and projects. Trim a Clip also converts HDR automatically for other H.264 formats. For other project formats that require standard video, turn Preserve HDR off in Settings &gt; Video. If a required source conversion cannot retain HDR, Trimato reports the problem rather than exporting an SDR playback proxy as HDR. <a href="saving-and-exporting.html#hdr">Review HDR export settings.</a></p>
-
-    <h2>Blade at playhead is unavailable</h2>
-    <p>Move the project playhead inside a timeline clip, away from its beginning or end, then activate Blade at playhead again.</p>
-
-    <h2>Clip Could Not Be Trimmed appears</h2>
-    <p>Command-[ and Command-] require the shared project playhead to be inside the announced direct-edit clip, away from its beginning and end. Use Command-Option-Up Arrow or Command-Option-Down Arrow from Editor to confirm the active track and clip, move the playhead inside that clip, then try the trim again. The dialog is named Clip Could Not Be Trimmed and explains whether the start or end could not be changed.</p>
-
-    <h2>A cutaway cannot be added</h2>
-    <ul>
-        <li>Move the project playhead so the complete cutaway fits before the project end.</li>
-        <li>Choose a position that does not overlap another cutaway.</li>
-    </ul>
-
-    <h2>Clear cached media</h2>
-    <p>Playback proxies are compatible editing copies created only when macOS cannot play an original directly. Settings reports these proxies along with cached frame indexes and audio waveforms.</p>
-    <ol>
-        <li>Open Trimato Settings.</li>
-        <li>Read Storage used and Cache files in Media cache storage.</li>
-        <li>Activate Refresh storage usage if you want Trimato to read the folder again.</li>
-        <li>Activate Clear cache not used recently to remove analysis and proxies not used in the last seven days, or activate Clear all cached media to remove analysis and unneeded proxies. Active preparation and proxies needed by open projects or editors are kept.</li>
-        <li>Confirm the action.</li>
-    </ol>
-    <p>These commands leave original media, Trimato projects, completed exports, and temporary renders unchanged. Trimato recreates a cleared proxy when it is next needed, provided the original remains available. <a href="storage-and-temporary-media.html">Learn more about playback proxies and temporary renders.</a></p>
-
-    <h2>Report a problem</h2>
-    <p>Include the Trimato version, macOS version, media file type, assistive technology, selected item, focused control, command used, expected result, and actual result.</p>
+<h1>Resolve common problems</h1>
+<h2>Relink an offline source</h2>
+<ol>
+<li>Select the source in Project Source.</li>
+<li>Choose Relink Media from Actions or its context menu.</li>
+<li>Select the source file and choose Open.</li>
+</ol>
+<p>Project export requires every source used by the timeline. Relink missing sources before exporting.</p>
+<h2>Enable Export Project</h2>
+<ul>
+<li>Add at least one clip to the timeline.</li>
+<li>Set In before Out, or clear both points for the full project.</li>
+<li>Finish or cancel an export already running.</li>
+</ul>
+<h2>Correct a custom project format</h2>
+<p>Enter even Width and Height values from 2 through 8,192 pixels and a Frame rate from 1 through 240 fps. Fractional frame rates such as 23.976 and 29.97 are accepted.</p>
+<p>Choose Automatic from First Clip to use the first video placed on the primary timeline as the project format.</p>
+<h2>Review black space around a clip</h2>
+<p>Fit scales the complete source proportionally into the project frame. Narrower sources have black space at the sides; wider sources have black space above and below. Focus the clip and press Command-I to review Project Fit.</p>
+<h2>Recover a project preview</h2>
+<p>Choose Show Preview Error and read the reported problem. After correcting it, choose Retry Preview. If a transition caused the failure, Remove Transition is also available.</p>
+<h2>Review Spatial Audio output</h2>
+<p>Choose Preserve Spatial Audio and a compatible QuickTime format in Export. Compare the result with the original in the same player and on the same output device. Players can use the included stereo alternative.</p>
+<p>For a stereo mix including other audio processing, choose High-quality Stereo. <a href="saving-and-exporting.html#spatial-audio">Review Spatial Audio choices.</a></p>
+<h2>Choose HDR or standard video</h2>
+<p>To retain HDR, turn on Preserve HDR in Settings &gt; Video and choose HEVC or ProRes. MP4 for smaller files (H.264) converts HDR to standard video automatically for projects and clips.</p>
+<p>Other H.264 exports from Trim a Clip convert automatically. For other project formats requiring SDR, turn Preserve HDR off. <a href="saving-and-exporting.html#hdr">Review HDR export settings.</a></p>
+<h2>Split or trim a clip</h2>
+<p>To use Blade at Playhead, move the project playhead inside a clip, away from its start and end, then press Command-B.</p>
+<p>If Clip Could Not Be Trimmed appears, select the intended track with Command-Option-Up Arrow or Command-Option-Down Arrow in Editor. Move the playhead inside the targeted clip, then use Command-[ for its start or Command-] for its end.</p>
+<h2>Place a cutaway</h2>
+<p>Choose a position with enough space for the complete cutaway before the project end and between other cutaways.</p>
+<h2>Clear cached media</h2>
+<p>Choose Settings &gt; Storage to review usage and choose a cleanup command. Confirm the cleanup. Trimato recreates cleared analysis and playback proxies from the original media when needed.</p>
+<p><a href="settings-storage.html">Review cache cleanup options.</a></p>
+<h2>Report a problem</h2>
+<p>Include the Trimato and macOS versions, media type, steps leading to the problem, expected result, and actual result. Identify the control or command involved. For an issue with assistive technology, include its name and relevant settings.</p>
 </main>
-<footer><p><a href="index.html">Return to Trimato Help</a></p></footer>
 </body>
 </html>

@@ -8,25 +8,43 @@
 <body>
 <header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
-    <a name="trimato-generator"></a>
-    <h1>Create generated clips</h1>
-    <p>Choose a Generator, set its duration, and choose the destination track. The destination playhead shows where insertion will begin.</p>
-    <p>Generator opens in the Tool pane beside the Editor. Press G while working in the Editor to open it, or press Command-4 to return to the open tool. Use the pane divider to adjust its width. Generator-specific controls appear after you choose the content type.</p>
-    <p>Choose Cancel, press Escape, or press Command-W to close the pane. If you have unfinished changes, choose whether to discard them or continue editing. Switching to another tool also requires a discard decision for unfinished changes. Adding or updating a Generator closes the pane after preparation finishes.</p>
-    <h2>Choose the content</h2>
-    <ul>
-        <li>Black creates a black picture with no audio.</li>
-        <li>Solid Color fills the picture with the selected color and has no audio.</li>
-        <li>Static Gradient blends First Color into Second Color in the selected Direction. It does not move and has no audio.</li>
-        <li>Silence creates an audio clip with no sound. Choose Mono or Stereo with Channels.</li>
-        <li>Text creates a title, lower third, caption, or subtitle. Choose a Template, enter the text, and adjust Typography, Appearance, and Layout. A transparent background lets underlying video show through.</li>
-    </ul>
-    <h2>Set the duration and destination</h2>
-    <p>Choose Duration Units and enter the duration in the selected unit. Choose a compatible Destination Track, or choose New Track and enter its name.</p>
-    <p>Append adds the generated clip at the end of the destination track. Insert and Split places it at the playhead and splits existing material there. Insert and Replace replaces material at that position. Insert on Top in New Video Track places picture above the existing video.</p>
-    <h2>Update generated content</h2>
-    <p>Open an existing generated clip on its Cutting Board and choose Edit Generator to open it in the project’s Tool pane. Adjust its content and choose Update Generator to keep the changes. Cancel leaves the existing content unchanged.</p>
+<a name="trimato-generator"></a>
+<h1>Create generated clips</h1>
+<p>Need another ingredient? Generator creates backgrounds, silence, and text clips for your project.</p>
+<p>Press G in Editor or choose Timeline &gt; Generator. Generator opens in the tool pane; Command-4 returns to the open tool.</p>
+<h2>Choose the content</h2>
+<ul>
+<li>Black creates a black picture.</li>
+<li>Solid Color fills the picture with the chosen color.</li>
+<li>Static Gradient blends First Color into Second Color in the selected Direction.</li>
+<li>Silence creates a silent audio clip. Choose Mono or Stereo with Channels.</li>
+<li>Text creates a title, lower third, caption, or subtitle as a video clip.</li>
+</ul>
+<h2>Set duration and placement</h2>
+<p>Choose Duration Units and enter the duration. Choose a Destination Track, or New Track and a name. The destination playhead gives the insertion time.</p>
+<ul>
+<li>Append places the clip after the destination track’s last clip.</li>
+<li>Insert and Split places it at the playhead, splitting and shifting material on a magnetic track.</li>
+<li>Insert and Replace replaces material at the playhead.</li>
+<li>Insert on Top in New Video Track places picture above the project video.</li>
+</ul>
+<p>On a track with Magnetic off, placement needs enough space between neighboring clips. <a href="timeline-editing.html">Review track placement.</a></p>
+<h2>Create text</h2>
+<p>Choose Text and a Template: Center Title, Title and Subtitle, Lower Third Center, Lower Third Left, Lower Third Right, Name and Role, Caption, or Subtitle.</p>
+<p>Enter text in the multiline editor. Return starts a new line. Title and Subtitle and Name and Role have separate fields for the main and supporting text.</p>
+<ul>
+<li>Typography: choose Font, Weight, Font Size in Points, Text Alignment, and Additional Line Spacing in Points. Fonts include System Sans, Rounded Sans, Serif, and Monospaced.</li>
+<li>Appearance: choose Text Color, a Black or Transparent background, Outline, Shadow, and Text Backing Panel. Choose Custom in a color picker to enter a six-digit hexadecimal color.</li>
+<li>Layout: set Screen Position, Safe Margin, Maximum Width, and offsets. Positive offsets move text right or down. Each percentage field identifies its reference area.</li>
+</ul>
+<p>Expand a group to adjust its controls. Opening another detailed group closes the previous one. Text size scales with the video dimensions, and safe margins start enabled.</p>
+<p>Choose Check Text Fit to review line count and fit within the safe area. Adjust wording, size, or layout to resolve text extending beyond that area. The check also reports small text and low contrast against a known opaque background. Review text over changing video in Editor.</p>
+<p>Choose Transparent and Insert on Top in New Video Track to place text over video. A Text Backing Panel supplies color behind the lettering. Add fades using the transition tools.</p>
+<p>Caption and Subtitle templates create individual text clips. For timed caption files, <a href="captioner.html">use Captioner or import SRT or WebVTT captions.</a></p>
+<h2>Update generated content</h2>
+<p>Generated items appear in the Generators folder in Project Source. Repeated names receive letter suffixes, such as Black and Black A.</p>
+<p>Open a generated timeline clip in Cutting Board and choose Edit Generator. Change the content or style, then choose Update Generator.</p>
+<p>Choose Cancel, Escape, or Command-W to close the tool. For an unfinished draft, choose whether to discard it or continue editing. Adding or updating content closes the tool after preparation finishes.</p>
 </main>
-<footer><p><a href="clip-editor.html">Edit a clip.</a></p></footer>
 </body>
 </html>

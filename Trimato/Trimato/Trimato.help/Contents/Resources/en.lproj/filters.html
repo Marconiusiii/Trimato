@@ -11,7 +11,7 @@
     <a name="trimato-filters"></a>
     <h1>Add and adjust clip filters</h1>
     <p>Choose a filter in Add Filter, adjust its controls, and choose Add to keep it in the clip draft. In Applied Filters, use a filter's context menu to edit, enable, disable, or remove it. Disabling preserves its settings.</p>
-    <p>In Edit Filter, Apply keeps the adjusted settings. Reset restores the filter's starting values. Cancel leaves the draft unchanged. Choose Update Clip in a timeline clip's editor to save the draft to the project.</p>
+    <p>In Edit Filter, Apply keeps the adjusted settings. Reset restores the filter's starting values. Cancel discards the filter editor’s draft. Choose Update Clip in a timeline clip's editor to save the draft to the project.</p>
     <h2>Filter choices</h2>
     <dl>
         <dt>Brightness and Contrast</dt>
@@ -21,9 +21,9 @@
         <dt>Black and White</dt>
         <dd>Remove color while preserving differences in brightness.</dd>
         <dt>Bleach Bypass</dt>
-        <dd>Reduce color saturation and deepen shadows and contrast. Increase Amount for a stronger effect. At zero, the filter leaves the image unchanged.</dd>
+        <dd>Reduce color saturation and deepen shadows and contrast. Increase Amount for a stronger effect. Zero uses the original picture.</dd>
         <dt>Technicolor</dt>
-        <dd>Adjust Effect strength to blend the color treatment with the original image. At zero, the filter leaves the image unchanged. Cyan horizontal offset, Magenta horizontal offset, and Yellow horizontal offset move each color up to 20 pixels left or right, creating colored fringes around edges. Each starts Centered. Reset centers the offsets and restores Effect strength to 50 percent.</dd>
+        <dd>Adjust Effect strength to blend the color treatment with the original image. Zero uses the original picture. Cyan horizontal offset, Magenta horizontal offset, and Yellow horizontal offset move each color up to 20 pixels left or right, creating colored fringes around edges. Each starts Centered. Reset centers the offsets and restores Effect strength to 50 percent.</dd>
         <dt>Sharpen</dt>
         <dd>Emphasize edges. Strong settings can add visible outlines.</dd>
         <dt>Reduce Video Noise</dt>
@@ -50,15 +50,16 @@
         <dd>Keep sudden loud peaks below the selected level.</dd>
     </dl>
     <h2>Preview and compare</h2>
-    <p>Video filters change the picture and preserve the clip's audio. Audio follows the clip's edited ranges during Cutting Board playback and clip export.</p>
-    <p>After you add or adjust a filter in the Cutting Board, Applying Clip Effects shows preparation progress and closes when the updated preview is ready. Cancel stops preparation and keeps the filter settings in the draft. Use Preview Recovery to retry or revert the changes before playback or export.</p>
-    <p>Where Play preview is available, use it to hear the draft before applying it. Bypass filter lets you compare the sound without the adjustment. Play with Primary Audio includes the surrounding project audio. Stop preview ends playback.</p>
+    <p>Review the processed picture and sound in Cutting Board before updating the timeline clip.</p>
+    <p>Applying Clip Effects shows progress while the updated preview is prepared. Cancel stops preparation. In Preview Recovery, choose whether to retry preparation or revert the filter changes before continuing playback or export.</p>
+    <p>Where Play preview is available, use it to hear the draft before applying it. Bypass filter switches between the original and adjusted sound. Play with Primary Audio includes the surrounding project audio. Stop preview ends playback.</p>
     <h2>Loudness and peaks</h2>
     <p>Match Loudness works on the retained edit. Playback loudness sets the target in LUFS. Peak ceiling keeps the result quieter when reaching that target would exceed the ceiling. Later effects and mixing can change the final level. Listen to the complete mix before exporting.</p>
     <h2>Adjust recorded narration</h2>
-    <p>Audio Description and Voicer recordings have a Voice tab. Set the dialogue reference In and Out times, audition it with Play reference, and choose Match voice loudness to Primary Audio. Matching adjusts loudness, not microphone tone or room sound. Use Even out voice with Smoothing amount to reduce differences between louder and quieter words. Voice level adjusts the overall level. Play with Primary Audio previews the draft at its project position, including description ducking.</p>
-    <p>Choose Update Clip to apply the draft to this clip. Apply voice settings to the named track changes the voice settings of existing recorded clips on that track. Other filters and clip edits are preserved. See <a href="recording.html">Record with Voicer and Describer</a> for the recording workflow.</p>
-    <p>Add Filter also offers Match voice loudness to Primary Audio and Even out voice for recorded AD and Voicer clips. Match voice loudness to Primary Audio includes the dialogue-reference controls. Choose Add to keep the adjustment in the clip draft. Use Play preview and the Bypass filter switch to compare the draft before choosing Add or Apply. Play with Primary Audio includes the surrounding project audio. Stop preview ends playback; Cancel leaves the draft unchanged. Both adjustments appear in Applied Filters, where their context menus offer Enable Filter or Disable Filter, Edit Filter, and Remove Filter. Disabling an adjustment preserves its settings.</p>
+    <p>For Audio Description and Voicer recordings, use the Voice tab in Audio Cutting Board. Set dialogue reference In and Out, choose Play reference, then choose Match voice loudness to Primary Audio.</p>
+    <p>Even out voice reduces level differences between words; Smoothing amount sets its strength. Voice level adjusts the overall level. Use Play with Primary Audio to review narration in context.</p>
+    <p>Choose Update Clip to apply the draft to this clip. Apply voice settings to the named track changes the voice settings of existing recorded clips on that track. See <a href="recording.html">Record with Voicer and Describer</a> for the recording workflow.</p>
+    <p>Add Filter also offers Match voice loudness to Primary Audio and Even out voice for recorded narration. Preview and compare the adjustment, then choose Add or Apply. Manage it through the Applied Filters context menu.</p>
 
 </main>
 <footer><p><a href="clip-editor.html">Edit a clip.</a></p></footer>

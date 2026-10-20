@@ -7,76 +7,54 @@
     <link rel="stylesheet" href="trimato-help.css">
 </head>
 <body>
-<header><p><a href="index.html">Trimato Help</a></p></header>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
-    <h1>Control playback and use In and Out points</h1>
-    <p>The playback commands on this page apply while focus is in Editor or Cutting Board. In Timeline Clips, Space picks up or drops a clip, and plain arrows reorder a picked-up clip on a magnetic track or nudge an additional-track clip with Magnetic off. <a href="timeline-editing.html">Read about Timeline clip movement.</a></p>
 
-    <h2>Play and pause</h2>
-    <ul>
-        <li>Press Space or K to play or pause.</li>
-        <li>Press J to play backward. Press J again to increase reverse speed.</li>
-        <li>Press L to play forward. Press L again to increase forward speed.</li>
-    </ul>
-
-    <h2>Move through the video</h2>
-    <ul>
-        <li>Press Left Arrow or Right Arrow to move one frame.</li>
-        <li>Hold Left Arrow or Right Arrow for continuous movement.</li>
-        <li>Press Shift-Left Arrow or Shift-Right Arrow to jump ten frames. Hold either combination to repeat ten-frame jumps.</li>
-        <li>Activate Skip back 10 seconds or Skip forward 10 seconds.</li>
-        <li>Press Command-Left Arrow or Command-Right Arrow to move among markers and edit points.</li>
-        <li>Press Home, Fn-Left Arrow, or Command-Up Arrow to go to the timeline start.</li>
-        <li>Press End, Fn-Right Arrow, or Command-Down Arrow to go to the timeline end.</li>
-    </ul>
-
-    <h2>Use the time display</h2>
-    <ul>
-        <li>In Editor or a Cutting Board, activate the time display to open Jump to Time. Choose the display format in Settings.</li>
-        <li>Choose Trimato &gt; Settings &gt; Accessibility to set Timecode Feedback to When stopped or On Demand. On Demand speaks the timeline playhead time only when you press T.</li>
-        <li>Use Show milliseconds to include or hide fractional seconds in displayed and spoken timecodes.</li>
-        <li>Choose Numeric, Time units, or Frames from Timecode style.</li>
-        <li>Press T in Editor or Mixer to hear the current timecode with any feedback setting. T also works in Cutting Board with either feedback setting.</li>
-        <li>In a project Editor, press C to open Cutting Board for the active-track clip at or immediately after the playhead.</li>
-    </ul>
-
-    <p>The playhead’s VoiceOver timecode stays stable during continuous playback. Pausing or completing a seek or frame jog updates it to the stopped position without requiring a focus change. The visible timecode continues to advance during playback.</p>
-
-    <h2>Jump to a time or frame</h2>
-    <ol>
-        <li>Activate the timecode button immediately after the playhead slider in Editor, Video Cutting Board, or Audio Cutting Board. In Editor, it precedes Move and Edit. Playback pauses and Jump to Time opens with the current position.</li>
-        <li>If Frames is selected in Settings, enter a frame number. Frame numbering starts at zero. With any other timecode format, edit hours, minutes, and seconds separated by colons. You can include fractional seconds.</li>
-        <li>Activate Jump or press Return. The playhead moves to that position and receives focus.</li>
-    </ol>
-    <p>Cancel or Escape returns focus to the timecode button. If the entry is invalid or outside the available timeline, a Could Not Jump window identifies the problem and explains what to enter. Time ranges in this window follow Show milliseconds in Settings. Choose OK to return to the field and correct the entry.</p>
-    <p>Jump to Time uses the complete Editor timeline or current Cutting Board clip, including positions outside In and Out markers. Playback stays paused after a jump.</p>
-
-    <h2>Set and clear points</h2>
-    <ul>
-        <li>Activate Mark In or press I to set or replace the In point.</li>
-        <li>Activate Mark Out or press O to set or replace the Out point.</li>
-        <li>Activate Clear In or press Option-I to remove the In point.</li>
-        <li>Activate Clear Out or press Option-O to remove the Out point.</li>
-    </ul>
-
-    <h2>Choose Cutting Board playback bounds</h2>
-    <p>Playback in the Video and Audio Cutting Boards normally continues past the Out point. Markers still select the section used by clip insertion and export.</p>
-    <p>To audition just the marked section, set In before Out, then select Play In–Out Range in Playback. Play begins within that section and stops at Out. Clear the checkbox to resume full-clip playback. Clearing either point also turns this option off. Frame stepping and scrubbing can move outside the marked range.</p>
-    <p>After appending a section with E, use Option-I or Option-O to clear its points and continue editing in the same Cutting Board.</p>
-
-    <h2>Use points for export</h2>
-    <ul>
-        <li>Set both In and Out to export that range.</li>
-        <li>Clear both points to export the complete clip or project.</li>
-        <li>Place In earlier than Out.</li>
-    </ul>
-    <h2>Create markers during playback</h2>
-    <p>In the project Editor, press M to create a marker at the current playhead position. Playback continues. The first marker creates the Markers track and displays it in Timeline Clips. New markers are named Marker 1, Marker 2, and so on.</p>
-    <p>Markers keep their absolute project times when clips are moved, trimmed, or deleted. The Markers track is never magnetic. Diamond indicators identify markers above the playhead slider; bookmark indicators identify chapters.</p>
-    <p>Select the Markers track and use Command-Left Arrow and Command-Right Arrow in Editor to navigate its marker times. With a marker at the playhead, press Enter to edit its Title and Type, or Delete to remove it. Enter on a marker in Timeline Clips also opens the editor. Choose Marker for an editing cue or Chapter for a chapter boundary. Marker changes support Undo and Redo.</p>
-    <p>Marker audio in General settings plays a short note when a marker is created. Turn it off to create markers silently. The note is not included in exports and is suppressed during recording.</p>
-    <p>Press M in Editor to add a Marker, or Option-M to add a Chapter, without stopping playback. Chapters keep absolute project times. Edit each Chapter title in the Markers track. Use semicolon (;) and apostrophe (') as alternatives to Command-Left Arrow and Command-Right Arrow for edit-point navigation.</p>
+<h1>Control playback and use In and Out points</h1>
+<p>Use these playback commands in Editor or Cutting Board. In Timeline Clips, Space picks up or drops a clip and arrows control its placement. <a href="timeline-editing.html">Arrange timeline clips.</a></p>
+<h2>Play and pause</h2>
+<ul>
+<li>Space or K: play or pause.</li>
+<li>J: play backward. Press again to increase reverse speed.</li>
+<li>L: play forward. Press again to increase forward speed.</li>
+</ul>
+<h2>Choose a position</h2>
+<ul>
+<li>Left Arrow or Right Arrow: move one frame. In Audio Cutting Board, move 1/30 second with a short audio preview.</li>
+<li>Shift-Arrow: move ten frames or audio steps. Hold to repeat.</li>
+<li>Skip back 10 seconds or Skip forward 10 seconds: move by ten seconds.</li>
+<li>Command-Left Arrow or semicolon: previous edit point.</li>
+<li>Command-Right Arrow or apostrophe: next edit point.</li>
+<li>Home, Fn-Left Arrow, or Command-Up Arrow: go to the beginning.</li>
+<li>End, Fn-Right Arrow, or Command-Down Arrow: go to the end.</li>
+</ul>
+<p>In Editor, Command-Option-Up Arrow and Command-Option-Down Arrow choose the track for edit-point navigation. Choose the Markers track to navigate marker times.</p>
+<h2>Jump to a time or frame</h2>
+<ol>
+<li>Choose the timecode button after the playhead slider in Editor or Cutting Board.</li>
+<li>In Jump to Time, enter hours, minutes, and seconds separated by colons. Fractional seconds are accepted. With Frames selected in Settings, enter a frame number starting from zero.</li>
+<li>Choose Jump or press Return.</li>
+</ol>
+<p>Playback pauses and the playhead moves to the chosen position. Cancel or Escape returns to the timecode button.</p>
+<p>If Could Not Jump appears, read the allowed range, choose OK, and correct the entry.</p>
+<p>Choose Timecode style and Show milliseconds in Settings &gt; Accessibility to set the displayed format. <a href="voiceover.html">Choose VoiceOver timecode feedback.</a></p>
+<h2>Set In and Out</h2>
+<ul>
+<li>I or Mark In sets the In point at the playhead.</li>
+<li>O or Mark Out sets the Out point.</li>
+<li>Option-I or Clear In clears In.</li>
+<li>Option-O or Clear Out clears Out.</li>
+</ul>
+<p>Set In before Out to choose a range for placement or export. Clear both to use the complete edit or project.</p>
+<h2>Review a Cutting Board range</h2>
+<p>Choose Play In–Out Range in Playback to play from the marked section and stop at Out. Clear the checkbox to play through the complete edit. Clearing either marker also turns range playback off.</p>
+<p>After appending a section with E, clear its points or mark another range to continue editing the source.</p>
+<h2>Create Markers and Chapters</h2>
+<p>Press M in Editor to create a Marker at the playhead, or Option-M to create a Chapter. Playback continues. The first entry creates the Markers track.</p>
+<p>Markers and Chapters keep their assigned project times when clips change. Select the Markers track and press Enter on an entry to edit its Title and Type. Press Delete to remove it.</p>
+<p>With the Markers track selected, Command-Left Arrow and Command-Right Arrow navigate its entries. Enter edits the entry at the playhead.</p>
+<p>Marker audio in Settings &gt; General plays a short note when an entry is created. Turn it off for silent creation.</p>
+<p><a href="saving-and-exporting.html">Export Chapters for YouTube.</a> <a href="keyboard-shortcuts.html">Review keyboard shortcuts.</a></p>
 </main>
-<footer><p><a href="keyboard-shortcuts.html">Related topic: Keyboard shortcuts</a></p></footer>
 </body>
 </html>

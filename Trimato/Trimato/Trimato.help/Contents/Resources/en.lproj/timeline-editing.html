@@ -7,26 +7,26 @@
     <link rel="stylesheet" href="trimato-help.css">
 </head>
 <body>
-<header><p><a href="index.html">Trimato Help</a></p></header>
+<header><p><a href="index.html">Trimato Help.</a></p></header>
 <main>
     <h1>Build and edit the project timeline</h1>
     <p>The Track picker chooses which track appears in Timeline Clips. Clips and transitions appear in playback order. Clips on a primary track stay together when you rearrange them. Additional tracks can contain clips at chosen times, with gaps between them.</p>
 
     <h2>Choose and manage a track</h2>
-    <p>Use the Track picker or press Command-Option-Up Arrow and Command-Option-Down Arrow to change tracks. The shortcuts announce the active track and its direct-edit clip. Track Actions adds, renames, moves, or deletes user-created video and audio tracks. Primary tracks cannot be deleted.</p>
+    <p>Use the Track picker or press Command-Option-Up Arrow and Command-Option-Down Arrow to change tracks. Track Actions adds, renames, moves, or deletes user-created video and audio tracks. Primary Video and Primary Audio are the project’s permanent tracks.</p>
 
     <h2>Choose magnetic or absolute placement</h2>
-    <p>The Magnetic checkbox beside the Track picker controls the selected audio or video track. New additional tracks have Magnetic off. Clips on these tracks keep their assigned project times when another clip is edited, replaced, trimmed, deleted, pasted, or moved. Append adds a clip after the track’s last clip. A placement that would overlap another clip is rejected without shifting it.</p>
+    <p>The Magnetic checkbox beside the Track picker controls the selected audio or video track. New additional tracks have Magnetic off. Clips on these tracks keep their assigned project times when another clip is edited, replaced, trimmed, deleted, pasted, or moved. Append adds a clip after the track’s last clip. Choose a space large enough for the clip between its neighbors.</p>
     <p>Turning Magnetic on for a populated track asks for confirmation. Enabling it moves the first clip to project time zero and places every following clip directly after the previous clip, in chronological order. All gaps disappear. Subsequent edits can shift later clips on that track. Primary Video and Primary Audio remain magnetic.</p>
-    <p>Command-Z undoes the setting change and restores every original position together. Turning Magnetic off preserves the current positions; it does not reverse earlier magnetic edits. Those edits have their own Undo actions.</p>
-    <p>New Describer and Voicer recordings use absolute tracks and retain their requested start times. If a previous recording track has been made magnetic, a new recording uses an available absolute track or creates one. Captions and description transcripts always retain independent start and end times and have no Magnetic setting. Editing the primary timeline does not automatically retime these independent items.</p>
+    <p>Command-Z undoes the setting change and restores every original position together. Turning Magnetic off keeps the current positions. Use Undo to reverse an earlier magnetic edit.</p>
+    <p>New Describer and Voicer recordings use absolute tracks and retain their requested start times. If a previous recording track has been made magnetic, a new recording uses an available absolute track or creates one. Captions and description transcripts retain their own start and end times when the primary timeline changes.</p>
 
     <h2>Place an edited clip</h2>
     <dl>
         <dt>Append to Timeline</dt>
-        <dd>Adds the clip after the last timeline clip.</dd>
+        <dd>Adds the clip after the destination track’s last clip.</dd>
         <dt>Insert and Split</dt>
-        <dd>On a magnetic track, splits the clip beneath the project playhead, inserts the new clip between the two parts, and moves later clips forward. With Magnetic off, places the new clip at the playhead only if it fits without overlapping another clip. After insertion, the project playhead moves to the incoming clip’s end so consecutive inserts remain in the order you make them.</dd>
+        <dd>On a magnetic track, splits the clip beneath the project playhead, inserts the new clip between the two parts, and moves later clips forward. With Magnetic off, places the new clip in an available space at the playhead. After insertion, the project playhead moves to the incoming clip’s end so consecutive inserts remain in the order you make them.</dd>
         <dt>Insert and Replace</dt>
         <dd>Keeps the portion before the project playhead and replaces the remainder of that clip. Magnetic tracks shift later clips by the change in duration. With Magnetic off, later clips keep their exact times and an overlapping replacement is rejected.</dd>
         <dt>Insert on Top with Source Audio</dt>
@@ -38,161 +38,84 @@
     <h2>Blade at the playhead</h2>
     <ol>
         <li>Move the project playhead inside a timeline clip.</li>
-        <li>Activate Blade at playhead or press Command-B while focus is in the Editor.</li>
+        <li>Choose Blade at playhead or press Command-B while focus is in the Editor.</li>
     </ol>
     <p>The two resulting instances receive lettered names such as Clip01 A and Clip01 B. The playhead remains at the new edit point.</p>
 
-    <h2>Edit the active track without leaving Editor</h2>
+    <h2>Edit the active track in Editor</h2>
     <ol>
         <li>Keep focus on any control in Editor and move the shared project playhead to the required time.</li>
-        <li>Press Command-Option-Up Arrow or Command-Option-Down Arrow until Trimato announces the required track and clip.</li>
+        <li>Press Command-Option-Up Arrow or Command-Option-Down Arrow to select the required track and clip.</li>
         <li>Press Command-[ to trim that clip's start to the project playhead, or press Command-] to trim its end to the project playhead.</li>
-        <li>On an additional track with Magnetic off, press plain [ to move the complete clip so its head begins at the playhead, or press plain ] to move it so its tail ends at the playhead. These positioning commands do not trim the stored source.</li>
+        <li>On an additional track with Magnetic off, press plain [ to move the complete clip so its head begins at the playhead, or press plain ] to move it so its tail ends at the playhead. </li>
     </ol>
-    <p>The direct-edit clip is remembered separately for each track. If none has been remembered, Trimato uses the incoming clip at an edit point, a clip containing the playhead, the next clip, or the last earlier clip. A successful trim announces the clip, track, trimmed edge, and time. The operation can be undone.</p>
+    <p>The direct-edit clip is remembered separately for each track. If none has been remembered, Trimato uses the incoming clip at an edit point, a clip containing the playhead, the next clip, or the last earlier clip. Use Undo to reverse a trim.</p>
 
     <h2>Arrange timeline clips</h2>
     <ol>
         <li>Choose a track and focus a clip in Timeline Clips.</li>
-        <li>Press Space to pick up that clip. Trimato announces Moving, the clip name, and its position.</li>
+        <li>Press Space to pick up that clip.</li>
         <li>On magnetic tracks, press Left Arrow or Up Arrow to move it one clip earlier. Press Right Arrow or Down Arrow to move it one clip later. With Magnetic off, those arrows nudge it one project frame earlier or later instead.</li>
         <li>Press Space again, or Escape, to drop the clip. The list is reordered only when you drop it. Command-Z undoes the complete move.</li>
     </ol>
-    <p>For a specific destination, keep the source selected for moving and focus the destination clip. Open its context menu with Control-Enter or VoiceOver’s VO-Shift-M command. Choose Move To…, then Start, Before, After, End, or Playhead. Playhead places the source clip’s start at the current project playhead on an additional track with Magnetic off, without moving its neighbors. Before and After use the focused destination; Start, End, and Playhead use the active track. Without a picked-up clip, Start, End, and Playhead move the focused clip directly. Focusing another clip does not change the clip selected for moving.</p>
-    <p>Press Enter or Return on a clip to open Cutting Board, matching a click or normal button activation. Space selects for moving only in Timeline Clips; Space still plays or pauses in Editor and Cutting Board. If VoiceOver Quick Nav is using the arrow keys, turn Quick Nav off for plain-arrow movement, or use the menu commands.</p>
-    <p>On additional video and audio tracks with Magnetic off, Left Arrow or Up Arrow moves the focused clip one project frame earlier. Right Arrow or Down Arrow moves it one frame later. You do not need to pick it up first. Trimato announces the new start frame. A clip cannot overlap or move through another clip on the same track. Linked audio moves with its video. Remove attached transitions before moving the clip.</p>
+    <p>To choose a destination, pick up the source clip with Space, focus the destination clip, and open its context menu with Control-Enter. Choose Move To, then Start, Before, After, End, or Playhead. Before and After use the focused destination; Start and End use the active track. Playhead places the clip at the project playhead on an additional track with Magnetic off.</p>
+    <p>Start, End, and Playhead also work directly on a focused clip. <a href="voiceover.html">Use Timeline Clips with VoiceOver.</a></p>
+    <p>Press Enter or Return on a clip to open Cutting Board. In Timeline Clips, Space picks up or drops a clip. In Editor and Cutting Board, Space plays or pauses.</p>
+    <p>On additional tracks with Magnetic off, the arrows also nudge a focused clip directly. Left Arrow or Up Arrow moves it one frame earlier; Right Arrow or Down Arrow moves it one frame later. Linked audio moves with video. Remove attached transitions before moving a clip, and keep enough space between its neighbors.</p>
     <p>The Timeline menu also provides Move Clip Earlier and Move Clip Later. These commands move by one clip on a magnetic track and one frame on an additional track with Magnetic off.</p>
-    <p>Current identifies the clip under the project playhead. Selected identifies a clip you picked up with Space. Moving VoiceOver focus does not select a clip or move the playhead.</p>
-    <p>Press Command-C on a focused clip, focus a destination clip, then press Command-V to paste a copy after it. Command-Option-V moves the clip selected for moving, or the copied clip if no movement selection is active, after the destination. Video clips move among video tracks and audio clips move among audio tracks. Moving picture carries its linked audio. Moving audio directly makes it independent of its picture. Moves that would overlap linked material or invalidate a transition are rejected without changing the project. Copying does not copy transitions.</p>
+    <p>Current identifies the clip under the project playhead. Selected identifies a clip picked up with Space.</p>
+    <p>Press Command-C on a clip, focus a destination, then press Command-V to paste a copy after it. Command-Option-V moves the picked-up clip, or the copied clip, after the destination.</p>
+    <p>Video clips move between video tracks; audio clips move between audio tracks. Moving video carries its linked audio. Moving audio directly makes it independent of the picture. Choose a destination with enough space for the linked material and its transitions.</p>
 
     <h2>Trim a layered audio clip to the video ending</h2>
     <ol>
-        <li>In Editor, activate Go to End of Video or navigate to the required video edit point.</li>
-        <li>Use Command-Option-Up Arrow or Command-Option-Down Arrow until Trimato announces the required audio track and long audio clip.</li>
-        <li>Without leaving Editor, press Command-] to trim the announced clip's end to the shared project playhead.</li>
+        <li>In Editor, choose Go to End of Video or navigate to the required video edit point.</li>
+        <li>Use Command-Option-Up Arrow or Command-Option-Down Arrow to select the audio track containing the clip.</li>
+        <li>In Editor, press Command-] to trim the targeted clip’s end to the project playhead.</li>
     </ol>
-    <p>The clip keeps its material before the shared project playhead. Later clips on that audio track move earlier by the removed duration. The operation can be undone. You can instead focus the clip in Timeline clips and choose Trim End to Project Playhead from its context menu.</p>
+    <p>The clip ends at the project playhead. With Magnetic on, later clips on that track move earlier by the removed duration. With Magnetic off, they keep their assigned times. Use Undo to reverse the trim.</p>
+    <p>You can also focus the clip in Timeline Clips and choose Trim End to Project Playhead from its context menu.</p>
 
     <h2>Open a clip from Editor</h2>
-    <p>Press C while focus is in Editor to open Cutting Board for the active-track clip at the playhead. At an edit point, Trimato opens the incoming clip. In a gap, it opens the next clip, but no clip is marked Current until the playhead is inside a clip. In Timeline Clips, Enter or Return opens the focused clip regardless of the playhead position.</p>
+    <p>Press C while focus is in Editor to open Cutting Board for the active-track clip at the playhead. At an edit point, Trimato opens the incoming clip. In a gap, it opens the next clip. In Timeline Clips, Enter or Return opens the focused clip regardless of the playhead position.</p>
 
     <h2>Rename a timeline item</h2>
     <ol>
         <li>Focus a timeline clip or cutaway.</li>
-        <li>Choose Rename Clip from Selected Element Actions or the item's context menu.</li>
-        <li>Enter a name that is not already used elsewhere in the timeline, then activate Rename.</li>
+        <li>Choose Rename Clip from the item’s context menu.</li>
+        <li>Enter a unique timeline name, then choose Rename.</li>
     </ol>
     <p>Trimato automatically gives repeated source names stable letter suffixes such as A and B. A custom name applies only to that timeline instance, is saved with the project, and can be undone.</p>
 
-    <h2>Remove a timeline item</h2>
-    <ol>
-        <li>Focus a timeline clip or cutaway.</li>
-        <li>Choose Remove from Timeline or press Delete.</li>
-    </ol>
-
     <h2>Create and edit captions</h2>
-    <p>Trimato keeps caption cues on one track named Captions. Each item is named Caption followed by the first line of its text.</p>
-    <p>If In and Out points are missing or Out is not after In, New Caption explains how to mark the passage. In the Editor, press I at the caption’s start and O at its end, then press Shift-Command-C again.</p>
-    <ol>
-        <li>Set the project In point at the beginning of a spoken passage and the Out point at its end.</li>
-        <li>Press Shift-Command-C or choose Timeline &gt; Captions &gt; New Caption.</li>
-        <li>Write the complete passage as spoken. Choose Insert Caption Description to add a music description, sound description, or lyrics marks.</li>
-        <li>Choose Play Selection to hear the marked section.</li>
-        <li>Choose Add Caption.</li>
-    </ol>
-    <p>The draft passage is added at the marked times, the markers are cleared, and the Editor is ready for the next passage. Captioner opens in the tool pane on the right. Press Command-4 to move keyboard and VoiceOver focus into it. Choose Cancel, press Escape, or press Command-W to close it; unfinished text requires a discard decision. Adding or updating a caption closes the pane. Activate a caption in Timeline Clips to reopen it. Its context menu can move the project playhead to the caption, edit it, or delete it.</p>
-
-    <h3>Finalize written captions</h3>
-    <ol>
-        <li>Finish marking and writing the spoken passages you want to caption.</li>
-        <li>Choose Timeline &gt; Captions &gt; Finalize Captions.</li>
-        <li>Review any passage Trimato leaves as a draft, adjust its text or marked times, and finalize again.</li>
-    </ol>
-    <p>Finalizing divides each draft passage into timed cues with no more than two lines. It keeps the words, punctuation, and any line break you entered. Cues use a reading rate of 160 words per minute, stay onscreen for at least 40 project frames and no more than six seconds, and extend the marked Out point when more reading time is available. A cue will not cross the next caption or the end of the project. If a passage still needs editing, the results window identifies it and explains the timing problem. You can undo finalization in one step.</p>
-
-    <h3>Import a caption file</h3>
-    <p>Choose Import Files and select an SRT or WebVTT file. Imported cues join any captions already on the Captions track. Their supplied times are measured from the beginning of the project, and they do not need to be finalized.</p>
+    <p>Set In and Out around a passage in Editor, press Command-Shift-C, enter the text, and choose Add Caption. Choose Timeline &gt; Captions &gt; Finalize Captions to turn written passages into timed cues.</p>
+    <p>Choose Import Files to import SRT or WebVTT captions. <a href="captioner.html">Write, import, and finalize captions.</a></p>
 
     <h2>Add and edit transitions</h2>
-    <p>Transition tools open beside the Editor in the Tool pane. Press Command-4 to return to the open tool. The target clip or edit stays the same while you adjust its settings. Cancel, Escape, or Command-W closes the pane; unfinished changes require a discard decision when closing or switching tools.</p>
-    <p>Successful application closes the pane and returns focus to the Editor or Timeline. If application fails or is cancelled, the settings remain available in the pane.</p>
-    <ol>
-        <li>Move the Editor playhead to a shared edit, or focus a clip with an adjoining clip in Timeline Clips.</li>
-        <li>Press Command-T to open Transitions in the Tool pane.</li>
-        <li>Confirm the outgoing and incoming clips, choose the Edit when more than one pair is available, then choose a Transition Type. Use Quick Fade to fade an individual clip in or out.</li>
-        <li>If both video clips have linked audio at the same edit, select Include Audio Transition, then choose Audio Transition Type and Audio Fade Curve for a crossfade.</li>
-        <li>Enter the duration in seconds, then activate Add.</li>
-    </ol>
-    <p>The duration begins at 1.0 seconds and accepts fractional seconds such as 1.25. Each clip must contain at least half the transition duration. Cross dissolves, wipes, and crossfades also require unused source footage beyond the trims. Fade Out/Fade In uses footage inside the trims. <a href="transitions.html">Learn about transition timing.</a></p>
-
-    <h3>Use Quick Fade</h3>
-    <ol>
-        <li>Move the Editor playhead onto a clip or to a shared cut between clips.</li>
-        <li>Press F to open Quick Fade in the Tool pane.</li>
-        <li>Choose Fade In {clip name}, Fade Out {clip name}, or both. Fade Audio includes the matching linked audio for each selected fade.</li>
-        <li>Enter the duration in seconds, then apply the fade.</li>
-    </ol>
-    <p>At a shared cut from clip A to clip B, Fade In B applies at the beginning of B and Fade Out A applies at the end of A. Selecting both places both fades around that cut. Within a clip, at the start of the timeline, or at its final endpoint, both controls name the same clip. This behavior is the same on video and audio tracks.</p>
-    <p>A progress bar will appear. Choose Cancel if you want to stop.</p>
-
-    <h3>Use Quick Cross Dissolve or Quick Cross Fade</h3>
-    <ol>
-        <li>Move the Editor playhead to an edit with an outgoing and incoming clip.</li>
-        <li>Press X to open the Tool pane. A video track opens Quick Cross Dissolve. An audio track opens Quick Cross Fade.</li>
-        <li>Confirm the displayed outgoing and incoming clip names.</li>
-        <li>In a video context, choose Crossfade Audio when the clips’ audio should cross fade too.</li>
-        <li>Enter the duration in seconds, then apply the transition.</li>
-    </ol>
-    <p>A progress bar will appear. Choose Cancel if you want to stop.</p>
-
-    <h3>Transition types</h3>
-    <dl>
-        <dt>Fade In</dt>
-        <dd>Gradually changes the selected video from black to the clip.</dd>
-        <dt>Fade Out</dt>
-        <dd>Gradually changes the selected video from the clip to black.</dd>
-        <dt>Audio Fade In</dt>
-        <dd>Gradually raises the clip audio from silence.</dd>
-        <dt>Audio Fade Out</dt>
-        <dd>Gradually lowers the clip audio to silence.</dd>
-        <dt>Cross Dissolve</dt>
-        <dd>Fades the incoming picture over the outgoing picture across their shared edit. Crossfade Audio blends both clips’ audio at the same time.</dd>
-        <dt>Cross Fade</dt>
-        <dd>Lowers the outgoing audio while raising the incoming audio across their shared edit.</dd>
-        <dt>Fade Out/Fade In</dt>
-        <dd>Fades outgoing video through black into incoming video, or fades outgoing audio through silence into incoming audio. Unlike a cross dissolve or cross fade, the two sources do not overlap.</dd>
-        <dt>Wipe Left</dt>
-        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves left.</dd>
-        <dt>Wipe Right</dt>
-        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves right.</dd>
-        <dt>Wipe Up</dt>
-        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves upward.</dd>
-        <dt>Wipe Down</dt>
-        <dd>Replaces the outgoing picture with the incoming picture using an edge that moves downward.</dd>
-    </dl>
-    <p>Video transition families can include independently selected audio transitions. Audio-only projects offer audio fades and cross fades without video transition choices. Each transition appears as its own Timeline clips item. Activate it to edit or delete the transition without changing the source edit.</p>
-    <p>Trimato creates temporary render files so it can play transitions and adjusted audio. These files support the current preview and are normally removed when the preview changes or the project closes. <a href="storage-and-temporary-media.html">Learn about temporary renders and cleanup.</a></p>
+    <p>Move the Editor playhead to a shared edit and press Command-T, or choose an adjoining clip in Timeline Clips and use the Transitions command.</p>
+    <p>F opens Quick Fade. X opens Quick Cross Dissolve for video or Quick Cross Fade for audio.</p>
+    <p><a href="transitions.html">Choose transitions and prepare their source ranges.</a></p>
 
     <h2>Mute an audio track</h2>
-    <p>Choose the audio track in the Track picker, then turn on Mute Track. Muting affects the whole track in preview and export, including audio transitions. It does not delete clips, change timing, or hide picture. The setting is saved with the project and can be undone. Turn it off to restore the track’s sound.</p>
+    <p>Choose an audio track with the Track picker, then turn on Mute Track to silence it in preview and export. Turn it off to restore the sound. The setting is saved with the project and supports Undo.</p>
 
     <h2>Adjust an audio clip</h2>
-    <p>Activate a clip on an audio track to open Cutting Board. The Audio section provides gain, low, mid, and high equalization, high-pass and low-pass filters, and Reset Audio. Activate Update Clip to apply the settings.</p>
+    <p>Open an audio-track clip in Audio Cutting Board. Adjust its gain, equalizer, or filters, then choose Update Clip. <a href="clip-editor.html">Edit an audio clip.</a></p>
 
     <h2>Get information about a timeline item</h2>
     <p>Focus a clip or transition and press Command-I to open its Get Info window.</p>
     <h2>Set independent fade durations</h2>
-    <p>Select Fade In {clip name} to show Fade In Duration, or Fade Out {clip name} to show Fade Out Duration. Selecting both exposes both fields. Values are in seconds and apply to the named clip and its corresponding linked audio fade. Clearing a checkbox hides its field without discarding the entered value. With neither fade selected, Apply Fade is unavailable. The same duration labels are used when editing an existing fade.</p>
+    <p>In Quick Fade, select Fade In {clip name}, Fade Out {clip name}, or both, then enter each duration in seconds. Fade Audio includes the corresponding linked audio. Choose Apply Fade. <a href="transitions.html">Adjust fades and other transitions.</a></p>
     <p>Additional video track fades change the clip's opacity, revealing the video underneath. Primary video fades reveal the black background when no picture is underneath.</p>
 <h2>Remove clips and delete media</h2>
-    <p>After removing a clip or deleting its media, focus moves to the next surviving clip in Timeline Clips, or to the previous clip when none follows. When no clips remain, focus moves to the collection itself.</p>
-    <p>Choose Delete Track from Track Actions to remove an additional track. If it contains content, confirm Delete Track or choose Cancel. Deleting a track returns focus to the Timeline Clips collection for the remaining active track.</p>
+
+    <p>Choose Delete Track from Track Actions to remove an additional track. If it contains content, review the confirmation and choose Delete Track or Cancel.</p>
     <p>Choose Remove from Timeline in a clip’s context menu to remove that timeline clip and keep its source in Project Source. Choose Delete Media in Timeline Clips or Project Source to remove the source from the project, including all timeline clips and transitions that use it. The confirmation shows how many timeline clips use the source. Files remain in Finder. Use Undo to restore a removal or deletion. Save the project to keep your changes.</p>
         <h2>Show or hide captions</h2>
     <p>Select the Captions track in Timeline Clips, then turn Show captions on or off. This changes the caption overlay during playback. The caption cues remain available for editing. Choose Include captions separately when exporting.</p>
     <h2>Markers</h2>
     <p>Press M in Editor to add an absolute Marker, or Option-M to add a Chapter. Select the Markers track to navigate and edit its items in Timeline Clips. Enter edits the title and Marker or Chapter type; Delete removes the item.</p>
 </main>
-<footer><p><a href="saving-and-exporting.html">Next topic: Save and export</a></p></footer>
+<footer><p><a href="saving-and-exporting.html">Next topic: Save and export.</a></p></footer>
 </body>
 </html>
