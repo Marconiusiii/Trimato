@@ -45,42 +45,68 @@ class HelpBuildTests(unittest.TestCase):
             self.assertIn('$(SRCROOT)/Trimato/Trimato.help/' + relative, inputs)
             self.assertIn('$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/' + relative, outputs)
 
-    def test_content_change_rebuilds_index_without_changing_book_identity(self):
+    def test_content_change_rebuilds_index_with_fresh_book_identity(self):
         first = self.generate()
         page = self.source / 'Contents/Resources/en.lproj/trim-silences.html'
         revision_page = page.with_name('revision-check.html')
         revision_page.write_text(page.read_text().replace('trimato-trim-silences', 'help-revision-check'))
         second = self.generate()
-        self.assertEqual(first['CFBundleIdentifier'], 'com.marconius.trimato.help')
-        self.assertEqual(first['CFBundleIdentifier'], second['CFBundleIdentifier'])
+        self.assertNotEqual(first['CFBundleIdentifier'], second['CFBundleIdentifier'])
         self.assertNotEqual(first['TrimatoHelpContentDigest'], second['TrimatoHelpContentDigest'])
-        self.assertEqual(second['CFBundleShortVersionString'], '1.7.0')
-        self.assertEqual(second['CFBundleVersion'], '3')
+        self.assertEqual(first['CFBundleShortVersionString'], '2.0.0')
+        self.assertEqual(first['CFBundleVersion'], '1')
+        self.assertEqual(second['CFBundleShortVersionString'], first['CFBundleShortVersionString'])
+        self.assertEqual(second['CFBundleVersion'], first['CFBundleVersion'])
+        self.assertEqual(first['TrimatoHelpAppVersion'], second['TrimatoHelpAppVersion'])
+        self.assertEqual(first['TrimatoHelpAppBuild'], second['TrimatoHelpAppBuild'])
         builder.validate_indexes(self.output / 'Trimato.help', {
             'trimato-trim-silences': 'trim-silences.html',
             'help-revision-check': 'revision-check.html',
         })
 
-    def test_unchanged_content_reuses_validated_index(self):
-        first = self.generate()
-        index = self.output / 'Trimato.help/Contents/Resources/en.lproj/Trimato.cshelpindex'
-        before = index.read_bytes()
-        self.assertEqual(first, self.generate())
-        self.assertEqual(before, index.read_bytes())
+    def test_every_build_has_consistent_fresh_identity_with_app_build_two(self):
+        identifiers = set()
+        for _ in range(2):
+            current = self.generate(version='1.9.1', build='2')
+            identifier = current['CFBundleIdentifier']
+            self.assertRegex(identifier, r'^com\.marconius\.trimato\.help\.build[0-9a-f]{32}$')
+            self.assertNotIn(identifier, identifiers)
+            identifiers.add(identifier)
+            self.assertEqual(current['TrimatoHelpAppVersion'], '1.9.1')
+            self.assertEqual(current['TrimatoHelpAppBuild'], '2')
+            header = (self.output / 'TrimatoHelpInfo.h').read_text()
+            self.assertEqual(header, f'#define TRIMATO_HELP_BOOK_IDENTIFIER {identifier}\n')
+            landing = (self.output / 'Trimato.help/Contents/Resources/en.lproj/index.html').read_text()
+            self.assertIn(f'<meta name="AppleTitle" content="{identifier}">', landing)
+            builder.validate_indexes(self.output / 'Trimato.help', {
+                'trimato-quickstart-guide': 'quickstart.html',
+            })
 
     def test_app_build_and_version_change_help_metadata(self):
         first = self.generate(version='1.9.1', build='1')
         for version, build in [('1.9.1', '2'), ('1.9.2', '1')]:
             with self.subTest(version=version, build=build):
                 current = self.generate(version=version, build=build)
-                self.assertEqual(current['CFBundleIdentifier'], first['CFBundleIdentifier'])
-                self.assertEqual(current['CFBundleIdentifier'], 'com.marconius.trimato.help')
-                self.assertEqual(current['CFBundleShortVersionString'], version)
-                self.assertEqual(current['CFBundleVersion'], build)
+                self.assertNotEqual(current['CFBundleIdentifier'], first['CFBundleIdentifier'])
+                self.assertEqual(current['CFBundleShortVersionString'], first['CFBundleShortVersionString'])
+                self.assertEqual(current['CFBundleVersion'], first['CFBundleVersion'])
+                self.assertEqual(current['TrimatoHelpAppVersion'], version)
+                self.assertEqual(current['TrimatoHelpAppBuild'], build)
                 header = (self.output / 'TrimatoHelpInfo.h').read_text()
-                self.assertEqual(header, '#define TRIMATO_HELP_BOOK_IDENTIFIER com.marconius.trimato.help\n')
+                self.assertEqual(header, f'#define TRIMATO_HELP_BOOK_IDENTIFIER {current["CFBundleIdentifier"]}\n')
                 title = (self.output / 'Trimato.help/Contents/Resources/en.lproj/index.html').read_text()
-                self.assertIn('<meta name="AppleTitle" content="com.marconius.trimato.help">', title)
+                self.assertIn(f'<meta name="AppleTitle" content="{current["CFBundleIdentifier"]}">', title)
+
+    def test_app_placeholders_are_rejected_as_help_content_versions(self):
+        metadata = self.source / 'Contents/Info.plist'
+        info = plistlib.loads(metadata.read_bytes())
+        for key, value in [('CFBundleShortVersionString', '$(MARKETING_VERSION)'),
+                           ('CFBundleVersion', '$(CURRENT_PROJECT_VERSION)')]:
+            with self.subTest(key=key):
+                revised = dict(info, **{key: value})
+                metadata.write_bytes(plistlib.dumps(revised))
+                with self.assertRaisesRegex(ValueError, 'Help needs an explicit'):
+                    self.generate()
 
     def test_missing_anchor_fails_without_replacing_good_output(self):
         first = self.generate()
@@ -96,12 +122,13 @@ class HelpBuildTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'missing contextual page'):
             self.generate()
 
-    def test_stale_index_is_rejected(self):
-        self.generate()
+    def test_stale_index_is_replaced_by_valid_fresh_index(self):
+        first = self.generate()
         index = self.output / 'Trimato.help/Contents/Resources/en.lproj/Trimato.cshelpindex'
         index.write_bytes(b'not a Help index')
-        with self.assertRaisesRegex(ValueError, 'invalid Core Spotlight Help index'):
-            self.generate()
+        second = self.generate()
+        self.assertNotEqual(first['CFBundleIdentifier'], second['CFBundleIdentifier'])
+        builder.validate_indexes(self.output / 'Trimato.help', {'trimato-quickstart-guide': 'quickstart.html'})
 
 
 if __name__ == '__main__':

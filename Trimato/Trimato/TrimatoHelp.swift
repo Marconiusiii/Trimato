@@ -57,9 +57,9 @@ enum TrimatoHelp {
         }
         guard application.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String == identifier,
               application.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-                == book.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                == book.object(forInfoDictionaryKey: "TrimatoHelpAppVersion") as? String,
               application.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-                == book.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+                == book.object(forInfoDictionaryKey: "TrimatoHelpAppBuild") as? String,
               book.object(forInfoDictionaryKey: "TrimatoHelpContentDigest") as? String != nil else {
             throw HelpError.mismatchedBook
         }

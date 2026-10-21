@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import uuid
 from urllib.parse import unquote, urlsplit
 
 
@@ -95,23 +96,20 @@ def generate(source, output, version, build, staging_directory=None):
             digest.update(path.relative_to(source).as_posix().encode() + b'\0' + path.read_bytes())
     revision = digest.hexdigest()
     template = plistlib.loads((source / 'Contents/Info.plist').read_bytes())
-    # The book keeps its identity across releases and edits. Version metadata and
-    # the content digest determine when its generated resources need rebuilding.
-    identifier = template['CFBundleIdentifier']
+    help_version = template['CFBundleShortVersionString']
+    help_build = template['CFBundleVersion']
+    require(isinstance(help_version, str) and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', help_version),
+            'Help needs an explicit three-part content version')
+    require(isinstance(help_build, str) and re.fullmatch(r'[0-9]+(?:\.[0-9]+)*', help_build),
+            'Help needs an explicit content build number')
+    # A fresh identity prevents this build from resolving to a previously
+    # registered Help book, even when the app version and content are unchanged.
+    identifier = f"{template['CFBundleIdentifier']}.build{uuid.uuid4().hex}"
     expected = {'version': version, 'build': build, 'contentDigest': revision, 'bookIdentifier': identifier}
     book = output / 'Trimato.help'
     header = output / 'TrimatoHelpInfo.h'
     header_text = f'#define TRIMATO_HELP_BOOK_IDENTIFIER {identifier}\n'
     stamp = output / 'manifest.json'
-    if stamp.exists() and json.loads(stamp.read_text()) == expected and header.exists() and header.read_text() == header_text:
-        validate_pages(book)
-        validate_indexes(book, topics)
-        info = plistlib.loads((book / 'Contents/Info.plist').read_bytes())
-        require(info['CFBundleIdentifier'] == identifier, 'Generated Help identifier is stale')
-        require(info['CFBundleShortVersionString'] == version and info['CFBundleVersion'] == build, 'Generated Help version is stale')
-        print(f'Validated current Help: {identifier}')
-        return
-
     staging = staging_directory if staging_directory is not None else output / 'staging'
     if staging.exists():
         shutil.rmtree(staging)
@@ -119,8 +117,8 @@ def generate(source, output, version, build, staging_directory=None):
     try:
         staged_book = staging / 'Trimato.help'
         shutil.copytree(source, staged_book, ignore=shutil.ignore_patterns('*.helpindex', '*.cshelpindex', '.DS_Store'))
-        info = dict(template, CFBundleIdentifier=identifier, CFBundleShortVersionString=version,
-                    CFBundleVersion=build, HPDBookIndexPath='Trimato.cshelpindex', TrimatoHelpContentDigest=revision)
+        info = dict(template, CFBundleIdentifier=identifier, TrimatoHelpAppVersion=version,
+                    TrimatoHelpAppBuild=build, HPDBookIndexPath='Trimato.cshelpindex', TrimatoHelpContentDigest=revision)
         (staged_book / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
         for folder in sorted((staged_book / 'Contents/Resources').glob('*.lproj')):
             landing = folder / info['HPDBookAccessPath']
