@@ -45,16 +45,21 @@ class HelpBuildTests(unittest.TestCase):
             self.assertIn('$(SRCROOT)/Trimato/Trimato.help/' + relative, inputs)
             self.assertIn('$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/' + relative, outputs)
 
-    def test_content_change_with_same_app_build_gets_distinct_book(self):
+    def test_content_change_rebuilds_index_without_changing_book_identity(self):
         first = self.generate()
         page = self.source / 'Contents/Resources/en.lproj/trim-silences.html'
-        page.write_text(page.read_text().replace('Find and trim quiet pauses', 'Locate and trim quiet pauses'))
+        revision_page = page.with_name('revision-check.html')
+        revision_page.write_text(page.read_text().replace('trimato-trim-silences', 'help-revision-check'))
         second = self.generate()
-        self.assertNotEqual(first['CFBundleIdentifier'], second['CFBundleIdentifier'])
+        self.assertEqual(first['CFBundleIdentifier'], 'com.marconius.trimato.help')
+        self.assertEqual(first['CFBundleIdentifier'], second['CFBundleIdentifier'])
         self.assertNotEqual(first['TrimatoHelpContentDigest'], second['TrimatoHelpContentDigest'])
         self.assertEqual(second['CFBundleShortVersionString'], '1.7.0')
         self.assertEqual(second['CFBundleVersion'], '3')
-        builder.validate_indexes(self.output / 'Trimato.help', {'trimato-trim-silences': 'trim-silences.html'})
+        builder.validate_indexes(self.output / 'Trimato.help', {
+            'trimato-trim-silences': 'trim-silences.html',
+            'help-revision-check': 'revision-check.html',
+        })
 
     def test_unchanged_content_reuses_validated_index(self):
         first = self.generate()
@@ -64,11 +69,18 @@ class HelpBuildTests(unittest.TestCase):
         self.assertEqual(before, index.read_bytes())
 
     def test_app_build_and_version_change_help_metadata(self):
-        first = self.generate()
-        second = self.generate(version='1.7.1', build='4')
-        self.assertNotEqual(first['CFBundleIdentifier'], second['CFBundleIdentifier'])
-        self.assertEqual(second['CFBundleShortVersionString'], '1.7.1')
-        self.assertEqual(second['CFBundleVersion'], '4')
+        first = self.generate(version='1.9.1', build='1')
+        for version, build in [('1.9.1', '2'), ('1.9.2', '1')]:
+            with self.subTest(version=version, build=build):
+                current = self.generate(version=version, build=build)
+                self.assertEqual(current['CFBundleIdentifier'], first['CFBundleIdentifier'])
+                self.assertEqual(current['CFBundleIdentifier'], 'com.marconius.trimato.help')
+                self.assertEqual(current['CFBundleShortVersionString'], version)
+                self.assertEqual(current['CFBundleVersion'], build)
+                header = (self.output / 'TrimatoHelpInfo.h').read_text()
+                self.assertEqual(header, '#define TRIMATO_HELP_BOOK_IDENTIFIER com.marconius.trimato.help\n')
+                title = (self.output / 'Trimato.help/Contents/Resources/en.lproj/index.html').read_text()
+                self.assertIn('<meta name="AppleTitle" content="com.marconius.trimato.help">', title)
 
     def test_missing_anchor_fails_without_replacing_good_output(self):
         first = self.generate()

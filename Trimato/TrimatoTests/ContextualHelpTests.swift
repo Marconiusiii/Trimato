@@ -54,7 +54,7 @@ struct ContextualHelpTests {
         for topic in TrimatoHelp.Topic.allCases {
             let destination = try TrimatoHelp.destination(for: topic)
             #expect(help.bundleIdentifier == destination.bookIdentifier)
-            #expect(destination.bookIdentifier.contains(".c"))
+            #expect(destination.bookIdentifier == Bundle.main.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String)
             #expect(FileManager.default.fileExists(atPath: destination.pageURL.path))
             let content = try String(contentsOf: destination.pageURL, encoding: .utf8)
             #expect(content.contains("<a name=\"\(topic.rawValue)\"></a>"))
@@ -62,9 +62,9 @@ struct ContextualHelpTests {
         let pageURL = try #require(help.url(forResource: "trim-silences", withExtension: "html"))
         let page = try String(contentsOf: pageURL, encoding: .utf8)
         #expect(page.contains("<a name=\"\(TrimatoHelp.Topic.trimSilences.rawValue)\"></a>"))
-        #expect(page.contains("Warning:"))
         #expect(page.contains("jump cuts"))
-        #expect(page.contains("Individual removed pauses cannot currently be restored or adjusted separately."))
+        #expect(page.contains("Undo"))
+        #expect(page.contains("Trim Pauses"))
         for name in ["index", "clip-editor"] {
             let url = try #require(help.url(forResource: name, withExtension: "html"))
             #expect(try String(contentsOf: url, encoding: .utf8).contains("href=\"trim-silences.html\""))

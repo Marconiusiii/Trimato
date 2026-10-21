@@ -95,7 +95,9 @@ def generate(source, output, version, build, staging_directory=None):
             digest.update(path.relative_to(source).as_posix().encode() + b'\0' + path.read_bytes())
     revision = digest.hexdigest()
     template = plistlib.loads((source / 'Contents/Info.plist').read_bytes())
-    identifier = f"{template['CFBundleIdentifier']}.v{version}.b{build}.c{revision[:20]}"
+    # The book keeps its identity across releases and edits. Version metadata and
+    # the content digest determine when its generated resources need rebuilding.
+    identifier = template['CFBundleIdentifier']
     expected = {'version': version, 'build': build, 'contentDigest': revision, 'bookIdentifier': identifier}
     book = output / 'Trimato.help'
     header = output / 'TrimatoHelpInfo.h'

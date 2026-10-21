@@ -12,85 +12,44 @@
 <a name="trimato-quickstart-guide"></a>
 <h1 id="trimato-quickstart">Trimato quickstart guide</h1>
 <p>Welcome to Trimato! Here is a quick trip from an empty project to your first fresh cut.</p>
-<h2 id="start-a-new-project">Start a new project</h2>
-<p>Choose New Project in the welcome window. To edit a single clip, choose Trim a Clip and continue with <a href="#the-cutting-board">The Cutting Board.</a></p>
+<h2 id="start-a-new-project">Create a project</h2>
 <ol>
-<li>Enter a project name.</li>
-<li>Choose Automatic from First Clip to match the first video placed on the primary timeline, or Custom to choose a resolution and frame rate.</li>
-<li>To set a reference length, turn on Use Target Duration and enter the duration in seconds.</li>
-<li>Choose Next. In Save Project, choose a location, then choose Create.</li>
+<li>Choose New Project in the welcome window.</li>
+<li>Enter a project name and choose Automatic from First Clip.</li>
+<li>Choose Next, select a location in Save Project, then choose Create.</li>
 </ol>
-<p>Trimato creates a project folder containing the saved <code>.trimato</code> project.</p>
 <h2 id="import-clips">Import clips</h2>
-<p>In the Project pane, choose Import Files. Select audio or video files, or a folder containing media, then choose Open.</p>
-<p>Imported clips appear in Project Source. Select a clip and choose Open Cutting Board from Actions.</p>
-<h2 id="the-cutting-board">The Cutting Board</h2>
+<p>In Project, choose Import Files. Select the audio or video clips you want to use, then choose Open.</p>
+<p>Select a clip in Project Source and choose Open Cutting Board from Actions.</p>
+<h2 id="the-cutting-board">Make the first cut</h2>
 <p>This is the bread and butter of Trimato. Or the bruschetta? Either way, this is where you shape an individual clip before adding it to your project.</p>
-<p>Video opens in the Video Cutting Board; audio opens in the Audio Cutting Board. Preparing Clip shows progress while the clip loads. Use the Clip playhead slider to choose a position, then use these keys:</p>
-<ul>
-<li>Space plays and pauses.</li>
-<li>J plays backward, K plays or pauses, and L plays forward. Press J or L again to increase the speed.</li>
-<li>Left Arrow and Right Arrow move one video frame, or 1/30 second in an audio clip.</li>
-<li>Shift-Left Arrow and Shift-Right Arrow move ten frames or audio steps.</li>
-<li>Home or Fn-Left Arrow moves to the beginning. End or Fn-Right Arrow moves to the end. Command-Up Arrow and Command-Down Arrow provide the same commands.</li>
-<li>I sets the In point. O sets the Out point.</li>
-<li>Option-I clears In. Option-O clears Out.</li>
-<li>Command-[ removes material before the playhead. Command-] removes material after it.</li>
-<li>Delete removes the section between In and Out.</li>
-</ul>
-<p>Set In and Out around the section you want, then press E to append it to the project timeline. Mark another section and press E again to add another timeline clip.</p>
-<p>Choose Play In–Out Range in Playback to review the marked section. Clear the checkbox to play through the complete edit.</p>
-<p>To place a section at the project playhead, press W for Insert and Split, D for Insert and Replace, or Q for Insert on Top with Source Audio.</p>
-<p>In a standalone Cutting Board, choose Export Clip to save the edited media. Press Command-W to close the Cutting Board.</p>
-<h2 id="add-a-filter">Add a filter</h2>
-<p>Open a timeline clip in the Cutting Board and choose Add Filter. Select an effect and adjust its controls. Use Play preview where available, then choose Add.</p>
-<p>Review the edited clip, then choose Update Clip to save the changes to that timeline clip. A filter’s context menu provides Edit Filter, Enable Filter or Disable Filter, and Remove Filter.</p>
-<p>Plate Reverb blends reverberation into the sound. Reverb length in seconds sets its fade, and Brightness changes its tone. Bleach Bypass reduces color and deepens contrast. Technicolor adds a color treatment with adjustable color offsets.</p>
-<h2 id="play-the-project">Play the project</h2>
-<p>Return to the project window and choose Editor from the Window menu, or press Command-2. Use the Project playhead slider and these playback commands:</p>
-<ul>
-<li>Space plays and pauses the project.</li>
-<li>Left Arrow and Right Arrow move one frame; Shift-Arrow moves ten frames.</li>
-<li>Home and End move to the timeline boundaries. Fn-Left Arrow and Fn-Right Arrow provide the same commands.</li>
-<li>Semicolon (;) or Command-Left Arrow moves to the previous edit point.</li>
-<li>Apostrophe (') or Command-Right Arrow moves to the next edit point.</li>
-<li>Command-Option-Up Arrow and Command-Option-Down Arrow select a track.</li>
-<li>M adds a Marker. Option-M adds a Chapter.</li>
-<li>C opens the active-track clip at or immediately after the playhead.</li>
-<li>Command-B splits the clip at the playhead.</li>
-<li>F opens Quick Fade.</li>
-</ul>
-<p>At a cut, Quick Fade names the outgoing clip beside Fade Out and the incoming clip beside Fade In. Select a fade, enter its duration, then choose Apply Fade.</p>
-<p>Choose the timecode button after the playhead slider to open Jump to Time. Enter a time, or a frame number when Frames is selected in Settings, then choose Jump.</p>
-<h2 id="tune-the-timeline">Tune the timeline</h2>
-<p>Choose a track with the Track picker in Timeline. Its clips appear in Timeline Clips.</p>
-<p>On a magnetic track, focus a clip and press Space to pick it up. Use Left Arrow or Right Arrow to choose its position, then press Space to drop it.</p>
-<p>On an additional track with Magnetic off, Left Arrow and Right Arrow move the focused clip one project frame earlier or later. Each clip needs enough space between its neighbors for the move.</p>
-<p>Press Enter on a clip to open it in the Cutting Board. Make your changes, then press Command-U to update that timeline clip.</p>
-<p>Press Command-I to open Get Info for the focused item. Available details include duration, resolution, codec, and encoder. Press Command-W to close the window.</p>
-<h2 id="add-captions">Add captions</h2>
-<p>Choose Import Files and select an SRT or WebVTT file to add existing captions.</p>
-<p>To write captions, set In and Out around a passage in Editor, then press Command-Shift-C. Enter the text, review it with Play Selection, and choose Add Caption. Repeat for each passage.</p>
-<p>Choose Timeline &gt; Captions &gt; Finalize Captions to divide written passages into timed cues. Review and adjust any passages identified in the results before finalizing again.</p>
-<h2 id="mix-the-sound">Mix the sound</h2>
-<p>Press Command-Shift-M to open Mixer. Choose an audio track and adjust its volume, pan, and other mix controls during playback.</p>
-<p>Set In and Out, then turn on Loop to repeat that range while mixing. Escape or Command-W closes Mixer.</p>
-<p>To display an audio overview, turn on Show Audio Waveforms in Settings &gt; General.</p>
-<h2 id="add-something-from-scratch">Add something from scratch</h2>
-<p>Press G in Editor or choose Timeline &gt; Generator. Choose Black, Solid Color, Static Gradient, Silence, or Text. Set the duration and destination track, then choose a placement such as Append or Insert and Split.</p>
-<p>The generated item appears in the Generators folder in Project Source.</p>
-<h2 id="export-your-project">Export your project</h2>
-<p>Clear both project In and Out points to export the complete timeline, or set both to export a range.</p>
 <ol>
-<li>Press Command-E or choose File &gt; Export Project.</li>
-<li>Enter a filename and choose a location and format.</li>
-<li>For captions, turn on Include captions and choose Burn Captions into Video, WebVTT Sidecar File, or SRT Sidecar File.</li>
-<li>Choose Export.</li>
+<li>Use the Clip playhead slider to find the beginning of the section you want to keep, then press I to mark In.</li>
+<li>Move to the end of that section and press O to mark Out. Space plays or pauses; Left Arrow and Right Arrow make smaller adjustments.</li>
+<li>Press E to append the section to the project timeline.</li>
+<li>Press Command-W to close Cutting Board.</li>
 </ol>
-<p>MP4 for smaller files (H.264) uses compressed video and audio while keeping the project dimensions and frame rate. It converts HDR to standard video automatically. Choose HEVC or ProRes with Preserve HDR enabled in Settings &gt; Video to retain HDR.</p>
-<p>For YouTube chapters, add at least three Chapters, starting at 00:00, with at least 10 seconds for each. Keep Export YouTube Chapters checked to save their timestamps and titles beside the movie. Paste the chapter list into the video’s description in YouTube Studio.</p>
-<p>Choose Cancel Export to stop an export. A successful export plays a completion sound when Export completion sound is enabled in Settings &gt; General. macOS sends a notification with the filename when export notifications are allowed.</p>
-<p>And there it is: your first fresh cut from Trimato!</p>
+<p>Open another source clip and repeat these steps. Each section joins the end of the timeline.</p>
+<h2 id="tune-the-timeline">Arrange the clips</h2>
+<p>In Timeline, choose Primary Video for a video edit or Primary Audio for an audio edit with the Track picker.</p>
+<ol>
+<li>Focus a clip in Timeline Clips and press Space to pick it up.</li>
+<li>Use Left Arrow or Right Arrow to choose its position.</li>
+<li>Press Space again to drop it.</li>
+</ol>
+<h2 id="play-the-project">Review the edit</h2>
+<p>Press Command-2 to move to Editor. Press Home or Fn-Left Arrow to go to the beginning, then Space to play your assembled clips. Press Space again to pause.</p>
+<p>To adjust a section, open its clip from Timeline Clips with Enter. Change In and Out in Cutting Board, then press Command-U to update the timeline clip.</p>
+<h2 id="export-your-project">Save and export</h2>
+<ol>
+<li>Press Command-S to save the project.</li>
+<li>In Editor, press Option-I and Option-O to clear the project In and Out points for a complete export.</li>
+<li>Press Command-E or choose File &gt; Export Project.</li>
+<li>Enter a filename, choose a location and format, then choose Export.</li>
+</ol>
+<p>Open the exported file from its chosen location. Your first fresh cut is ready to serve!</p>
+<h2 id="explore-more">Explore more</h2>
+<p>Add <a href="transitions.html">transitions</a>, write <a href="captioner.html">captions</a>, record <a href="recording.html">narration or audio description</a>, create <a href="generator.html">titles</a>, or <a href="mixer.html">mix your soundtrack.</a></p>
 </main>
 <footer><p><a href="keyboard-shortcuts.html">Keyboard shortcuts.</a> <a href="voiceover.html">Use Trimato with VoiceOver.</a></p></footer>
 </body>
