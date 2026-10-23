@@ -2,6 +2,8 @@
 
 Trimato is an accessibility-first audio and video editor for macOS, designed for keyboard and VoiceOver use. Trim clips, arrange a project, write captions, record narration and audio description, mix sound, and export your finished work.
 
+[Download Trimato on the Mac App Store.](https://apps.apple.com/us/app/trimato/id6800439337?mt=12)
+
 Created by Marco Salsiccia.
 
 Trimato is free, with optional support. Choose Support Trimato from the Trimato menu or welcome window to support future updates. Every editing feature is available without a purchase. After completion, choose Done in the Thank you sheet to return to Support. Close the Support window with Close, Escape, or Command+W.
