@@ -4,6 +4,7 @@ import AVFoundation
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.undoManager) private var undoManager
     @AppStorage(AppPreferenceKey.accentColor) private var accentChoice = EditorAccent.teal
     @ObservedObject private var viewModel: VideoPlayerViewModel
     private let editorHeading: String?
@@ -97,6 +98,11 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showingSilenceTrim) { TrimSilencesView(viewModel: viewModel) }
+        .sheet(item: $viewModel.editPointInput) { input in
+            ClipEditPointView(input: input) { timeline in
+                try await viewModel.applyEditPoint(input, timeline: timeline, undoManager: undoManager)
+            }
+        }
         .operationProgress(viewModel.isExporting ? OperationProgress(
             title: "Exporting Clip", progress: viewModel.exportProgress, cancel: viewModel.cancelExport
         ) : nil, outcome: viewModel.exportErrorMessage == nil ? .completed : .failed)

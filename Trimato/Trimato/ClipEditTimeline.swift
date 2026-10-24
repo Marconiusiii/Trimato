@@ -19,6 +19,17 @@ nonisolated enum ClipEditError: LocalizedError, Equatable, Sendable {
 }
 
 nonisolated struct ClipEditTimeline: Equatable, Sendable {
+    struct EditPoint: Equatable, Sendable, Identifiable {
+        let index: Int
+        let time: CMTime
+        let inTime: CMTime
+        let outTime: CMTime
+        let precedingStart: CMTime
+        let followingEnd: CMTime
+        var id: Int { index }
+        var name: String { "Edit Point \(index + 1)" }
+    }
+
     private(set) var sourceRanges: [CMTimeRange]
 
     init(sourceDuration: CMTime) {
@@ -35,6 +46,31 @@ nonisolated struct ClipEditTimeline: Equatable, Sendable {
 
     var duration: CMTime {
         sourceRanges.reduce(.zero) { CMTimeAdd($0, $1.duration) }
+    }
+
+    var editPoints: [EditPoint] {
+        var position = CMTime.zero
+        return sourceRanges.indices.dropLast().map { index in
+            let preceding = sourceRanges[index]
+            let following = sourceRanges[index + 1]
+            position = CMTimeAdd(position, preceding.duration)
+            return EditPoint(index: index, time: position, inTime: preceding.end,
+                outTime: following.start, precedingStart: preceding.start, followingEnd: following.end)
+        }
+    }
+
+    func adjustingEditPoint(_ index: Int, inTime: CMTime, outTime: CMTime) throws -> ClipEditTimeline {
+        guard let point = editPoints.first(where: { $0.index == index }),
+              inTime.isNumeric, outTime.isNumeric,
+              CMTimeCompare(inTime, point.precedingStart) > 0,
+              CMTimeCompare(inTime, outTime) < 0,
+              CMTimeCompare(outTime, point.followingEnd) < 0 else {
+            throw ClipEditError.invalidSelection
+        }
+        var ranges = sourceRanges
+        ranges[index] = CMTimeRange(start: point.precedingStart, end: inTime)
+        ranges[index + 1] = CMTimeRange(start: outTime, end: point.followingEnd)
+        return ClipEditTimeline(sourceRanges: ranges)
     }
 
     mutating func delete(editedRange: CMTimeRange) throws {

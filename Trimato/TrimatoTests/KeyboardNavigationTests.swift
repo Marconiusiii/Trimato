@@ -37,7 +37,8 @@ struct KeyboardNavigationTests {
 
     private func expectPosition(_ model: VideoPlayerViewModel, _ time: CMTime) async throws {
         for _ in 0..<200 {
-            if abs(model.player.currentTime().seconds - time.seconds) < 0.00001 { break }
+            if abs(model.player.currentTime().seconds - time.seconds) < 0.00001,
+               abs(model.currentTime - time.seconds) < 0.00001 { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(abs(model.player.currentTime().seconds - time.seconds) < 0.00001)

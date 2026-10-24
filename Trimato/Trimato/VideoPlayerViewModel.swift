@@ -120,6 +120,12 @@ final class VideoPlayerViewModel: ObservableObject {
 
         let kind: Kind
         let time: CMTime
+        var editNumber: Int? = nil
+        var spokenName: String {
+            guard let editNumber else { return kind.spokenName }
+            let name = "Edit Point \(editNumber)"
+            return kind == .edit ? name : "\(kind.spokenName), \(name)"
+        }
     }
 
     let player = AVPlayer()
@@ -180,6 +186,8 @@ final class VideoPlayerViewModel: ObservableObject {
     @Published private(set) var mediaFilename = ""
     @Published private(set) var mediaPreparationOutcome = OperationProgressOutcome.completed
     @Published private(set) var isApplyingEdit = false
+    @Published var editPointInput: ClipEditPointInput?
+    private weak var editPointUndoManager: UndoManager?
     @Published private(set) var projectSourceSegments: [SourceSegment] = []
     @Published private(set) var placementSourceSegments: [SourceSegment] = []
 
@@ -188,6 +196,7 @@ final class VideoPlayerViewModel: ObservableObject {
     private var frameRate: Float = 0
     private var minFrameDuration: CMTime = .invalid  // exact frame duration from track
     private var mediaDuration: CMTime = .zero
+    private var originalMediaDuration: CMTime = .zero
     private var silenceEditGeneration = UUID()
     private var mediaSource: MediaSource?
     private var hasSpatialAudio = false
@@ -442,6 +451,8 @@ final class VideoPlayerViewModel: ObservableObject {
         projectSourceSegments = []
         placementSourceSegments = []
         mediaDuration = .zero
+        originalMediaDuration = .zero
+        editPointInput = nil
         inMarker = nil
         outMarker = nil
         playsInOutRange = false
@@ -535,6 +546,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.basePlaybackAsset = playbackAsset
                 self.player.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
                 self.mediaDuration = timeline.duration
+                self.originalMediaDuration = loadedDuration
                 self.duration = CMTimeGetSeconds(timeline.duration)
                 self.editTimeline = timeline
                 self.projectSourceSegments = timeline.sourceRanges.map {
@@ -597,6 +609,8 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     func closeMedia() {
+        editPointInput = nil
+        originalMediaDuration = .zero
         silenceEditGeneration = UUID()
         waitingForClipPreview = false
         preparePlayback = nil
@@ -840,7 +854,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 hasSpatialAudio ? mediaSource.originalAsset : mediaSource.playbackAsset)
     }
 
-    private struct SilenceEditSnapshot {
+    private struct ClipEditSnapshot {
         let timeline: ClipEditTimeline
         let asset: AVAsset
         let inMarker: CMTime?
@@ -856,23 +870,23 @@ final class VideoPlayerViewModel: ObservableObject {
         guard canTrimSilences, editTimeline == expectedTimeline, let source = mediaSource else {
             throw SilenceTrimError.changedClip
         }
-        restoreSilenceEdit(SilenceEditSnapshot(timeline: ClipEditTimeline(sourceRanges: plan.sourceRanges),
+        restoreClipEdit(ClipEditSnapshot(timeline: ClipEditTimeline(sourceRanges: plan.sourceRanges),
             asset: previewAsset, inMarker: inMarker.map(plan.remap), outMarker: outMarker.map(plan.remap),
             time: inMarker.map(plan.remap) ?? .zero, sourceURL: source.originalURL, generation: silenceEditGeneration),
             undoManager: undoManager)
     }
 
-    private func restoreSilenceEdit(_ snapshot: SilenceEditSnapshot, undoManager: UndoManager?) {
+    private func restoreClipEdit(_ snapshot: ClipEditSnapshot, undoManager: UndoManager?, actionName: String = "Trim Silences") {
         guard let source = mediaSource, source.originalURL == snapshot.sourceURL,
               silenceEditGeneration == snapshot.generation,
               let current = editTimeline, let basePlaybackAsset else { return }
-        let previous = SilenceEditSnapshot(timeline: current, asset: basePlaybackAsset,
-            inMarker: inMarker, outMarker: outMarker, time: player.currentTime(), sourceURL: source.originalURL, generation: silenceEditGeneration)
+        let previous = ClipEditSnapshot(timeline: current, asset: basePlaybackAsset,
+            inMarker: inMarker, outMarker: outMarker, time: effectivePlayheadTime, sourceURL: source.originalURL, generation: silenceEditGeneration)
         undoManager?.registerUndo(withTarget: self) { [weak undoManager] target in
             guard target.editTimeline == snapshot.timeline else { return }
-            target.restoreSilenceEdit(previous, undoManager: undoManager)
+            target.restoreClipEdit(previous, undoManager: undoManager, actionName: actionName)
         }
-        undoManager?.setActionName("Trim Silences")
+        undoManager?.setActionName(actionName)
         player.pause(); cancelScrub()
         editTimeline = snapshot.timeline
         projectSourceSegments = snapshot.timeline.sourceRanges.map { SourceSegment(sourceRange: ProjectTimeRange($0)) }
@@ -885,6 +899,8 @@ final class VideoPlayerViewModel: ObservableObject {
         removeActiveAudioPreview()
         self.basePlaybackAsset = snapshot.asset
         player.replaceCurrentItem(with: AVPlayerItem(asset: snapshot.asset))
+        frameStepPosition = snapshot.time
+        updatePlaybackBounds(respectingMarkers: false)
         player.seek(to: snapshot.time, toleranceBefore: .zero, toleranceAfter: .zero)
         currentTime = snapshot.time.seconds
         currentFrame = JumpToTimeInput.frameNumber(seconds: currentTime, rate: effectiveFeedbackFrameRate)
@@ -962,6 +978,54 @@ final class VideoPlayerViewModel: ObservableObject {
             sourceRanges: editTimeline?.sourceRanges ?? []
         ) else { return }
         jump(to: point)
+    }
+
+    @discardableResult
+    func prepareEditPoint(undoManager: UndoManager? = nil) -> Bool {
+        guard hasMedia, !isLoadingMedia, !isApplyingEdit, !isExporting, editPointInput == nil,
+              let timeline = editTimeline,
+              let point = timeline.editPoints.first(where: {
+                  abs(CMTimeSubtract($0.time, effectivePlayheadTime).seconds) < 1 / Double(ProjectTime.defaultTimescale)
+              }) else { return false }
+        player.pause(); cancelScrub()
+        frameStepPosition = point.time
+        editPointUndoManager = undoManager
+        editPointInput = ClipEditPointInput(generation: silenceEditGeneration, timeline: timeline, point: point,
+            sourceDuration: originalMediaDuration, frameRate: effectiveFeedbackFrameRate, frames: showingFrames)
+        return true
+    }
+
+    func applyEditPoint(_ input: ClipEditPointInput, timeline: ClipEditTimeline, undoManager: UndoManager?) async throws {
+        guard let undoManager = editPointUndoManager ?? undoManager else {
+            throw QuitDraftError(message: "The edit point could not be adjusted. Close this sheet and reopen the Cutting Board.")
+        }
+        guard !isApplyingEdit, !isExporting, let source = mediaSource,
+              silenceEditGeneration == input.generation, editTimeline == input.timeline else {
+            throw QuitDraftError(message: "The clip has changed. Close this sheet and reopen the edit point.")
+        }
+        // Revalidate the adjacent source ranges before preparing or changing playback.
+        guard let point = timeline.editPoints.first(where: { $0.index == input.point.index }),
+              let verified = try? input.timeline.adjustingEditPoint(input.point.index, inTime: point.inTime, outTime: point.outTime),
+              verified == timeline else {
+            throw QuitDraftError(message: "The edit point could not be adjusted. Check the In and Out values.")
+        }
+        guard timeline != input.timeline else { return }
+        let operationID = UUID()
+        editID = operationID
+        isApplyingEdit = true
+        defer {
+            if editID == operationID { isApplyingEdit = false; editID = nil }
+        }
+        let asset = try await EditedCompositionBuilder.playbackAsset(
+            asset: hasSpatialAudio ? source.originalAsset : source.playbackAsset,
+            sourceRanges: timeline.sourceRanges, includeVideo: hasVideo)
+        try Task.checkCancellation()
+        guard silenceEditGeneration == input.generation, editTimeline == input.timeline else {
+            throw QuitDraftError(message: "The clip has changed. Close this sheet and reopen the edit point.")
+        }
+        restoreClipEdit(ClipEditSnapshot(timeline: timeline, asset: asset, inMarker: nil, outMarker: nil,
+            time: point.time, sourceURL: source.originalURL, generation: input.generation),
+            undoManager: undoManager, actionName: "Adjust \(input.point.name)")
     }
 
     @Published var clipEffectsReady = true
@@ -1163,11 +1227,9 @@ final class VideoPlayerViewModel: ObservableObject {
         if let outMarker, outMarker.isValid {
             points.append(.init(kind: .outMarker, time: outMarker))
         }
-        var join = CMTime.zero
-        for range in sourceRanges.dropLast() {
-            join = CMTimeAdd(join, range.duration)
-            if CMTimeCompare(join, .zero) > 0, CMTimeCompare(join, duration) < 0 {
-                points.append(.init(kind: .edit, time: join))
+        for point in ClipEditTimeline(sourceRanges: sourceRanges).editPoints {
+            if CMTimeCompare(point.time, .zero) > 0, CMTimeCompare(point.time, duration) < 0 {
+                points.append(.init(kind: .edit, time: point.time, editNumber: point.index + 1))
             }
         }
         points.append(.init(kind: .end, time: duration))
@@ -1177,7 +1239,10 @@ final class VideoPlayerViewModel: ObservableObject {
         }
 
         return points.reduce(into: []) { result, point in
-            guard result.last.map({ CMTimeCompare($0.time, point.time) == 0 }) != true else { return }
+            if let last = result.last, CMTimeCompare(last.time, point.time) == 0 {
+                if let number = point.editNumber { result[result.count - 1].editNumber = number }
+                return
+            }
             result.append(point)
         }
     }
@@ -1494,7 +1559,7 @@ final class VideoPlayerViewModel: ObservableObject {
             guard let self, self.navigationRequest == request else { return }
             self.navigationRequest = nil
             self.announce(AppPreferences.timecodeFeedback == .whenStopped
-                ? "\(point.kind.spokenName), \(self.spokenTime(point.time))" : point.kind.spokenName)
+                ? "\(point.spokenName), \(self.spokenTime(point.time))" : point.spokenName)
         }
     }
 
@@ -1585,6 +1650,11 @@ final class VideoPlayerViewModel: ObservableObject {
 
         switch event.type {
         case .keyDown:
+            if commandModifiers.isEmpty, event.keyCode == 36 || event.keyCode == 76,
+               event.window?.firstResponder is NativePlayheadSlider.PlayheadSlider {
+                if event.isARepeat { return event }
+                if prepareEditPoint(undoManager: event.window?.undoManager) { return nil }
+            }
             if commandModifiers == .option, isActiveCuttingBoard {
                 // Option modifies the characters themselves on some keyboard layouts.
                 let character = event.characters(byApplyingModifiers: [])?.lowercased()
