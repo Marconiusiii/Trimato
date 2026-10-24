@@ -12,6 +12,7 @@ Trimato is free, with optional support. Choose Support Trimato from the Trimato 
 
 - Edit standalone audio and video clips or arrange multiple tracks in a saved `.trimato` project.
 - Mark ranges, split and trim clips, and make non-destructive edits that preserve the original media. Confirm deletion of populated tracks and continue through Timeline Clips after removing content.
+- Navigate numbered edit points in the Cutting Board and adjust the source boundaries on either side of a cut, with Undo and Redo.
 - Work with portrait or landscape video, step through individual frames or jump ten frames with Shift-Arrow, and edit audio with optional static waveforms. Jump to an exact time or frame from the timecode button.
 - Write and time captions with Captioner, import SRT and WebVTT files, and export captions as separate files or include them in the video.
 - Record audio description with Describer and narration with Voicer. Adjust voice levels, match loudness, and reduce other audio during descriptions.
@@ -39,6 +40,8 @@ In a project, use Project Source to organize media, Editor to preview it, and Ti
 Project windows fill the screen’s usable area, with adjustable panes for the video preview and timeline. Use the Mac’s full-screen command for system full screen. Settings > Accessibility > Interface Text Size enlarges workspace text up to 200%; controls adapt to the available space within the panes.
 
 Cutting Board playback continues beyond In and Out points by default. Select Play In–Out Range to audition only the marked section. Clear points with Option-I and Option-O as you work. Deleting a timeline transition asks for confirmation.
+
+Deleting material from inside a clip creates a numbered edit point at the join. With focus on the Cutting Board's Clip playhead, use semicolon and apostrophe to navigate edit points, then press Enter at a join to adjust its In and Out values using the original clip's times or frame numbers. Choose Apply to update the cut. Invalid values show correction messages beside the fields; Edit > Undo and Redo reverse or reapply an adjustment.
 
 Generated images and silence can supply the additional media needed for adjoining transitions while keeping the timeline length unchanged.
 

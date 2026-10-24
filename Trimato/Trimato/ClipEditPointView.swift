@@ -76,7 +76,6 @@ struct ClipEditPointView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(input.point.name).font(EditorTheme.dialogTitle).accessibilityAddTraits(.isHeader)
-            Text("Original clip").font(.headline).accessibilityAddTraits(.isHeader)
             Form {
                 TextField(input.frames ? "In frame" : "In timecode", text: $inText)
                     .textFieldStyle(.roundedBorder)
