@@ -100,6 +100,7 @@ private struct QuitReviewContent: View {
     @ObservedObject var coordinator: ProjectWindowSaveCoordinator
     var body: some View {
         ProjectCloseConfirmation(coordinator: coordinator)
+            .onCommand(#selector(NSDocument.save(_:))) { coordinator.chooseCloseDecision(.save) }
             .onChange(of: coordinator.isConfirmingClose) { _, showing in
                 if !showing { coordinator.closeConfirmationDismissed() }
             }

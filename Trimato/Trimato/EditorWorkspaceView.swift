@@ -70,11 +70,11 @@ struct EditorWorkspaceView: View {
                 projectWindowSaveCoordinator.onWindowCloseRequested { [weak controller] in
                     controller?.closeProject()
                 }
-                controller.installCloseProjectAction { [weak clipEditorWindows, weak projectWindowSaveCoordinator] completion in
-                    guard let clipEditorWindows, let projectWindowSaveCoordinator else { completion(false); return }
+                controller.installCloseProjectAction { [weak controller, weak clipEditorWindows, weak projectWindowSaveCoordinator] completion in
+                    guard let controller, let clipEditorWindows, let projectWindowSaveCoordinator else { completion(false); return }
                     clipEditorWindows.requestCloseAll { didClose in
                         guard didClose else { completion(false); return }
-                        projectWindowSaveCoordinator.requestClose(completion: completion)
+                        projectWindowSaveCoordinator.requestClose(edits: controller.quitEdits, completion: completion)
                     }
                 }
                 controller.installCaptionEditorActions(
@@ -119,6 +119,8 @@ struct EditorWorkspaceView: View {
 
     var body: some View {
         workspaceLifecycle
+            .onCommand(#selector(NSDocument.save(_:))) { controller.saveProjectDocument() }
+            .onCommand(#selector(NSDocument.saveAs(_:))) { controller.saveProjectDocumentAs() }
             .focusedSceneValue(\.closeToolPane, controller.toolPane == nil ? nil : ToolPaneCloseAction(
                 title: "Close \(controller.toolPane!.title)", action: controller.requestCloseToolPane))
             .onChange(of: controller.toolPane) { old, new in

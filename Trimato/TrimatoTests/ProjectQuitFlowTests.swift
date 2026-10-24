@@ -6,6 +6,47 @@ import Testing
 @Suite("Coordinated project quitting", .serialized)
 @MainActor
 struct ProjectQuitFlowTests {
+    @Test func nativeWindowCloseReviewsUnappliedDraftsAndCancelKeepsThem() async throws {
+        let (_, native, coordinator, window) = makeDocument()
+        defer { native.close(); window.close(); QuitReviewState.shared.coordinator = nil }
+        let edits = ProjectQuitEdits()
+        var pending = true
+        edits.register(UUID(), entry: .init(priority: 0, hasChanges: { pending }, validate: {}, apply: { pending = false }))
+        var result: Bool?
+        coordinator.onWindowCloseRequested { [weak coordinator] in
+            coordinator?.requestClose(edits: edits) { result = $0 }
+        }
+        window.performClose(nil)
+        for _ in 0..<100 where !coordinator.isConfirmingClose { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(coordinator.isConfirmingClose)
+        coordinator.chooseCloseDecision(.cancel)
+        coordinator.closeConfirmationDismissed()
+        #expect(result == false)
+        #expect(pending)
+        #expect(native.saves == 0)
+    }
+
+    @Test func savingWindowCloseAppliesUnappliedDraftsBeforeSaving() async throws {
+        let (model, native, coordinator, window) = makeDocument()
+        defer { native.close(); window.close(); QuitReviewState.shared.coordinator = nil }
+        let edits = ProjectQuitEdits()
+        var pending = true
+        edits.register(UUID(), entry: .init(priority: 0, hasChanges: { pending }, validate: {}, apply: {
+            model.project.name = "Applied draft"
+            pending = false
+        }))
+        var result: Bool?
+        coordinator.requestClose(edits: edits) { result = $0 }
+        #expect(coordinator.isConfirmingClose)
+        coordinator.chooseCloseDecision(.save)
+        coordinator.closeConfirmationDismissed()
+        for _ in 0..<100 where result == nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(result == true)
+        #expect(!pending)
+        #expect(model.project.name == "Applied draft")
+        #expect(native.saves == 1)
+    }
+
     @Test func cancellingDiscardRestoresUnsavedChangesAfterTheWriteCompletes() async throws {
         let (model, native, coordinator, window) = makeDocument()
         defer { native.close(); window.close(); QuitReviewState.shared.coordinator = nil }

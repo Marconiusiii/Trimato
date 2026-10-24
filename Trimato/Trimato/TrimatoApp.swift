@@ -54,6 +54,7 @@ struct TrimatoApp: App {
         .commands { WorkspaceCommands() }
         .commands {
             ProjectFileCommands()
+            ProjectCloseCommands()
             ContextualExportCommands()
             GetInfoCommands()
             FeedbackCommands()
@@ -421,13 +422,8 @@ private final class TrimatoApplicationDelegate: NSObject, NSApplicationDelegate 
 }
 
 private struct ProjectFileCommands: Commands {
-    @ObservedObject private var quitReview = QuitReviewState.shared
     @ObservedObject private var projectOpening = SingleProjectCoordinator.shared
     @ObservedObject private var mixer = MixerWindowRegistry.shared
-    @FocusedValue(\.closeToolPane) private var closeToolPane
-    @FocusedValue(\.closeSettings) private var closeSettings
-    @FocusedValue(\.closeSupport) private var closeSupport
-    @FocusedObject private var standaloneContext: StandaloneClipCommandContext?
     @Environment(\.openWindow) private var openWindow
     @FocusedObject private var projectController: ProjectController?
     @ObservedObject private var clipCommands = ClipEditorCommandRouter.shared
@@ -457,42 +453,29 @@ private struct ProjectFileCommands: Commands {
             }
 
         }
-        CommandGroup(replacing: .saveItem) {
-            Button(quitReview.coordinator != nil ? "Cancel Quit" : closeSupport != nil ? "Close Support" : closeSettings != nil ? "Close Settings" :
-                (mixer.activeSession != nil ? "Close Mixer" : nil) ?? closeToolPane?.title ?? (clipPlacement?.isKeyWindow == true || standaloneContext != nil ? "Close Cutting Board" : "Close Project")) {
-                if let coordinator = quitReview.coordinator { coordinator.cancelQuitReview() }
-                else if let closeSupport { closeSupport() }
-                else if let closeSettings { closeSettings() }
-                else if let window = mixer.activeWindow { window.performClose(nil) }
-                else if let closeToolPane { closeToolPane.action() }
-                else if let standaloneContext { standaloneContext.close() }
-                else if let window = clipPlacement?.hostWindow, clipPlacement?.isKeyWindow == true { window.performClose(nil) }
-                else { controller?.closeProject() }
-            }
-            .keyboardShortcut("w", modifiers: .command)
-            .disabled(quitReview.coordinator?.isResolvingClose == true ||
-                (closeSupport == nil && mixer.activeSession == nil && closeToolPane == nil && closeSettings == nil && clipPlacement?.isKeyWindow != true && standaloneContext == nil && controller == nil))
-            Divider()
-            Button(quitReview.coordinator != nil ? "Save and Quit" : "Save") {
-                if let coordinator = quitReview.coordinator { coordinator.chooseCloseDecision(.save) }
-                else { controller?.saveProjectDocument() }
-            }
-                .keyboardShortcut("s", modifiers: .command)
-                .disabled(controller == nil)
-            Button("Save As\u{2026}") { controller?.saveProjectDocumentAs() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-                .disabled(controller == nil)
-            Divider()
-            Button("Close Project") { controller?.closeProject() }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
-                .disabled(controller == nil)
-        }
         CommandGroup(after: .newItem) {
             Button("Consolidate Clips…") { controller?.mediaFiles.showConsolidation() }
                 .disabled(controller == nil || controller?.isImporting == true || controller?.isExporting == true || controller?.isRelinkingMedia == true || controller?.mediaFiles.isBusy == true)
             Button("Import Files\u{2026}") { controller?.importFiles() }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(controller == nil || controller?.isImporting == true || controller?.mediaFiles.isBusy == true || controller?.isRelinkingMedia == true)
+        }
+    }
+}
+
+private struct ProjectCloseCommands: Commands {
+    @FocusedValue(\.closeToolPane) private var closeToolPane
+    @FocusedObject private var projectController: ProjectController?
+    @ObservedObject private var activeProjects = ExternalMediaOpenCoordinator.shared
+
+    var body: some Commands {
+        CommandGroup(after: .saveItem) {
+            Button(closeToolPane?.title ?? "Close Tool Pane") { closeToolPane?.action() }
+                .disabled(closeToolPane == nil)
+            Button("Close Project") {
+                (projectController ?? activeProjects.activeProjectController)?.closeProject()
+            }
+            .disabled(projectController == nil && activeProjects.activeProjectController == nil)
         }
     }
 }

@@ -95,6 +95,8 @@ struct MixerView: View {
         .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
         .background(EditorTheme.controlSurface)
         .blocksEditingDuringQuit()
+        .onCommand(#selector(NSDocument.save(_:))) { session.controller.saveProjectDocument() }
+        .onCommand(#selector(NSDocument.saveAs(_:))) { session.controller.saveProjectDocumentAs() }
     }
 
     private var actions: some View {

@@ -44,6 +44,7 @@ struct TrimatoSettingsView: View {
         .accessibilityIdentifier(SettingsToolbarAccessibility.contentIdentifier)
         .frame(minWidth: 600, idealWidth: 700, minHeight: 680)
         .focusedSceneValue(\.closeSettings, SettingsCloseAction(capture: capture))
+        .onDisappear { capture.close() }
         .task {
             await Task.yield()
             SettingsToolbarAccessibility.update()

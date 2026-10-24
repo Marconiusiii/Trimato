@@ -212,12 +212,13 @@ final class ProjectWindowSaveCoordinator: NSObject, ObservableObject {
 
     var projectName: String { projectDocument.project.name }
 
-    func requestClose(completion: @escaping (Bool) -> Void) {
+    func requestClose(edits: ProjectQuitEdits? = nil, completion: @escaping (Bool) -> Void) {
         guard pendingCloseCompletion == nil, nativeDocument != nil else {
             completion(false)
             return
         }
         pendingCloseCompletion = completion
+        if let edits { quitEdits = edits }
         if pendingSaveCompletion != nil { closeWaitsForSave = true; return }
         beginCloseReview()
     }
