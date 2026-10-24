@@ -104,6 +104,7 @@ final class VideoPlayerViewModel: ObservableObject {
             case start
             case inMarker
             case outMarker
+            case edit
             case end
 
             var spokenName: String {
@@ -111,6 +112,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 case .start: "Start"
                 case .inMarker: "In"
                 case .outMarker: "Out"
+                case .edit: "Edit point"
                 case .end: "End"
                 }
             }
@@ -944,7 +946,8 @@ final class VideoPlayerViewModel: ObservableObject {
             movingForward: false,
             duration: mediaDuration,
             inMarker: inMarker,
-            outMarker: outMarker
+            outMarker: outMarker,
+            sourceRanges: editTimeline?.sourceRanges ?? []
         ) else { return }
         jump(to: point)
     }
@@ -955,7 +958,8 @@ final class VideoPlayerViewModel: ObservableObject {
             movingForward: true,
             duration: mediaDuration,
             inMarker: inMarker,
-            outMarker: outMarker
+            outMarker: outMarker,
+            sourceRanges: editTimeline?.sourceRanges ?? []
         ) else { return }
         jump(to: point)
     }
@@ -1148,7 +1152,8 @@ final class VideoPlayerViewModel: ObservableObject {
     static func orderedTimelinePoints(
         duration: CMTime,
         inMarker: CMTime?,
-        outMarker: CMTime?
+        outMarker: CMTime?,
+        sourceRanges: [CMTimeRange] = []
     ) -> [TimelinePoint] {
         guard duration.isValid, CMTimeCompare(duration, .zero) > 0 else { return [] }
         var points = [TimelinePoint(kind: .start, time: .zero)]
@@ -1157,6 +1162,13 @@ final class VideoPlayerViewModel: ObservableObject {
         }
         if let outMarker, outMarker.isValid {
             points.append(.init(kind: .outMarker, time: outMarker))
+        }
+        var join = CMTime.zero
+        for range in sourceRanges.dropLast() {
+            join = CMTimeAdd(join, range.duration)
+            if CMTimeCompare(join, .zero) > 0, CMTimeCompare(join, duration) < 0 {
+                points.append(.init(kind: .edit, time: join))
+            }
         }
         points.append(.init(kind: .end, time: duration))
         points.sort {
@@ -1175,12 +1187,14 @@ final class VideoPlayerViewModel: ObservableObject {
         movingForward: Bool,
         duration: CMTime,
         inMarker: CMTime?,
-        outMarker: CMTime?
+        outMarker: CMTime?,
+        sourceRanges: [CMTimeRange] = []
     ) -> TimelinePoint? {
         let points = orderedTimelinePoints(
             duration: duration,
             inMarker: inMarker,
-            outMarker: outMarker
+            outMarker: outMarker,
+            sourceRanges: sourceRanges
         )
         if movingForward {
             return points.first { CMTimeCompare($0.time, currentTime) > 0 }
@@ -1342,8 +1356,12 @@ final class VideoPlayerViewModel: ObservableObject {
     }
 
     private func seekTo(seconds: Double, completion: (() -> Void)? = nil) {
+        seekTo(time: CMTime(seconds: seconds, preferredTimescale: 600), completion: completion)
+    }
+
+    private func seekTo(time: CMTime, completion: (() -> Void)? = nil) {
         let item = player.currentItem
-        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
+        player.seek(to: time,
                     toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
             guard finished else { return }
             Task { @MainActor [weak self] in
@@ -1464,9 +1482,15 @@ final class VideoPlayerViewModel: ObservableObject {
     private func jump(to point: TimelinePoint) {
         guard hasMedia else { return }
         cancelScrub()
+        pendingPlaybackStart = nil
+        jklIndex = 0
+        player.pause()
+        updatePlaybackBounds(respectingMarkers: false)
+        // Keep the exact target for the next navigation command, including while a seek is pending.
+        frameStepPosition = point.time
         let request = UUID()
         navigationRequest = request
-        seekTo(seconds: point.time.seconds) { [weak self] in
+        seekTo(time: point.time) { [weak self] in
             guard let self, self.navigationRequest == request else { return }
             self.navigationRequest = nil
             self.announce(AppPreferences.timecodeFeedback == .whenStopped

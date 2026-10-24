@@ -6,6 +6,98 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct KeyboardNavigationTests {
+    private func navigationFixture() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 96_000))
+        buffer.frameLength = buffer.frameCapacity
+        buffer.floatChannelData![0].update(repeating: 0, count: Int(buffer.frameLength))
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        try file.write(from: buffer)
+        return url
+    }
+
+    private func loadedNavigationPlayer(_ url: URL) async throws -> VideoPlayerViewModel {
+        let model = VideoPlayerViewModel(announcementHandler: { _ in })
+        model.player.isMuted = true
+        let source = MediaSource.native(url: url, asset: AVURLAsset(url: url), contentType: nil,
+            mode: .nativePassthrough, hasVideo: false, hasAudio: true)
+        model.load(url: url, preparedSource: source)
+        for _ in 0..<500 where model.isLoadingMedia { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(model.hasMedia && !model.isLoadingMedia)
+        model.scopeKeyboardCommands { true }
+        return model
+    }
+
+    private func punctuation(_ character: String) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil, characters: character,
+            charactersIgnoringModifiers: character, isARepeat: false, keyCode: character == ";" ? 41 : 39))
+    }
+
+    private func expectPosition(_ model: VideoPlayerViewModel, _ time: CMTime) async throws {
+        for _ in 0..<200 {
+            if abs(model.player.currentTime().seconds - time.seconds) < 0.00001 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(abs(model.player.currentTime().seconds - time.seconds) < 0.00001)
+        #expect(abs(model.currentTime - time.seconds) < 0.00001)
+        #expect(model.player.rate == 0)
+    }
+
+    @Test func punctuationNavigationAdvancesPastFractionalMarkersAndHandlesRapidPresses() async throws {
+        let url = try navigationFixture()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let model = try await loadedNavigationPlayer(url)
+        defer { model.closeMedia() }
+        let inTime = CMTime(value: 4_001, timescale: 48_000)
+        let outTime = CMTime(value: 8_003, timescale: 48_000)
+        let end = CMTime(seconds: 2, preferredTimescale: 48_000)
+        model.setInMarker(at: inTime)
+        model.setOutMarker(at: outTime)
+        for target in [inTime, outTime, end] {
+            #expect(model.handleKeyEvent(try punctuation("'")) == nil)
+            try await expectPosition(model, target)
+        }
+        for target in [outTime, inTime, .zero] {
+            #expect(model.handleKeyEvent(try punctuation(";")) == nil)
+            try await expectPosition(model, target)
+        }
+        for _ in 0..<3 { #expect(model.handleKeyEvent(try punctuation("'")) == nil) }
+        try await expectPosition(model, end)
+        for _ in 0..<3 { #expect(model.handleKeyEvent(try punctuation(";")) == nil) }
+        try await expectPosition(model, .zero)
+        model.seek(to: 0.5)
+        try await expectPosition(model, CMTime(seconds: 1, preferredTimescale: 600))
+        #expect(model.handleKeyEvent(try punctuation(";")) == nil)
+        try await expectPosition(model, outTime)
+    }
+
+    @Test func punctuationNavigationVisitsJoinsCreatedByCuttingBoardDeletions() async throws {
+        let url = try navigationFixture()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let model = try await loadedNavigationPlayer(url)
+        defer { model.closeMedia() }
+        func time(_ seconds: Double) -> CMTime { CMTime(seconds: seconds, preferredTimescale: 48_000) }
+        for (start, end) in [(0.5, 0.75), (1.0, 1.25)] {
+            model.setInMarker(at: time(start)); model.setOutMarker(at: time(end))
+            model.deleteSelection()
+            for _ in 0..<500 where model.isApplyingEdit { try await Task.sleep(for: .milliseconds(10)) }
+            try #require(!model.isApplyingEdit)
+        }
+        #expect(abs(model.duration - 1.5) < 0.00001)
+        model.goToStart()
+        try await expectPosition(model, .zero)
+        for target in [0.5, 1, 1.5] {
+            #expect(model.handleKeyEvent(try punctuation("'")) == nil)
+            try await expectPosition(model, time(target))
+        }
+        for target in [1.0, 0.5, 0] {
+            #expect(model.handleKeyEvent(try punctuation(";")) == nil)
+            try await expectPosition(model, time(target))
+        }
+    }
+
     private func event(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], repeating: Bool = false,
                        window: NSWindow? = nil) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,

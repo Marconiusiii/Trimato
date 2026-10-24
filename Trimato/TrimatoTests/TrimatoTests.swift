@@ -140,6 +140,43 @@ struct TrimatoTests {
         #expect(previous?.kind == .inMarker)
     }
 
+    @Test func cuttingBoardNavigationIncludesJoinsAfterRepeatedDeletions() throws {
+        func time(_ seconds: Double) -> CMTime { CMTime(seconds: seconds, preferredTimescale: 48_000) }
+        var timeline = ClipEditTimeline(sourceDuration: time(12))
+        try timeline.delete(editedRange: CMTimeRange(start: time(2), end: time(4)))
+        try timeline.delete(editedRange: CMTimeRange(start: time(5), end: time(7)))
+        let points = VideoPlayerViewModel.orderedTimelinePoints(duration: timeline.duration,
+            inMarker: time(2), outMarker: time(6), sourceRanges: timeline.sourceRanges)
+        #expect(points.map(\.kind) == [.start, .inMarker, .edit, .outMarker, .end])
+        #expect(points.map(\.time.seconds) == [0, 2, 5, 6, 8])
+
+        var position = CMTime.zero
+        for expected in points.dropFirst() {
+            let next = try #require(VideoPlayerViewModel.timelineDestination(from: position,
+                movingForward: true, duration: timeline.duration, inMarker: time(2), outMarker: time(6),
+                sourceRanges: timeline.sourceRanges))
+            #expect(next == expected)
+            position = next.time
+        }
+        for expected in points.dropLast().reversed() {
+            let previous = try #require(VideoPlayerViewModel.timelineDestination(from: position,
+                movingForward: false, duration: timeline.duration, inMarker: time(2), outMarker: time(6),
+                sourceRanges: timeline.sourceRanges))
+            #expect(previous == expected)
+            position = previous.time
+        }
+    }
+
+    @Test func edgeTrimsDoNotCreateInternalEditPoints() throws {
+        let duration = CMTime(seconds: 12, preferredTimescale: 600)
+        var timeline = ClipEditTimeline(sourceDuration: duration)
+        try timeline.delete(editedRange: CMTimeRange(start: .zero, duration: CMTime(seconds: 2, preferredTimescale: 600)))
+        try timeline.delete(editedRange: CMTimeRange(start: CMTime(seconds: 8, preferredTimescale: 600), end: timeline.duration))
+        let points = VideoPlayerViewModel.orderedTimelinePoints(duration: timeline.duration,
+            inMarker: nil, outMarker: nil, sourceRanges: timeline.sourceRanges)
+        #expect(points.map(\.kind) == [.start, .end])
+    }
+
     @Test func trimmedFilenamePreservesSourceExtension() {
         let sourceURL = URL(fileURLWithPath: "/tmp/Example Clip.mp4")
 
