@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+import xml.etree.ElementTree as ET
 from urllib.parse import unquote, urlsplit
 
 
@@ -38,9 +39,24 @@ def require(condition, message):
 
 
 def validate_pages(book):
+    info = plistlib.loads((book / 'Contents/Info.plist').read_bytes())
     topics = plistlib.loads((book / 'Contents/Resources/HelpTopics.plist').read_bytes())
     require(bool(topics), 'No contextual Help destinations are declared.')
     for folder in sorted((book / 'Contents/Resources').glob('*.lproj')):
+        landing = folder / info['HPDBookAccessPath']
+        require(landing.is_file(), f'{folder.name}: missing Help landing page')
+        try:
+            document = ET.fromstring(landing.read_bytes())
+        except ET.ParseError as error:
+            raise ValueError(f'{folder.name}: Help landing page is not well-formed XHTML: {error}') from error
+        namespace = '{http://www.w3.org/1999/xhtml}'
+        require(document.tag == namespace + 'html', f'{folder.name}: Help landing page lacks the XHTML namespace')
+        head = document.find(namespace + 'head')
+        require(head is not None and document.find(namespace + 'body') is not None,
+                f'{folder.name}: Help landing page needs head and body elements')
+        titles = [meta for meta in head.findall(namespace + 'meta') if meta.get('name') == 'AppleTitle']
+        require(len(titles) == 1 and titles[0].get('content') == info['CFBundleIdentifier'],
+                f'{folder.name}: Help landing page AppleTitle does not match its book identifier')
         pages = {p.relative_to(folder).as_posix(): Page(p.read_text()) for p in folder.rglob('*.html')}
         require('index.html' in pages, f'{folder.name}: missing index.html')
         for anchor, name in topics.items():
@@ -123,9 +139,9 @@ def generate(source, output, version, build, staging_directory=None):
         for folder in sorted((staged_book / 'Contents/Resources').glob('*.lproj')):
             landing = folder / info['HPDBookAccessPath']
             text = landing.read_text()
-            old_title = f'<meta name="AppleTitle" content="{template["CFBundleIdentifier"]}">'
+            old_title = f'<meta name="AppleTitle" content="{template["CFBundleIdentifier"]}" />'
             require(old_title in text, f'{folder.name}: Help landing page lacks its book identifier')
-            landing.write_text(text.replace(old_title, f'<meta name="AppleTitle" content="{identifier}">'))
+            landing.write_text(text.replace(old_title, f'<meta name="AppleTitle" content="{identifier}" />'))
             subprocess.run(['/usr/bin/hiutil', '-I', 'corespotlight', '-C', '-a', '-g', '-s', 'en',
                             '-l', folder.stem, '-f', str(folder / info['HPDBookIndexPath']), str(folder)], check=True)
         validate_pages(staged_book)

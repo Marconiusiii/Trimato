@@ -6,6 +6,7 @@ import re
 import shutil
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('help_build', ROOT / 'Trimato/build-help.py')
@@ -77,7 +78,10 @@ class HelpBuildTests(unittest.TestCase):
             header = (self.output / 'TrimatoHelpInfo.h').read_text()
             self.assertEqual(header, f'#define TRIMATO_HELP_BOOK_IDENTIFIER {identifier}\n')
             landing = (self.output / 'Trimato.help/Contents/Resources/en.lproj/index.html').read_text()
-            self.assertIn(f'<meta name="AppleTitle" content="{identifier}">', landing)
+            document = ET.fromstring(landing)
+            namespace = '{http://www.w3.org/1999/xhtml}'
+            self.assertIsNotNone(document.find(namespace + 'body/' + namespace + 'main'))
+            self.assertEqual(document.find(namespace + 'head/' + namespace + 'meta[@name="AppleTitle"]').get('content'), identifier)
             builder.validate_indexes(self.output / 'Trimato.help', {
                 'trimato-quickstart-guide': 'quickstart.html',
             })
@@ -95,7 +99,32 @@ class HelpBuildTests(unittest.TestCase):
                 header = (self.output / 'TrimatoHelpInfo.h').read_text()
                 self.assertEqual(header, f'#define TRIMATO_HELP_BOOK_IDENTIFIER {current["CFBundleIdentifier"]}\n')
                 title = (self.output / 'Trimato.help/Contents/Resources/en.lproj/index.html').read_text()
-                self.assertIn(f'<meta name="AppleTitle" content="{current["CFBundleIdentifier"]}">', title)
+                self.assertIn(f'<meta name="AppleTitle" content="{current["CFBundleIdentifier"]}" />', title)
+
+    def test_malformed_landing_page_fails_without_replacing_good_output(self):
+        first = self.generate()
+        landing = self.source / 'Contents/Resources/en.lproj/index.html'
+        landing.write_text(landing.read_text().replace(' />', '>'))
+        with self.assertRaisesRegex(ValueError, 'not well-formed XHTML'):
+            self.generate()
+        current = plistlib.loads((self.output / 'Trimato.help/Contents/Info.plist').read_bytes())
+        self.assertEqual(first, current)
+
+    def test_missing_xhtml_namespace_is_rejected(self):
+        landing = self.source / 'Contents/Resources/en.lproj/index.html'
+        landing.write_text(landing.read_text().replace(' xmlns="http://www.w3.org/1999/xhtml"', ''))
+        with self.assertRaisesRegex(ValueError, 'lacks the XHTML namespace'):
+            self.generate()
+
+    def test_missing_duplicate_and_mismatched_apple_titles_are_rejected(self):
+        landing = self.source / 'Contents/Resources/en.lproj/index.html'
+        original = landing.read_text()
+        title = '<meta name="AppleTitle" content="com.marconius.trimato.help" />'
+        for replacement in ['', title + title, title.replace('com.marconius.trimato.help', 'another.book')]:
+            with self.subTest(replacement=replacement):
+                landing.write_text(original.replace(title, replacement))
+                with self.assertRaisesRegex(ValueError, 'AppleTitle does not match'):
+                    self.generate()
 
     def test_app_placeholders_are_rejected_as_help_content_versions(self):
         metadata = self.source / 'Contents/Info.plist'
