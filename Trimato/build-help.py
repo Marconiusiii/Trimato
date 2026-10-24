@@ -42,6 +42,10 @@ def validate_pages(book):
     info = plistlib.loads((book / 'Contents/Info.plist').read_bytes())
     topics = plistlib.loads((book / 'Contents/Resources/HelpTopics.plist').read_bytes())
     require(bool(topics), 'No contextual Help destinations are declared.')
+    topics.update({
+        'trimato-help-contents': info['HPDBookAccessPath'],
+        'trimato-quickstart-guide': 'quickstart.html',
+    })
     for folder in sorted((book / 'Contents/Resources').glob('*.lproj')):
         landing = folder / info['HPDBookAccessPath']
         require(landing.is_file(), f'{folder.name}: missing Help landing page')

@@ -46,6 +46,27 @@ class HelpBuildTests(unittest.TestCase):
             self.assertIn('$(SRCROOT)/Trimato/Trimato.help/' + relative, inputs)
             self.assertIn('$(DERIVED_FILE_DIR)/GeneratedHelp/Trimato.help/' + relative, outputs)
 
+    def test_menu_anchors_resolve_to_contents_and_quick_start(self):
+        self.generate(version='1.9.2', build='3')
+        book = self.output / 'Trimato.help'
+        topics = builder.validate_pages(book)
+        self.assertEqual(topics['trimato-help-contents'], 'index.html')
+        self.assertEqual(topics['trimato-quickstart-guide'], 'quickstart.html')
+        builder.validate_indexes(book, {
+            'trimato-help-contents': 'index.html',
+            'trimato-quickstart-guide': 'quickstart.html',
+        })
+
+    def test_missing_contents_anchor_fails_without_replacing_good_output(self):
+        first = self.generate()
+        landing = self.source / 'Contents/Resources/en.lproj/index.html'
+        landing.write_text(landing.read_text().replace(
+            '<a name="trimato-help-contents" id="trimato-help-contents"></a>', ''))
+        with self.assertRaisesRegex(ValueError, 'missing contextual anchor trimato-help-contents'):
+            self.generate()
+        current = plistlib.loads((self.output / 'Trimato.help/Contents/Info.plist').read_bytes())
+        self.assertEqual(first, current)
+
     def test_content_change_rebuilds_index_with_fresh_book_identity(self):
         first = self.generate()
         page = self.source / 'Contents/Resources/en.lproj/trim-silences.html'

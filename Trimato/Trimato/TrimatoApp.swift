@@ -603,18 +603,14 @@ private struct HelpContentsCommands: Commands {
 
     private func openContents() {
         let application = Bundle.main
-        guard let bookName = application.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String,
-              !bookName.isEmpty else {
+        guard let bookURL = application.url(forResource: "Trimato", withExtension: "help"),
+              let book = Bundle(url: bookURL),
+              let contentsURL = book.url(forResource: "index", withExtension: "html") else {
             showError("Trimato Help could not be found. Reinstall Trimato.")
             return
         }
-        let registration = AHRegisterHelpBookWithURL(application.bundleURL as CFURL)
-        guard registration == noErr else {
-            showError("Trimato Help could not be registered (error \(registration)). Close Help and try again.")
-            return
-        }
-        // Request the contents page explicitly instead of resolving the default page.
-        let result = AHGotoPage(bookName as CFString, "index.html" as CFString, nil)
+        // A full file URL opens this bundle's page without resolving a cached book.
+        let result = AHGotoPage(nil, contentsURL.absoluteString as CFString, nil)
         if result != noErr {
             showError("Trimato Help could not be opened (error \(result)). Close Help and try again.")
         }
