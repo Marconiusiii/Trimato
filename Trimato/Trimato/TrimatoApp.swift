@@ -613,8 +613,8 @@ private struct HelpContentsCommands: Commands {
             showError("Trimato Help could not be registered (error \(registration)). Close Help and try again.")
             return
         }
-        // A nil page and anchor request the registered book's declared contents page.
-        let result = AHGotoPage(bookName as CFString, nil, nil)
+        // Request the contents page explicitly instead of resolving the default page.
+        let result = AHGotoPage(bookName as CFString, "index.html" as CFString, nil)
         if result != noErr {
             showError("Trimato Help could not be opened (error \(result)). Close Help and try again.")
         }
