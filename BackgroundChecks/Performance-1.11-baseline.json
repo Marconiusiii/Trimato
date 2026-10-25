@@ -1,0 +1,9 @@
+{
+  "filtered_project_two_preparations_seconds": 0.369576958,
+  "folder_discovery_seconds": 0.17344475,
+  "frame_index_cold_seconds": 0.968006708,
+  "frame_index_warm_seconds": 0.0031385,
+  "frame_lookup_200_seconds": 0.183629791,
+  "host_peak_resident_bytes": 273350656,
+  "late_excerpt_export_seconds": 0.44360425
+}

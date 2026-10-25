@@ -28,8 +28,8 @@ struct FFmpegClipExporter {
             let duration = max(CMTimeGetSeconds(timeRange.duration), 0)
             var result = [
                 "-hide_banner", "-nostdin", "-y",
-                "-i", sourceURL.path,
                 "-ss", String(format: "%.6f", start),
+                "-i", sourceURL.path,
                 "-t", String(format: "%.6f", duration)
             ]
             if !format.isAudioOnly { result += ["-map", "0:v:0"] }

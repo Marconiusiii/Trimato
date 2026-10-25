@@ -78,35 +78,23 @@ nonisolated enum ProxyMediaManager {
         )
     }
 
-    static func createCachedProxy(
+    static func createPendingCachedProxy(
         sourceURL: URL,
         duration: Double,
         cacheKey: UUID,
         hasVideo: Bool = true,
         progress: @escaping @MainActor @Sendable (Double) -> Void
     ) async throws -> URL {
-        let finalURL = try cachedProxyURL(for: cacheKey)
         let temporaryURL = try cacheDirectory()
             .appendingPathComponent("\(cacheKey.uuidString)-\(UUID().uuidString).partial")
             .appendingPathExtension("mp4")
-        let generatedURL = try await createProxy(
+        return try await createProxy(
             sourceURL: sourceURL,
             duration: duration,
             hasVideo: hasVideo,
             outputURL: temporaryURL,
             progress: progress
         )
-        do {
-            if FileManager.default.fileExists(atPath: finalURL.path) {
-                _ = try FileManager.default.replaceItemAt(finalURL, withItemAt: generatedURL)
-            } else {
-                try FileManager.default.moveItem(at: generatedURL, to: finalURL)
-            }
-            return finalURL
-        } catch {
-            removeProxy(at: generatedURL)
-            throw error
-        }
     }
 
     private static func createProxy(

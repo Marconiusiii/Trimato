@@ -19,6 +19,41 @@ nonisolated enum ClipFilterRenderer {
                        voiceSegments: [SourceSegment]? = nil,
                        progress: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> URL {
         for filter in filters { try filter.validate() }
+        struct Recipe: Encodable {
+            let filters: [ClipFilter]
+            let audio: Bool
+            let duration: Double
+            let ranges: [ProjectTimeRange]?
+            let audioSettings: AudioClipSettings?
+            let voiceRanges: [ProjectTimeRange]?
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let stableID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        let recipe = try encoder.encode(Recipe(filters: filters.map { value in
+            var filter = value; filter.id = stableID; return filter
+        }, audio: audio, duration: duration, ranges: segments?.map(\.sourceRange),
+            audioSettings: audioSettings, voiceRanges: (audioSettings?.voice?.isActive == true || filters.contains { $0.kind == .matchLoudness }) ? voiceSegments?.map(\.sourceRange) : nil))
+        let output = try await RenderedMediaCache.shared.value(source: source, recipe: recipe) {
+            try await renderUncached(source: source, filters: filters, audio: audio, duration: duration,
+                segments: segments, audioSettings: audioSettings, voiceSegments: voiceSegments, progress: progress)
+        }
+        do {
+            try Task.checkCancellation()
+            await progress?(1)
+            try Task.checkCancellation()
+            return output
+        } catch {
+            try? FileManager.default.removeItem(at: output)
+            throw error
+        }
+    }
+
+    @concurrent
+    private static func renderUncached(source: URL, filters: [ClipFilter], audio: Bool, duration: Double,
+                       segments: [SourceSegment]?, audioSettings: AudioClipSettings?,
+                       voiceSegments: [SourceSegment]?, progress: Progress?) async throws -> URL {
+        for filter in filters { try filter.validate() }
         let asset = AVURLAsset(url: source)
         let spatial = try await SpatialAudioPlan.detect(in: asset)
         if audio, spatial { throw SpatialAudioError.unsupported("Audio filter processing for Spatial Audio is not supported yet.") }
@@ -112,9 +147,9 @@ nonisolated enum ClipFilterRenderer {
         }
         for filter in filters { try filter.validate() }
         let active = ClipFilterKind.allCases.compactMap { kind in filters.first { $0.kind == kind && $0.enabled && $0.kind.isAudio == audio } }
-        if let segments, !active.isEmpty {
+        if let segments, !active.isEmpty, audio || segments.count != 1 {
             // Process the same source and history as the project renderer, then select the edited ranges.
-            let processed = try await renderProcessed(source: source, filters: filters, audio: audio, duration: duration,
+            let processed = try await render(source: source, filters: filters, audio: audio, duration: duration,
                 voiceSegments: segments, progress: Self.progress(in: 0...0.8, report: progress))
             defer { try? FileManager.default.removeItem(at: processed) }
             return try await renderProcessed(source: processed, filters: [], audio: audio, duration: duration,
@@ -125,7 +160,7 @@ nonisolated enum ClipFilterRenderer {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let report = try await FFmpegMediaProbe.inspect(url: source)
         if !audio, report.isHDR, !active.isEmpty {
-            return try await HDRVideoRenderer.render(source: source, filters: active, progress: progress)
+            return try await HDRVideoRenderer.render(source: source, filters: active, timeRange: segments?.first?.sourceRange.cmTimeRange, progress: progress)
         }
         try ProjectRenderMediaManager.requireAvailableSpace(in: directory,
             duration: segments?.reduce(0) { $0 + $1.duration.seconds } ?? report.duration,
@@ -161,9 +196,12 @@ nonisolated enum ClipFilterRenderer {
         }
         var arguments = ["-hide_banner", "-nostdin", "-y"]
         if report.hasAlpha, report.videoStream?.codecName == "prores" { arguments += ["-alpha_mode", "premultiplied"] }
+        let videoExcerpt = !audio && segments?.count == 1 ? segments?.first?.sourceRange : nil
+        if let videoExcerpt { arguments += ["-ss", String(videoExcerpt.start.seconds)] }
         arguments += ["-i", source.path]
+        if let videoExcerpt { arguments += ["-t", String(videoExcerpt.duration.seconds)] }
         if let plateResponse { arguments += ["-i", plateResponse.path] }
-        if let segments {
+        if let segments, videoExcerpt == nil {
             let prefix = audio ? "a" : "v"
             let trim = audio ? "atrim" : "trim"
             let pts = audio ? "asetpts" : "setpts"
@@ -223,8 +261,33 @@ nonisolated enum ClipFilterRenderer {
                     let hasVoice = audio && clip.audioSettings.voice?.isActive == true
                     guard hasVoice || clip.filters.contains(where: { $0.enabled && $0.kind.isAudio == audio }) else { continue }
                     guard var record = prepared.asset(id: clip.assetID), let source = resolved[clip.assetID] else { throw ProjectCompositionError.missingMedia(clip.displayName) }
+                    // Retain a contiguous source envelope and all possible transition handles.
+                    // Stateful audio processing retains the original source history.
+                    let handle = project.transitions.map(\.duration).max() ?? .zero
+                    var excerpt = audio ? nil : Self.sourceEnvelope(clip: clip, duration: record.duration, handle: handle)
+                    if let envelope = excerpt, envelope.start > .zero {
+                        do {
+                            let timing = FrameWindowIndex(asset: AVURLAsset(url: source), duration: record.duration.cmTime)
+                            // Keep preceding picture samples, including for a cut between source frames.
+                            let earlier = try await timing.target(from: envelope.start.cmTime, forward: false, count: 2)
+                            let start = min(ProjectTime(earlier), envelope.start)
+                            excerpt = ProjectTimeRange(start: start, duration: envelope.end - start)
+                        } catch is CancellationError { throw CancellationError() }
+                        catch { excerpt = nil } // Preserve full-source processing when native timing is unavailable.
+                    }
                     let output = try await render(source: source, filters: clip.filters, audio: audio, duration: record.duration.seconds,
+                        segments: excerpt.map { [SourceSegment(sourceRange: $0)] },
                         audioSettings: hasVoice ? clip.audioSettings : nil, voiceSegments: clip.segments)
+                    let preparedSegments = clip.segments.map { segment in
+                        var value = segment
+                        if let excerpt { value.sourceRange.start = value.sourceRange.start - excerpt.start }
+                        return value
+                    }
+                    prepared.tracks[trackIndex].clips[clipIndex].segments = preparedSegments
+                    if let excerpt {
+                        record.duration = excerpt.duration
+                        record.sourceEdit = [SourceSegment(sourceRange: ProjectTimeRange(start: .zero, duration: excerpt.duration))]
+                    }
                     temporary.append(output)
                     if hasVoice { prepared.tracks[trackIndex].clips[clipIndex].audioSettings = .neutral }
                     record.id = UUID()
@@ -237,9 +300,13 @@ nonisolated enum ClipFilterRenderer {
                     prepared.tracks[trackIndex].clips[clipIndex].assetID = record.id
                     if let index = prepared.primaryTimeline.firstIndex(where: { $0.id == clip.id }) {
                         prepared.primaryTimeline[index].assetID = record.id
+                        prepared.primaryTimeline[index].segments = preparedSegments
                         if hasVoice { prepared.primaryTimeline[index].audioSettings = .neutral }
                     }
-                    if let index = prepared.cutaways.firstIndex(where: { $0.id == clip.id }) { prepared.cutaways[index].assetID = record.id }
+                    if let index = prepared.cutaways.firstIndex(where: { $0.id == clip.id }) {
+                        prepared.cutaways[index].assetID = record.id
+                        prepared.cutaways[index].segments = preparedSegments
+                    }
                 }
             }
             return (prepared, resolved, temporary)
@@ -248,4 +315,13 @@ nonisolated enum ClipFilterRenderer {
             throw error
         }
     }
+    static func sourceEnvelope(clip: TimelineClip, duration: ProjectTime, handle: ProjectTime) -> ProjectTimeRange? {
+        guard let first = clip.segments.map(\.sourceRange.start).min(),
+              let last = clip.segments.map(\.sourceRange.end).max() else { return nil }
+        let start = max(first - handle, .zero)
+        let end = min(last + handle, duration)
+        guard end > start else { return nil }
+        return ProjectTimeRange(start: start, duration: end - start)
+    }
+
 }

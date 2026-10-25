@@ -4,7 +4,7 @@ import Testing
 
 @Suite struct MediaConcurrencyTests {
     @Test func queuedPreviewTakesPriorityAndCancelledJobIsRemoved() async throws {
-        let scheduler = MediaJobScheduler()
+        let scheduler = MediaJobScheduler(renderCapacity: 1, inspectionCapacity: 1)
         try await scheduler.acquire(.render, priority: .background)
         let background = Task { try await scheduler.acquire(.render, priority: .background) }
         while await scheduler.queuedCount < 1 { await Task.yield() }
@@ -19,13 +19,13 @@ import Testing
         await scheduler.release(.render)
         try await preview.value
         #expect(await scheduler.queuedCount == 1)
-        await scheduler.release(.render)
+        await scheduler.release(.render, priority: .interactive)
         try await background.value
         await scheduler.release(.render)
         await scheduler.release(.inspection)
     }
     @Test func inspectionDoesNotWaitForRender() async throws {
-        let scheduler = MediaJobScheduler()
+        let scheduler = MediaJobScheduler(renderCapacity: 1, inspectionCapacity: 1)
         try await scheduler.acquire(.render, priority: .background)
         try await scheduler.acquire(.inspection, priority: .interactive)
         await scheduler.release(.inspection)

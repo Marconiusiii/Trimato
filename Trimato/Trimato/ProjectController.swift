@@ -2296,17 +2296,15 @@ final class ProjectController: ObservableObject {
             var importPaths = Set(project.media.map {
                 URL(fileURLWithPath: $0.originalPath).standardizedFileURL.path
             })
-            var totalCandidates = 0
+            var discoveries: [ProjectImportCoordinator.Discovery] = []
             for selectedURL in urls {
-                guard !Task.isCancelled else { return }
-                let scoped = selectedURL.startAccessingSecurityScopedResource()
-                defer { if scoped { selectedURL.stopAccessingSecurityScopedResource() } }
-                if let media = try? ProjectImportCoordinator.importableMediaURLs(in: selectedURL),
-                   let captions = try? ProjectImportCoordinator.importableCaptionURLs(in: selectedURL) {
-                    totalCandidates += media.count + captions.count
-                }
+                do { discoveries.append(try await ProjectImportCoordinator.discover(selectedURL)) }
+                catch is CancellationError { return }
+                catch { failures.append((selectedURL.lastPathComponent, error.localizedDescription)) }
             }
+            let totalCandidates = discoveries.reduce(0) { $0 + $1.media.count + $1.captions.count }
             var completedCandidates = 0
+            var activeImportProgress: [Int: Double] = [:]
             if totalCandidates > 0 { importProgress = 0 }
 
             @MainActor
@@ -2317,7 +2315,7 @@ final class ProjectController: ObservableObject {
                 }
                 let bounded = min(max(currentFileProgress, 0), 1)
                 importProgress = min(
-                    max((Double(completedCandidates) + bounded) / Double(totalCandidates), 0),
+                    max((Double(completedCandidates) + activeImportProgress.values.reduce(0, +) + bounded) / Double(totalCandidates), 0),
                     1
                 )
             }
@@ -2328,43 +2326,44 @@ final class ProjectController: ObservableObject {
                 updateOverallProgress(0)
             }
 
-            for selectedURL in urls {
+            for discovery in discoveries {
                 guard !Task.isCancelled else { return }
+                let selectedURL = discovery.selectedURL
                 let scoped = selectedURL.startAccessingSecurityScopedResource()
                 defer { if scoped { selectedURL.stopAccessingSecurityScopedResource() } }
                 do {
-                    let isDirectory = try selectedURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
-                    let candidates = try ProjectImportCoordinator.importableMediaURLs(in: selectedURL)
-                    let captionCandidates = try ProjectImportCoordinator.importableCaptionURLs(in: selectedURL)
+                    try Task.checkCancellation()
+                    let isDirectory = discovery.isDirectory
+                    let candidates = discovery.media
+                    let captionCandidates = discovery.captions
                     guard !candidates.isEmpty || !captionCandidates.isEmpty else {
                         failures.append((selectedURL.lastPathComponent, "No supported audio, video, SRT, or WebVTT files were found."))
                         continue
                     }
-                    var assets: [MediaAssetRecord] = []
+                    var acceptedCandidates: [URL] = []
                     for candidate in candidates {
-                        guard !Task.isCancelled else { return }
-                        importDetail = "\(candidate.lastPathComponent): Importing media"
-                        let standardizedPath = candidate.standardizedFileURL.path
-                        guard importPaths.insert(standardizedPath).inserted else {
-                            finishCandidate()
-                            continue
-                        }
-                        do {
-                            assets.append(try await ProjectImportCoordinator.importAsset(
-                                at: candidate,
-                                progress: { progress in
-                                    self.importDetail = "\(candidate.lastPathComponent): Creating playback proxy"
-                                    updateOverallProgress(progress)
-                                }
-                            ))
-                        } catch is CancellationError {
-                            importOutcome = .cancelled
-                            return
-                        } catch {
-                            failures.append((candidate.lastPathComponent, error.localizedDescription))
+                        let path = candidate.standardizedFileURL.path
+                        if importPaths.insert(path).inserted { acceptedCandidates.append(candidate) }
+                        else { finishCandidate() }
+                    }
+                    let batch = acceptedCandidates
+                    var assetsByIndex: [Int: MediaAssetRecord] = [:]
+                    var finishedBatchIndices: Set<Int> = []
+                    try await ProjectImportCoordinator.importAssets(at: batch, progress: { index, value in
+                        guard !finishedBatchIndices.contains(index) else { return }
+                        activeImportProgress[index] = min(max(value, 0), 1)
+                        self.importDetail = "\(batch[index].lastPathComponent): Importing media"
+                        updateOverallProgress(0)
+                    }, completed: { index, result in
+                        finishedBatchIndices.insert(index)
+                        activeImportProgress[index] = nil
+                        switch result {
+                        case .success(let asset): assetsByIndex[index] = asset
+                        case .failure(let error): failures.append((batch[index].lastPathComponent, error.localizedDescription))
                         }
                         finishCandidate()
-                    }
+                    })
+                    let assets = assetsByIndex.keys.sorted().compactMap { assetsByIndex[$0] }
                     if !assets.isEmpty {
                         groups.append(ImportGroup(
                             folderName: isDirectory && folderID == nil
@@ -2377,7 +2376,7 @@ final class ProjectController: ObservableObject {
                         guard !Task.isCancelled else { return }
                         importDetail = "\(candidate.lastPathComponent): Importing captions"
                         do {
-                            let cues = try ProjectImportCoordinator.importCaptionCues(at: candidate)
+                            let cues = try await ProjectImportCoordinator.importCaptionCues(at: candidate)
                             if let last = cues.map(\.end).max(), last > project.nonCaptionDuration {
                                 throw CaptionFileError.invalidCue("A caption ends after the project media.")
                             }

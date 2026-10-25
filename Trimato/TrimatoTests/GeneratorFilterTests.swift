@@ -35,7 +35,7 @@ struct GeneratorFilterTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = directory.appendingPathComponent("Original clip.mov")
+        let source = directory.appendingPathComponent(audio ? "Original clip.wav" : "Original clip.mov")
         let generated = try await GeneratorRenderer.ensure(definition(audio ? .silence : .gradient))
         try FileManager.default.copyItem(at: generated, to: source)
         let model = VideoPlayerViewModel()
@@ -45,7 +45,7 @@ struct GeneratorFilterTests {
         while model.isLoadingMedia, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        try #require(model.hasMedia && !model.isLoadingMedia)
+        try #require(model.hasMedia && !model.isLoadingMedia, "\(model.mediaOpenErrorMessage ?? model.mediaStatus ?? "Clip loading timed out")")
         #expect(model.clipExportBaseName == "Original clip-trimmed")
         let filtered = try await ClipFilterRenderer.render(source: source,
             filters: [ClipFilter(kind: audio ? .tone : .blackAndWhite)], audio: audio, duration: 0.5)

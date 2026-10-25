@@ -205,6 +205,10 @@ final class VideoPlayerViewModel: ObservableObject {
     private var activeAudioPreviewURL: URL?
     private var filteredPreviewIsAudio: Bool?
     private var editedFrameTimestamps: [CMTime] = []
+    private var frameWindowIndex: FrameWindowIndex?
+    private var frameWindowTask: Task<Void, Never>?
+    private var frameWindowRequest = UUID()
+    private var queuedFrameSteps: [(Bool, Int, (CMTime) -> Void)] = []
     private var proxyURL: URL?
     private var timeObserver: Any?
     private var rateObserver: AnyCancellable?
@@ -444,6 +448,7 @@ final class VideoPlayerViewModel: ObservableObject {
         ProxyMediaManager.removeProxy(at: proxyURL)
         proxyURL = nil
         removeActiveAudioPreview()
+        frameWindowIndex = nil
         basePlaybackAsset = nil
         mediaSource = nil
         editTimeline = nil
@@ -505,23 +510,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 }
                 let loadedDuration = try await source.playbackAsset.load(.duration)
                 try Task.checkCancellation()
-                var sourceFrameTimestamps = source.frameTimestamps
-                if source.hasVideo && sourceFrameTimestamps.isEmpty {
-                    do {
-                        sourceFrameTimestamps = try await FFmpegMediaProbe.frameTimestamps(
-                            url: source.playbackURL,
-                            duration: loadedDuration.seconds,
-                            progress: { [weak self] progress in
-                                self?.updateFrameIndexProgress(progress)
-                            }
-                        )
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        throw error
-                    }
-                    try Task.checkCancellation()
-                }
+                let sourceFrameTimestamps = source.frameTimestamps
                 self.mediaProgress = nil
                 self.mediaStatus = "Preparing playback"
                 self.mediaSource = MediaSource(originalURL: source.originalURL, playbackURL: source.playbackURL,
@@ -543,6 +532,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 }
                 try Task.checkCancellation()
                 guard self.loadID == operationID else { throw CancellationError() }
+                self.frameWindowIndex = source.hasVideo ? FrameWindowIndex(asset: editingAsset, duration: timeline.duration, sourceRanges: timeline.sourceRanges) : nil
                 self.basePlaybackAsset = playbackAsset
                 self.player.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
                 self.mediaDuration = timeline.duration
@@ -633,6 +623,7 @@ final class VideoPlayerViewModel: ObservableObject {
         ProxyMediaManager.removeProxy(at: proxyURL)
         proxyURL = nil
         removeActiveAudioPreview()
+        frameWindowIndex = nil
         basePlaybackAsset = nil
         mediaSource = nil
         editTimeline = nil
@@ -897,6 +888,7 @@ final class VideoPlayerViewModel: ObservableObject {
         inMarker = snapshot.inMarker; outMarker = snapshot.outMarker
         refreshPlacementSourceSegments(); refreshWaveformSamples()
         removeActiveAudioPreview()
+        frameWindowIndex = hasVideo ? FrameWindowIndex(asset: hasSpatialAudio ? source.originalAsset : source.playbackAsset, duration: snapshot.timeline.duration, sourceRanges: snapshot.timeline.sourceRanges) : nil
         self.basePlaybackAsset = snapshot.asset
         player.replaceCurrentItem(with: AVPlayerItem(asset: snapshot.asset))
         frameStepPosition = snapshot.time
@@ -1318,18 +1310,46 @@ final class VideoPlayerViewModel: ObservableObject {
             let current = frameStepPosition ?? player.currentTime()
             let target: CMTime
             if forward {
-                if let first = timestamps.firstIndex(where: { CMTimeCompare($0, current) > 0 }),
+                if let first = FrameTimestampSearch.firstAfter(current, in: timestamps),
                    first + count - 1 < timestamps.count {
                     target = timestamps[first + count - 1]
                 } else { target = mediaDuration }
             } else {
-                if let last = timestamps.lastIndex(where: { CMTimeCompare($0, current) < 0 }),
+                if let last = FrameTimestampSearch.lastBefore(current, in: timestamps),
                    last - count + 1 >= 0 {
                     target = timestamps[last - count + 1]
                 } else { target = .zero }
             }
             frameStepPosition = target
             frameSeeker.seek(player, to: target) { completion(target) }
+            return
+        }
+
+        if let index = frameWindowIndex, hasVideo {
+            queuedFrameSteps.append((forward, count, completion))
+            guard frameWindowTask == nil else { return }
+            let requestID = UUID()
+            frameWindowRequest = requestID
+            frameWindowTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { if self.frameWindowRequest == requestID { self.frameWindowTask = nil } }
+                do {
+                    while !self.queuedFrameSteps.isEmpty {
+                        let request = self.queuedFrameSteps.removeFirst()
+                        let current = self.frameStepPosition ?? self.player.currentTime()
+                        let target = try await index.target(from: current, forward: request.0, count: request.1)
+                        try Task.checkCancellation()
+                        self.frameStepPosition = target
+                        self.frameSeeker.seek(self.player, to: target) { request.2(target) }
+                    }
+                } catch is CancellationError { }
+                catch {
+                    guard self.frameWindowRequest == requestID else { return }
+                    self.queuedFrameSteps.removeAll()
+                    self.finishFrameStepping()
+                    self.mediaOpenErrorMessage = "Frame navigation failed. Close and reopen the clip. \(error.localizedDescription)"
+                }
+            }
             return
         }
 
@@ -1415,6 +1435,10 @@ final class VideoPlayerViewModel: ObservableObject {
         scrubTask = nil
         if isScrubbing { isScrubbing = false; player.pause() }
         if !preservingFrameStepPosition {
+            frameWindowRequest = UUID()
+            frameWindowTask?.cancel()
+            frameWindowTask = nil
+            queuedFrameSteps.removeAll()
             frameStepPosition = nil
             isSteppingFrames = false
         }
@@ -1511,6 +1535,7 @@ final class VideoPlayerViewModel: ObservableObject {
                 self.refreshPlacementSourceSegments()
                 self.refreshWaveformSamples()
                 self.removeActiveAudioPreview()
+                self.frameWindowIndex = mediaSource.hasVideo ? FrameWindowIndex(asset: self.hasSpatialAudio ? mediaSource.originalAsset : mediaSource.playbackAsset, duration: updatedTimeline.duration, sourceRanges: updatedTimeline.sourceRanges) : nil
                 self.basePlaybackAsset = composition
                 self.player.replaceCurrentItem(with: AVPlayerItem(asset: composition))
                 let destination = CMTimeMinimum(targetTime, updatedTimeline.duration)
@@ -1859,22 +1884,10 @@ final class VideoPlayerViewModel: ObservableObject {
         let isPlayable = (try? await asset.load(.isPlayable)) ?? false
         let hasNativeVideo = ((try? await asset.loadTracks(withMediaType: .video)) ?? []).isEmpty == false
         let hasNativeAudio = ((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty == false
-        let nativeDuration = (try? await asset.load(.duration)).map(CMTimeGetSeconds)
 
         if isPlayable, let contentType,
            ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
-            let timestamps: [CMTime]
-            if hasNativeVideo {
-                timestamps = try await FFmpegMediaProbe.frameTimestamps(
-                    url: url,
-                    duration: nativeDuration,
-                    progress: { [weak self] progress in
-                        self?.updateFrameIndexProgress(progress)
-                    }
-                )
-            } else {
-                timestamps = []
-            }
+            let timestamps: [CMTime] = []
             return .native(
                 url: url,
                 asset: asset,
@@ -1900,18 +1913,7 @@ final class VideoPlayerViewModel: ObservableObject {
         updateImportStatus("Analyzing media compatibility")
         let report = try await FFmpegMediaProbe.inspect(url: url)
         try FFmpegMediaProbe.validateForMP4Conversion(report)
-        let timestamps: [CMTime]
-        if report.videoStream != nil {
-            timestamps = try await FFmpegMediaProbe.frameTimestamps(
-                url: url,
-                duration: report.duration,
-                progress: { [weak self] progress in
-                    self?.updateFrameIndexProgress(progress)
-                }
-            )
-        } else {
-            timestamps = []
-        }
+        let timestamps: [CMTime] = []
 
         if isPlayable {
             return .native(

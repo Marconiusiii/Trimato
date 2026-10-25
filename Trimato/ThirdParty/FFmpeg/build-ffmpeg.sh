@@ -26,6 +26,19 @@ build_architecture() {
     local architecture="$1"
     local architecture_build="${BUILD_ROOT}/${architecture}"
     local architecture_install="${architecture_build}/install"
+    local -a assembly_options=()
+    local -a cross_options=()
+    if [[ "$(uname -m)" != "${architecture}" ]]; then
+        cross_options=(--enable-cross-compile)
+    fi
+    if [[ "${architecture}" == "x86_64" ]]; then
+        local assembler="${NASM:-nasm}"
+        if ! command -v "${assembler}" >/dev/null; then
+            print -u2 "NASM is required to build the optimized Intel FFmpeg tools. Set NASM to its executable path."
+            exit 1
+        fi
+        assembly_options=("--x86asmexe=${assembler}")
+    fi
     mkdir -p "${architecture_build}" "${architecture_install}"
 
     pushd "${architecture_build}" >/dev/null
@@ -40,8 +53,9 @@ build_architecture() {
         --extra-cflags="-arch ${architecture} -isysroot ${MACOS_SDK} -mmacosx-version-min=${DEPLOYMENT_TARGET}" \
         --extra-ldflags="-arch ${architecture} -isysroot ${MACOS_SDK} -mmacosx-version-min=${DEPLOYMENT_TARGET}" \
         --target-os=darwin \
+        "${cross_options[@]}" \
         --disable-autodetect \
-        --disable-x86asm \
+        "${assembly_options[@]}" \
         --disable-shared \
         --enable-static \
         --enable-debug=1 \
@@ -64,8 +78,13 @@ build_architecture() {
     popd >/dev/null
 }
 
-build_architecture arm64
-build_architecture x86_64
+build_architectures=(arm64 x86_64)
+if [[ -n "${FFMPEG_BUILD_ARCHITECTURES:-}" ]]; then
+    build_architectures=(${=FFMPEG_BUILD_ARCHITECTURES})
+fi
+for architecture in "${build_architectures[@]}"; do
+    build_architecture "${architecture}"
+done
 
 lipo -create \
     "${BUILD_ROOT}/arm64/install/ffmpeg" \
@@ -92,6 +111,23 @@ for tool_name in ffmpeg ffprobe; do
         exit 1
     fi
 done
+
+# Record the configuration from both actual builds rather than maintaining release flags by hand.
+python3 - "${SCRIPT_DIRECTORY}" "${DEPLOYMENT_TARGET}" <<'PYCONFIG'
+import json
+from pathlib import Path
+import re
+import sys
+root = Path(sys.argv[1])
+lines = ["FFmpeg version: 8.1.2", "Architectures: arm64 x86_64", f"Minimum macOS: {sys.argv[2]}", "License: LGPL version 2.1 or later", ""]
+for architecture in ("arm64", "x86_64"):
+    header = (root / "build-lgpl" / architecture / "config.h").read_text()
+    value = re.search(r'^#define FFMPEG_CONFIGURATION (".*")$', header, re.MULTILINE)
+    if value is None:
+        raise SystemExit(f"Missing {architecture} configuration")
+    lines += [f"Complete {architecture} configuration:", json.loads(value[1]), ""]
+(root / "build-configuration.txt").write_text("\n".join(lines))
+PYCONFIG
 
 "${OUTPUT_DIRECTORY}/ffmpeg" -hide_banner -version
 "${OUTPUT_DIRECTORY}/ffprobe" -hide_banner -version

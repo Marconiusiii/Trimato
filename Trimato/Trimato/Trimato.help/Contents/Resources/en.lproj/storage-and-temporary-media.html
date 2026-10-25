@@ -18,10 +18,10 @@
 <h2>Playback proxies</h2>
 <p>Trimato uses original media for playback when supported by macOS. For other sources it creates a proxy, a compatible copy for preview and clip editing. Project export reads the original media.</p>
 <p>Proxies are stored in macOS Caches and can be reused across sessions. A change to a source’s size or modification date causes its proxy to be rebuilt.</p>
-<h2>Frame indexes and waveforms</h2>
-<p>Completed frame indexes and waveforms are cached for reuse when the same media opens again. Changed sources are analyzed again.</p>
+<h2>Waveforms and filtered media</h2>
+<p>Audio waveforms and completed filtered media are stored in the cache alongside playback proxies. Review their storage use in Settings &gt; Storage.</p>
 <h2>Storage limits</h2>
-<p>The analysis and proxy cache has a 10 GB limit. Cleanup removes least recently used proxies, keeping those required by open projects or editors. Before creating a proxy, Trimato also checks for at least 10 GB of available disk space.</p>
+<p>The media cache has a 10 GB limit. Cleanup removes least recently used proxies, keeping those required by open projects or editors. Before creating a proxy, Trimato also checks for at least 10 GB of available disk space.</p>
 <p>macOS can clear cached files when storage is low. Trimato recreates them from their original media when needed.</p>
 <h2>Review and clear the cache</h2>
 <ol>
@@ -29,9 +29,9 @@
 <li>Read Storage used, Cache files, Storage limit, and Stored in.</li>
 <li>Choose Refresh storage usage to update the figures.</li>
 </ol>
-<p>Clear cache not used recently removes analysis and proxies last used more than seven days ago. Clear all cached media removes analysis and unneeded proxies, keeping active preparation and proxies required by open projects or editors. Confirm the chosen cleanup.</p>
+<p>Clear cache not used recently removes analysis, filtered media, and proxies last used more than seven days ago. Clear all cached media removes analysis, filtered media, and unneeded proxies, keeping active preparation and proxies required by open projects or editors. Confirm the chosen cleanup.</p>
 <h2>Temporary renders</h2>
-<p>Transitions, filters, adjusted audio, and exports use temporary files separate from the media cache.</p>
+<p>Active previews, transitions, adjusted audio, and exports also use temporary files.</p>
 <ul>
 <li>Replacing a project preview removes its previous render files.</li>
 <li>Cancelling or failing a preview rebuild removes files created for that attempt.</li>

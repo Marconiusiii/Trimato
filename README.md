@@ -13,6 +13,7 @@ Trimato is free, with optional support. Choose Support Trimato from the Trimato 
 - Edit standalone audio and video clips or arrange multiple tracks in a saved `.trimato` project.
 - Mark ranges, split and trim clips, and make non-destructive edits that preserve the original media. Confirm deletion of populated tracks and continue through Timeline Clips after removing content.
 - Navigate numbered edit points in the Cutting Board and adjust the source boundaries on either side of a cut, with Undo and Redo.
+- Reuse completed filter processing across previews and exports. Manage cached media in Settings > Storage.
 - Work with portrait or landscape video, step through individual frames or jump ten frames with Shift-Arrow, and edit audio with optional static waveforms. Jump to an exact time or frame from the timecode button.
 - Write and time captions with Captioner, import SRT and WebVTT files, and export captions as separate files or include them in the video.
 - Record audio description with Describer and narration with Voicer. Adjust voice levels, match loudness, and reduce other audio during descriptions.
@@ -124,3 +125,9 @@ The bundled FFmpeg and ffprobe tools are licensed separately under the GNU Lesse
 
 - [Read the FFmpeg distribution and build notes.](Trimato/ThirdParty/FFmpeg/README.md)
 - [Read the bundled LGPL license.](Trimato/ThirdParty/FFmpeg/COPYING.LGPLv2.1)
+
+## Performance development
+
+Version 1.11.0 prepares folder imports in the background with up to four files in progress, reads exact frame timing near the Cutting Board playhead, and reuses completed filter renders. Export supplies samples when AVFoundation is ready, with separate video and audio inputs and bounded progress reporting. Intel FFmpeg builds enable NASM assembly routines with runtime processor detection.
+
+[Read the performance measurements and validation notes.](BackgroundChecks/Performance-1.11.md)

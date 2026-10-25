@@ -1,0 +1,17 @@
+{
+  "child_peak_resident_bytes": 55345152,
+  "editing_host_peak_resident_bytes": 338395136,
+  "filtered_project_two_preparations_seconds": 0.195219958,
+  "first_frame_window_seconds": 0.029626166,
+  "folder_discovery_seconds": 0.073350375,
+  "frame_index_cold_seconds": 0.624584958,
+  "frame_index_warm_seconds": 0.003004667,
+  "frame_lookup_200_seconds": 2.5e-05,
+  "frame_window_200_steps_seconds": 0.006203584,
+  "host_peak_resident_bytes": 353976320,
+  "late_excerpt_export_seconds": 0.186908083,
+  "late_frame_window_seconds": 0.002977917,
+  "sdr_native_gpu_filter_seconds": 0.551746208,
+  "sdr_native_software_mean_pixel_difference": 31.73217013888889,
+  "sdr_software_filter_seconds": 0.354285292
+}

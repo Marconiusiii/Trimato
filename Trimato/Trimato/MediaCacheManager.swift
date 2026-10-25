@@ -75,7 +75,9 @@ actor MediaCacheManager {
 
     private var index = Index()
     private var hasLoadedIndex = false
-    private var inFlight: [UUID: Task<URL, Error>] = [:]
+    private var inFlight: [UUID: UUID] = [:]
+    private let sharedProxies = SharedMediaTasks<UUID, URL>()
+    private var proxyObservers: [UUID: [UUID: @MainActor @Sendable (Double) -> Void]] = [:]
     private var protectedKeysByOwner: [UUID: Set<UUID>] = [:]
     private var pendingRemoval: Set<UUID> = []
 
@@ -97,10 +99,6 @@ actor MediaCacheManager {
         progress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
     ) async throws -> URL {
         try loadIndexIfNeeded()
-        if let task = inFlight[cacheKey] {
-            return try await task.value
-        }
-
         if var entry = index.entries[cacheKey],
            entry.fingerprint == fingerprint,
            let url = validProxyURL(for: cacheKey) {
@@ -111,32 +109,48 @@ actor MediaCacheManager {
             return url
         }
 
-        let task = Task<URL, Error> {
-            try await ProxyMediaManager.createCachedProxy(
-                sourceURL: sourceURL,
-                duration: duration,
-                cacheKey: cacheKey,
-                hasVideo: hasVideo,
-                progress: progress
-            )
+        let observer = UUID()
+        proxyObservers[cacheKey, default: [:]][observer] = progress
+        defer {
+            proxyObservers[cacheKey]?[observer] = nil
+            if proxyObservers[cacheKey]?.isEmpty == true { proxyObservers[cacheKey] = nil }
         }
-        inFlight[cacheKey] = task
-        do {
-            let url = try await task.value
-            inFlight[cacheKey] = nil
-            index.entries[cacheKey] = Entry(
-                cacheKey: cacheKey,
-                fingerprint: fingerprint,
-                byteCount: fileByteCount(at: url),
-                lastUsed: Date()
-            )
-            try saveIndex()
-            _ = try await enforceLimits(additionalProtectedKeys: [cacheKey])
-            return url
-        } catch {
-            inFlight[cacheKey] = nil
-            throw error
+        return try await sharedProxies.value(for: cacheKey) {
+            try await self.createProxy(sourceURL: sourceURL, duration: duration, cacheKey: cacheKey,
+                                       fingerprint: fingerprint, hasVideo: hasVideo)
         }
+    }
+
+    private func reportProxyProgress(_ value: Double, key: UUID) async {
+        for observer in proxyObservers[key]?.values ?? [:].values { await observer(value) }
+    }
+
+    private func createProxy(sourceURL: URL, duration: Double, cacheKey: UUID,
+                             fingerprint: SourceMediaFingerprint, hasVideo: Bool) async throws -> URL {
+        let id = UUID()
+        inFlight[cacheKey] = id
+        defer { if inFlight[cacheKey] == id { inFlight[cacheKey] = nil } }
+        let pending = try await ProxyMediaManager.createPendingCachedProxy(sourceURL: sourceURL, duration: duration,
+            cacheKey: cacheKey, hasVideo: hasVideo, progress: { value in
+                Task { await self.reportProxyProgress(value, key: cacheKey) }
+            })
+        defer { ProxyMediaManager.removeProxy(at: pending) }
+        try Task.checkCancellation()
+        guard inFlight[cacheKey] == id,
+              try Self.sourceFingerprint(for: sourceURL) == fingerprint else { throw AnalysisError.sourceChanged }
+        // Commit under actor ownership, after validating this operation. A cancelled
+        // producer can only remove its own partial file, never a retry's output.
+        let url = try ProxyMediaManager.cachedProxyURL(for: cacheKey)
+        if FileManager.default.fileExists(atPath: url.path) {
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: pending)
+        } else {
+            try FileManager.default.moveItem(at: pending, to: url)
+        }
+        index.entries[cacheKey] = Entry(cacheKey: cacheKey, fingerprint: fingerprint,
+            byteCount: fileByteCount(at: url), lastUsed: Date())
+        try saveIndex()
+        _ = try await enforceLimits(additionalProtectedKeys: [cacheKey])
+        return url
     }
 
     func existingProxy(
@@ -209,9 +223,10 @@ actor MediaCacheManager {
         reconcileIndex()
         try saveIndex()
         let analysis = try await MediaAnalysisCache.shared.status()
+        let rendered = try await RenderedMediaCache.shared.status()
         return MediaCacheStatus(
-            byteCount: index.entries.values.reduce(0) { $0 + $1.byteCount } + analysis.bytes,
-            fileCount: index.entries.count + analysis.count,
+            byteCount: index.entries.values.reduce(0) { $0 + $1.byteCount } + analysis.bytes + rendered.bytes,
+            fileCount: index.entries.count + analysis.count + rendered.count,
             location: try ProxyMediaManager.cacheDirectory()
         )
     }
@@ -241,10 +256,11 @@ actor MediaCacheManager {
         try removeIncompleteFiles()
         try saveIndex()
         let analysis = try await MediaAnalysisCache.shared.clear(scope)
+        let rendered = try await RenderedMediaCache.shared.clear(scope)
         return MediaCacheClearResult(
-            removedByteCount: removedBytes + analysis.removedByteCount,
-            removedFileCount: removedFiles + analysis.removedFileCount,
-            retainedActiveFileCount: retainedActiveFiles + analysis.retainedActiveFileCount
+            removedByteCount: removedBytes + analysis.removedByteCount + rendered.removedByteCount,
+            removedFileCount: removedFiles + analysis.removedFileCount + rendered.removedFileCount,
+            retainedActiveFileCount: retainedActiveFiles + analysis.retainedActiveFileCount + rendered.retainedActiveFileCount
         )
     }
 
@@ -297,7 +313,7 @@ actor MediaCacheManager {
             protectedKeys: protectedKeys.union(inFlightKeys),
             totalByteCount: totalBytes,
             availableByteCount: availableBytes,
-            maximumByteCount: Self.maximumByteCount - MediaAnalysisCache.maximumByteCount,
+            maximumByteCount: Self.maximumByteCount - MediaAnalysisCache.maximumByteCount - RenderedMediaCache.maximumByteCount,
             minimumAvailableByteCount: Self.minimumAvailableByteCount
         )
 

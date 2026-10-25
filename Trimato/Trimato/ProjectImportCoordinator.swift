@@ -3,67 +3,78 @@ import Foundation
 import UniformTypeIdentifiers
 
 enum ProjectImportCoordinator {
-    struct PlaybackPreparation: Sendable {
+    nonisolated struct PlaybackPreparation: Sendable {
         var mode: ProjectMediaPlaybackMode
         var cacheKey: UUID?
         var fingerprint: SourceMediaFingerprint
     }
 
-    static func importableMediaURLs(in selectedURL: URL) throws -> [URL] {
-        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
-        guard values.isDirectory == true else {
-            return MediaSelection.isSupportedMedia(selectedURL) ? [selectedURL] : []
-        }
-
-        guard values.isPackage != true, selectedURL.pathExtension.lowercased() != "trimato" else { return [] }
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isHiddenKey, .contentTypeKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: selectedURL,
-            includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return [] }
-
-        var urls: [URL] = []
-        for case let url as URL in enumerator {
-            let resourceValues = try url.resourceValues(forKeys: Set(keys))
-            guard resourceValues.isRegularFile == true,
-                  resourceValues.isHidden != true,
-                  MediaSelection.isSupportedMedia(url, contentType: resourceValues.contentType) else { continue }
-            urls.append(url)
-        }
-        return urls.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    nonisolated struct Discovery: Sendable {
+        let selectedURL: URL
+        let isDirectory: Bool
+        let media: [URL]
+        let captions: [URL]
     }
 
-    static func importableCaptionURLs(in selectedURL: URL) throws -> [URL] {
-        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
-        guard values.isDirectory == true else {
-            return isCaptionFile(selectedURL) ? [selectedURL] : []
-        }
-        guard values.isPackage != true, selectedURL.pathExtension.lowercased() != "trimato" else { return [] }
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isHiddenKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: selectedURL,
-            includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return [] }
-        var urls: [URL] = []
-        for case let url as URL in enumerator {
-            let resourceValues = try url.resourceValues(forKeys: Set(keys))
-            guard resourceValues.isRegularFile == true,
-                  resourceValues.isHidden != true,
-                  isCaptionFile(url) else { continue }
-            urls.append(url)
-        }
-        return urls.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    /// Discover both kinds of input in one walk, away from the interface executor.
+    @concurrent
+    static func discover(_ selectedURL: URL) async throws -> Discovery {
+        try discoverSynchronously(selectedURL)
     }
 
-    static func importCaptionCues(at url: URL) throws -> [CaptionCue] {
+    nonisolated private static func discoverSynchronously(_ selectedURL: URL) throws -> Discovery {
+        let scoped = selectedURL.startAccessingSecurityScopedResource()
+        defer { if scoped { selectedURL.stopAccessingSecurityScopedResource() } }
+        try Task.checkCancellation()
+        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+        let isDirectory = values.isDirectory == true
+        var media: [URL] = []
+        var captions: [URL] = []
+        func classify(_ url: URL, contentType: UTType? = nil) {
+            if isCaptionFile(url) { captions.append(url) }
+            else if MediaSelection.isSupportedMedia(url, contentType: contentType) { media.append(url) }
+        }
+        if !isDirectory { classify(selectedURL) }
+        else if values.isPackage != true, selectedURL.pathExtension.lowercased() != "trimato" {
+            let keys: [URLResourceKey] = [.isRegularFileKey, .isHiddenKey, .contentTypeKey]
+            var enumerationError: Error?
+            let enumerator = FileManager.default.enumerator(at: selectedURL,
+                includingPropertiesForKeys: keys, options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                errorHandler: { _, error in enumerationError = error; return false })
+            if let enumerator {
+                for case let url as URL in enumerator {
+                    try Task.checkCancellation()
+                    let resource = try url.resourceValues(forKeys: Set(keys))
+                    if resource.isRegularFile == true, resource.isHidden != true {
+                        classify(url, contentType: resource.contentType)
+                    }
+                }
+            }
+            if let enumerationError { throw enumerationError }
+        }
+        try Task.checkCancellation()
+        return Discovery(selectedURL: selectedURL, isDirectory: isDirectory,
+            media: media.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending },
+            captions: captions.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending })
+    }
+
+    nonisolated static func importableMediaURLs(in selectedURL: URL) throws -> [URL] {
+        try discoverSynchronously(selectedURL).media
+    }
+
+    nonisolated static func importableCaptionURLs(in selectedURL: URL) throws -> [URL] {
+        try discoverSynchronously(selectedURL).captions
+    }
+
+    @concurrent
+    static func importCaptionCues(at url: URL) async throws -> [CaptionCue] {
         guard let format = CaptionFileFormat.format(for: url) else {
             throw CaptionFileError.unsupportedFormat
         }
         return try CaptionFileCodec.decode(data: Data(contentsOf: url), format: format)
     }
 
+    @concurrent
     static func importAsset(
         at url: URL,
         progress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
@@ -104,6 +115,37 @@ enum ProjectImportCoordinator {
         )
     }
 
+    /// Bound concurrent preparation so folder imports overlap metadata I/O without spawning a task per file.
+    @concurrent
+    static func importAssets(
+        at urls: [URL],
+        progress: @escaping @MainActor @Sendable (Int, Double) -> Void,
+        completed: @escaping @MainActor @Sendable (Int, Result<MediaAssetRecord, Error>) -> Void
+    ) async throws {
+        try await withThrowingTaskGroup(of: (Int, Result<MediaAssetRecord, Error>).self) { group in
+            var next = 0
+            func add(_ index: Int) {
+                let url = urls[index]
+                group.addTask {
+                    try Task.checkCancellation()
+                    await progress(index, 0)
+                    do {
+                        let asset = try await importAsset(at: url, progress: { progress(index, $0) })
+                        try Task.checkCancellation()
+                        return (index, .success(asset))
+                    } catch is CancellationError { throw CancellationError() }
+                    catch { return (index, .failure(error)) }
+                }
+            }
+            while next < min(4, urls.count) { add(next); next += 1 }
+            while let (index, result) = try await group.next() {
+                try Task.checkCancellation()
+                await completed(index, result)
+                if next < urls.count { add(next); next += 1 }
+            }
+        }
+    }
+
     static func preparePlayback(
         at url: URL,
         preferredCacheKey: UUID?,
@@ -120,6 +162,7 @@ enum ProjectImportCoordinator {
         )
     }
 
+    @concurrent
     private static func preparePlayback(
         at url: URL,
         metadata: (
@@ -146,7 +189,7 @@ enum ProjectImportCoordinator {
                 progress: progress
             )
         } else {
-            progress(1)
+            await progress(1)
         }
         return PlaybackPreparation(
             mode: metadata.playbackMode,
@@ -155,6 +198,7 @@ enum ProjectImportCoordinator {
         )
     }
 
+    @concurrent
     private static func metadata(for url: URL) async throws -> (
         duration: Double,
         width: Int?,
@@ -188,7 +232,7 @@ enum ProjectImportCoordinator {
             if !isPlayable {
                 playbackMode = .cachedProxy
             } else if let contentType,
-                      ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
+                      await ClipExporter.canPassthrough(asset: asset, sourceContentType: contentType) {
                 playbackMode = .nativePassthrough
             } else {
                 playbackMode = .nativeMP4Export
@@ -237,7 +281,7 @@ enum ProjectImportCoordinator {
         return URL(fileURLWithPath: asset.originalPath)
     }
 
-    static func isCaptionFile(_ url: URL) -> Bool {
+    nonisolated static func isCaptionFile(_ url: URL) -> Bool {
         CaptionFileFormat.format(for: url) != nil
     }
 }

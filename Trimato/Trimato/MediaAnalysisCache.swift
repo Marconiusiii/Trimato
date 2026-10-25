@@ -7,17 +7,12 @@ actor MediaAnalysisCache {
     static let maximumByteCount: Int64 = 256 * 1_024 * 1_024
     private let root: URL?
     private let limit: Int64
-    private struct Flight {
-        let id: UUID
-        let task: Task<Data, Error>
-        var users: Set<UUID>
-        var stored = false
-    }
+    private let sharedTasks = SharedMediaTasks<String, Data>()
+    private var flights: [String: UUID] = [:]
     private struct Envelope: Codable {
         let checksum: String
         let payload: Data
     }
-    private var flights: [String: Flight] = [:]
 
     init(directory: URL? = nil, maximumByteCount: Int64 = MediaAnalysisCache.maximumByteCount) {
         root = directory
@@ -52,46 +47,28 @@ actor MediaAnalysisCache {
             try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: path.path)
             return cached.payload
         }
-        let user = UUID()
-        if flights[cacheKey] == nil {
-            flights[cacheKey] = Flight(id: UUID(), task: Task {
-                try Task.checkCancellation()
-                let data = try await produce()
-                try Task.checkCancellation()
-                return data
-            }, users: [])
-        }
-        flights[cacheKey]?.users.insert(user)
-        let flight = flights[cacheKey]!
-        defer { release(cacheKey, id: flight.id, user: user) }
-        return try await withTaskCancellationHandler {
-            let data = try await flight.task.value
-            try Task.checkCancellation()
-            guard try key(source: source, kind: kind) == cacheKey else { throw AnalysisError.sourceChanged }
-            if flights[cacheKey]?.id == flight.id, flights[cacheKey]?.stored == false {
-                flights[cacheKey]?.stored = true
-                if let path, data.count <= limit,
-                   let encoded = try? JSONEncoder().encode(Envelope(checksum: Self.digest(data), payload: data)) {
-                    let free = try? path.deletingLastPathComponent().resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage
-                    if root != nil || (free ?? 0) > MediaCacheManager.minimumAvailableByteCount + Int64(encoded.count) {
-                        try? encoded.write(to: path, options: .atomic)
-                        try? prune()
-                    }
-                }
-            }
-            return data
-        } onCancel: {
-            Task { await self.release(cacheKey, id: flight.id, user: user) }
+        return try await sharedTasks.value(for: cacheKey) {
+            try await self.produceValue(cacheKey: cacheKey, source: source, kind: kind, path: path, produce: produce)
         }
     }
 
-    private func release(_ key: String, id: UUID, user: UUID) {
-        guard flights[key]?.id == id else { return }
-        flights[key]?.users.remove(user)
-        if flights[key]?.users.isEmpty == true {
-            flights[key]?.task.cancel()
-            flights[key] = nil
+    private func produceValue(cacheKey: String, source: URL, kind: String, path: URL?,
+                              produce: @escaping @Sendable () async throws -> Data) async throws -> Data {
+        let id = UUID()
+        flights[cacheKey] = id
+        defer { if flights[cacheKey] == id { flights[cacheKey] = nil } }
+        let data = try await produce()
+        try Task.checkCancellation()
+        guard try key(source: source, kind: kind) == cacheKey else { throw AnalysisError.sourceChanged }
+        if let path, data.count <= limit,
+           let encoded = try? JSONEncoder().encode(Envelope(checksum: Self.digest(data), payload: data)) {
+            let free = try? path.deletingLastPathComponent().resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage
+            if root != nil || (free ?? 0) > MediaCacheManager.minimumAvailableByteCount + Int64(encoded.count) {
+                try? encoded.write(to: path, options: .atomic)
+                try? prune()
+            }
         }
+        return data
     }
 
     private func files() throws -> [(URL, Int64, Date)] {

@@ -64,6 +64,7 @@ private nonisolated final class FFmpegOutputCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
     private var unfinishedLine = ""
+    private var lastProgress = ContinuousClock.now - .seconds(1)
     private let duration: Double?
     private let progress: (@MainActor @Sendable (Double) -> Void)?
     private let outputLine: (@Sendable (String) -> Void)?
@@ -82,6 +83,8 @@ private nonisolated final class FFmpegOutputCollector: @unchecked Sendable {
         guard !newData.isEmpty else { return }
         lock.lock()
         data.append(newData)
+        // Binary stdout (for example raw audio) must never accumulate in the line parser.
+        guard outputLine != nil || progress != nil else { lock.unlock(); return }
         let text = unfinishedLine + String(decoding: newData, as: UTF8.self)
         var lines = text.components(separatedBy: .newlines)
         unfinishedLine = lines.popLast() ?? ""
@@ -91,7 +94,12 @@ private nonisolated final class FFmpegOutputCollector: @unchecked Sendable {
             outputLine?(line)
             if let duration, duration > 0, let progress {
                 FFmpegRunner.parseProgressLine(line, duration: duration) { value in
-                    Task { @MainActor in progress(value) }
+                    lock.lock()
+                    let now = ContinuousClock.now
+                    let report = value >= 1 || lastProgress.duration(to: now) >= .milliseconds(200)
+                    if report { lastProgress = now }
+                    lock.unlock()
+                    if report { Task { @MainActor in progress(value) } }
                 }
             }
         }
@@ -131,7 +139,8 @@ nonisolated struct FFmpegRunner {
         expectedDuration: Double? = nil,
         outputLine: (@Sendable (String) -> Void)? = nil
     ) async throws -> Result {
-        let lane: MediaJobScheduler.Lane = tool == .ffprobe ? .inspection : .render
+        let lane: MediaJobScheduler.Lane = tool == .ffprobe
+            ? (arguments.contains("-show_frames") || arguments.contains("-show_packets") ? .analysis : .inspection) : .render
         let queued = signposter.beginInterval("Media queue wait", id: signposter.makeSignpostID())
         do {
             try await MediaJobScheduler.shared.acquire(lane, priority: MediaJobContext.priority)
@@ -151,10 +160,10 @@ nonisolated struct FFmpegRunner {
                 expectedDuration: expectedDuration,
                 outputLine: outputLine
             )
-            await MediaJobScheduler.shared.release(lane)
+            await MediaJobScheduler.shared.release(lane, priority: MediaJobContext.priority)
             return result
         } catch {
-            await MediaJobScheduler.shared.release(lane)
+            await MediaJobScheduler.shared.release(lane, priority: MediaJobContext.priority)
             throw error
         }
     }
@@ -186,17 +195,10 @@ nonisolated struct FFmpegRunner {
                     progress: progress,
                     outputLine: outputLine
                 )
-                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                    let data = handle.availableData
-                    if data.isEmpty { handle.readabilityHandler = nil }
-                    else { collector.append(data) }
-                }
-
                 DispatchQueue.global(qos: .userInitiated).async {
                     do {
                         try box.launch(process)
                     } catch {
-                        stdoutPipe.fileHandleForReading.readabilityHandler = nil
                         try? stdoutPipe.fileHandleForReading.close()
                         try? stdoutPipe.fileHandleForWriting.close()
                         try? stderrPipe.fileHandleForReading.close()
@@ -205,10 +207,21 @@ nonisolated struct FFmpegRunner {
                         return
                     }
 
+                    // Drain both pipes concurrently, then join the stdout reader before
+                    // taking its snapshot. A late readability callback must not lose data.
+                    let stdoutFinished = DispatchGroup()
+                    stdoutFinished.enter()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        defer { stdoutFinished.leave() }
+                        while true {
+                            let data = stdoutPipe.fileHandleForReading.availableData
+                            guard !data.isEmpty else { break }
+                            collector.append(data)
+                        }
+                    }
                     let errorData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
                     process.waitUntilExit()
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    collector.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+                    stdoutFinished.wait()
                     let output = collector.snapshot()
                     let diagnostics = String(decoding: errorData, as: UTF8.self)
 

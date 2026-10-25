@@ -4,8 +4,13 @@ import Foundation
 
 /// Native color management keeps HDR filters in extended linear light until encoding.
 nonisolated enum HDRVideoRenderer {
+    // Reuse GPU state and compiled kernels across jobs without retaining intermediate images.
+    private static let context = CIContext(options: [
+        .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!,
+        .workingFormat: CIFormat.RGBAh, .cacheIntermediates: false
+    ])
     @concurrent
-    static func render(source: URL, filters: [ClipFilter] = [], policy: VideoColorPolicy = .hlg,
+    static func render(source: URL, filters: [ClipFilter] = [], policy: VideoColorPolicy = .hlg, timeRange: CMTimeRange? = nil,
                        progress: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> URL {
         let original = AVURLAsset(url: source)
         guard let track = try await original.loadTracks(withMediaType: .video).first else { throw ClipExportError.unavailable }
@@ -14,10 +19,10 @@ nonisolated enum HDRVideoRenderer {
         guard let video = asset.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             throw ClipExportError.unavailable
         }
-        try video.insertTimeRange(try await track.load(.timeRange), of: track, at: .zero)
+        let sourceRange: CMTimeRange
+        if let timeRange { sourceRange = timeRange } else { sourceRange = try await track.load(.timeRange) }
+        try video.insertTimeRange(sourceRange, of: track, at: .zero)
         video.preferredTransform = try await track.load(.preferredTransform)
-        let context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!,
-                                          .workingFormat: CIFormat.RGBAh])
         let composition = AVMutableVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
             var image = request.sourceImage
             for filter in filters { image = apply(filter, to: image) }

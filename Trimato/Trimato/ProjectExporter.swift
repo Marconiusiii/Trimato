@@ -295,6 +295,7 @@ nonisolated enum CustomMovieExporter {
                 kCVPixelBufferPixelFormatTypeKey as String: videoCodec == .h264 ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_64RGBAHalf,
             ]
         )
+        videoOutput.alwaysCopiesSampleData = false
         videoOutput.videoComposition = effectiveComposition
         guard reader.canAdd(videoOutput) else {
             throw ProjectExporter.ExportError.incompatibleFormat(format.title)
@@ -311,6 +312,7 @@ nonisolated enum CustomMovieExporter {
             audioOutput = nil
         } else {
             let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: audioFormat.floatPCMSettings)
+            output.alwaysCopiesSampleData = false
             output.audioMix = audioMix
             guard reader.canAdd(output) else {
                 throw ProjectExporter.ExportError.incompatibleFormat(format.title)
@@ -385,51 +387,20 @@ nonisolated enum CustomMovieExporter {
             exportDuration = try await asset.load(.duration)
         }
         let duration = max(CMTimeGetSeconds(exportDuration), 0.001)
-        var videoFinished = false
-        var audioFinished = audioOutput == nil
-
-        while !videoFinished || !audioFinished {
-            try Task.checkCancellation()
-            if writer.status == .failed || reader.status == .failed {
-                throw ProjectExporter.ExportError.encodingFailed(
-                    (writer.error ?? reader.error).map(ProjectExporter.failureDetail(for:)) ?? "The movie encoder stopped before finishing.")
+        // Serialize delivery and cancellation across inputs; AVFoundation performs encoding concurrently.
+        let deliveryQueue = DispatchQueue(label: "com.marconius.trimato.movie-delivery", qos: .userInitiated)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            let videoPump = AssetSamplePump(reader: reader, writer: writer, input: videoInput,
+                output: videoOutput, start: sessionStart, duration: duration, progress: progress, queue: deliveryQueue)
+            group.addTask { try await videoPump.run() }
+            if let audioInput, let audioOutput {
+                let audioPump = AssetSamplePump(reader: reader, writer: writer, input: audioInput,
+                    output: audioOutput, start: sessionStart, duration: duration, queue: deliveryQueue)
+                group.addTask { try await audioPump.run() }
             }
-            var appendedSample = false
-            if !videoFinished, videoInput.isReadyForMoreMediaData {
-                if let sample = videoOutput.copyNextSampleBuffer() {
-                    guard videoInput.append(sample) else {
-                        throw ProjectExporter.ExportError.encodingFailed(
-                            writer.error.map(ProjectExporter.failureDetail(for:))
-                                ?? "The movie encoder stopped writing video."
-                        )
-                    }
-                    let elapsed = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
-                        - CMTimeGetSeconds(sessionStart)
-                    await progress(min(max(elapsed / duration, 0), 0.99))
-                    appendedSample = true
-                } else {
-                    videoInput.markAsFinished()
-                    videoFinished = true
-                }
-            }
-            if !audioFinished, let audioInput, let audioOutput, audioInput.isReadyForMoreMediaData {
-                if let sample = audioOutput.copyNextSampleBuffer() {
-                    guard audioInput.append(sample) else {
-                        throw ProjectExporter.ExportError.encodingFailed(
-                            writer.error.map(ProjectExporter.failureDetail(for:))
-                                ?? "The movie encoder stopped writing audio."
-                        )
-                    }
-                    appendedSample = true
-                } else {
-                    audioInput.markAsFinished()
-                    audioFinished = true
-                }
-            }
-            if !appendedSample && (!videoFinished || !audioFinished) {
-                try await Task.sleep(for: .milliseconds(5))
-            }
+            try await group.waitForAll()
         }
+        try Task.checkCancellation()
         if reader.status == .failed {
             throw ProjectExporter.ExportError.encodingFailed(
                 reader.error.map(ProjectExporter.failureDetail(for:))
@@ -443,13 +414,16 @@ nonisolated enum CustomMovieExporter {
                     ?? "The movie file could not be completed."
             )
         }
+        await progress(0.99)
+        try Task.checkCancellation()
         try await ExportOutputValidator.validate(temporaryURL, duration: duration, video: true, audio: audioOutput != nil)
         try ExportFileCommit.commit(temporaryURL, to: outputURL)
         await progress(1)
     }
 }
 
-enum AudioOnlyExporter {
+nonisolated enum AudioOnlyExporter {
+    @concurrent
     static func export(
         asset: AVAsset,
         audioMix: AVAudioMix?,
@@ -495,6 +469,7 @@ enum AudioOnlyExporter {
         let audioFormat = sourceFormat
         let pcmSettings = audioFormat.pcmSettings(bitDepth: format == .wav ? 16 : 24)
         let readerOutput = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: audioFormat.floatPCMSettings)
+        readerOutput.alwaysCopiesSampleData = false
         readerOutput.audioMix = audioMix
         guard reader.canAdd(readerOutput) else {
             throw ProjectExporter.ExportError.incompatibleFormat(format.title)
@@ -559,31 +534,10 @@ enum AudioOnlyExporter {
             exportDuration = try await asset.load(.duration)
         }
         let duration = max(CMTimeGetSeconds(exportDuration), 0.001)
-        while reader.status == .reading {
-            try Task.checkCancellation()
-            guard writerInput.isReadyForMoreMediaData else {
-                try await Task.sleep(for: .milliseconds(5))
-                continue
-            }
-            guard let sample = readerOutput.copyNextSampleBuffer() else { break }
-            guard writerInput.append(sample) else {
-                throw ProjectExporter.ExportError.encodingFailed(
-                    writer.error.map(ProjectExporter.failureDetail(for:))
-                        ?? "The audio encoder stopped writing."
-                )
-            }
-            let elapsed = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
-                - CMTimeGetSeconds(timeRange?.start ?? .zero)
-            progress(min(max(elapsed / duration, 0), 0.99))
-        }
+        let pump = AssetSamplePump(reader: reader, writer: writer, input: writerInput,
+            output: readerOutput, start: timeRange?.start ?? .zero, duration: duration, progress: progress)
+        try await pump.run()
         try Task.checkCancellation()
-        if reader.status == .failed {
-            throw ProjectExporter.ExportError.encodingFailed(
-                reader.error.map(ProjectExporter.failureDetail(for:))
-                    ?? "The audio could not be read."
-            )
-        }
-        writerInput.markAsFinished()
         await writer.finishWriting()
         guard writer.status == .completed else {
             throw ProjectExporter.ExportError.encodingFailed(
@@ -591,9 +545,11 @@ enum AudioOnlyExporter {
                     ?? "The audio file could not be completed."
             )
         }
+        await progress(0.99)
+        try Task.checkCancellation()
         try await ExportOutputValidator.validate(temporaryURL, duration: duration, video: false, audio: true)
         try ExportFileCommit.commit(temporaryURL, to: outputURL)
-        progress(1)
+        await progress(1)
     }
 
     private static func exportFLAC(
