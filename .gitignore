@@ -42,6 +42,15 @@ playground.xcworkspace
 
 .build/
 
+# Local build and generated analysis output
+build/
+Build/
+DerivedData/
+__pycache__/
+*.pyc
+*.profraw
+*.profdata
+
 # CocoaPods
 #
 # We recommend against adding the Pods directory to your .gitignore. However
